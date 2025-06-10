@@ -21,9 +21,6 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
-      <Sidebar />
-      
       <main className="flex-1 p-8">
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
@@ -67,6 +64,5 @@ export default function Dashboard() {
           service={selectedService}
         />
       </main>
-    </div>
   );
 }

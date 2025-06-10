@@ -5,14 +5,28 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
+import UsersPage from "@/pages/users";
+import ServicesPage from "@/pages/services";
+import OrdersPage from "@/pages/orders";
+import PartnersPage from "@/pages/partners";
+import PaymentsPage from "@/pages/payments";
+import Sidebar from "@/components/admin/sidebar";
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route component={NotFound} />
-    </Switch>
+    <div className="min-h-screen flex bg-gray-50">
+      <Sidebar />
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/users" component={UsersPage} />
+        <Route path="/services" component={ServicesPage} />
+        <Route path="/orders" component={OrdersPage} />
+        <Route path="/partners" component={PartnersPage} />
+        <Route path="/payments" component={PaymentsPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </div>
   );
 }
 
