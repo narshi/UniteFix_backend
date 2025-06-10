@@ -132,8 +132,171 @@ export class MemStorage implements IStorage {
   }
 
   private initializeData() {
-    // Initialize with some sample data for the admin dashboard
-    // This would normally be empty in a real application
+    // Initialize with some sample data for demonstration
+    const sampleUsers = [
+      {
+        username: "john_doe",
+        email: "john@example.com",
+        phone: "9876543210",
+        password: "$2b$10$hash", // hashed password
+        userType: "normal" as const,
+        homeAddress: "123 Main St, Sirsi",
+        pinCode: "581301",
+        isVerified: true,
+      },
+      {
+        username: "repair_expert",
+        email: "expert@repair.com",
+        phone: "9876543211",
+        password: "$2b$10$hash",
+        userType: "business" as const,
+        homeAddress: "456 Service St, Kumta",
+        pinCode: "581343",
+        businessType: "individual" as const,
+        services: ["AC Repair", "Washing Machine", "Refrigerator"],
+        isVerified: true,
+      },
+      {
+        username: "fix_solutions",
+        email: "contact@fixsolutions.com",
+        phone: "9876543212",
+        password: "$2b$10$hash",
+        userType: "business" as const,
+        homeAddress: "789 Business Park, Karwar",
+        pinCode: "581301",
+        businessType: "business" as const,
+        services: ["Electronics", "Home Appliances", "Plumbing"],
+        isVerified: true,
+      }
+    ];
+
+    sampleUsers.forEach(userData => {
+      const user = {
+        ...userData,
+        id: this.currentUserId++,
+        createdAt: new Date(),
+      };
+      this.users.set(user.id, user);
+    });
+
+    // Sample service requests
+    const sampleServices = [
+      {
+        userId: 1,
+        serviceType: "AC Repair",
+        brand: "LG",
+        model: "LSA3AU3D",
+        description: "AC not cooling properly, making strange noise",
+        photos: [],
+        status: "confirmed",
+        bookingFee: 250,
+        address: "123 Main St, Sirsi, Karnataka",
+      },
+      {
+        userId: 1,
+        serviceType: "Washing Machine",
+        brand: "Samsung",
+        model: "WA70H4200SW",
+        description: "Washing machine not draining water",
+        photos: [],
+        status: "partner_assigned",
+        partnerId: 2,
+        bookingFee: 250,
+        totalAmount: 850,
+        address: "123 Main St, Sirsi, Karnataka",
+      },
+      {
+        userId: 1,
+        serviceType: "Refrigerator",
+        brand: "Whirlpool",
+        model: "NEO DF278",
+        description: "Refrigerator not cooling, weird sounds from compressor",
+        photos: [],
+        status: "service_started",
+        partnerId: 3,
+        bookingFee: 250,
+        totalAmount: 1200,
+        address: "123 Main St, Sirsi, Karnataka",
+      }
+    ];
+
+    sampleServices.forEach(serviceData => {
+      const service = {
+        ...serviceData,
+        id: this.currentServiceRequestId++,
+        serviceId: `SR${String(this.currentServiceRequestId - 1).padStart(6, '0')}`,
+        verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
+        createdAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
+        updatedAt: new Date(),
+      };
+      this.serviceRequests.set(service.id, service);
+    });
+
+    // Sample products
+    const sampleProducts = [
+      {
+        name: "Universal AC Remote",
+        description: "Compatible with all major AC brands",
+        price: 299,
+        category: "Electronics",
+        stock: 50,
+        images: [],
+      },
+      {
+        name: "Washing Machine Drain Pump",
+        description: "High quality replacement drain pump",
+        price: 1200,
+        category: "Spare Parts",
+        stock: 25,
+        images: [],
+      },
+      {
+        name: "Refrigerator Thermostat",
+        description: "Digital thermostat for modern refrigerators",
+        price: 850,
+        category: "Spare Parts",
+        stock: 30,
+        images: [],
+      }
+    ];
+
+    sampleProducts.forEach(productData => {
+      const product = {
+        ...productData,
+        id: this.currentProductId++,
+        createdAt: new Date(),
+      };
+      this.products.set(product.id, product);
+    });
+
+    // Sample product orders
+    const sampleOrders = [
+      {
+        userId: 1,
+        products: [{ productId: 1, quantity: 2, price: 299 }],
+        status: "delivered",
+        totalAmount: 598,
+        address: "123 Main St, Sirsi, Karnataka",
+      },
+      {
+        userId: 1,
+        products: [{ productId: 2, quantity: 1, price: 1200 }],
+        status: "in_transit",
+        totalAmount: 1200,
+        address: "123 Main St, Sirsi, Karnataka",
+      }
+    ];
+
+    sampleOrders.forEach(orderData => {
+      const order = {
+        ...orderData,
+        id: this.currentProductOrderId++,
+        orderId: `ORD${String(this.currentProductOrderId - 1).padStart(4, '0')}`,
+        createdAt: new Date(Date.now() - Math.random() * 5 * 24 * 60 * 60 * 1000),
+        updatedAt: new Date(),
+      };
+      this.productOrders.set(order.id, order);
+    });
   }
 
   // User management

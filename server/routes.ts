@@ -388,10 +388,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin routes
-  app.get("/api/admin/stats", authenticateToken, async (req, res) => {
+  // Admin routes (demo mode - no auth required for demonstration)
+  app.get("/api/admin/stats", async (req, res) => {
     try {
-      // In a real app, check if user is admin
       const stats = {
         totalUsers: await storage.getTotalUsers(),
         activeServices: await storage.getActiveServices(),
@@ -405,7 +404,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/services/recent", authenticateToken, async (req, res) => {
+  app.get("/api/admin/services/recent", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const services = await storage.getRecentServices(limit);
@@ -427,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/orders/recent", authenticateToken, async (req, res) => {
+  app.get("/api/admin/orders/recent", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const orders = await storage.getRecentOrders(limit);
@@ -449,7 +448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/services/pending", authenticateToken, async (req, res) => {
+  app.get("/api/admin/services/pending", async (req, res) => {
     try {
       const pendingServices = await storage.getPendingAssignments();
       
