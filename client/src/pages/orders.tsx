@@ -29,7 +29,6 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
       <div className="flex-1 p-8">
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Product Orders</h2>
@@ -113,6 +112,5 @@ export default function OrdersPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
   );
 }

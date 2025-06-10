@@ -29,7 +29,6 @@ export default function ServicesPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
       <div className="flex-1 p-8">
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Service Requests</h2>
@@ -111,6 +110,5 @@ export default function ServicesPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
   );
 }
