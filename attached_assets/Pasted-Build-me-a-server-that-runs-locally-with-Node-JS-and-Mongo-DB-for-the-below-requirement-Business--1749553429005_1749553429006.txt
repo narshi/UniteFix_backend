@@ -1,0 +1,108 @@
+Build me a server that runs locally with Node JS and Mongo DB for the below requirement .
+
+Business Requirements Document (BRD)
+Project Name: UniteFix App
+1. Project Overview
+The UniteFix App is a Service Booking and Product Ordering platform built using Kotlin Multiplatform Mobile (KMM). The application enables users to request various home and electronic repair services and order products, while business users (service providers) manage service requests. The platform ensures seamless tracking, secure payments, and structured workflows for both users and business users.
+
+2. Objectives
+Provide an efficient and structured service booking process.
+Facilitate seamless product ordering with tracking and invoices.
+Differentiate user types (Normal Users and Business Users) with tailored dashboards.
+Enable real-time notifications and tracking for service and order statuses.
+Ensure secure payments and verification mechanisms.
+Restrict location availability to Uttara Kannada state only.
+Provide an easy-to-use interface with minimal user effort required for booking services and purchasing products.
+
+
+
+
+
+
+3. Functional Requirements
+3.1. User Management
+User Types: Normal User (NU) and Business User (BU).
+Signup Process:
+Users select whether they are a NU or a BU.
+Users sign up using phone number (OTP verification), email, and password.
+Home address is mandatory for NUs.
+BUs must specify whether they are an individual or a business.
+Business users selecting "Business" must choose services they provide (multi-select options available).
+Location restriction: Pin code validation ensures users are within Uttara Kannada.
+If pin code is not fetched, users manually enter it, and the system verifies whether it belongs to the allowed region.
+If the location is outside the allowed region, users see a message: "Currently, we are not serving in your area. We are expanding soon!"
+3.2. Service Request Flow
+Users can choose between: Service with UniteFix or Other Registered Businesses.
+If selecting Others, registered businesses providing the selected service are listed with contact details.
+If selecting UniteFix, an admin assigns a partner individual for the service.
+Service request process:
+Users provide brand, model, description, and photos.
+Service tracking statuses: Placed → Confirmed → Partner Assigned → Service Started → Service Completed.
+Booking fee (dynamic, e.g., Rs 250) is paid upon order confirmation.
+A 4-digit code is generated for user verification when the service starts.
+Invoice generated after completion with full billing details (Service ID, Partner ID, User ID, Address, Base Amount, CGST, SGST, Discount, Total).
+Service history stored for future reference.
+Cancellations & Rescheduling:
+Users can cancel before a partner is assigned.
+After assignment, users must contact customer support for cancellations or rescheduling.
+If no partner is assigned within 48 hours, the request is reallocated.
+If no partner is assigned within 7 days, a refund is initiated.
+
+
+
+3.3. Product Ordering Flow
+Users can browse and purchase products.
+Buy Now & Add to Cart options available.
+Cart system integrated.
+Order tracking statuses: Order Placed → Order Confirmed → Order in Transit → Out for Delivery → Delivered.
+Users receive an invoice post-delivery.
+Cancellations:
+Users can cancel orders only before delivery.
+If already shipped, users must contact support.
+No return or replacement policy at this stage.
+If delivery is delayed, users may cancel without additional compensation.
+3.4. Business User (BU) Workflow
+BU Dashboard: Shows pending service requests, service history, and profile.
+Service Process:
+BU receives assigned service requests.
+Clicking a request shows location, user details, and "Start Service" button.
+User provides a 4-digit code before service starts.
+"Service Completed" button marks service completion.
+If BU starts but doesn’t complete service, it remains in pending status.
+BU Profile Management:
+Displays avatar, phone number, email, BU ID.
+Phone number and email updates require OTP verification.
+BU ID is final once generated.
+4.5. Notifications & Status Updates
+No push notifications; only in-app updates.
+Service reminders: Not included.
+Escalations: Users can escalate delays via customer support.
+Admin Notifications: If a BU does not respond within 48 hours, the service is reallocated.
+4.6. Profile Management
+Phone Number & Email Changes: OTP verification required.
+Account Deletion: Not allowed via app; users must send an email request.
+
+5. Payment Handling
+Booking Fee: Initial booking amount paid upfront; remaining amount negotiated between BU and NU.
+Refund Policy:
+If a partner is not assigned within 7 days, automatic refund.
+Users must contact support for refunds due to delays.
+Payment Gateway: Integrated for secure transactions.
+
+6. Non-Functional Requirements
+Performance: Quick dashboard loading and efficient search.
+Security: Secure authentication, encrypted data storage.
+Usability: User-friendly interface for easy navigation.
+Scalability: Can accommodate increasing service requests.
+Reliability: Proper backup and logging mechanisms.
+Location Restriction: Functions only within Uttara Kannada state.
+
+7. Edge Cases and Errors That Might Occur & Need to Be Handled
+User Registration & Location Restriction: Handling missing pin codes, users relocating, and verification failures.
+Service Request Flow: Cancelling requests, BU refusals, disputes, rescheduling, and no-shows.
+Payment Handling: Refund policies, failed transactions, and allocation delays.
+Product Ordering: Out-of-stock products, order cancellations, delivery delays.
+Business User Workflow: Incomplete services, lost 4-digit codes, service rejections.
+Notifications & Status Updates: Missing alerts, delayed escalations.
+Profile Management: Verification issues, account deletion requests.
+Each of these scenarios has been addressed in the functional requirements above.
