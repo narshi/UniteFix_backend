@@ -511,6 +511,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin routes for new pages
+  app.get("/api/admin/users", async (req, res) => {
+    try {
+      const users = [];
+      const normalUsers = Array.from((storage as any).users.values());
+      const businessUsers = await storage.getAllBusinessUsers();
+      users.push(...normalUsers, ...businessUsers);
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.get("/api/admin/invoices", async (req, res) => {
+    try {
+      const allInvoices = Array.from((storage as any).invoices.values());
+      res.json(allInvoices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
   // Utility routes
   app.post("/api/utils/generate-code", (req, res) => {
     const code = generateVerificationCode();
