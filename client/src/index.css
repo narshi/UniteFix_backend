@@ -1,0 +1,195 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+:root {
+  --background: hsl(0, 0%, 100%);
+  --foreground: hsl(240, 10%, 3.9%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(240, 10%, 3.9%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(240, 10%, 3.9%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(210, 40%, 98%);
+  --secondary: hsl(28, 100%, 50%);
+  --secondary-foreground: hsl(222.2, 84%, 4.9%);
+  --muted: hsl(210, 40%, 96%);
+  --muted-foreground: hsl(215.4, 16.3%, 46.9%);
+  --accent: hsl(210, 40%, 96%);
+  --accent-foreground: hsl(222.2, 84%, 4.9%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(214.3, 31.8%, 91.4%);
+  --input: hsl(214.3, 31.8%, 91.4%);
+  --ring: hsl(222.2, 84%, 4.9%);
+  --radius: 0.5rem;
+  
+  /* UniteFix specific colors */
+  --unitefix-primary: hsl(207, 90%, 54%);
+  --unitefix-secondary: hsl(28, 100%, 50%);
+  --unitefix-success: hsl(120, 60%, 50%);
+  --unitefix-warning: hsl(28, 100%, 50%);
+  --unitefix-error: hsl(0, 84.2%, 60.2%);
+  --unitefix-neutral: hsl(215, 25%, 27%);
+  --unitefix-light-grey: hsl(210, 20%, 98%);
+}
+
+.dark {
+  --background: hsl(222.2, 84%, 4.9%);
+  --foreground: hsl(210, 40%, 98%);
+  --card: hsl(222.2, 84%, 4.9%);
+  --card-foreground: hsl(210, 40%, 98%);
+  --popover: hsl(222.2, 84%, 4.9%);
+  --popover-foreground: hsl(210, 40%, 98%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(222.2, 84%, 4.9%);
+  --secondary: hsl(217.2, 32.6%, 17.5%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --muted: hsl(217.2, 32.6%, 17.5%);
+  --muted-foreground: hsl(215, 20.2%, 65.1%);
+  --accent: hsl(217.2, 32.6%, 17.5%);
+  --accent-foreground: hsl(210, 40%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(217.2, 32.6%, 17.5%);
+  --input: hsl(217.2, 32.6%, 17.5%);
+  --ring: hsl(212.7, 26.8%, 83.9%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+}
+
+@layer components {
+  .unitefix-bg-primary {
+    background-color: var(--unitefix-primary);
+  }
+  
+  .unitefix-bg-secondary {
+    background-color: var(--unitefix-secondary);
+  }
+  
+  .unitefix-bg-success {
+    background-color: var(--unitefix-success);
+  }
+  
+  .unitefix-bg-warning {
+    background-color: var(--unitefix-warning);
+  }
+  
+  .unitefix-bg-error {
+    background-color: var(--unitefix-error);
+  }
+  
+  .unitefix-bg-neutral {
+    background-color: var(--unitefix-neutral);
+  }
+  
+  .unitefix-bg-light-grey {
+    background-color: var(--unitefix-light-grey);
+  }
+  
+  .unitefix-text-primary {
+    color: var(--unitefix-primary);
+  }
+  
+  .unitefix-text-secondary {
+    color: var(--unitefix-secondary);
+  }
+  
+  .unitefix-text-success {
+    color: var(--unitefix-success);
+  }
+  
+  .unitefix-text-warning {
+    color: var(--unitefix-warning);
+  }
+  
+  .unitefix-text-error {
+    color: var(--unitefix-error);
+  }
+  
+  .unitefix-text-neutral {
+    color: var(--unitefix-neutral);
+  }
+}
+
+/* Material Icons support */
+.material-icons {
+  font-family: 'Material Icons';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Override default Tailwind colors to match UniteFix theme */
+.bg-primary {
+  background-color: var(--unitefix-primary) !important;
+}
+
+.text-primary {
+  color: var(--unitefix-primary) !important;
+}
+
+.bg-secondary {
+  background-color: var(--unitefix-secondary) !important;
+}
+
+.text-secondary {
+  color: var(--unitefix-secondary) !important;
+}
+
+.bg-success {
+  background-color: var(--unitefix-success) !important;
+}
+
+.text-success {
+  color: var(--unitefix-success) !important;
+}
+
+.bg-warning {
+  background-color: var(--unitefix-warning) !important;
+}
+
+.text-warning {
+  color: var(--unitefix-warning) !important;
+}
+
+.bg-error {
+  background-color: var(--unitefix-error) !important;
+}
+
+.text-error {
+  color: var(--unitefix-error) !important;
+}
+
+.bg-neutral {
+  background-color: var(--unitefix-neutral) !important;
+}
+
+.text-neutral {
+  color: var(--unitefix-neutral) !important;
+}
+
+.bg-light-grey {
+  background-color: var(--unitefix-light-grey) !important;
+}
