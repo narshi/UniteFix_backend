@@ -248,31 +248,7 @@ export default function QuickActions() {
             </div>
           </div>
 
-          {/* Add Partner */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Add Partner</h4>
-            <div className="space-y-3">
-              <button 
-                onClick={() => setLocation('/partners')}
-                className="w-full bg-purple-600 text-white py-2 rounded text-sm hover:bg-purple-700 transition-colors"
-              >
-                Add New Partner
-              </button>
-            </div>
-          </div>
 
-          {/* Export Report */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Export Report</h4>
-            <div className="space-y-3">
-              <button 
-                onClick={handleExportReport}
-                className="w-full bg-emerald-600 text-white py-2 rounded text-sm hover:bg-emerald-700 transition-colors"
-              >
-                Export to Excel
-              </button>
-            </div>
-          </div>
 
         </div>
       </div>

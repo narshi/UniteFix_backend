@@ -637,6 +637,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ code });
   });
 
+  // Partner management endpoints
+  app.post("/api/admin/partners/:partnerId/verify", async (req, res) => {
+    try {
+      const { partnerId } = req.params;
+      const { comment } = req.body;
+      
+      const partner = await storage.updateUser(parseInt(partnerId), { 
+        isVerified: true,
+        verificationDate: new Date(),
+        verificationComment: comment 
+      });
+      
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      
+      res.json({ message: "Partner verified successfully", partner });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify partner" });
+    }
+  });
+
+  app.post("/api/admin/partners/:partnerId/suspend", async (req, res) => {
+    try {
+      const { partnerId } = req.params;
+      const { comment, days } = req.body;
+      
+      const suspendUntil = new Date();
+      suspendUntil.setDate(suspendUntil.getDate() + parseInt(days));
+      
+      const partner = await storage.updateUser(parseInt(partnerId), { 
+        status: 'suspended',
+        suspendedUntil: suspendUntil,
+        suspensionReason: comment 
+      });
+      
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      
+      res.json({ message: "Partner suspended successfully", partner });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to suspend partner" });
+    }
+  });
+
+  app.post("/api/admin/partners/:partnerId/deactivate", async (req, res) => {
+    try {
+      const { partnerId } = req.params;
+      const { comment } = req.body;
+      
+      const partner = await storage.updateUser(parseInt(partnerId), { 
+        status: 'deactivated',
+        deactivationReason: comment,
+        deactivatedAt: new Date()
+      });
+      
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      
+      res.json({ message: "Partner deactivated successfully", partner });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to deactivate partner" });
+    }
+  });
+
+  app.post("/api/admin/partners/:partnerId/delete", async (req, res) => {
+    try {
+      const { partnerId } = req.params;
+      const { comment } = req.body;
+      
+      // In a real app, you might want to soft delete or archive instead
+      const partner = await storage.getUser(parseInt(partnerId));
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      
+      // For now, we'll mark as deleted rather than actually removing
+      await storage.updateUser(parseInt(partnerId), { 
+        status: 'deleted',
+        deletionReason: comment,
+        deletedAt: new Date()
+      });
+      
+      res.json({ message: "Partner deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete partner" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
