@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 
 export default function RecentActivity() {
+  const [location, setLocation] = useLocation();
+  
   const { data: recentServices, isLoading: servicesLoading } = useQuery({
     queryKey: ["/api/admin/services/recent"],
   });
@@ -8,6 +11,14 @@ export default function RecentActivity() {
   const { data: recentOrders, isLoading: ordersLoading } = useQuery({
     queryKey: ["/api/admin/orders/recent"],
   });
+
+  const handleViewAllServices = () => {
+    setLocation("/services");
+  };
+
+  const handleViewAllOrders = () => {
+    setLocation("/orders");
+  };
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -73,9 +84,12 @@ export default function RecentActivity() {
         <div className="p-6 border-b border-gray-100">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-900">Recent Service Requests</h3>
-            <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+            <button 
+              onClick={handleViewAllServices}
+              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+            >
               View All
-            </a>
+            </button>
           </div>
         </div>
         <div className="p-6">
@@ -95,7 +109,7 @@ export default function RecentActivity() {
             </div>
           ) : (
             <div className="space-y-4">
-              {recentServices?.slice(0, 3).map((service: any) => (
+              {Array.isArray(recentServices) && recentServices.slice(0, 3).map((service: any) => (
                 <div key={service.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div className="flex items-center space-x-4">
                     {getServiceIcon(service.serviceType)}
@@ -114,7 +128,7 @@ export default function RecentActivity() {
                   </div>
                 </div>
               ))}
-              {(!recentServices || recentServices.length === 0) && (
+              {(!recentServices || !Array.isArray(recentServices) || recentServices.length === 0) && (
                 <p className="text-gray-500 text-center py-4">No recent services</p>
               )}
             </div>
@@ -127,9 +141,12 @@ export default function RecentActivity() {
         <div className="p-6 border-b border-gray-100">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-gray-900">Recent Product Orders</h3>
-            <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+            <button 
+              onClick={handleViewAllOrders}
+              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+            >
               View All
-            </a>
+            </button>
           </div>
         </div>
         <div className="p-6">
@@ -149,7 +166,7 @@ export default function RecentActivity() {
             </div>
           ) : (
             <div className="space-y-4">
-              {recentOrders?.slice(0, 3).map((order: any) => (
+              {Array.isArray(recentOrders) && recentOrders.slice(0, 3).map((order: any) => (
                 <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div className="flex items-center space-x-4">
                     {getOrderIcon(order.status)}
@@ -168,7 +185,7 @@ export default function RecentActivity() {
                   </div>
                 </div>
               ))}
-              {(!recentOrders || recentOrders.length === 0) && (
+              {(!recentOrders || !Array.isArray(recentOrders) || recentOrders.length === 0) && (
                 <p className="text-gray-500 text-center py-4">No recent orders</p>
               )}
             </div>

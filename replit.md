@@ -32,6 +32,10 @@ A comprehensive Node.js backend server for UniteFix App - a dual-purpose platfor
 - ✓ Implemented partner suspension with configurable day duration
 - ✓ Fixed Material Icons display issues in sidebar navigation
 - ✓ Added partner action API endpoints with proper error handling
+- ✓ Fixed top-right Add Partner and Export Report buttons functionality
+- ✓ Implemented "View All" buttons for Recent Service Request and Recent Product Request
+- ✓ Added proper navigation handlers for all dashboard buttons
+- ✓ Fixed array handling issues in Recent Activity component
 
 ## Current Features
 ### Admin Dashboard
