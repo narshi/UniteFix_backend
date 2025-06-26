@@ -22,6 +22,7 @@ export default function PartnerAssignmentModal({
   const { data: partners = [], isLoading } = useQuery({
     queryKey: ["/api/business/partners", service?.serviceType],
     enabled: isOpen && !!service,
+    select: (data) => Array.isArray(data) ? data : []
   });
 
   const assignPartnerMutation = useMutation({
@@ -102,7 +103,7 @@ export default function PartnerAssignmentModal({
                 </div>
               ))}
             </div>
-          ) : partners && partners.length > 0 ? (
+          ) : Array.isArray(partners) && partners.length > 0 ? (
             partners.map((partner: any) => (
               <div
                 key={partner.id}

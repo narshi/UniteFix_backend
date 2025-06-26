@@ -2,12 +2,14 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 export default function QuickActions() {
   const [pinCode, setPinCode] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [generatedCode, setGeneratedCode] = useState("8437");
   const { toast } = useToast();
+  const [location, setLocation] = useLocation();
 
   const validatePinMutation = useMutation({
     mutationFn: async (pinCode: string) => {
@@ -151,7 +153,7 @@ export default function QuickActions() {
 
       // Convert to CSV string
       const csv = csvContent.map(row => 
-        row.map(cell => `"${cell}"`).join(",")
+        row.map((cell: any) => `"${cell}"`).join(",")
       ).join("\n");
 
       // Create and download file
@@ -251,7 +253,7 @@ export default function QuickActions() {
             <h4 className="font-medium text-gray-900 mb-3">Add Partner</h4>
             <div className="space-y-3">
               <button 
-                onClick={() => window.location.href = '/partners'}
+                onClick={() => setLocation('/partners')}
                 className="w-full bg-purple-600 text-white py-2 rounded text-sm hover:bg-purple-700 transition-colors"
               >
                 Add New Partner

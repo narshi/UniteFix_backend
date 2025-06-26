@@ -26,6 +26,7 @@ export default function PartnersPage() {
 
   const { data: partners = [], isLoading } = useQuery({
     queryKey: ["/api/business/partners"],
+    select: (data) => Array.isArray(data) ? data : []
   });
 
   const addPartnerMutation = useMutation({
@@ -215,7 +216,7 @@ export default function PartnersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {partners?.map((partner: any) => (
+                    {Array.isArray(partners) && partners.map((partner: any) => (
                       <tr key={partner.id} className="border-b border-gray-100">
                         <td className="py-3 px-4">
                           <div className="flex items-center space-x-3">
