@@ -47,8 +47,8 @@ export default function UsersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users?.map((user: any) => (
-                      <tr key={user.id} className="border-b border-gray-100">
+                    {(users as any[])?.map((user: any, index: number) => (
+                      <tr key={`${user.id}-${index}`} className="border-b border-gray-100">
                         <td className="py-3 px-4">
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">

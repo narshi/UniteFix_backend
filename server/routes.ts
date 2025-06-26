@@ -533,6 +533,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Location Management endpoints
+  app.get("/api/admin/locations", async (req, res) => {
+    try {
+      const locations = [
+        { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false },
+        { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+      ];
+      res.json(locations);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch locations" });
+    }
+  });
+
+  app.get("/api/admin/location-stats", async (req, res) => {
+    try {
+      const locations = [
+        { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false },
+        { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+        { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
+      ];
+      
+      const stats = {
+        totalLocations: locations.length,
+        activeLocations: locations.filter(l => l.isActive).length,
+        inactiveLocations: locations.filter(l => !l.isActive).length,
+        districtsCovered: Array.from(new Set(locations.map(l => l.district))).length
+      };
+      
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch location stats" });
+    }
+  });
+
+  app.post("/api/admin/locations", async (req, res) => {
+    try {
+      const locationData = req.body;
+      
+      // Validate if it's a valid Uttara Kannada pin code
+      if (!isValidUttaraKannadaPinCode(locationData.pinCode)) {
+        return res.status(400).json({ 
+          message: "Pin code is not in Uttara Kannada region. Only Uttara Kannada pin codes are allowed." 
+        });
+      }
+      
+      // In a real app, save to database
+      res.status(201).json({ 
+        message: "Location added successfully",
+        location: locationData 
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to add location" });
+    }
+  });
+
+  app.patch("/api/admin/locations/:pinCode/toggle", async (req, res) => {
+    try {
+      const { pinCode } = req.params;
+      const { isActive } = req.body;
+      
+      // In a real app, update in database
+      res.json({ 
+        message: `Location ${isActive ? 'activated' : 'deactivated'} successfully`,
+        pinCode,
+        isActive 
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update location status" });
+    }
+  });
+
+  app.post("/api/utils/validate-pincode", (req, res) => {
+    try {
+      const { pinCode } = req.body;
+      const isValid = isValidUttaraKannadaPinCode(pinCode);
+      
+      res.json({
+        valid: isValid,
+        message: isValid 
+          ? "Pin code is valid and serviceable in Uttara Kannada region"
+          : "Pin code is not in Uttara Kannada region or invalid format"
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to validate pin code" });
+    }
+  });
+
   // Utility routes
   app.post("/api/utils/generate-code", (req, res) => {
     const code = generateVerificationCode();

@@ -10,6 +10,7 @@ import ServicesPage from "@/pages/services";
 import OrdersPage from "@/pages/orders";
 import PartnersPage from "@/pages/partners";
 import PaymentsPage from "@/pages/payments";
+import LocationsPage from "@/pages/locations";
 import Sidebar from "@/components/admin/sidebar";
 
 function Router() {
@@ -24,6 +25,7 @@ function Router() {
         <Route path="/orders" component={OrdersPage} />
         <Route path="/partners" component={PartnersPage} />
         <Route path="/payments" component={PaymentsPage} />
+        <Route path="/locations" component={LocationsPage} />
         <Route component={NotFound} />
       </Switch>
     </div>
