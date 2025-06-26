@@ -469,7 +469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/services/:id/assign", authenticateToken, async (req, res) => {
+  app.post("/api/admin/services/:id/assign", async (req, res) => {
     try {
       const { partnerId } = req.body;
       const serviceId = parseInt(req.params.id);

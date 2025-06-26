@@ -102,11 +102,80 @@ export default function QuickActions() {
     generateCodeMutation.mutate();
   };
 
-  const handleGenerateInvoice = () => {
-    toast({
-      title: "Invoice Generated",
-      description: "Invoice generated with CGST/SGST calculations",
-    });
+  const handleExportReport = async () => {
+    try {
+      // Fetch all necessary data for the report
+      const [statsResponse, servicesResponse, ordersResponse, usersResponse] = await Promise.all([
+        fetch("/api/admin/stats"),
+        fetch("/api/admin/services/recent"),
+        fetch("/api/admin/orders/recent"),
+        fetch("/api/admin/users")
+      ]);
+
+      const stats = await statsResponse.json();
+      const services = await servicesResponse.json();
+      const orders = await ordersResponse.json();
+      const users = await usersResponse.json();
+
+      // Create CSV content
+      const csvContent = [
+        // Header
+        ["UniteFix Admin Report", new Date().toLocaleDateString()],
+        [],
+        ["Summary Statistics"],
+        ["Total Users", stats.totalUsers],
+        ["Active Services", stats.activeServices],
+        ["Product Orders", stats.productOrders],
+        ["Total Revenue", `₹${stats.revenue}`],
+        [],
+        ["Recent Services"],
+        ["Service ID", "Type", "Status", "Customer", "Created"],
+        ...services.map((service: any) => [
+          service.serviceId || "N/A",
+          service.serviceType,
+          service.status || "Pending",
+          service.user?.username || "Unknown",
+          new Date(service.createdAt).toLocaleDateString()
+        ]),
+        [],
+        ["Recent Orders"],
+        ["Order ID", "Amount", "Status", "Customer", "Created"],
+        ...orders.map((order: any) => [
+          order.orderId || "N/A",
+          `₹${order.totalAmount}`,
+          order.status || "Pending",
+          order.user?.username || "Unknown",
+          new Date(order.createdAt).toLocaleDateString()
+        ])
+      ];
+
+      // Convert to CSV string
+      const csv = csvContent.map(row => 
+        row.map(cell => `"${cell}"`).join(",")
+      ).join("\n");
+
+      // Create and download file
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `unitefix-report-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({
+        title: "Report Exported",
+        description: "Excel report has been downloaded successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Failed to export report. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -177,20 +246,28 @@ export default function QuickActions() {
             </div>
           </div>
 
-          {/* Invoice Generator */}
+          {/* Add Partner */}
           <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Invoice Generator</h4>
+            <h4 className="font-medium text-gray-900 mb-3">Add Partner</h4>
             <div className="space-y-3">
-              <select className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-500">
-                <option>Select Completed Service</option>
-                <option>SR001234 - AC Repair</option>
-                <option>SR001235 - Washing Machine</option>
-              </select>
               <button 
-                onClick={handleGenerateInvoice}
-                className="w-full bg-gray-700 text-white py-2 rounded text-sm hover:bg-gray-800 transition-colors"
+                onClick={() => window.location.href = '/partners'}
+                className="w-full bg-purple-600 text-white py-2 rounded text-sm hover:bg-purple-700 transition-colors"
               >
-                Generate Invoice
+                Add New Partner
+              </button>
+            </div>
+          </div>
+
+          {/* Export Report */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h4 className="font-medium text-gray-900 mb-3">Export Report</h4>
+            <div className="space-y-3">
+              <button 
+                onClick={handleExportReport}
+                className="w-full bg-emerald-600 text-white py-2 rounded text-sm hover:bg-emerald-700 transition-colors"
+              >
+                Export to Excel
               </button>
             </div>
           </div>

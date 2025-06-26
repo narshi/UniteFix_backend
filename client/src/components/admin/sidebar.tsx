@@ -44,7 +44,7 @@ export default function Sidebar() {
                       : "text-gray-700 hover:bg-gray-50"
                   }`}
                 >
-                  <span className="material-icons text-sm">{item.icon}</span>
+                  <i className="material-icons text-lg">{item.icon}</i>
                   <span>{item.name}</span>
                 </Link>
               </li>

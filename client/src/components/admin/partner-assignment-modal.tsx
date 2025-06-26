@@ -19,16 +19,24 @@ export default function PartnerAssignmentModal({
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
   const { toast } = useToast();
 
-  const { data: partners, isLoading } = useQuery({
+  const { data: partners = [], isLoading } = useQuery({
     queryKey: ["/api/business/partners", service?.serviceType],
     enabled: isOpen && !!service,
   });
 
   const assignPartnerMutation = useMutation({
     mutationFn: async (partnerId: number) => {
-      const response = await apiRequest("POST", `/api/admin/services/${service.id}/assign`, {
-        partnerId,
+      const response = await fetch(`/api/admin/services/${service.id}/assign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ partnerId }),
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to assign partner");
+      }
       return response.json();
     },
     onSuccess: () => {
