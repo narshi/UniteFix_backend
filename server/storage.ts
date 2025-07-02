@@ -232,13 +232,13 @@ export class MemStorage implements IStorage {
       this.serviceRequests.set(service.id, service);
     });
 
-    // Sample products
+    // Sample products with proper categories
     const sampleProducts = [
       {
         name: "Universal AC Remote",
         description: "Compatible with all major AC brands",
         price: 299,
-        category: "Electronics",
+        category: "AC",
         stock: 50,
         images: [],
       },
@@ -246,7 +246,7 @@ export class MemStorage implements IStorage {
         name: "Washing Machine Drain Pump",
         description: "High quality replacement drain pump",
         price: 1200,
-        category: "Spare Parts",
+        category: "Washing Machine",
         stock: 25,
         images: [],
       },
@@ -254,8 +254,48 @@ export class MemStorage implements IStorage {
         name: "Refrigerator Thermostat",
         description: "Digital thermostat for modern refrigerators",
         price: 850,
-        category: "Spare Parts",
+        category: "Refrigerator",
         stock: 30,
+        images: [],
+      },
+      {
+        name: "Dell Inspiron 15",
+        description: "High-performance laptop for business use",
+        price: 45000,
+        category: "Laptop",
+        stock: 15,
+        images: [],
+      },
+      {
+        name: "Electric Water Heater 15L",
+        description: "Energy efficient water heater with auto-cut feature",
+        price: 8500,
+        category: "Water Heater",
+        stock: 12,
+        images: [],
+      },
+      {
+        name: "Samsung 43inch Smart TV",
+        description: "4K Ultra HD Smart LED Television",
+        price: 32000,
+        category: "Television",
+        stock: 8,
+        images: [],
+      },
+      {
+        name: "iPhone 14",
+        description: "Latest smartphone with advanced features",
+        price: 65000,
+        category: "Mobile Phone",
+        stock: 20,
+        images: [],
+      },
+      {
+        name: "iPad Air",
+        description: "Lightweight tablet for productivity and entertainment",
+        price: 55000,
+        category: "Tablet",
+        stock: 10,
         images: [],
       }
     ];
@@ -269,21 +309,55 @@ export class MemStorage implements IStorage {
       this.products.set(product.id, product);
     });
 
-    // Sample product orders
+    // Sample product orders with categorized products
     const sampleOrders = [
       {
         userId: 1,
-        products: [{ productId: 1, quantity: 2, price: 299 }],
+        products: [
+          { productId: 1, name: "Universal AC Remote", category: "AC", quantity: 2, price: 299 },
+          { productId: 3, name: "Refrigerator Thermostat", category: "Refrigerator", quantity: 1, price: 850 }
+        ],
         status: "delivered",
-        totalAmount: 598,
+        totalAmount: 1448,
         address: "123 Main St, Sirsi, Karnataka",
       },
       {
         userId: 1,
-        products: [{ productId: 2, quantity: 1, price: 1200 }],
+        products: [
+          { productId: 4, name: "Dell Inspiron 15", category: "Laptop", quantity: 1, price: 45000 }
+        ],
         status: "in_transit",
-        totalAmount: 1200,
+        totalAmount: 45000,
         address: "123 Main St, Sirsi, Karnataka",
+      },
+      {
+        userId: 2,
+        products: [
+          { productId: 5, name: "Electric Water Heater 15L", category: "Water Heater", quantity: 1, price: 8500 },
+          { productId: 2, name: "Washing Machine Drain Pump", category: "Washing Machine", quantity: 2, price: 1200 }
+        ],
+        status: "confirmed",
+        totalAmount: 10900,
+        address: "456 Service St, Kumta, Karnataka",
+      },
+      {
+        userId: 1,
+        products: [
+          { productId: 7, name: "iPhone 14", category: "Mobile Phone", quantity: 1, price: 65000 }
+        ],
+        status: "placed",
+        totalAmount: 65000,
+        address: "123 Main St, Sirsi, Karnataka",
+      },
+      {
+        userId: 2,
+        products: [
+          { productId: 6, name: "Samsung 43inch Smart TV", category: "Television", quantity: 1, price: 32000 },
+          { productId: 8, name: "iPad Air", category: "Tablet", quantity: 1, price: 55000 }
+        ],
+        status: "out_for_delivery",
+        totalAmount: 87000,
+        address: "456 Service St, Kumta, Karnataka",
       }
     ];
 

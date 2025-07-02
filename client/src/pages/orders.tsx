@@ -4,27 +4,95 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
+import { Search, Download, Filter, Package } from "lucide-react";
 
 export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+
+  // Product categories
+  const productCategories = [
+    'AC', 'Laptop', 'Water Heater', 'Refrigerator', 'Washing Machine', 
+    'Microwave', 'Television', 'Mobile Phone', 'Tablet', 'Other'
+  ];
   
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ["/api/admin/orders"],
     select: (data) => Array.isArray(data) ? data : []
   });
 
-  // Filter orders based on search term
-  const filteredOrders = orders.filter((order: any) => 
-    order.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.user?.phone?.includes(searchTerm) ||
-    order.status?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.products?.some((product: any) => 
-      product.name?.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  );
+  // Filter orders based on search term, status, and category
+  const filteredOrders = orders.filter((order: any) => {
+    const matchesSearch = searchTerm === '' || (
+      order.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.user?.phone?.includes(searchTerm) ||
+      order.status?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.products?.some((product: any) => 
+        product.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+    
+    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    
+    const matchesCategory = categoryFilter === 'all' || 
+      order.products?.some((product: any) => 
+        product.category === categoryFilter || 
+        product.name?.toLowerCase().includes(categoryFilter.toLowerCase())
+      );
+    
+    return matchesSearch && matchesStatus && matchesCategory;
+  });
+
+  // Function to download individual order invoice
+  const downloadOrderInvoice = (order: any) => {
+    // Create PDF content
+    const invoiceContent = `
+      UniteFix Product Order Invoice
+      ============================
+      
+      Order ID: ${order.orderId}
+      Order Date: ${new Date(order.createdAt).toLocaleDateString()}
+      
+      Customer Details:
+      Name: ${order.user?.username || 'N/A'}
+      Phone: ${order.user?.phone || 'N/A'}
+      Email: ${order.user?.email || 'N/A'}
+      
+      Products Ordered:
+      ${order.products?.map((product: any) => `
+      - ${product.name} (${product.category || 'Uncategorized'})
+        Quantity: ${product.quantity}
+        Price: ₹${product.price}
+        Subtotal: ₹${product.quantity * product.price}
+      `).join('') || 'No products listed'}
+      
+      Order Summary:
+      Status: ${order.status}
+      Total Amount: ₹${order.totalAmount}
+      Payment Status: ${order.paymentStatus || 'Pending'}
+      
+      Delivery Address:
+      ${order.deliveryAddress || 'N/A'}
+      
+      Generated on: ${new Date().toLocaleDateString()}
+    `;
+    
+    // Create and download file
+    const blob = new Blob([invoiceContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `order-invoice-${order.orderId}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -56,7 +124,48 @@ export default function OrdersPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>All Product Orders</CardTitle>
+            <div className="flex justify-between items-center">
+              <CardTitle>All Product Orders</CardTitle>
+              <div className="flex space-x-3">
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search orders..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-64 pl-8"
+                  />
+                </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-48">
+                    <Filter className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="placed">Order Placed</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="in_transit">In Transit</SelectItem>
+                    <SelectItem value="out_for_delivery">Out for Delivery</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-48">
+                    <Package className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Filter by category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {productCategories.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -84,11 +193,12 @@ export default function OrdersPage() {
                       <th className="text-left py-3 px-4">Address</th>
                       <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Amount</th>
+                      <th className="text-left py-3 px-4">Download Invoice</th>
                       <th className="text-left py-3 px-4">Date</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {orders?.map((order: any) => (
+                    {filteredOrders?.map((order: any) => (
                       <tr key={order.id} className="border-b border-gray-100">
                         <td className="py-3 px-4">
                           <p className="font-medium text-gray-900">{order.orderId}</p>
@@ -116,6 +226,17 @@ export default function OrdersPage() {
                         </td>
                         <td className="py-3 px-4">
                           <p className="font-medium text-gray-900">₹{order.totalAmount.toLocaleString()}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => downloadOrderInvoice(order)}
+                            className="flex items-center gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            PDF
+                          </Button>
                         </td>
                         <td className="py-3 px-4">
                           <p className="text-sm text-gray-600">

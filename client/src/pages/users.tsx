@@ -1,11 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 export default function UsersPage() {
+  const [searchTerm, setSearchTerm] = useState("");
+  
   const { data: users, isLoading } = useQuery({
     queryKey: ["/api/admin/users"],
   });
+
+  const filteredUsers = (users as any[])?.filter((user: any) =>
+    user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.phone?.includes(searchTerm) ||
+    user.userType?.toLowerCase().includes(searchTerm.toLowerCase())
+  ) || [];
 
   return (
       <div className="flex-1 p-8">
@@ -15,8 +27,17 @@ export default function UsersPage() {
         </div>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle>All Users</CardTitle>
+            <div className="relative w-64">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -47,7 +68,7 @@ export default function UsersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(users as any[])?.map((user: any, index: number) => (
+                    {filteredUsers?.map((user: any, index: number) => (
                       <tr key={`${user.id}-${index}`} className="border-b border-gray-100">
                         <td className="py-3 px-4">
                           <div className="flex items-center space-x-3">

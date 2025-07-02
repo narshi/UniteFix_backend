@@ -4,10 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
+import { Search, Download, Filter } from "lucide-react";
 
 export default function ServicesPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [selectedService, setSelectedService] = useState<any>(null);
   
   const { data: services = [], isLoading } = useQuery({
@@ -15,14 +18,57 @@ export default function ServicesPage() {
     select: (data) => Array.isArray(data) ? data : []
   });
 
-  // Filter services based on search term
-  const filteredServices = Array.isArray(services) ? services.filter((service: any) => 
-    service.serviceType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.serviceId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.status?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) : [];
+  // Filter services based on search term and status
+  const filteredServices = Array.isArray(services) ? services.filter((service: any) => {
+    const matchesSearch = searchTerm === '' || (
+      service.serviceType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.serviceId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.status?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    
+    const matchesStatus = statusFilter === 'all' || service.status === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  }) : [];
+  
+  // Function to download individual service invoice
+  const downloadServiceInvoice = (service: any) => {
+    // Create PDF content
+    const invoiceContent = `
+      UniteFix Service Invoice
+      =====================
+      
+      Service ID: ${service.serviceId}
+      Service Type: ${service.serviceType}
+      Brand: ${service.brand}
+      Model: ${service.model}
+      Issue Description: ${service.issueDescription}
+      
+      Status: ${service.status}
+      Booking Fee: ₹${service.bookingFee || 200}
+      Service Charge: ₹${service.serviceCharge || 500}
+      Total Amount: ₹${(service.bookingFee || 200) + (service.serviceCharge || 500)}
+      
+      Customer Details:
+      Phone: ${service.customerPhone || 'N/A'}
+      Address: ${service.address || 'N/A'}
+      
+      Generated on: ${new Date().toLocaleDateString()}
+    `;
+    
+    // Create and download file
+    const blob = new Blob([invoiceContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `service-invoice-${service.serviceId}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
@@ -56,14 +102,30 @@ export default function ServicesPage() {
           <CardHeader>
             <div className="flex justify-between items-center">
               <CardTitle>All Service Requests</CardTitle>
-              <div className="flex space-x-2">
-                <Input
-                  placeholder="Search by service ID, type, brand..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-64"
-                />
-                <Button variant="outline">Download Invoice</Button>
+              <div className="flex space-x-3">
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search services..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-64 pl-8"
+                  />
+                </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-48">
+                    <Filter className="mr-2 h-4 w-4" />
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="placed">Placed</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="partner_assigned">Partner Assigned</SelectItem>
+                    <SelectItem value="service_started">Service Started</SelectItem>
+                    <SelectItem value="service_completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </CardHeader>
@@ -94,6 +156,7 @@ export default function ServicesPage() {
                       <th className="text-left py-3 px-4">Assigned Partner</th>
                       <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Amount</th>
+                      <th className="text-left py-3 px-4">Download Invoice</th>
                       <th className="text-left py-3 px-4">Created</th>
                       <th className="text-left py-3 px-4">Actions</th>
                     </tr>
@@ -138,6 +201,17 @@ export default function ServicesPage() {
                           {service.totalAmount && (
                             <p className="text-sm text-gray-600">Booking: ₹{service.bookingFee}</p>
                           )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => downloadServiceInvoice(service)}
+                            className="flex items-center gap-2"
+                          >
+                            <Download className="h-4 w-4" />
+                            PDF
+                          </Button>
                         </td>
                         <td className="py-3 px-4">
                           <p className="text-sm text-gray-600">
