@@ -17,6 +17,7 @@ export default function PartnersPage() {
   const [actionType, setActionType] = useState<'verify' | 'deactivate' | 'suspend' | 'delete' | null>(null);
   const [comment, setComment] = useState('');
   const [suspensionDays, setSuspensionDays] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [newPartner, setNewPartner] = useState({
     username: '',
     email: '',
@@ -34,6 +35,15 @@ export default function PartnersPage() {
     queryKey: ["/api/business/partners"],
     select: (data) => Array.isArray(data) ? data : []
   });
+
+  // Filter partners based on search term
+  const filteredPartners = partners.filter((partner: any) => 
+    partner.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    partner.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    partner.phone?.includes(searchTerm) ||
+    partner.pinCode?.includes(searchTerm) ||
+    partner.services?.some((service: string) => service.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   const addPartnerMutation = useMutation({
     mutationFn: async (partnerData: any) => {
@@ -248,7 +258,17 @@ export default function PartnersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Business Partners</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>All Business Partners</CardTitle>
+            <div className="flex space-x-2">
+              <Input
+                placeholder="Search partners..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-64"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -281,112 +301,144 @@ export default function PartnersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.isArray(partners) && partners.map((partner: any) => (
-                    <tr key={partner.id} className="border-b border-gray-100">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-sm font-medium">
-                              {partner.username.charAt(0).toUpperCase()}
-                            </span>
+                  {Array.isArray(filteredPartners) && filteredPartners.map((partner: any) => {
+                    const isInactive = partner.status === 'suspended' || partner.status === 'deactivated' || partner.status === 'deleted';
+                    const rowClass = isInactive ? 'opacity-50 bg-gray-100' : '';
+                    
+                    return (
+                      <tr key={partner.id} className={`border-b border-gray-100 ${rowClass}`}>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-10 h-10 ${isInactive ? 'bg-gray-400' : 'bg-blue-600'} rounded-full flex items-center justify-center`}>
+                              <span className="text-white text-sm font-medium">
+                                {partner.username.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className={`font-medium ${isInactive ? 'text-gray-500' : 'text-gray-900'}`}>{partner.username}</p>
+                              <p className="text-sm text-gray-600">BU{String(partner.id).padStart(5, '0')}</p>
+                              {partner.status !== 'active' && (
+                                <div className="mt-1">
+                                  <Badge variant="secondary" className="text-xs">
+                                    {partner.status?.toUpperCase()}
+                                  </Badge>
+                                  {partner.suspensionReason && (
+                                    <p className="text-xs text-gray-500 mt-1">Reason: {partner.suspensionReason}</p>
+                                  )}
+                                  {partner.deactivationReason && (
+                                    <p className="text-xs text-gray-500 mt-1">Reason: {partner.deactivationReason}</p>
+                                  )}
+                                  {partner.deletionReason && (
+                                    <p className="text-xs text-gray-500 mt-1">Reason: {partner.deletionReason}</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-gray-900">{partner.username}</p>
-                            <p className="text-sm text-gray-600">BU{String(partner.id).padStart(5, '0')}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge variant={partner.businessType === 'business' ? 'default' : 'secondary'}>
+                            {partner.businessType === 'business' ? 'Business' : 'Individual'}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            {partner.services?.map((service: string, idx: number) => (
+                              <span key={idx} className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded mr-1">
+                                {service}
+                              </span>
+                            ))}
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={partner.businessType === 'business' ? 'default' : 'secondary'}>
-                          {partner.businessType === 'business' ? 'Business' : 'Individual'}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="space-y-1">
-                          {partner.services?.map((service: string, idx: number) => (
-                            <span key={idx} className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded mr-1">
-                              {service}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <p className="text-sm text-gray-900">{partner.phone}</p>
-                        <p className="text-sm text-gray-600">{partner.email}</p>
-                      </td>
-                      <td className="py-3 px-4">
-                        <p className="text-sm text-gray-600">{partner.pinCode}</p>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={partner.isVerified ? 'default' : 'destructive'}>
-                          {partner.isVerified ? 'Verified' : 'Unverified'}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4">
-                        <p className="text-sm text-gray-600">
-                          {new Date(partner.createdAt).toLocaleDateString()}
-                        </p>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex space-x-2">
-                          {!partner.isVerified && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handlePartnerAction(partner, 'verify')}
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              Verify
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handlePartnerAction(partner, 'suspend')}
-                            className="text-orange-600 hover:text-orange-700"
-                          >
-                            Suspend
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handlePartnerAction(partner, 'deactivate')}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            Deactivate
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className={`text-sm ${isInactive ? 'text-gray-500' : 'text-gray-900'}`}>{partner.phone}</p>
+                          <p className="text-sm text-gray-600">{partner.email}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="text-sm text-gray-600">{partner.pinCode}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-1">
+                            <Badge variant={partner.isVerified ? 'default' : 'destructive'}>
+                              {partner.isVerified ? 'Verified' : 'Unverified'}
+                            </Badge>
+                            {partner.status === 'suspended' && partner.suspendedUntil && (
+                              <p className="text-xs text-orange-600">
+                                Until: {new Date(partner.suspendedUntil).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="text-sm text-gray-600">
+                            {new Date(partner.createdAt).toLocaleDateString()}
+                          </p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex space-x-2">
+                            {!partner.isVerified && partner.status === 'active' && (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="text-red-700 hover:text-red-800"
+                                onClick={() => handlePartnerAction(partner, 'verify')}
+                                className="text-green-600 hover:text-green-700"
                               >
-                                Delete
+                                Verify
                               </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Partner</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete this partner? This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handlePartnerAction(partner, 'delete')}
-                                  className="bg-red-600 hover:bg-red-700"
+                            )}
+                            {partner.status === 'active' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePartnerAction(partner, 'suspend')}
+                                className="text-orange-600 hover:text-orange-700"
+                              >
+                                Suspend
+                              </Button>
+                            )}
+                            {partner.status === 'active' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePartnerAction(partner, 'deactivate')}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                Deactivate
+                              </Button>
+                            )}
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-red-700 hover:text-red-800"
                                 >
                                   Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Partner</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete this partner? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handlePartnerAction(partner, 'delete')}
+                                    className="bg-red-600 hover:bg-red-700"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

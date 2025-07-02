@@ -533,19 +533,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Location Management endpoints
+  app.get("/api/admin/services", async (req, res) => {
+    try {
+      const allServices = await storage.getAllServiceRequests();
+      // Enrich with user and partner details
+      const enrichedServices = await Promise.all(allServices.map(async (service) => {
+        const user = await storage.getUser(service.userId);
+        const partner = service.partnerId ? await storage.getUser(service.partnerId) : null;
+        return {
+          ...service,
+          user,
+          partner
+        };
+      }));
+      res.json(enrichedServices);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch all services" });
+    }
+  });
+
+  app.get("/api/admin/orders", async (req, res) => {
+    try {
+      const allOrders = await storage.getAllProductOrders();
+      // Enrich with user details
+      const enrichedOrders = await Promise.all(allOrders.map(async (order) => {
+        const user = await storage.getUser(order.userId);
+        return {
+          ...order,
+          user
+        };
+      }));
+      res.json(enrichedOrders);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch all orders" });
+    }
+  });
+
+  // Location Management endpoints with in-memory storage
+  const locationStorage = new Map([
+    ["581301", { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581320", { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581343", { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581355", { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581313", { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581325", { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false }],
+    ["581350", { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+    ["581345", { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
+  ]);
+
   app.get("/api/admin/locations", async (req, res) => {
     try {
-      const locations = [
-        { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false },
-        { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-      ];
+      const locations = Array.from(locationStorage.values());
       res.json(locations);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch locations" });
@@ -554,16 +592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/location-stats", async (req, res) => {
     try {
-      const locations = [
-        { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false },
-        { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-        { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true },
-      ];
+      const locations = Array.from(locationStorage.values());
       
       const stats = {
         totalLocations: locations.length,
@@ -602,13 +631,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/locations/:pinCode/toggle", async (req, res) => {
     try {
       const { pinCode } = req.params;
-      const { isActive } = req.body;
       
-      // In a real app, update in database
+      const location = locationStorage.get(pinCode);
+      if (!location) {
+        return res.status(404).json({ message: "Location not found" });
+      }
+      
+      // Toggle the active status
+      location.isActive = !location.isActive;
+      locationStorage.set(pinCode, location);
+      
       res.json({ 
-        message: `Location ${isActive ? 'activated' : 'deactivated'} successfully`,
-        pinCode,
-        isActive 
+        message: `Location ${location.isActive ? 'activated' : 'deactivated'} successfully`,
+        location
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to update location status" });

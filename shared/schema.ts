@@ -15,6 +15,15 @@ export const users = pgTable("users", {
   businessType: text("business_type"), // 'individual' | 'business' (for BU only)
   services: text("services").array(), // services provided by business users
   isVerified: boolean("is_verified").default(false),
+  status: text("status").default("active"), // active, suspended, deactivated, deleted
+  suspendedUntil: timestamp("suspended_until"),
+  suspensionReason: text("suspension_reason"),
+  deactivationReason: text("deactivation_reason"),
+  deletionReason: text("deletion_reason"),
+  verificationDate: timestamp("verification_date"),
+  verificationComment: text("verification_comment"),
+  deactivatedAt: timestamp("deactivated_at"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

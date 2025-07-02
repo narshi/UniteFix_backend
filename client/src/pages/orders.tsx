@@ -1,11 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useState } from "react";
 
 export default function OrdersPage() {
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ["/api/admin/orders/recent", { limit: 50 }],
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ["/api/admin/orders"],
+    select: (data) => Array.isArray(data) ? data : []
   });
+
+  // Filter orders based on search term
+  const filteredOrders = orders.filter((order: any) => 
+    order.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.user?.phone?.includes(searchTerm) ||
+    order.status?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.products?.some((product: any) => 
+      product.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  );
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
