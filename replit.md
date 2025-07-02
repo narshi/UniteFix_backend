@@ -1,7 +1,7 @@
 # UniteFix App - Service Booking & Product Ordering Platform
 
 ## Overview
-A comprehensive Node.js backend server for UniteFix App - a dual-purpose platform supporting service bookings and product orders with location-based validation for Uttara Kannada region.
+A comprehensive Node.js backend server for UniteFix App - a dual-purpose platform supporting service bookings and product orders with location-based validation for Uttara Kannada region. Built as backend support for a Kotlin Multiplatform Mobile (KMM) application with complete admin dashboard for managing users, services, orders, business partners, and payments.
 
 ## User Preferences
 - Comprehensive functionality over previews
@@ -16,7 +16,32 @@ A comprehensive Node.js backend server for UniteFix App - a dual-purpose platfor
 - **Authentication**: JWT-based with OTP verification
 - **Location Constraint**: Services limited to Uttara Kannada state only
 
-## Recent Changes (December 26, 2024)
+## Business Requirements Summary
+### Core Functionality
+- **User Types**: Normal Users (NU) and Business Users (BU) with tailored workflows
+- **Service Flow**: Two options - "Service with UniteFix" (admin assigns partner) or "Other Registered Businesses" (user contacts directly)
+- **Service Tracking**: Placed → Confirmed → Partner Assigned → Service Started → Service Completed
+- **Product Orders**: Browse, cart system, order tracking with delivery statuses
+- **Payment System**: Booking fees, invoice generation, secure payment gateway integration
+- **Location Restriction**: Uttara Kannada state only with pin code validation
+- **Verification**: Phone/email OTP verification, 4-digit service verification codes
+- **Business Dashboard**: Partner management, service assignment, completion tracking
+
+### Key Business Rules
+- Service cancellation allowed before partner assignment only
+- 48-hour partner assignment window, 7-day maximum before refund
+- No return/replacement policy for products
+- Account deletion requires email request to support
+- Phone/email changes require OTP verification
+
+## Recent Changes (July 2, 2025)
+- ✓ Successfully migrated project from Replit Agent to Replit environment
+- ✓ Verified all dependencies and packages are properly installed
+- ✓ Confirmed application runs cleanly on port 5000 with Express server
+- ✓ All API endpoints functioning correctly (admin stats, services, orders)
+- ✓ Updated project documentation with complete business requirements
+
+## Previous Changes (December 26, 2024)
 - ✓ Fixed all navigation 404 errors by implementing missing admin pages
 - ✓ Created complete User Management page with user listing
 - ✓ Added Service Requests page with status tracking and assignment
