@@ -8,7 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
-export default function AdminLogin() {
+interface AdminLoginProps {
+  onLoginSuccess?: () => void;
+}
+
+export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   const [, setLocation] = useLocation();
   const [credentials, setCredentials] = useState({
     username: "",
@@ -32,6 +36,14 @@ export default function AdminLogin() {
         title: "Login successful",
         description: `Welcome back, ${data.admin.username}!`,
       });
+      
+      // Trigger auth change event
+      window.dispatchEvent(new Event('authChanged'));
+      
+      // Call the callback to update parent state
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
       
       // Redirect to admin dashboard
       setLocation("/");

@@ -20,8 +20,7 @@ function Router() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Check if admin is authenticated
+  const checkAuthentication = () => {
     const token = localStorage.getItem("adminToken");
     const adminUser = localStorage.getItem("adminUser");
     
@@ -31,18 +30,54 @@ function Router() {
         const payload = JSON.parse(atob(token.split('.')[1]));
         if (payload.exp * 1000 > Date.now()) {
           setIsAuthenticated(true);
+          return true;
         } else {
           // Token expired, clear storage
           localStorage.removeItem("adminToken");
           localStorage.removeItem("adminUser");
+          setIsAuthenticated(false);
         }
       } catch (error) {
         // Invalid token, clear storage
         localStorage.removeItem("adminToken");
         localStorage.removeItem("adminUser");
+        setIsAuthenticated(false);
       }
+    } else {
+      setIsAuthenticated(false);
     }
+    return false;
+  };
+
+  useEffect(() => {
+    checkAuthentication();
     setIsLoading(false);
+
+    // Listen for storage changes (login from other tabs)
+    const handleStorageChange = () => {
+      checkAuthentication();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check authentication periodically
+    const interval = setInterval(checkAuthentication, 60000); // Check every minute
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Force re-check authentication when localStorage changes
+  useEffect(() => {
+    const handleAuthChange = () => {
+      checkAuthentication();
+    };
+
+    // Custom event for when authentication changes
+    window.addEventListener('authChanged', handleAuthChange);
+    return () => window.removeEventListener('authChanged', handleAuthChange);
   }, []);
 
   if (isLoading) {
@@ -54,7 +89,7 @@ function Router() {
   }
 
   if (!isAuthenticated) {
-    return <AdminLogin />;
+    return <AdminLogin onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
 
   return (
