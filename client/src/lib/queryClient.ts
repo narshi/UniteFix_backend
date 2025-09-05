@@ -8,19 +8,40 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export async function apiRequest(
-  method: string,
   url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+  options: RequestInit = {}
+): Promise<any> {
+  // Add admin token to requests if available
+  const adminToken = localStorage.getItem("adminToken");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...options.headers,
+  };
+
+  if (adminToken && url.includes("/api/admin/")) {
+    headers.Authorization = `Bearer ${adminToken}`;
+  }
+
   const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
+    ...options,
+    headers,
   });
 
-  await throwIfResNotOk(res);
-  return res;
+  if (!res.ok) {
+    if (res.status === 401 && url.includes("/api/admin/")) {
+      // Admin token expired or invalid, clear storage and redirect to login
+      localStorage.removeItem("adminToken");
+      localStorage.removeItem("adminUser");
+      window.location.reload();
+      return;
+    }
+
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+
+  return await res.json();
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -29,12 +50,31 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
+    const url = queryKey[0] as string;
+    const adminToken = localStorage.getItem("adminToken");
+    const headers: Record<string, string> = {};
+
+    if (adminToken && url.includes("/api/admin/")) {
+      headers.Authorization = `Bearer ${adminToken}`;
+    }
+
+    const res = await fetch(url, {
       credentials: "include",
+      headers,
     });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    if (res.status === 401) {
+      if (url.includes("/api/admin/")) {
+        // Admin token expired or invalid, clear storage and redirect to login
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("adminUser");
+        window.location.reload();
+        return;
+      }
+
+      if (unauthorizedBehavior === "returnNull") {
+        return null;
+      }
     }
 
     await throwIfResNotOk(res);

@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: "dashboard", current: true },
@@ -14,8 +15,16 @@ const navigation = [
 export default function Sidebar() {
   const [location] = useLocation();
 
+  const handleLogout = () => {
+    localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminUser");
+    window.location.reload();
+  };
+
+  const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
+
   return (
-    <aside className="w-64 bg-white shadow-lg">
+    <aside className="w-64 bg-white shadow-lg flex flex-col h-screen">
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -30,7 +39,7 @@ export default function Sidebar() {
         </div>
       </div>
       
-      <nav className="p-4">
+      <nav className="flex-1 p-4">
         <ul className="space-y-2">
           {navigation.map((item) => {
             const isActive = location === item.href;
@@ -52,6 +61,31 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
+
+      <div className="p-4 border-t border-gray-200">
+        <div className="flex items-center space-x-3 mb-3">
+          <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
+            <span className="material-icons text-sm text-gray-600" style={{ fontFamily: 'Material Icons' }}>account_circle</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {adminUser.username || 'Admin'}
+            </p>
+            <p className="text-xs text-gray-500 truncate">
+              {adminUser.email || 'admin@unitefix.com'}
+            </p>
+          </div>
+        </div>
+        <Button
+          onClick={handleLogout}
+          variant="outline"
+          size="sm"
+          className="w-full"
+        >
+          <span className="material-icons text-sm mr-2" style={{ fontFamily: 'Material Icons' }}>logout</span>
+          Logout
+        </Button>
+      </div>
     </aside>
   );
 }

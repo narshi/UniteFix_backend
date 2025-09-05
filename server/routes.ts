@@ -1,8 +1,9 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { 
   insertUserSchema,
+  insertAdminUserSchema,
   insertServiceRequestSchema,
   insertProductOrderSchema,
   insertProductSchema,
@@ -16,8 +17,17 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
-// Middleware to verify JWT
-async function authenticateToken(req: any, res: any, next: any) {
+// Extend Express Request interface
+interface AuthenticatedRequest extends Request {
+  user?: {
+    userId: number;
+    userType: string;
+    isAdmin?: boolean;
+  };
+}
+
+// Middleware to verify JWT for regular users
+async function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -31,6 +41,27 @@ async function authenticateToken(req: any, res: any, next: any) {
     next();
   } catch (error) {
     return res.status(403).json({ message: 'Invalid token' });
+  }
+}
+
+// Middleware to verify JWT for admin users
+async function authenticateAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Admin access token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!decoded.isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ message: 'Invalid admin token' });
   }
 }
 
@@ -59,7 +90,88 @@ function generateVerificationCode(): string {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Authentication routes
+  // Admin Authentication routes
+  app.post("/api/admin/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      const admin = await storage.getAdminByUsername(username) || 
+                    await storage.getAdminByEmail(username);
+      
+      if (!admin) {
+        return res.status(401).json({ message: "Invalid admin credentials" });
+      }
+
+      if (!admin.isActive) {
+        return res.status(401).json({ message: "Admin account is deactivated" });
+      }
+
+      const validPassword = await bcrypt.compare(password, admin.password);
+      if (!validPassword) {
+        return res.status(401).json({ message: "Invalid admin credentials" });
+      }
+
+      // Update last login
+      await storage.updateAdminUser(admin.id, { lastLogin: new Date() });
+
+      const token = jwt.sign(
+        { userId: admin.id, userType: 'admin', isAdmin: true },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+
+      res.json({ 
+        message: "Admin login successful",
+        admin: { ...admin, password: undefined },
+        token 
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Admin login failed" });
+    }
+  });
+
+  app.post("/api/admin/auth/register", async (req, res) => {
+    try {
+      const adminData = insertAdminUserSchema.parse(req.body);
+      
+      // Check if admin already exists
+      const existingAdmin = await storage.getAdminByEmail(adminData.email) || 
+                            await storage.getAdminByUsername(adminData.username);
+      
+      if (existingAdmin) {
+        return res.status(400).json({ message: "Admin user already exists" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(adminData.password, 10);
+      
+      const admin = await storage.createAdminUser({
+        ...adminData,
+        password: hashedPassword,
+      });
+
+      res.status(201).json({ 
+        message: "Admin user created successfully",
+        admin: { ...admin, password: undefined }
+      });
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Admin registration failed" });
+    }
+  });
+
+  app.get("/api/admin/auth/profile", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const admin = await storage.getAdminUser(req.user!.userId);
+      if (!admin) {
+        return res.status(404).json({ message: "Admin not found" });
+      }
+      res.json({ ...admin, password: undefined });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch admin profile" });
+    }
+  });
+
+  // User Authentication routes
   app.post("/api/auth/register", async (req, res) => {
     try {
       const userData = insertUserSchema.parse(req.body);
@@ -199,13 +311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Service request routes
-  app.post("/api/services", authenticateToken, async (req, res) => {
+  app.post("/api/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const serviceData = insertServiceRequestSchema.parse(req.body);
       
       const serviceRequest = await storage.createServiceRequest({
         ...serviceData,
-        userId: req.user.userId,
+        userId: req.user!.userId,
         verificationCode: generateVerificationCode(),
       });
 
@@ -215,16 +327,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/services", authenticateToken, async (req, res) => {
+  app.get("/api/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const services = await storage.getUserServiceRequests(req.user.userId);
+      const services = await storage.getUserServiceRequests(req.user!.userId);
       res.json(services);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch services" });
     }
   });
 
-  app.get("/api/services/:id", authenticateToken, async (req, res) => {
+  app.get("/api/services/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const service = await storage.getServiceRequest(parseInt(req.params.id));
       if (!service) {
@@ -236,7 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/services/:id/status", authenticateToken, async (req, res) => {
+  app.patch("/api/services/:id/status", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const { status } = req.body;
       const service = await storage.updateServiceRequestStatus(parseInt(req.params.id), status);
@@ -277,12 +389,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Cart routes
-  app.post("/api/cart", authenticateToken, async (req, res) => {
+  app.post("/api/cart", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const cartData = insertCartItemSchema.parse(req.body);
       const cartItem = await storage.addToCart({
         ...cartData,
-        userId: req.user.userId,
+        userId: req.user!.userId,
       });
       res.status(201).json(cartItem);
     } catch (error) {
@@ -290,16 +402,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/cart", authenticateToken, async (req, res) => {
+  app.get("/api/cart", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const cartItems = await storage.getCartItems(req.user.userId);
+      const cartItems = await storage.getCartItems(req.user!.userId);
       res.json(cartItems);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch cart items" });
     }
   });
 
-  app.patch("/api/cart/:id", authenticateToken, async (req, res) => {
+  app.patch("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const { quantity } = req.body;
       const cartItem = await storage.updateCartItemQuantity(parseInt(req.params.id), quantity);
@@ -314,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cart/:id", authenticateToken, async (req, res) => {
+  app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const success = await storage.removeFromCart(parseInt(req.params.id));
       
@@ -329,16 +441,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Product order routes
-  app.post("/api/orders", authenticateToken, async (req, res) => {
+  app.post("/api/orders", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const orderData = insertProductOrderSchema.parse(req.body);
       const order = await storage.createProductOrder({
         ...orderData,
-        userId: req.user.userId,
+        userId: req.user!.userId,
       });
 
       // Clear cart after successful order
-      await storage.clearCart(req.user.userId);
+      await storage.clearCart(req.user!.userId);
       
       res.status(201).json(order);
     } catch (error) {
@@ -346,9 +458,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/orders", authenticateToken, async (req, res) => {
+  app.get("/api/orders", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      const orders = await storage.getUserProductOrders(req.user.userId);
+      const orders = await storage.getUserProductOrders(req.user!.userId);
       res.json(orders);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch orders" });
@@ -356,13 +468,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Business user routes
-  app.get("/api/business/services", authenticateToken, async (req, res) => {
+  app.get("/api/business/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
-      if (req.user.userType !== 'business') {
+      if (req.user!.userType !== 'business') {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const services = await storage.getPartnerServiceRequests(req.user.userId);
+      const services = await storage.getPartnerServiceRequests(req.user!.userId);
       res.json(services);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch partner services" });
@@ -388,8 +500,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin routes (demo mode - no auth required for demonstration)
-  app.get("/api/admin/stats", async (req, res) => {
+  // Admin routes (protected with admin authentication)
+  app.get("/api/admin/stats", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const stats = {
         totalUsers: await storage.getTotalUsers(),
@@ -404,7 +516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/services/recent", async (req, res) => {
+  app.get("/api/admin/services/recent", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const services = await storage.getRecentServices(limit);
@@ -426,7 +538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/orders/recent", async (req, res) => {
+  app.get("/api/admin/orders/recent", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 10;
       const orders = await storage.getRecentOrders(limit);
@@ -448,7 +560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/services/pending", async (req, res) => {
+  app.get("/api/admin/services/pending", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const pendingServices = await storage.getPendingAssignments();
       
@@ -469,7 +581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/services/:id/assign", async (req, res) => {
+  app.post("/api/admin/services/:id/assign", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const { partnerId } = req.body;
       const serviceId = parseInt(req.params.id);
@@ -489,7 +601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Invoice routes
-  app.post("/api/invoices", authenticateToken, async (req, res) => {
+  app.post("/api/invoices", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const invoiceData = insertInvoiceSchema.parse(req.body);
       const invoice = await storage.createInvoice(invoiceData);
@@ -499,7 +611,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/:id", authenticateToken, async (req, res) => {
+  app.get("/api/invoices/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
     try {
       const invoice = await storage.getInvoiceByInvoiceId(req.params.id);
       if (!invoice) {
@@ -512,7 +624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin routes for new pages
-  app.get("/api/admin/users", async (req, res) => {
+  app.get("/api/admin/users", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const users = [];
       const normalUsers = Array.from((storage as any).users.values());
@@ -524,7 +636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/invoices", async (req, res) => {
+  app.get("/api/admin/invoices", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const allInvoices = Array.from((storage as any).invoices.values());
       res.json(allInvoices);
@@ -533,7 +645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/services", async (req, res) => {
+  app.get("/api/admin/services", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const allServices = await storage.getAllServiceRequests();
       // Enrich with user and partner details
@@ -552,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/orders", async (req, res) => {
+  app.get("/api/admin/orders", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const allOrders = await storage.getAllProductOrders();
       // Enrich with user details

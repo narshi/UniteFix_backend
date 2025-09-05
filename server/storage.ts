@@ -1,5 +1,6 @@
 import {
   users,
+  adminUsers,
   serviceRequests,
   productOrders,
   products,
@@ -9,6 +10,8 @@ import {
   partnerAssignments,
   type User,
   type InsertUser,
+  type AdminUser,
+  type InsertAdminUser,
   type ServiceRequest,
   type InsertServiceRequest,
   type ProductOrder,
@@ -34,6 +37,13 @@ export interface IStorage {
   updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
   getAllBusinessUsers(): Promise<User[]>;
   getBusinessUsersByService(service: string): Promise<User[]>;
+
+  // Admin management
+  getAdminUser(id: number): Promise<AdminUser | undefined>;
+  getAdminByUsername(username: string): Promise<AdminUser | undefined>;
+  getAdminByEmail(email: string): Promise<AdminUser | undefined>;
+  createAdminUser(admin: InsertAdminUser): Promise<AdminUser>;
+  updateAdminUser(id: number, updates: Partial<AdminUser>): Promise<AdminUser | undefined>;
 
   // Service requests
   createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
@@ -94,6 +104,7 @@ export interface IStorage {
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
+  private adminUsers: Map<number, AdminUser>;
   private serviceRequests: Map<number, ServiceRequest>;
   private productOrders: Map<number, ProductOrder>;
   private products: Map<number, Product>;
@@ -102,6 +113,7 @@ export class MemStorage implements IStorage {
   private otpVerifications: Map<number, OtpVerification>;
   private partnerAssignments: Map<number, PartnerAssignment>;
   private currentUserId: number;
+  private currentAdminId: number;
   private currentServiceRequestId: number;
   private currentProductOrderId: number;
   private currentProductId: number;
@@ -112,6 +124,7 @@ export class MemStorage implements IStorage {
 
   constructor() {
     this.users = new Map();
+    this.adminUsers = new Map();
     this.serviceRequests = new Map();
     this.productOrders = new Map();
     this.products = new Map();
@@ -120,6 +133,7 @@ export class MemStorage implements IStorage {
     this.otpVerifications = new Map();
     this.partnerAssignments = new Map();
     this.currentUserId = 1;
+    this.currentAdminId = 1;
     this.currentServiceRequestId = 1;
     this.currentProductOrderId = 1;
     this.currentProductId = 1;
@@ -132,6 +146,20 @@ export class MemStorage implements IStorage {
   }
 
   private initializeData() {
+    // Initialize with admin user
+    const adminUser: AdminUser = {
+      id: this.currentAdminId++,
+      username: "admin",
+      email: "admin@unitefix.com",
+      password: "$2b$10$5rSIzBDIJX424CjiFON2h.g5bnV.h/w2mAwif31pIHRjS89QVvbzm", // hashed password for "admin123"
+      role: "admin",
+      isActive: true,
+      lastLogin: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.adminUsers.set(adminUser.id, adminUser);
+
     // Initialize with some sample data for demonstration
     const sampleUsers = [
       {
@@ -143,6 +171,17 @@ export class MemStorage implements IStorage {
         homeAddress: "123 Main St, Sirsi",
         pinCode: "581301",
         isVerified: true,
+        status: "active" as const,
+        businessType: null,
+        services: null,
+        suspendedUntil: null,
+        suspensionReason: null,
+        deactivationReason: null,
+        deletionReason: null,
+        verificationDate: new Date(),
+        verificationComment: null,
+        deactivatedAt: null,
+        deletedAt: null,
       },
       {
         username: "repair_expert",
@@ -155,6 +194,15 @@ export class MemStorage implements IStorage {
         businessType: "individual" as const,
         services: ["AC Repair", "Washing Machine", "Refrigerator"],
         isVerified: true,
+        status: "active" as const,
+        suspendedUntil: null,
+        suspensionReason: null,
+        deactivationReason: null,
+        deletionReason: null,
+        verificationDate: new Date(),
+        verificationComment: "Verified business partner",
+        deactivatedAt: null,
+        deletedAt: null,
       },
       {
         username: "fix_solutions",
@@ -167,11 +215,20 @@ export class MemStorage implements IStorage {
         businessType: "business" as const,
         services: ["Electronics", "Home Appliances", "Plumbing"],
         isVerified: true,
+        status: "active" as const,
+        suspendedUntil: null,
+        suspensionReason: null,
+        deactivationReason: null,
+        deletionReason: null,
+        verificationDate: new Date(),
+        verificationComment: "Verified business solutions provider",
+        deactivatedAt: null,
+        deletedAt: null,
       }
     ];
 
     sampleUsers.forEach(userData => {
-      const user = {
+      const user: User = {
         ...userData,
         id: this.currentUserId++,
         createdAt: new Date(),
@@ -221,13 +278,18 @@ export class MemStorage implements IStorage {
     ];
 
     sampleServices.forEach(serviceData => {
-      const service = {
+      const service: ServiceRequest = {
         ...serviceData,
         id: this.currentServiceRequestId++,
         serviceId: `SR${String(this.currentServiceRequestId - 1).padStart(6, '0')}`,
         verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
         createdAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
         updatedAt: new Date(),
+        photos: serviceData.photos || null,
+        brand: serviceData.brand || null,
+        model: serviceData.model || null,
+        partnerId: serviceData.partnerId || null,
+        totalAmount: serviceData.totalAmount || null,
       };
       this.serviceRequests.set(service.id, service);
     });
@@ -301,10 +363,13 @@ export class MemStorage implements IStorage {
     ];
 
     sampleProducts.forEach(productData => {
-      const product = {
+      const product: Product = {
         ...productData,
         id: this.currentProductId++,
         createdAt: new Date(),
+        description: productData.description || null,
+        stock: productData.stock || null,
+        images: productData.images || null,
       };
       this.products.set(product.id, product);
     });
@@ -362,12 +427,13 @@ export class MemStorage implements IStorage {
     ];
 
     sampleOrders.forEach(orderData => {
-      const order = {
+      const order: ProductOrder = {
         ...orderData,
         id: this.currentProductOrderId++,
         orderId: `ORD${String(this.currentProductOrderId - 1).padStart(4, '0')}`,
         createdAt: new Date(Date.now() - Math.random() * 5 * 24 * 60 * 60 * 1000),
         updatedAt: new Date(),
+        products: orderData.products as any,
       };
       this.productOrders.set(order.id, order);
     });
@@ -395,7 +461,16 @@ export class MemStorage implements IStorage {
     const user: User = {
       ...insertUser,
       id,
-      isVerified: false,
+      isVerified: insertUser.isVerified ?? false,
+      status: insertUser.status ?? "active",
+      suspendedUntil: null,
+      suspensionReason: null,
+      deactivationReason: null,
+      deletionReason: null,
+      verificationDate: null,
+      verificationComment: null,
+      deactivatedAt: null,
+      deletedAt: null,
       createdAt: new Date(),
     };
     this.users.set(id, user);
@@ -421,6 +496,42 @@ export class MemStorage implements IStorage {
     );
   }
 
+  // Admin management
+  async getAdminUser(id: number): Promise<AdminUser | undefined> {
+    return this.adminUsers.get(id);
+  }
+
+  async getAdminByUsername(username: string): Promise<AdminUser | undefined> {
+    return Array.from(this.adminUsers.values()).find(admin => admin.username === username);
+  }
+
+  async getAdminByEmail(email: string): Promise<AdminUser | undefined> {
+    return Array.from(this.adminUsers.values()).find(admin => admin.email === email);
+  }
+
+  async createAdminUser(insertAdmin: InsertAdminUser): Promise<AdminUser> {
+    const id = this.currentAdminId++;
+    const admin: AdminUser = {
+      ...insertAdmin,
+      id,
+      isActive: insertAdmin.isActive ?? true,
+      lastLogin: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.adminUsers.set(id, admin);
+    return admin;
+  }
+
+  async updateAdminUser(id: number, updates: Partial<AdminUser>): Promise<AdminUser | undefined> {
+    const admin = this.adminUsers.get(id);
+    if (!admin) return undefined;
+    
+    const updatedAdmin = { ...admin, ...updates, updatedAt: new Date() };
+    this.adminUsers.set(id, updatedAdmin);
+    return updatedAdmin;
+  }
+
   // Service requests
   async createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest> {
     const id = this.currentServiceRequestId++;
@@ -429,6 +540,14 @@ export class MemStorage implements IStorage {
       ...request,
       id,
       serviceId,
+      status: request.status ?? "placed",
+      partnerId: request.partnerId ?? null,
+      brand: request.brand ?? null,
+      model: request.model ?? null,
+      photos: request.photos ?? null,
+      totalAmount: request.totalAmount ?? null,
+      verificationCode: request.verificationCode ?? null,
+      bookingFee: request.bookingFee ?? 250,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -493,6 +612,8 @@ export class MemStorage implements IStorage {
       ...order,
       id,
       orderId,
+      status: order.status ?? "placed",
+      products: order.products as any,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -560,6 +681,7 @@ export class MemStorage implements IStorage {
     const cartItem: CartItem = {
       ...item,
       id,
+      quantity: item.quantity ?? 1,
       createdAt: new Date(),
     };
     this.cartItems.set(id, cartItem);
@@ -597,6 +719,10 @@ export class MemStorage implements IStorage {
       ...invoice,
       id,
       invoiceId,
+      partnerId: invoice.partnerId ?? null,
+      serviceRequestId: invoice.serviceRequestId ?? null,
+      productOrderId: invoice.productOrderId ?? null,
+      discount: invoice.discount ?? null,
       createdAt: new Date(),
     };
     this.invoices.set(id, newInvoice);
@@ -621,6 +747,9 @@ export class MemStorage implements IStorage {
     const verification: OtpVerification = {
       ...otp,
       id,
+      phone: otp.phone ?? null,
+      email: otp.email ?? null,
+      isVerified: otp.isVerified ?? false,
       createdAt: new Date(),
     };
     this.otpVerifications.set(id, verification);
@@ -705,13 +834,13 @@ export class MemStorage implements IStorage {
 
   async getRecentServices(limit: number): Promise<ServiceRequest[]> {
     return Array.from(this.serviceRequests.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
       .slice(0, limit);
   }
 
   async getRecentOrders(limit: number): Promise<ProductOrder[]> {
     return Array.from(this.productOrders.values())
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
       .slice(0, limit);
   }
 }
