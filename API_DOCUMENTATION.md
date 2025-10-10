@@ -106,9 +106,122 @@ Content-Type: application/json
 }
 ```
 
+**Note**: Only verified Service Partners can be assigned to service requests.
+
+### Service Partner Management
+
+#### Get All Service Partners
+```http
+GET /api/service-partners
+Authorization: Bearer <admin_token>
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "partnerId": "SP00001",
+    "partnerName": "Rajesh Kumar",
+    "email": "rajesh@example.com",
+    "phone": "+919876543210",
+    "partnerType": "Individual",
+    "businessName": null,
+    "services": ["AC Repair", "Refrigerator Repair"],
+    "location": "581301",
+    "address": "123 Service St, Sirsi",
+    "verificationStatus": "Verified"
+  }
+]
+```
+
+#### Create Service Partner (Admin)
+```http
+POST /api/service-partners
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "partnerName": "Rajesh Kumar",
+  "email": "rajesh@example.com",
+  "phone": "+919876543210",
+  "password": "temporaryPassword123",
+  "partnerType": "Individual",
+  "services": ["AC Repair", "Refrigerator Repair"],
+  "location": "581301",
+  "address": "123 Service St, Sirsi"
+}
+```
+
+**Note**: Partners created by admin are automatically verified.
+
+#### Update Partner Verification Status
+```http
+PATCH /api/service-partners/{partnerId}/status
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "verification_status": "Verified"
+}
+```
+
+**Status Options**: "Pending Verification", "Verified", "Rejected"
+
+#### Delete Service Partner
+```http
+DELETE /api/service-partners/{partnerId}
+Authorization: Bearer <admin_token>
+```
+
 ---
 
 ## Client API Endpoints
+
+### Service Partner Mobile Signup
+
+#### Register Service Partner (Mobile App)
+```http
+POST /api/service-partners/mobile-signup
+Content-Type: application/json
+
+{
+  "partnerName": "Rajesh Kumar",
+  "email": "rajesh@example.com",
+  "phone": "+919876543210",
+  "password": "securePassword123",
+  "partnerType": "Individual",
+  "businessName": "Rajesh Services",  // Required only for Business type
+  "services": ["AC Repair", "Refrigerator Repair"],
+  "location": "581301",
+  "address": "123 Service St, Sirsi, Karnataka"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Service partner registered successfully. Pending verification by admin.",
+  "partner": {
+    "id": 1,
+    "partnerId": "SP00001",
+    "partnerName": "Rajesh Kumar",
+    "email": "rajesh@example.com",
+    "phone": "+919876543210",
+    "partnerType": "Individual",
+    "verificationStatus": "Pending Verification"
+  },
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "requiresVerification": true
+}
+```
+
+**Notes**:
+- Partners registered via mobile app start with "Pending Verification" status
+- Admin must verify the partner before they can receive service assignments
+- Token is issued immediately but full functionality requires verification
+
+---
 
 ### Client Authentication
 
