@@ -8,6 +8,7 @@ import {
   invoices,
   otpVerifications,
   partnerAssignments,
+  servicePartners,
   type User,
   type InsertUser,
   type AdminUser,
@@ -25,6 +26,8 @@ import {
   type OtpVerification,
   type InsertOtpVerification,
   type PartnerAssignment,
+  type ServicePartner,
+  type InsertServicePartner,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -93,6 +96,19 @@ export interface IStorage {
   assignPartner(serviceRequestId: number, partnerId: number): Promise<PartnerAssignment>;
   getPartnerAssignments(partnerId: number): Promise<PartnerAssignment[]>;
 
+  // Service Partners (new dedicated system)
+  createServicePartner(partner: InsertServicePartner): Promise<ServicePartner>;
+  getServicePartner(id: number): Promise<ServicePartner | undefined>;
+  getServicePartnerByPartnerId(partnerId: string): Promise<ServicePartner | undefined>;
+  getServicePartnerByPhone(phone: string): Promise<ServicePartner | undefined>;
+  getServicePartnerByEmail(email: string): Promise<ServicePartner | undefined>;
+  getAllServicePartners(): Promise<ServicePartner[]>;
+  getVerifiedServicePartners(): Promise<ServicePartner[]>;
+  getPendingServicePartners(): Promise<ServicePartner[]>;
+  updateServicePartner(id: number, updates: Partial<ServicePartner>): Promise<ServicePartner | undefined>;
+  updatePartnerVerificationStatus(id: number, status: string): Promise<ServicePartner | undefined>;
+  deleteServicePartner(id: number): Promise<boolean>;
+
   // Statistics for admin dashboard
   getTotalUsers(): Promise<number>;
   getActiveServices(): Promise<number>;
@@ -112,6 +128,7 @@ export class MemStorage implements IStorage {
   private invoices: Map<number, Invoice>;
   private otpVerifications: Map<number, OtpVerification>;
   private partnerAssignments: Map<number, PartnerAssignment>;
+  private servicePartners: Map<number, ServicePartner>;
   private currentUserId: number;
   private currentAdminId: number;
   private currentServiceRequestId: number;
@@ -121,6 +138,7 @@ export class MemStorage implements IStorage {
   private currentInvoiceId: number;
   private currentOtpId: number;
   private currentAssignmentId: number;
+  private currentServicePartnerId: number;
 
   constructor() {
     this.users = new Map();
@@ -132,6 +150,7 @@ export class MemStorage implements IStorage {
     this.invoices = new Map();
     this.otpVerifications = new Map();
     this.partnerAssignments = new Map();
+    this.servicePartners = new Map();
     this.currentUserId = 1;
     this.currentAdminId = 1;
     this.currentServiceRequestId = 1;
@@ -141,6 +160,7 @@ export class MemStorage implements IStorage {
     this.currentInvoiceId = 1;
     this.currentOtpId = 1;
     this.currentAssignmentId = 1;
+    this.currentServicePartnerId = 1;
 
     this.initializeData();
   }
@@ -436,6 +456,74 @@ export class MemStorage implements IStorage {
         products: orderData.products as any,
       };
       this.productOrders.set(order.id, order);
+    });
+
+    // Sample Service Partners
+    const samplePartners = [
+      {
+        partnerName: "Rajesh Kumar",
+        phone: "9876501234",
+        email: "rajesh@servicefix.com",
+        password: "$2b$10$hash",
+        partnerType: "Individual" as const,
+        services: ["AC Repair", "Refrigerator"],
+        location: "581301",
+        verificationStatus: "Verified" as const,
+        businessName: null,
+        address: "MG Road, Sirsi, Karnataka",
+        isActive: true,
+      },
+      {
+        partnerName: "ServicePro Solutions",
+        phone: "9876501235",
+        email: "contact@servicepro.com",
+        password: "$2b$10$hash",
+        partnerType: "Business" as const,
+        services: ["Laptop Repair", "Mobile Phone", "TV Repair"],
+        location: "581343",
+        verificationStatus: "Verified" as const,
+        businessName: "ServicePro Solutions Pvt Ltd",
+        address: "Market Road, Kumta, Karnataka",
+        isActive: true,
+      },
+      {
+        partnerName: "Priya Sharma",
+        phone: "9876501236",
+        email: "priya@repairs.com",
+        password: "$2b$10$hash",
+        partnerType: "Individual" as const,
+        services: ["Washing Machine", "Water Heater", "Microwave"],
+        location: "581320",
+        verificationStatus: "Pending Verification" as const,
+        businessName: null,
+        address: "Station Road, Karwar, Karnataka",
+        isActive: true,
+      },
+      {
+        partnerName: "TechFix Services",
+        phone: "9876501237",
+        email: "info@techfix.com",
+        password: "$2b$10$hash",
+        partnerType: "Business" as const,
+        services: ["AC Repair", "Laptop Repair", "Refrigerator", "TV Repair"],
+        location: "581355",
+        verificationStatus: "Pending Verification" as const,
+        businessName: "TechFix Services",
+        address: "NH 66, Ankola, Karnataka",
+        isActive: true,
+      }
+    ];
+
+    samplePartners.forEach(partnerData => {
+      const partner: ServicePartner = {
+        ...partnerData,
+        id: this.currentServicePartnerId,
+        partnerId: `SP${String(this.currentServicePartnerId).padStart(5, '0')}`,
+        createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
+        updatedAt: new Date(),
+      };
+      this.servicePartners.set(partner.id, partner);
+      this.currentServicePartnerId++;
     });
   }
 
@@ -807,6 +895,75 @@ export class MemStorage implements IStorage {
 
   async getPartnerAssignments(partnerId: number): Promise<PartnerAssignment[]> {
     return Array.from(this.partnerAssignments.values()).filter(a => a.partnerId === partnerId);
+  }
+
+  // Service Partners
+  async createServicePartner(insertPartner: InsertServicePartner): Promise<ServicePartner> {
+    const id = this.currentServicePartnerId++;
+    const partnerId = `SP${String(id).padStart(5, '0')}`;
+    const partner: ServicePartner = {
+      ...insertPartner,
+      id,
+      partnerId,
+      verificationStatus: insertPartner.verificationStatus ?? "Pending Verification",
+      businessName: insertPartner.businessName ?? null,
+      address: insertPartner.address ?? null,
+      isActive: insertPartner.isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.servicePartners.set(id, partner);
+    return partner;
+  }
+
+  async getServicePartner(id: number): Promise<ServicePartner | undefined> {
+    return this.servicePartners.get(id);
+  }
+
+  async getServicePartnerByPartnerId(partnerId: string): Promise<ServicePartner | undefined> {
+    return Array.from(this.servicePartners.values()).find(p => p.partnerId === partnerId);
+  }
+
+  async getServicePartnerByPhone(phone: string): Promise<ServicePartner | undefined> {
+    return Array.from(this.servicePartners.values()).find(p => p.phone === phone);
+  }
+
+  async getServicePartnerByEmail(email: string): Promise<ServicePartner | undefined> {
+    return Array.from(this.servicePartners.values()).find(p => p.email === email);
+  }
+
+  async getAllServicePartners(): Promise<ServicePartner[]> {
+    return Array.from(this.servicePartners.values());
+  }
+
+  async getVerifiedServicePartners(): Promise<ServicePartner[]> {
+    return Array.from(this.servicePartners.values()).filter(p => p.verificationStatus === "Verified" && p.isActive);
+  }
+
+  async getPendingServicePartners(): Promise<ServicePartner[]> {
+    return Array.from(this.servicePartners.values()).filter(p => p.verificationStatus === "Pending Verification");
+  }
+
+  async updateServicePartner(id: number, updates: Partial<ServicePartner>): Promise<ServicePartner | undefined> {
+    const partner = this.servicePartners.get(id);
+    if (!partner) return undefined;
+    
+    const updatedPartner = { ...partner, ...updates, updatedAt: new Date() };
+    this.servicePartners.set(id, updatedPartner);
+    return updatedPartner;
+  }
+
+  async updatePartnerVerificationStatus(id: number, status: string): Promise<ServicePartner | undefined> {
+    const partner = this.servicePartners.get(id);
+    if (!partner) return undefined;
+    
+    const updatedPartner = { ...partner, verificationStatus: status, updatedAt: new Date() };
+    this.servicePartners.set(id, updatedPartner);
+    return updatedPartner;
+  }
+
+  async deleteServicePartner(id: number): Promise<boolean> {
+    return this.servicePartners.delete(id);
   }
 
   // Statistics for admin dashboard
