@@ -888,13 +888,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/business/partners", async (req, res) => {
+  // Service Partners API - Mobile Partner Signup
+  app.post("/api/service-partners/signup", async (req, res) => {
     try {
-      const { service } = req.query;
-      const partners = service 
-        ? await storage.getBusinessUsersByService(service as string)
-        : await storage.getAllBusinessUsers();
+      const { partnerName, phone, email, password, partnerType, services, businessName } = req.body;
+
+      // Validate required fields
+      if (!partnerName || !phone || !email || !password || !partnerType || !services || services.length === 0) {
+        return res.status(400).json({ message: "All required fields must be provided" });
+      }
+
+      // Check if partner already exists
+      const existingPartner = await storage.getServicePartnerByPhone(phone) || 
+                             await storage.getServicePartnerByEmail(email);
       
+      if (existingPartner) {
+        return res.status(400).json({ message: "Partner already exists with this phone or email" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Extract pin code from location if provided, otherwise use default
+      const location = req.body.location || "581301";
+
+      // Create partner with Pending Verification status
+      const partner = await storage.createServicePartner({
+        partnerName,
+        phone,
+        email,
+        password: hashedPassword,
+        partnerType,
+        services,
+        location,
+        verificationStatus: "Pending Verification",
+        businessName: partnerType === "Business" ? businessName : undefined,
+        address: req.body.address,
+        isActive: true,
+      });
+
+      res.status(201).json({
+        message: "Signup successful. Your account is pending admin verification.",
+        partner_id: partner.partnerId,
+        verification_status: partner.verificationStatus,
+      });
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Partner signup failed" });
+    }
+  });
+
+  // Get all Service Partners (admin)
+  app.get("/api/service-partners", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { service, verificationStatus } = req.query;
+      let partners = await storage.getAllServicePartners();
+      
+      // Filter by service if provided
+      if (service) {
+        partners = partners.filter(p => p.services.includes(service as string));
+      }
+
+      // Filter by verification status if provided
+      if (verificationStatus) {
+        partners = partners.filter(p => p.verificationStatus === verificationStatus);
+      }
+
       // Remove sensitive information
       const sanitizedPartners = partners.map(partner => ({
         ...partner,
@@ -903,7 +961,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(sanitizedPartners);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch business partners" });
+      res.status(500).json({ message: "Failed to fetch service partners" });
+    }
+  });
+
+  // Get verified Service Partners only (for assignment)
+  app.get("/api/service-partners/verified", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const partners = await storage.getVerifiedServicePartners();
+      
+      const sanitizedPartners = partners.map(partner => ({
+        ...partner,
+        password: undefined,
+      }));
+      
+      res.json(sanitizedPartners);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch verified partners" });
+    }
+  });
+
+  // Create Service Partner (admin)
+  app.post("/api/service-partners", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { partnerName, phone, email, password, partnerType, services, location, businessName, address } = req.body;
+
+      // Check if partner already exists
+      const existingPartner = await storage.getServicePartnerByPhone(phone) || 
+                             await storage.getServicePartnerByEmail(email);
+      
+      if (existingPartner) {
+        return res.status(400).json({ message: "Partner already exists with this phone or email" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create partner - admin-created partners are Verified by default
+      const partner = await storage.createServicePartner({
+        partnerName,
+        phone,
+        email,
+        password: hashedPassword,
+        partnerType,
+        services,
+        location: location || "581301",
+        verificationStatus: "Verified", // Admin-created partners are verified by default
+        businessName: partnerType === "Business" ? businessName : undefined,
+        address,
+        isActive: true,
+      });
+
+      res.status(201).json({
+        message: "Service partner created successfully",
+        partner: { ...partner, password: undefined },
+      });
+    } catch (error) {
+      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create partner" });
+    }
+  });
+
+  // Update Service Partner
+  app.patch("/api/service-partners/:id", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const partnerId = parseInt(req.params.id);
+      const updates = req.body;
+
+      // Don't allow updating sensitive fields via this endpoint
+      delete updates.id;
+      delete updates.partnerId;
+      delete updates.password;
+
+      const partner = await storage.updateServicePartner(partnerId, updates);
+      
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+
+      res.json({
+        message: "Partner updated successfully",
+        partner: { ...partner, password: undefined },
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update partner" });
+    }
+  });
+
+  // Update Partner Verification Status
+  app.patch("/api/service-partners/:id/status", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const partnerId = parseInt(req.params.id);
+      const { verification_status } = req.body;
+
+      if (!verification_status || !["Verified", "Pending Verification"].includes(verification_status)) {
+        return res.status(400).json({ message: "Invalid verification status" });
+      }
+
+      const partner = await storage.updatePartnerVerificationStatus(partnerId, verification_status);
+      
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+
+      res.json({
+        message: "Status updated successfully",
+        partner_id: partner.partnerId,
+        verification_status: partner.verificationStatus,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update verification status" });
+    }
+  });
+
+  // Delete Service Partner
+  app.delete("/api/service-partners/:id", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const partnerId = parseInt(req.params.id);
+      const success = await storage.deleteServicePartner(partnerId);
+      
+      if (!success) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+
+      res.json({ message: "Partner deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete partner" });
     }
   });
 
