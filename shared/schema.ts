@@ -122,7 +122,26 @@ export const otpVerifications = pgTable("otp_verifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Business partner assignments
+// Service Partners table - separate from regular users
+export const servicePartners = pgTable("service_partners", {
+  id: serial("id").primaryKey(),
+  partnerId: text("partner_id").notNull().unique(), // SP00001 format
+  partnerName: text("partner_name").notNull(),
+  phone: text("phone").notNull().unique(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  partnerType: text("partner_type").notNull(), // 'Individual' | 'Business'
+  services: text("services").array().notNull(), // ["AC Repair", "Laptop Repair"]
+  location: text("location").notNull(), // pin code
+  verificationStatus: text("verification_status").notNull().default("Pending Verification"), // 'Pending Verification' | 'Verified'
+  businessName: text("business_name"), // only for Business type
+  address: text("address"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Service partner assignments
 export const partnerAssignments = pgTable("partner_assignments", {
   id: serial("id").primaryKey(),
   serviceRequestId: integer("service_request_id").notNull(),
@@ -178,6 +197,13 @@ export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
   updatedAt: true,
 });
 
+export const insertServicePartnerSchema = createInsertSchema(servicePartners).omit({
+  id: true,
+  partnerId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -202,5 +228,8 @@ export type Invoice = typeof invoices.$inferSelect;
 
 export type InsertOtpVerification = z.infer<typeof insertOtpVerificationSchema>;
 export type OtpVerification = typeof otpVerifications.$inferSelect;
+
+export type InsertServicePartner = z.infer<typeof insertServicePartnerSchema>;
+export type ServicePartner = typeof servicePartners.$inferSelect;
 
 export type PartnerAssignment = typeof partnerAssignments.$inferSelect;
