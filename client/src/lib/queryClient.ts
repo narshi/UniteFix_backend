@@ -18,7 +18,8 @@ export async function apiRequest(
     ...options.headers,
   };
 
-  if (adminToken && url.includes("/api/admin/")) {
+  // Add admin token to admin routes and service partner routes (admin-only endpoints)
+  if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
     headers.Authorization = `Bearer ${adminToken}`;
   }
 
@@ -29,7 +30,7 @@ export async function apiRequest(
   });
 
   if (!res.ok) {
-    if (res.status === 401 && url.includes("/api/admin/")) {
+    if (res.status === 401 && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
       // Admin token expired or invalid, clear storage and redirect to login
       localStorage.removeItem("adminToken");
       localStorage.removeItem("adminUser");
@@ -54,7 +55,8 @@ export const getQueryFn: <T>(options: {
     const adminToken = localStorage.getItem("adminToken");
     const headers: Record<string, string> = {};
 
-    if (adminToken && url.includes("/api/admin/")) {
+    // Add admin token to admin routes and service partner routes (admin-only endpoints)
+    if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
       headers.Authorization = `Bearer ${adminToken}`;
     }
 
@@ -64,7 +66,7 @@ export const getQueryFn: <T>(options: {
     });
 
     if (res.status === 401) {
-      if (url.includes("/api/admin/")) {
+      if (url.includes("/api/admin/") || url.includes("/api/service-partners")) {
         // Admin token expired or invalid, clear storage and redirect to login
         localStorage.removeItem("adminToken");
         localStorage.removeItem("adminUser");
