@@ -1175,15 +1175,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { partnerId } = req.body;
       const serviceId = parseInt(req.params.id);
       
+      // Verify that the partner exists and is verified
+      const partner = await storage.getServicePartner(partnerId);
+      if (!partner) {
+        return res.status(404).json({ message: "Service partner not found" });
+      }
+      
+      if (partner.verificationStatus !== "Verified") {
+        return res.status(400).json({ 
+          message: "Cannot assign partner. Only verified partners can be assigned to service requests." 
+        });
+      }
+      
       const service = await storage.assignPartnerToService(serviceId, partnerId);
       if (!service) {
-        return res.status(404).json({ message: "Service not found" });
+        return res.status(404).json({ message: "Service request not found" });
       }
       
       // Create partner assignment record
       await storage.assignPartner(serviceId, partnerId);
       
-      res.json({ message: "Partner assigned successfully", service });
+      res.json({ 
+        message: "Partner assigned successfully", 
+        service,
+        partner: { ...partner, password: undefined }
+      });
     } catch (error) {
       res.status(500).json({ message: "Failed to assign partner" });
     }
