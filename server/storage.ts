@@ -7,8 +7,9 @@ import {
   cartItems,
   invoices,
   otpVerifications,
-  partnerAssignments,
-  servicePartners,
+  serviceProviders,
+  walletTransactions,
+  serviceablePincodes,
   type User,
   type InsertUser,
   type AdminUser,
@@ -25,21 +26,45 @@ import {
   type InsertInvoice,
   type OtpVerification,
   type InsertOtpVerification,
-  type PartnerAssignment,
-  type ServicePartner,
-  type InsertServicePartner,
+  type ServiceProvider,
+  type InsertServiceProvider,
+  type WalletTransaction,
+  type InsertWalletTransaction,
+  type ServiceablePincode,
+  type InsertServiceablePincode,
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, sql, count, sum, gte, lte, or, ilike } from "drizzle-orm";
+
+// Haversine formula for calculating distance between two points
+function calculateHaversineDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in meters
+}
 
 export interface IStorage {
   // User management
   getUser(id: number): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
   getUserByPhone(phone: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByReferralCode(code: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
-  getAllBusinessUsers(): Promise<User[]>;
-  getBusinessUsersByService(service: string): Promise<User[]>;
+  getAllUsers(): Promise<User[]>;
 
   // Admin management
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -48,16 +73,39 @@ export interface IStorage {
   createAdminUser(admin: InsertAdminUser): Promise<AdminUser>;
   updateAdminUser(id: number, updates: Partial<AdminUser>): Promise<AdminUser | undefined>;
 
+  // Service Providers
+  createServiceProvider(provider: InsertServiceProvider): Promise<ServiceProvider>;
+  getServiceProvider(id: number): Promise<ServiceProvider | undefined>;
+  getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined>;
+  getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined>;
+  getAllServiceProviders(): Promise<ServiceProvider[]>;
+  getVerifiedServiceProviders(): Promise<ServiceProvider[]>;
+  getPendingServiceProviders(): Promise<ServiceProvider[]>;
+  updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined>;
+  updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined>;
+  getProvidersSortedByDistance(lat: number, long: number, status?: string): Promise<(ServiceProvider & { distance: number })[]>;
+  deleteServiceProvider(id: number): Promise<boolean>;
+
   // Service requests
   createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
   getServiceRequest(id: number): Promise<ServiceRequest | undefined>;
   getServiceRequestByServiceId(serviceId: string): Promise<ServiceRequest | undefined>;
   getUserServiceRequests(userId: number): Promise<ServiceRequest[]>;
-  getPartnerServiceRequests(partnerId: number): Promise<ServiceRequest[]>;
+  getProviderServiceRequests(providerId: number): Promise<ServiceRequest[]>;
+  updateServiceRequest(id: number, updates: Partial<ServiceRequest>): Promise<ServiceRequest | undefined>;
   updateServiceRequestStatus(id: number, status: string): Promise<ServiceRequest | undefined>;
-  assignPartnerToService(serviceRequestId: number, partnerId: number): Promise<ServiceRequest | undefined>;
+  assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined>;
   getPendingAssignments(): Promise<ServiceRequest[]>;
   getAllServiceRequests(): Promise<ServiceRequest[]>;
+
+  // Wallet Transactions (ACID)
+  completeServiceWithTransaction(
+    serviceRequestId: number,
+    totalAmount: number,
+    commissionRate: number
+  ): Promise<{ service: ServiceRequest; transaction: WalletTransaction }>;
+  topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction>;
+  getProviderWalletTransactions(providerId: number): Promise<WalletTransaction[]>;
 
   // Product orders
   createProductOrder(order: InsertProductOrder): Promise<ProductOrder>;
@@ -85,921 +133,753 @@ export interface IStorage {
   getInvoice(id: number): Promise<Invoice | undefined>;
   getInvoiceByInvoiceId(invoiceId: string): Promise<Invoice | undefined>;
   getUserInvoices(userId: number): Promise<Invoice[]>;
+  getAllInvoices(): Promise<Invoice[]>;
 
   // OTP verification
   createOtpVerification(otp: InsertOtpVerification): Promise<OtpVerification>;
-  getOtpVerification(phone?: string, email?: string, purpose?: string): Promise<OtpVerification | undefined>;
   verifyOtp(phone: string | undefined, email: string | undefined, otp: string, purpose: string): Promise<boolean>;
-  deleteExpiredOtps(): Promise<void>;
 
-  // Partner assignments
-  assignPartner(serviceRequestId: number, partnerId: number): Promise<PartnerAssignment>;
-  getPartnerAssignments(partnerId: number): Promise<PartnerAssignment[]>;
+  // Serviceable Pincodes
+  createServiceablePincode(pincode: InsertServiceablePincode): Promise<ServiceablePincode>;
+  getServiceablePincode(pincode: string): Promise<ServiceablePincode | undefined>;
+  getAllServiceablePincodes(): Promise<ServiceablePincode[]>;
+  togglePincodeStatus(pincode: string): Promise<ServiceablePincode | undefined>;
+  isPincodeServiceable(pincode: string): Promise<boolean>;
 
-  // Service Partners (new dedicated system)
-  createServicePartner(partner: InsertServicePartner): Promise<ServicePartner>;
-  getServicePartner(id: number): Promise<ServicePartner | undefined>;
-  getServicePartnerByPartnerId(partnerId: string): Promise<ServicePartner | undefined>;
-  getServicePartnerByPhone(phone: string): Promise<ServicePartner | undefined>;
-  getServicePartnerByEmail(email: string): Promise<ServicePartner | undefined>;
-  getAllServicePartners(): Promise<ServicePartner[]>;
-  getVerifiedServicePartners(): Promise<ServicePartner[]>;
-  getPendingServicePartners(): Promise<ServicePartner[]>;
-  updateServicePartner(id: number, updates: Partial<ServicePartner>): Promise<ServicePartner | undefined>;
-  updatePartnerVerificationStatus(id: number, status: string): Promise<ServicePartner | undefined>;
-  deleteServicePartner(id: number): Promise<boolean>;
-
-  // Statistics for admin dashboard
-  getTotalUsers(): Promise<number>;
-  getActiveServices(): Promise<number>;
-  getTotalProductOrders(): Promise<number>;
-  getTotalRevenue(): Promise<number>;
+  // Statistics for admin dashboard (optimized SQL aggregations)
+  getAdminStats(): Promise<{
+    totalUsers: number;
+    totalProviders: number;
+    activeServices: number;
+    completedServices: number;
+    totalOrders: number;
+    totalRevenue: number;
+    pendingApprovals: number;
+  }>;
+  getRevenueByPeriod(days: number): Promise<{ date: string; revenue: number }[]>;
   getRecentServices(limit: number): Promise<ServiceRequest[]>;
   getRecentOrders(limit: number): Promise<ProductOrder[]>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private adminUsers: Map<number, AdminUser>;
-  private serviceRequests: Map<number, ServiceRequest>;
-  private productOrders: Map<number, ProductOrder>;
-  private products: Map<number, Product>;
-  private cartItems: Map<number, CartItem>;
-  private invoices: Map<number, Invoice>;
-  private otpVerifications: Map<number, OtpVerification>;
-  private partnerAssignments: Map<number, PartnerAssignment>;
-  private servicePartners: Map<number, ServicePartner>;
-  private currentUserId: number;
-  private currentAdminId: number;
-  private currentServiceRequestId: number;
-  private currentProductOrderId: number;
-  private currentProductId: number;
-  private currentCartItemId: number;
-  private currentInvoiceId: number;
-  private currentOtpId: number;
-  private currentAssignmentId: number;
-  private currentServicePartnerId: number;
-
-  constructor() {
-    this.users = new Map();
-    this.adminUsers = new Map();
-    this.serviceRequests = new Map();
-    this.productOrders = new Map();
-    this.products = new Map();
-    this.cartItems = new Map();
-    this.invoices = new Map();
-    this.otpVerifications = new Map();
-    this.partnerAssignments = new Map();
-    this.servicePartners = new Map();
-    this.currentUserId = 1;
-    this.currentAdminId = 1;
-    this.currentServiceRequestId = 1;
-    this.currentProductOrderId = 1;
-    this.currentProductId = 1;
-    this.currentCartItemId = 1;
-    this.currentInvoiceId = 1;
-    this.currentOtpId = 1;
-    this.currentAssignmentId = 1;
-    this.currentServicePartnerId = 1;
-
-    this.initializeData();
-  }
-
-  private initializeData() {
-    // Initialize with admin user
-    const adminUser: AdminUser = {
-      id: this.currentAdminId++,
-      username: "admin",
-      email: "admin@unitefix.com",
-      password: "$2b$10$5rSIzBDIJX424CjiFON2h.g5bnV.h/w2mAwif31pIHRjS89QVvbzm", // hashed password for "admin123"
-      role: "admin",
-      isActive: true,
-      lastLogin: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.adminUsers.set(adminUser.id, adminUser);
-
-    // Initialize with some sample data for demonstration
-    const sampleUsers = [
-      {
-        username: "john_doe",
-        email: "john@example.com",
-        phone: "9876543210",
-        password: "$2b$10$hash", // hashed password
-        userType: "normal" as const,
-        homeAddress: "123 Main St, Sirsi",
-        pinCode: "581301",
-        isVerified: true,
-        status: "active" as const,
-        businessType: null,
-        services: null,
-        suspendedUntil: null,
-        suspensionReason: null,
-        deactivationReason: null,
-        deletionReason: null,
-        verificationDate: new Date(),
-        verificationComment: null,
-        deactivatedAt: null,
-        deletedAt: null,
-      },
-      {
-        username: "repair_expert",
-        email: "expert@repair.com",
-        phone: "9876543211",
-        password: "$2b$10$hash",
-        userType: "business" as const,
-        homeAddress: "456 Service St, Kumta",
-        pinCode: "581343",
-        businessType: "individual" as const,
-        services: ["AC Repair", "Washing Machine", "Refrigerator"],
-        isVerified: true,
-        status: "active" as const,
-        suspendedUntil: null,
-        suspensionReason: null,
-        deactivationReason: null,
-        deletionReason: null,
-        verificationDate: new Date(),
-        verificationComment: "Verified business partner",
-        deactivatedAt: null,
-        deletedAt: null,
-      },
-      {
-        username: "fix_solutions",
-        email: "contact@fixsolutions.com",
-        phone: "9876543212",
-        password: "$2b$10$hash",
-        userType: "business" as const,
-        homeAddress: "789 Business Park, Karwar",
-        pinCode: "581301",
-        businessType: "business" as const,
-        services: ["Electronics", "Home Appliances", "Plumbing"],
-        isVerified: true,
-        status: "active" as const,
-        suspendedUntil: null,
-        suspensionReason: null,
-        deactivationReason: null,
-        deletionReason: null,
-        verificationDate: new Date(),
-        verificationComment: "Verified business solutions provider",
-        deactivatedAt: null,
-        deletedAt: null,
-      }
-    ];
-
-    sampleUsers.forEach(userData => {
-      const user: User = {
-        ...userData,
-        id: this.currentUserId++,
-        createdAt: new Date(),
-      };
-      this.users.set(user.id, user);
-    });
-
-    // Sample service requests
-    const sampleServices = [
-      {
-        userId: 1,
-        serviceType: "AC Repair",
-        brand: "LG",
-        model: "LSA3AU3D",
-        description: "AC not cooling properly, making strange noise",
-        photos: [],
-        status: "confirmed",
-        bookingFee: 250,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        userId: 1,
-        serviceType: "Washing Machine",
-        brand: "Samsung",
-        model: "WA70H4200SW",
-        description: "Washing machine not draining water",
-        photos: [],
-        status: "partner_assigned",
-        partnerId: 2,
-        bookingFee: 250,
-        totalAmount: 850,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        userId: 1,
-        serviceType: "Refrigerator",
-        brand: "Whirlpool",
-        model: "NEO DF278",
-        description: "Refrigerator not cooling, weird sounds from compressor",
-        photos: [],
-        status: "service_started",
-        partnerId: 3,
-        bookingFee: 250,
-        totalAmount: 1200,
-        address: "123 Main St, Sirsi, Karnataka",
-      }
-    ];
-
-    sampleServices.forEach(serviceData => {
-      const service: ServiceRequest = {
-        ...serviceData,
-        id: this.currentServiceRequestId++,
-        serviceId: `SR${String(this.currentServiceRequestId - 1).padStart(6, '0')}`,
-        verificationCode: Math.floor(1000 + Math.random() * 9000).toString(),
-        createdAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
-        updatedAt: new Date(),
-        photos: serviceData.photos || null,
-        brand: serviceData.brand || null,
-        model: serviceData.model || null,
-        partnerId: serviceData.partnerId || null,
-        totalAmount: serviceData.totalAmount || null,
-      };
-      this.serviceRequests.set(service.id, service);
-    });
-
-    // Sample products with proper categories
-    const sampleProducts = [
-      {
-        name: "Universal AC Remote",
-        description: "Compatible with all major AC brands",
-        price: 299,
-        category: "AC",
-        stock: 50,
-        images: [],
-      },
-      {
-        name: "Washing Machine Drain Pump",
-        description: "High quality replacement drain pump",
-        price: 1200,
-        category: "Washing Machine",
-        stock: 25,
-        images: [],
-      },
-      {
-        name: "Refrigerator Thermostat",
-        description: "Digital thermostat for modern refrigerators",
-        price: 850,
-        category: "Refrigerator",
-        stock: 30,
-        images: [],
-      },
-      {
-        name: "Dell Inspiron 15",
-        description: "High-performance laptop for business use",
-        price: 45000,
-        category: "Laptop",
-        stock: 15,
-        images: [],
-      },
-      {
-        name: "Electric Water Heater 15L",
-        description: "Energy efficient water heater with auto-cut feature",
-        price: 8500,
-        category: "Water Heater",
-        stock: 12,
-        images: [],
-      },
-      {
-        name: "Samsung 43inch Smart TV",
-        description: "4K Ultra HD Smart LED Television",
-        price: 32000,
-        category: "Television",
-        stock: 8,
-        images: [],
-      },
-      {
-        name: "iPhone 14",
-        description: "Latest smartphone with advanced features",
-        price: 65000,
-        category: "Mobile Phone",
-        stock: 20,
-        images: [],
-      },
-      {
-        name: "iPad Air",
-        description: "Lightweight tablet for productivity and entertainment",
-        price: 55000,
-        category: "Tablet",
-        stock: 10,
-        images: [],
-      }
-    ];
-
-    sampleProducts.forEach(productData => {
-      const product: Product = {
-        ...productData,
-        id: this.currentProductId++,
-        createdAt: new Date(),
-        description: productData.description || null,
-        stock: productData.stock || null,
-        images: productData.images || null,
-      };
-      this.products.set(product.id, product);
-    });
-
-    // Sample product orders with categorized products
-    const sampleOrders = [
-      {
-        userId: 1,
-        products: [
-          { productId: 1, name: "Universal AC Remote", category: "AC", quantity: 2, price: 299 },
-          { productId: 3, name: "Refrigerator Thermostat", category: "Refrigerator", quantity: 1, price: 850 }
-        ],
-        status: "delivered",
-        totalAmount: 1448,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        userId: 1,
-        products: [
-          { productId: 4, name: "Dell Inspiron 15", category: "Laptop", quantity: 1, price: 45000 }
-        ],
-        status: "in_transit",
-        totalAmount: 45000,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        userId: 2,
-        products: [
-          { productId: 5, name: "Electric Water Heater 15L", category: "Water Heater", quantity: 1, price: 8500 },
-          { productId: 2, name: "Washing Machine Drain Pump", category: "Washing Machine", quantity: 2, price: 1200 }
-        ],
-        status: "confirmed",
-        totalAmount: 10900,
-        address: "456 Service St, Kumta, Karnataka",
-      },
-      {
-        userId: 1,
-        products: [
-          { productId: 7, name: "iPhone 14", category: "Mobile Phone", quantity: 1, price: 65000 }
-        ],
-        status: "placed",
-        totalAmount: 65000,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        userId: 2,
-        products: [
-          { productId: 6, name: "Samsung 43inch Smart TV", category: "Television", quantity: 1, price: 32000 },
-          { productId: 8, name: "iPad Air", category: "Tablet", quantity: 1, price: 55000 }
-        ],
-        status: "out_for_delivery",
-        totalAmount: 87000,
-        address: "456 Service St, Kumta, Karnataka",
-      }
-    ];
-
-    sampleOrders.forEach(orderData => {
-      const order: ProductOrder = {
-        ...orderData,
-        id: this.currentProductOrderId++,
-        orderId: `ORD${String(this.currentProductOrderId - 1).padStart(4, '0')}`,
-        createdAt: new Date(Date.now() - Math.random() * 5 * 24 * 60 * 60 * 1000),
-        updatedAt: new Date(),
-        products: orderData.products as any,
-      };
-      this.productOrders.set(order.id, order);
-    });
-
-    // Sample Service Partners
-    const samplePartners = [
-      {
-        partnerName: "Rajesh Kumar",
-        phone: "9876501234",
-        email: "rajesh@servicefix.com",
-        password: "$2b$10$hash",
-        partnerType: "Individual" as const,
-        services: ["AC Repair", "Refrigerator"],
-        location: "581301",
-        verificationStatus: "Verified" as const,
-        businessName: null,
-        address: "MG Road, Sirsi, Karnataka",
-        isActive: true,
-      },
-      {
-        partnerName: "ServicePro Solutions",
-        phone: "9876501235",
-        email: "contact@servicepro.com",
-        password: "$2b$10$hash",
-        partnerType: "Business" as const,
-        services: ["Laptop Repair", "Mobile Phone", "TV Repair"],
-        location: "581343",
-        verificationStatus: "Verified" as const,
-        businessName: "ServicePro Solutions Pvt Ltd",
-        address: "Market Road, Kumta, Karnataka",
-        isActive: true,
-      },
-      {
-        partnerName: "Priya Sharma",
-        phone: "9876501236",
-        email: "priya@repairs.com",
-        password: "$2b$10$hash",
-        partnerType: "Individual" as const,
-        services: ["Washing Machine", "Water Heater", "Microwave"],
-        location: "581320",
-        verificationStatus: "Pending Verification" as const,
-        businessName: null,
-        address: "Station Road, Karwar, Karnataka",
-        isActive: true,
-      },
-      {
-        partnerName: "TechFix Services",
-        phone: "9876501237",
-        email: "info@techfix.com",
-        password: "$2b$10$hash",
-        partnerType: "Business" as const,
-        services: ["AC Repair", "Laptop Repair", "Refrigerator", "TV Repair"],
-        location: "581355",
-        verificationStatus: "Pending Verification" as const,
-        businessName: "TechFix Services",
-        address: "NH 66, Ankola, Karnataka",
-        isActive: true,
-      }
-    ];
-
-    samplePartners.forEach(partnerData => {
-      const partner: ServicePartner = {
-        ...partnerData,
-        id: this.currentServicePartnerId,
-        partnerId: `SP${String(this.currentServicePartnerId).padStart(5, '0')}`,
-        createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
-        updatedAt: new Date(),
-      };
-      this.servicePartners.set(partner.id, partner);
-      this.currentServicePartnerId++;
-    });
-  }
-
+export class DatabaseStorage implements IStorage {
+  
   // User management
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.username === username);
-  }
-
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.email === email);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByPhone(phone: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.phone === phone);
+    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    return user || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
+  }
+
+  async getUserByReferralCode(code: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.referralCode, code));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const user: User = {
-      ...insertUser,
-      id,
-      isVerified: insertUser.isVerified ?? false,
-      status: insertUser.status ?? "active",
-      suspendedUntil: null,
-      suspensionReason: null,
-      deactivationReason: null,
-      deletionReason: null,
-      verificationDate: null,
-      verificationComment: null,
-      deactivatedAt: null,
-      deletedAt: null,
-      createdAt: new Date(),
-    };
-    this.users.set(id, user);
+    const referralCode = `UF${Date.now().toString(36).toUpperCase()}`;
+    const [user] = await db
+      .insert(users)
+      .values({ ...insertUser, referralCode })
+      .returning();
     return user;
   }
 
   async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-    
-    const updatedUser = { ...user, ...updates };
-    this.users.set(id, updatedUser);
-    return updatedUser;
+    const [user] = await db
+      .update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
   }
 
-  async getAllBusinessUsers(): Promise<User[]> {
-    return Array.from(this.users.values()).filter(user => user.userType === 'business');
-  }
-
-  async getBusinessUsersByService(service: string): Promise<User[]> {
-    return Array.from(this.users.values()).filter(
-      user => user.userType === 'business' && user.services?.includes(service)
-    );
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
   }
 
   // Admin management
   async getAdminUser(id: number): Promise<AdminUser | undefined> {
-    return this.adminUsers.get(id);
+    const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.id, id));
+    return admin || undefined;
   }
 
   async getAdminByUsername(username: string): Promise<AdminUser | undefined> {
-    return Array.from(this.adminUsers.values()).find(admin => admin.username === username);
+    const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.username, username));
+    return admin || undefined;
   }
 
   async getAdminByEmail(email: string): Promise<AdminUser | undefined> {
-    return Array.from(this.adminUsers.values()).find(admin => admin.email === email);
+    const [admin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email));
+    return admin || undefined;
   }
 
   async createAdminUser(insertAdmin: InsertAdminUser): Promise<AdminUser> {
-    const id = this.currentAdminId++;
-    const admin: AdminUser = {
-      ...insertAdmin,
-      id,
-      isActive: insertAdmin.isActive ?? true,
-      lastLogin: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.adminUsers.set(id, admin);
+    const [admin] = await db
+      .insert(adminUsers)
+      .values(insertAdmin)
+      .returning();
     return admin;
   }
 
   async updateAdminUser(id: number, updates: Partial<AdminUser>): Promise<AdminUser | undefined> {
-    const admin = this.adminUsers.get(id);
-    if (!admin) return undefined;
-    
-    const updatedAdmin = { ...admin, ...updates, updatedAt: new Date() };
-    this.adminUsers.set(id, updatedAdmin);
-    return updatedAdmin;
+    const [admin] = await db
+      .update(adminUsers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return admin || undefined;
   }
 
-  // Service requests
-  async createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest> {
-    const id = this.currentServiceRequestId++;
-    const serviceId = `SR${String(id).padStart(6, '0')}`;
-    const serviceRequest: ServiceRequest = {
-      ...request,
-      id,
-      serviceId,
-      status: request.status ?? "placed",
-      partnerId: request.partnerId ?? null,
-      brand: request.brand ?? null,
-      model: request.model ?? null,
-      photos: request.photos ?? null,
-      totalAmount: request.totalAmount ?? null,
-      verificationCode: request.verificationCode ?? null,
-      bookingFee: request.bookingFee ?? 250,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.serviceRequests.set(id, serviceRequest);
-    return serviceRequest;
+  // Service Providers
+  async createServiceProvider(insertProvider: InsertServiceProvider): Promise<ServiceProvider> {
+    const countResult = await db.select({ count: count() }).from(serviceProviders);
+    const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
+    
+    const [provider] = await db
+      .insert(serviceProviders)
+      .values({ ...insertProvider, partnerId })
+      .returning();
+    return provider;
+  }
+
+  async getServiceProvider(id: number): Promise<ServiceProvider | undefined> {
+    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.id, id));
+    return provider || undefined;
+  }
+
+  async getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined> {
+    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.userId, userId));
+    return provider || undefined;
+  }
+
+  async getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined> {
+    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.partnerId, partnerId));
+    return provider || undefined;
+  }
+
+  async getAllServiceProviders(): Promise<ServiceProvider[]> {
+    return await db.select().from(serviceProviders).orderBy(desc(serviceProviders.createdAt));
+  }
+
+  async getVerifiedServiceProviders(): Promise<ServiceProvider[]> {
+    return await db
+      .select()
+      .from(serviceProviders)
+      .where(eq(serviceProviders.verificationStatus, 'verified'))
+      .orderBy(desc(serviceProviders.createdAt));
+  }
+
+  async getPendingServiceProviders(): Promise<ServiceProvider[]> {
+    return await db
+      .select()
+      .from(serviceProviders)
+      .where(eq(serviceProviders.verificationStatus, 'pending'))
+      .orderBy(desc(serviceProviders.createdAt));
+  }
+
+  async updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined> {
+    const [provider] = await db
+      .update(serviceProviders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(serviceProviders.id, id))
+      .returning();
+    return provider || undefined;
+  }
+
+  async updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined> {
+    const [provider] = await db
+      .update(serviceProviders)
+      .set({ 
+        currentLat: lat, 
+        currentLong: long, 
+        lastLocationUpdate: new Date() 
+      })
+      .where(eq(serviceProviders.id, id))
+      .returning();
+    return provider || undefined;
+  }
+
+  // Geo-spatial sorting using Haversine formula
+  async getProvidersSortedByDistance(
+    lat: number, 
+    long: number, 
+    status?: string
+  ): Promise<(ServiceProvider & { distance: number })[]> {
+    const providers = await db
+      .select()
+      .from(serviceProviders)
+      .where(
+        and(
+          eq(serviceProviders.isActive, true),
+          status ? eq(serviceProviders.verificationStatus, status as any) : undefined
+        )
+      );
+
+    // Calculate distance for each provider and sort
+    const providersWithDistance = providers
+      .filter(p => p.currentLat !== null && p.currentLong !== null)
+      .map(provider => ({
+        ...provider,
+        distance: calculateHaversineDistance(
+          lat,
+          long,
+          provider.currentLat!,
+          provider.currentLong!
+        )
+      }))
+      .sort((a, b) => a.distance - b.distance);
+
+    return providersWithDistance;
+  }
+
+  async deleteServiceProvider(id: number): Promise<boolean> {
+    const result = await db.delete(serviceProviders).where(eq(serviceProviders.id, id));
+    return true;
+  }
+
+  // Service Requests
+  async createServiceRequest(insertRequest: InsertServiceRequest): Promise<ServiceRequest> {
+    const countResult = await db.select({ count: count() }).from(serviceRequests);
+    const serviceId = `SR${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
+    const handshakeOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    
+    const [request] = await db
+      .insert(serviceRequests)
+      .values({ ...insertRequest, serviceId, handshakeOtp })
+      .returning();
+    return request;
   }
 
   async getServiceRequest(id: number): Promise<ServiceRequest | undefined> {
-    return this.serviceRequests.get(id);
+    const [request] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, id));
+    return request || undefined;
   }
 
   async getServiceRequestByServiceId(serviceId: string): Promise<ServiceRequest | undefined> {
-    return Array.from(this.serviceRequests.values()).find(req => req.serviceId === serviceId);
+    const [request] = await db.select().from(serviceRequests).where(eq(serviceRequests.serviceId, serviceId));
+    return request || undefined;
   }
 
   async getUserServiceRequests(userId: number): Promise<ServiceRequest[]> {
-    return Array.from(this.serviceRequests.values()).filter(req => req.userId === userId);
+    return await db
+      .select()
+      .from(serviceRequests)
+      .where(eq(serviceRequests.userId, userId))
+      .orderBy(desc(serviceRequests.createdAt));
   }
 
-  async getPartnerServiceRequests(partnerId: number): Promise<ServiceRequest[]> {
-    return Array.from(this.serviceRequests.values()).filter(req => req.partnerId === partnerId);
+  async getProviderServiceRequests(providerId: number): Promise<ServiceRequest[]> {
+    return await db
+      .select()
+      .from(serviceRequests)
+      .where(eq(serviceRequests.providerId, providerId))
+      .orderBy(desc(serviceRequests.createdAt));
+  }
+
+  async updateServiceRequest(id: number, updates: Partial<ServiceRequest>): Promise<ServiceRequest | undefined> {
+    const [request] = await db
+      .update(serviceRequests)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(serviceRequests.id, id))
+      .returning();
+    return request || undefined;
   }
 
   async updateServiceRequestStatus(id: number, status: string): Promise<ServiceRequest | undefined> {
-    const request = this.serviceRequests.get(id);
-    if (!request) return undefined;
-    
-    const updatedRequest = { ...request, status, updatedAt: new Date() };
-    this.serviceRequests.set(id, updatedRequest);
-    return updatedRequest;
+    const [request] = await db
+      .update(serviceRequests)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(eq(serviceRequests.id, id))
+      .returning();
+    return request || undefined;
   }
 
-  async assignPartnerToService(serviceRequestId: number, partnerId: number): Promise<ServiceRequest | undefined> {
-    const request = this.serviceRequests.get(serviceRequestId);
-    if (!request) return undefined;
-    
-    const updatedRequest = { 
-      ...request, 
-      partnerId, 
-      status: 'partner_assigned', 
-      updatedAt: new Date() 
-    };
-    this.serviceRequests.set(serviceRequestId, updatedRequest);
-    return updatedRequest;
+  async assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined> {
+    const [request] = await db
+      .update(serviceRequests)
+      .set({ 
+        providerId, 
+        status: 'partner_assigned',
+        assignedAt: new Date(),
+        updatedAt: new Date() 
+      })
+      .where(eq(serviceRequests.id, serviceRequestId))
+      .returning();
+    return request || undefined;
   }
 
   async getPendingAssignments(): Promise<ServiceRequest[]> {
-    return Array.from(this.serviceRequests.values()).filter(
-      req => req.status === 'confirmed' && !req.partnerId
-    );
+    return await db
+      .select()
+      .from(serviceRequests)
+      .where(
+        or(
+          eq(serviceRequests.status, 'placed'),
+          eq(serviceRequests.status, 'confirmed')
+        )
+      )
+      .orderBy(desc(serviceRequests.createdAt));
   }
 
   async getAllServiceRequests(): Promise<ServiceRequest[]> {
-    return Array.from(this.serviceRequests.values());
+    return await db.select().from(serviceRequests).orderBy(desc(serviceRequests.createdAt));
   }
 
-  // Product orders
-  async createProductOrder(order: InsertProductOrder): Promise<ProductOrder> {
-    const id = this.currentProductOrderId++;
-    const orderId = `ORD${String(id).padStart(4, '0')}`;
-    const productOrder: ProductOrder = {
-      ...order,
-      id,
-      orderId,
-      status: order.status ?? "placed",
-      products: order.products as any,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.productOrders.set(id, productOrder);
-    return productOrder;
+  // Wallet Transactions with ACID compliance
+  async completeServiceWithTransaction(
+    serviceRequestId: number,
+    totalAmount: number,
+    commissionRate: number = 0.10
+  ): Promise<{ service: ServiceRequest; transaction: WalletTransaction }> {
+    const commissionAmount = Math.round(totalAmount * commissionRate);
+
+    // Use database transaction for ACID compliance
+    const result = await db.transaction(async (tx) => {
+      // 1. Get the service request
+      const [service] = await tx
+        .select()
+        .from(serviceRequests)
+        .where(eq(serviceRequests.id, serviceRequestId));
+      
+      if (!service || !service.providerId) {
+        throw new Error('Service request or provider not found');
+      }
+
+      // 2. Get the provider
+      const [provider] = await tx
+        .select()
+        .from(serviceProviders)
+        .where(eq(serviceProviders.id, service.providerId));
+
+      if (!provider) {
+        throw new Error('Provider not found');
+      }
+
+      const currentBalance = parseFloat(provider.walletBalance || '0');
+      const newBalance = currentBalance - commissionAmount;
+
+      // 3. Update service request status
+      const [updatedService] = await tx
+        .update(serviceRequests)
+        .set({
+          status: 'service_completed',
+          totalAmount,
+          commissionAmount,
+          completedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(serviceRequests.id, serviceRequestId))
+        .returning();
+
+      // 4. Deduct commission from provider wallet
+      await tx
+        .update(serviceProviders)
+        .set({
+          walletBalance: newBalance.toFixed(2),
+          updatedAt: new Date()
+        })
+        .where(eq(serviceProviders.id, service.providerId));
+
+      // 5. Create wallet transaction record
+      const [transaction] = await tx
+        .insert(walletTransactions)
+        .values({
+          providerId: service.providerId,
+          serviceRequestId,
+          amount: (-commissionAmount).toFixed(2),
+          type: 'commission',
+          description: `Commission for service ${service.serviceId}`,
+          balanceBefore: currentBalance.toFixed(2),
+          balanceAfter: newBalance.toFixed(2)
+        })
+        .returning();
+
+      return { service: updatedService, transaction };
+    });
+
+    return result;
+  }
+
+  async topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
+    const result = await db.transaction(async (tx) => {
+      const [provider] = await tx
+        .select()
+        .from(serviceProviders)
+        .where(eq(serviceProviders.id, providerId));
+
+      if (!provider) {
+        throw new Error('Provider not found');
+      }
+
+      const currentBalance = parseFloat(provider.walletBalance || '0');
+      const newBalance = currentBalance + amount;
+
+      await tx
+        .update(serviceProviders)
+        .set({
+          walletBalance: newBalance.toFixed(2),
+          updatedAt: new Date()
+        })
+        .where(eq(serviceProviders.id, providerId));
+
+      const [transaction] = await tx
+        .insert(walletTransactions)
+        .values({
+          providerId,
+          amount: amount.toFixed(2),
+          type: 'topup',
+          description,
+          balanceBefore: currentBalance.toFixed(2),
+          balanceAfter: newBalance.toFixed(2)
+        })
+        .returning();
+
+      return transaction;
+    });
+
+    return result;
+  }
+
+  async getProviderWalletTransactions(providerId: number): Promise<WalletTransaction[]> {
+    return await db
+      .select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.providerId, providerId))
+      .orderBy(desc(walletTransactions.createdAt));
+  }
+
+  // Product Orders
+  async createProductOrder(insertOrder: InsertProductOrder): Promise<ProductOrder> {
+    const countResult = await db.select({ count: count() }).from(productOrders);
+    const orderId = `ORD${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
+    
+    const [order] = await db
+      .insert(productOrders)
+      .values({ ...insertOrder, orderId })
+      .returning();
+    return order;
   }
 
   async getProductOrder(id: number): Promise<ProductOrder | undefined> {
-    return this.productOrders.get(id);
+    const [order] = await db.select().from(productOrders).where(eq(productOrders.id, id));
+    return order || undefined;
   }
 
   async getUserProductOrders(userId: number): Promise<ProductOrder[]> {
-    return Array.from(this.productOrders.values()).filter(order => order.userId === userId);
+    return await db
+      .select()
+      .from(productOrders)
+      .where(eq(productOrders.userId, userId))
+      .orderBy(desc(productOrders.createdAt));
   }
 
   async updateProductOrderStatus(id: number, status: string): Promise<ProductOrder | undefined> {
-    const order = this.productOrders.get(id);
-    if (!order) return undefined;
-    
-    const updatedOrder = { ...order, status, updatedAt: new Date() };
-    this.productOrders.set(id, updatedOrder);
-    return updatedOrder;
+    const [order] = await db
+      .update(productOrders)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(eq(productOrders.id, id))
+      .returning();
+    return order || undefined;
   }
 
   async getAllProductOrders(): Promise<ProductOrder[]> {
-    return Array.from(this.productOrders.values());
+    return await db.select().from(productOrders).orderBy(desc(productOrders.createdAt));
   }
 
   // Products
-  async createProduct(product: InsertProduct): Promise<Product> {
-    const id = this.currentProductId++;
-    const newProduct: Product = {
-      ...product,
-      id,
-      createdAt: new Date(),
-    };
-    this.products.set(id, newProduct);
-    return newProduct;
+  async createProduct(insertProduct: InsertProduct): Promise<Product> {
+    const [product] = await db
+      .insert(products)
+      .values(insertProduct)
+      .returning();
+    return product;
   }
 
   async getProduct(id: number): Promise<Product | undefined> {
-    return this.products.get(id);
+    const [product] = await db.select().from(products).where(eq(products.id, id));
+    return product || undefined;
   }
 
   async getAllProducts(): Promise<Product[]> {
-    return Array.from(this.products.values());
+    return await db.select().from(products).where(eq(products.isActive, true));
   }
 
   async getProductsByCategory(category: string): Promise<Product[]> {
-    return Array.from(this.products.values()).filter(product => product.category === category);
+    return await db
+      .select()
+      .from(products)
+      .where(and(eq(products.category, category), eq(products.isActive, true)));
   }
 
   async updateProductStock(id: number, stock: number): Promise<Product | undefined> {
-    const product = this.products.get(id);
-    if (!product) return undefined;
-    
-    const updatedProduct = { ...product, stock };
-    this.products.set(id, updatedProduct);
-    return updatedProduct;
+    const [product] = await db
+      .update(products)
+      .set({ stock })
+      .where(eq(products.id, id))
+      .returning();
+    return product || undefined;
   }
 
   // Cart management
   async addToCart(item: InsertCartItem): Promise<CartItem> {
-    const id = this.currentCartItemId++;
-    const cartItem: CartItem = {
-      ...item,
-      id,
-      quantity: item.quantity ?? 1,
-      createdAt: new Date(),
-    };
-    this.cartItems.set(id, cartItem);
+    // Check if item already exists in cart
+    const [existing] = await db
+      .select()
+      .from(cartItems)
+      .where(
+        and(
+          eq(cartItems.userId, item.userId),
+          eq(cartItems.productId, item.productId)
+        )
+      );
+
+    if (existing) {
+      const [updated] = await db
+        .update(cartItems)
+        .set({ quantity: existing.quantity + (item.quantity || 1) })
+        .where(eq(cartItems.id, existing.id))
+        .returning();
+      return updated;
+    }
+
+    const [cartItem] = await db.insert(cartItems).values(item).returning();
     return cartItem;
   }
 
   async getCartItems(userId: number): Promise<CartItem[]> {
-    return Array.from(this.cartItems.values()).filter(item => item.userId === userId);
+    return await db.select().from(cartItems).where(eq(cartItems.userId, userId));
   }
 
   async updateCartItemQuantity(id: number, quantity: number): Promise<CartItem | undefined> {
-    const item = this.cartItems.get(id);
-    if (!item) return undefined;
-    
-    const updatedItem = { ...item, quantity };
-    this.cartItems.set(id, updatedItem);
-    return updatedItem;
+    const [item] = await db
+      .update(cartItems)
+      .set({ quantity })
+      .where(eq(cartItems.id, id))
+      .returning();
+    return item || undefined;
   }
 
   async removeFromCart(id: number): Promise<boolean> {
-    return this.cartItems.delete(id);
+    await db.delete(cartItems).where(eq(cartItems.id, id));
+    return true;
   }
 
   async clearCart(userId: number): Promise<boolean> {
-    const userItems = Array.from(this.cartItems.entries()).filter(([_, item]) => item.userId === userId);
-    userItems.forEach(([id]) => this.cartItems.delete(id));
+    await db.delete(cartItems).where(eq(cartItems.userId, userId));
     return true;
   }
 
   // Invoices
-  async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
-    const id = this.currentInvoiceId++;
-    const invoiceId = `INV${String(id).padStart(6, '0')}`;
-    const newInvoice: Invoice = {
-      ...invoice,
-      id,
-      invoiceId,
-      partnerId: invoice.partnerId ?? null,
-      serviceRequestId: invoice.serviceRequestId ?? null,
-      productOrderId: invoice.productOrderId ?? null,
-      discount: invoice.discount ?? null,
-      createdAt: new Date(),
-    };
-    this.invoices.set(id, newInvoice);
-    return newInvoice;
+  async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
+    const countResult = await db.select({ count: count() }).from(invoices);
+    const invoiceId = `INV${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
+    
+    const [invoice] = await db
+      .insert(invoices)
+      .values({ ...insertInvoice, invoiceId })
+      .returning();
+    return invoice;
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {
-    return this.invoices.get(id);
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    return invoice || undefined;
   }
 
   async getInvoiceByInvoiceId(invoiceId: string): Promise<Invoice | undefined> {
-    return Array.from(this.invoices.values()).find(inv => inv.invoiceId === invoiceId);
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.invoiceId, invoiceId));
+    return invoice || undefined;
   }
 
   async getUserInvoices(userId: number): Promise<Invoice[]> {
-    return Array.from(this.invoices.values()).filter(inv => inv.userId === userId);
+    return await db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.userId, userId))
+      .orderBy(desc(invoices.createdAt));
+  }
+
+  async getAllInvoices(): Promise<Invoice[]> {
+    return await db.select().from(invoices).orderBy(desc(invoices.createdAt));
   }
 
   // OTP verification
   async createOtpVerification(otp: InsertOtpVerification): Promise<OtpVerification> {
-    const id = this.currentOtpId++;
-    const verification: OtpVerification = {
-      ...otp,
-      id,
-      phone: otp.phone ?? null,
-      email: otp.email ?? null,
-      isVerified: otp.isVerified ?? false,
-      createdAt: new Date(),
-    };
-    this.otpVerifications.set(id, verification);
+    const [verification] = await db.insert(otpVerifications).values(otp).returning();
     return verification;
   }
 
-  async getOtpVerification(phone?: string, email?: string, purpose?: string): Promise<OtpVerification | undefined> {
-    return Array.from(this.otpVerifications.values()).find(otp => 
-      (phone ? otp.phone === phone : true) && 
-      (email ? otp.email === email : true) && 
-      (purpose ? otp.purpose === purpose : true) &&
-      !otp.isVerified &&
-      otp.expiresAt > new Date()
-    );
-  }
+  async verifyOtp(
+    phone: string | undefined,
+    email: string | undefined,
+    otp: string,
+    purpose: string
+  ): Promise<boolean> {
+    const [verification] = await db
+      .select()
+      .from(otpVerifications)
+      .where(
+        and(
+          phone ? eq(otpVerifications.phone, phone) : eq(otpVerifications.email, email || ''),
+          eq(otpVerifications.otp, otp),
+          eq(otpVerifications.purpose, purpose),
+          eq(otpVerifications.isVerified, false),
+          gte(otpVerifications.expiresAt, new Date())
+        )
+      );
 
-  async verifyOtp(phone: string | undefined, email: string | undefined, otp: string, purpose: string): Promise<boolean> {
-    const verification = Array.from(this.otpVerifications.values()).find(v => 
-      (phone ? v.phone === phone : email ? v.email === email : false) &&
-      v.otp === otp &&
-      v.purpose === purpose &&
-      !v.isVerified &&
-      v.expiresAt > new Date()
-    );
-    
     if (verification) {
-      verification.isVerified = true;
+      await db
+        .update(otpVerifications)
+        .set({ isVerified: true })
+        .where(eq(otpVerifications.id, verification.id));
       return true;
     }
     return false;
   }
 
-  async deleteExpiredOtps(): Promise<void> {
-    const now = new Date();
-    Array.from(this.otpVerifications.entries()).forEach(([id, otp]) => {
-      if (otp.expiresAt <= now) {
-        this.otpVerifications.delete(id);
-      }
-    });
+  // Serviceable Pincodes
+  async createServiceablePincode(pincode: InsertServiceablePincode): Promise<ServiceablePincode> {
+    const [result] = await db
+      .insert(serviceablePincodes)
+      .values(pincode)
+      .returning();
+    return result;
   }
 
-  // Partner assignments
-  async assignPartner(serviceRequestId: number, partnerId: number): Promise<PartnerAssignment> {
-    const id = this.currentAssignmentId++;
-    const assignment: PartnerAssignment = {
-      id,
-      serviceRequestId,
-      partnerId,
-      assignedAt: new Date(),
-      status: 'assigned',
-    };
-    this.partnerAssignments.set(id, assignment);
-    return assignment;
+  async getServiceablePincode(pincode: string): Promise<ServiceablePincode | undefined> {
+    const [result] = await db
+      .select()
+      .from(serviceablePincodes)
+      .where(eq(serviceablePincodes.pincode, pincode));
+    return result || undefined;
   }
 
-  async getPartnerAssignments(partnerId: number): Promise<PartnerAssignment[]> {
-    return Array.from(this.partnerAssignments.values()).filter(a => a.partnerId === partnerId);
+  async getAllServiceablePincodes(): Promise<ServiceablePincode[]> {
+    return await db.select().from(serviceablePincodes);
   }
 
-  // Service Partners
-  async createServicePartner(insertPartner: InsertServicePartner): Promise<ServicePartner> {
-    const id = this.currentServicePartnerId++;
-    const partnerId = `SP${String(id).padStart(5, '0')}`;
-    const partner: ServicePartner = {
-      ...insertPartner,
-      id,
-      partnerId,
-      verificationStatus: insertPartner.verificationStatus ?? "Pending Verification",
-      businessName: insertPartner.businessName ?? null,
-      address: insertPartner.address ?? null,
-      isActive: insertPartner.isActive ?? true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.servicePartners.set(id, partner);
-    return partner;
+  async togglePincodeStatus(pincode: string): Promise<ServiceablePincode | undefined> {
+    const existing = await this.getServiceablePincode(pincode);
+    if (!existing) return undefined;
+
+    const [result] = await db
+      .update(serviceablePincodes)
+      .set({ isActive: !existing.isActive })
+      .where(eq(serviceablePincodes.pincode, pincode))
+      .returning();
+    return result || undefined;
   }
 
-  async getServicePartner(id: number): Promise<ServicePartner | undefined> {
-    return this.servicePartners.get(id);
+  async isPincodeServiceable(pincode: string): Promise<boolean> {
+    const [result] = await db
+      .select()
+      .from(serviceablePincodes)
+      .where(
+        and(
+          eq(serviceablePincodes.pincode, pincode),
+          eq(serviceablePincodes.isActive, true)
+        )
+      );
+    return !!result;
   }
 
-  async getServicePartnerByPartnerId(partnerId: string): Promise<ServicePartner | undefined> {
-    return Array.from(this.servicePartners.values()).find(p => p.partnerId === partnerId);
-  }
-
-  async getServicePartnerByPhone(phone: string): Promise<ServicePartner | undefined> {
-    return Array.from(this.servicePartners.values()).find(p => p.phone === phone);
-  }
-
-  async getServicePartnerByEmail(email: string): Promise<ServicePartner | undefined> {
-    return Array.from(this.servicePartners.values()).find(p => p.email === email);
-  }
-
-  async getAllServicePartners(): Promise<ServicePartner[]> {
-    return Array.from(this.servicePartners.values());
-  }
-
-  async getVerifiedServicePartners(): Promise<ServicePartner[]> {
-    return Array.from(this.servicePartners.values()).filter(p => p.verificationStatus === "Verified" && p.isActive);
-  }
-
-  async getPendingServicePartners(): Promise<ServicePartner[]> {
-    return Array.from(this.servicePartners.values()).filter(p => p.verificationStatus === "Pending Verification");
-  }
-
-  async updateServicePartner(id: number, updates: Partial<ServicePartner>): Promise<ServicePartner | undefined> {
-    const partner = this.servicePartners.get(id);
-    if (!partner) return undefined;
+  // Admin Statistics (optimized SQL aggregations)
+  async getAdminStats(): Promise<{
+    totalUsers: number;
+    totalProviders: number;
+    activeServices: number;
+    completedServices: number;
+    totalOrders: number;
+    totalRevenue: number;
+    pendingApprovals: number;
+  }> {
+    const [userCount] = await db.select({ count: count() }).from(users);
+    const [providerCount] = await db.select({ count: count() }).from(serviceProviders);
     
-    const updatedPartner = { ...partner, ...updates, updatedAt: new Date() };
-    this.servicePartners.set(id, updatedPartner);
-    return updatedPartner;
-  }
-
-  async updatePartnerVerificationStatus(id: number, status: string): Promise<ServicePartner | undefined> {
-    const partner = this.servicePartners.get(id);
-    if (!partner) return undefined;
+    const [activeServiceCount] = await db
+      .select({ count: count() })
+      .from(serviceRequests)
+      .where(
+        or(
+          eq(serviceRequests.status, 'placed'),
+          eq(serviceRequests.status, 'confirmed'),
+          eq(serviceRequests.status, 'partner_assigned'),
+          eq(serviceRequests.status, 'service_started')
+        )
+      );
     
-    const updatedPartner = { ...partner, verificationStatus: status, updatedAt: new Date() };
-    this.servicePartners.set(id, updatedPartner);
-    return updatedPartner;
+    const [completedServiceCount] = await db
+      .select({ count: count() })
+      .from(serviceRequests)
+      .where(eq(serviceRequests.status, 'service_completed'));
+
+    const [orderCount] = await db.select({ count: count() }).from(productOrders);
+    
+    const [revenueResult] = await db
+      .select({ total: sum(invoices.totalAmount) })
+      .from(invoices);
+
+    const [pendingCount] = await db
+      .select({ count: count() })
+      .from(serviceProviders)
+      .where(eq(serviceProviders.verificationStatus, 'pending'));
+
+    return {
+      totalUsers: userCount?.count || 0,
+      totalProviders: providerCount?.count || 0,
+      activeServices: activeServiceCount?.count || 0,
+      completedServices: completedServiceCount?.count || 0,
+      totalOrders: orderCount?.count || 0,
+      totalRevenue: Number(revenueResult?.total || 0),
+      pendingApprovals: pendingCount?.count || 0
+    };
   }
 
-  async deleteServicePartner(id: number): Promise<boolean> {
-    return this.servicePartners.delete(id);
-  }
+  async getRevenueByPeriod(days: number): Promise<{ date: string; revenue: number }[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
 
-  // Statistics for admin dashboard
-  async getTotalUsers(): Promise<number> {
-    return this.users.size;
-  }
+    const results = await db
+      .select({
+        date: sql<string>`DATE(${invoices.createdAt})`,
+        revenue: sum(invoices.totalAmount)
+      })
+      .from(invoices)
+      .where(gte(invoices.createdAt, startDate))
+      .groupBy(sql`DATE(${invoices.createdAt})`)
+      .orderBy(sql`DATE(${invoices.createdAt})`);
 
-  async getActiveServices(): Promise<number> {
-    return Array.from(this.serviceRequests.values()).filter(
-      req => ['confirmed', 'partner_assigned', 'service_started'].includes(req.status)
-    ).length;
-  }
-
-  async getTotalProductOrders(): Promise<number> {
-    return this.productOrders.size;
-  }
-
-  async getTotalRevenue(): Promise<number> {
-    const serviceRevenue = Array.from(this.serviceRequests.values())
-      .reduce((sum, req) => sum + (req.totalAmount || req.bookingFee || 0), 0);
-    const productRevenue = Array.from(this.productOrders.values())
-      .reduce((sum, order) => sum + order.totalAmount, 0);
-    return serviceRevenue + productRevenue;
+    return results.map(r => ({
+      date: r.date,
+      revenue: Number(r.revenue || 0)
+    }));
   }
 
   async getRecentServices(limit: number): Promise<ServiceRequest[]> {
-    return Array.from(this.serviceRequests.values())
-      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
-      .slice(0, limit);
+    return await db
+      .select()
+      .from(serviceRequests)
+      .orderBy(desc(serviceRequests.createdAt))
+      .limit(limit);
   }
 
   async getRecentOrders(limit: number): Promise<ProductOrder[]> {
-    return Array.from(this.productOrders.values())
-      .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0))
-      .slice(0, limit);
+    return await db
+      .select()
+      .from(productOrders)
+      .orderBy(desc(productOrders.createdAt))
+      .limit(limit);
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

@@ -1,0 +1,138 @@
+Role: Act as a Senior Full Stack Architect and Lead Developer.
+
+Objective: I have an existing prototype using In-Memory storage (MemStorage). I need you to refactor and upgrade this into a Production-Ready Backend and Admin Dashboard for "Unite Fix".
+
+Tech Stack:
+
+Backend: Node.js (Express), Drizzle ORM, PostgreSQL (Neon/Replit DB).
+
+Frontend: React, Tailwind CSS, Shadcn UI, Recharts (for Dashboard).
+
+Storage: Replit Object Storage (for images).
+
+Validation: Zod.
+
+1. Database Schema Upgrade (Move to PostgreSQL)
+Migrate the current schema to pg-core. Implement the following optimized schema with Indices for performance:
+
+Users: id, phone (Indexed), password, role (user/admin/serviceman), referral_code (Unique), referred_by_id, created_at.
+
+Service_Providers: id, user_id (FK), wallet_balance (Decimal, default 0), verification_status (Enum), current_lat (Float), current_long (Float), skills (JSON).
+
+Service_Requests:
+
+id, user_id, provider_id, status (Enum), handshake_otp (Int), booking_fee_status.
+
+location_lat, location_long (Indexed for Geo-queries).
+
+photos (Array of Strings/URLs).
+
+Wallet_Transactions: id, provider_id, amount, type, created_at. (Use for audit trails).
+
+Products/Orders/Invoices: Standard E-commerce schema.
+
+Serviceable_Pincodes: pincode (PK), is_active.
+
+2. Efficient Algorithms & Logic (The "Brain")
+A. Geo-Spatial Assignment (The "Uber" Logic):
+
+Algorithm: Implement the Haversine Formula in the Database Query or Logic layer.
+
+Requirement: When Admin views "Assign Partner", sort the list of partners by Distance (Ascending) relative to the User's Service Request location.
+
+Optimization: Do not fetch all partners. Fetch only WHERE status = 'ACTIVE'.
+
+B. Financial Integrity (ACID Transactions):
+
+Algorithm: Use Database Transactions (db.transaction) for the "Complete Service" flow.
+
+Logic:
+
+Start Transaction.
+
+Update Service Request status to COMPLETED.
+
+Calculate Commission (10%).
+
+Deduct Commission from Service_Provider.wallet_balance.
+
+Insert Record into Wallet_Transactions.
+
+Commit. (If any step fails, Rollback entire process to prevent money errors).
+
+C. Geo-Fencing (Fraud Prevention):
+
+API Logic: In the POST /service/start endpoint:
+
+Calculate distance between Provider.current_lat and Request.location_lat.
+
+Rule: If distance > 200 meters, throw 403 Error: "You are too far from the location to start the service."
+
+3. Comprehensive API Architecture
+Authentication:
+
+POST /auth/signup (Handle Referral Code lookup here).
+
+POST /auth/login (JWT with 30-day expiry).
+
+Admin Dashboard APIs:
+
+GET /admin/stats (Optimize: Use SQL COUNT aggregations, do not loop in JS).
+
+GET /admin/servicemen/list (Filter by Verification Status).
+
+POST /admin/requests/assign (Payload: request_id, provider_id).
+
+GET /admin/invoices/all (Paginated list).
+
+POST /admin/pincodes/toggle.
+
+Serviceman App APIs:
+
+POST /serviceman/location/update (Lightweight endpoint, updates Lat/Long only).
+
+GET /serviceman/assignments (Sorted by Date).
+
+POST /service/verify-handshake (Input: 4-digit OTP. Logic: Compare with DB).
+
+POST /service/complete (Triggers the ACID transaction).
+
+User App APIs:
+
+POST /services/create (Accepts Lat/Long).
+
+GET /products/list (Support Pagination: ?page=1&limit=20 to reduce load).
+
+4. Admin Dashboard UI (Frontend)
+Create a professional "Control Center" layout with a Sidebar.
+
+Overview Tab:
+
+Live Map: (Optional) Visualize Service Requests as pins.
+
+Stats Cards: Total Revenue, Active Jobs, Pending Approvals.
+
+Charts: Revenue over last 30 days (Use Recharts AreaChart).
+
+Partner Management:
+
+Table showing Name, Phone, Wallet Balance, Status.
+
+Actions: Approve, Suspend, Top-up Wallet.
+
+Service Management:
+
+Kanban or Table view: Pending -> Assigned -> In Progress -> Completed.
+
+Assignment Modal: When clicking "Assign", show a list of Partners sorted by Distance to the customer.
+
+5. Implementation Best Practices
+Validation: Use zod middleware for all POST/PUT requests. Reject bad data before it hits the DB.
+
+Error Handling: Create a global Error Handler (500, 400, 401) so the app doesn't crash on exceptions.
+
+Security: Hash passwords with scrypt or bcrypt.
+
+Pagination: For all "List" APIs (Orders, Requests, Users), implement limit and offset to handle scaling data.
+
+Action: Start by scaffolding the db/schema.ts with PostgreSQL types and the Drizzle connection, then build the Backend logic.
