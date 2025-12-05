@@ -16,7 +16,7 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
 const COMMISSION_RATE = 0.10; // 10% commission
-const MAX_SERVICE_START_DISTANCE = 200; // meters
+const MAX_SERVICE_START_DISTANCE = 500; // meters (per business requirement)
 
 // Haversine formula for geo-fencing
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
