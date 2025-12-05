@@ -1,7 +1,33 @@
 import { useQuery } from "@tanstack/react-query";
+import { Users, Wrench, ShoppingBag, TrendingUp, Clock, CheckCircle } from "lucide-react";
+
+interface StatsDataInner {
+  totalUsers: number;
+  totalProviders: number;
+  activeServices: number;
+  completedServices: number;
+  totalOrders: number;
+  totalRevenue: number;
+  pendingApprovals: number;
+}
+
+interface StatsResponse {
+  success?: boolean;
+  data?: StatsDataInner;
+  totalUsers?: number;
+  activeServices?: number;
+  productOrders?: number;
+  revenue?: number;
+  pendingCount?: number;
+  totalProviders?: number;
+  completedServices?: number;
+  totalOrders?: number;
+  totalRevenue?: number;
+  pendingApprovals?: number;
+}
 
 export default function StatsCards() {
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading } = useQuery<StatsResponse>({
     queryKey: ["/api/admin/stats"],
   });
 
@@ -17,72 +43,88 @@ export default function StatsCards() {
     );
   }
 
+  const statsData = stats?.data || stats as StatsDataInner | undefined;
+  
+  const totalUsers = statsData?.totalUsers || (stats as StatsResponse)?.totalUsers || 0;
+  const totalProviders = statsData?.totalProviders || (stats as StatsResponse)?.totalProviders || 0;
+  const activeServices = statsData?.activeServices || (stats as StatsResponse)?.activeServices || 0;
+  const completedServices = statsData?.completedServices || (stats as StatsResponse)?.completedServices || 0;
+  const totalOrders = statsData?.totalOrders || (stats as StatsResponse)?.totalOrders || (stats as StatsResponse)?.productOrders || 0;
+  const totalRevenue = statsData?.totalRevenue || (stats as StatsResponse)?.totalRevenue || (stats as StatsResponse)?.revenue || 0;
+  const pendingApprovals = statsData?.pendingApprovals || (stats as StatsResponse)?.pendingApprovals || 0;
+  
   const statsCards = [
     {
       title: "Total Users",
-      value: stats?.totalUsers || 0,
-      change: "+12% from last month",
-      changeType: "positive",
-      icon: (
-        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-        </svg>
-      ),
+      value: totalUsers,
+      change: `${totalProviders} providers`,
+      changeType: "info",
+      icon: <Users className="w-6 h-6 text-blue-600" />,
       iconBg: "bg-blue-100",
     },
     {
       title: "Active Services",
-      value: stats?.activeServices || 0,
-      change: `${stats?.pendingCount || 0} pending assignment`,
+      value: activeServices,
+      change: `${pendingApprovals} pending approval`,
       changeType: "warning",
-      icon: (
-        <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 7.172V5L8 4z" />
-        </svg>
-      ),
+      icon: <Wrench className="w-6 h-6 text-orange-600" />,
       iconBg: "bg-orange-100",
     },
     {
-      title: "Product Orders",
-      value: stats?.productOrders || 0,
-      change: "89 delivered today",
+      title: "Completed Services",
+      value: completedServices,
+      change: "All time",
       changeType: "positive",
-      icon: (
-        <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m-2.4 0L3 3H1m6 10v6a2 2 0 002 2h4a2 2 0 002-2v-6m-6 0a2 2 0 002-2V9a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 002 2" />
-        </svg>
-      ),
+      icon: <CheckCircle className="w-6 h-6 text-green-600" />,
       iconBg: "bg-green-100",
     },
     {
-      title: "Revenue",
-      value: `₹${(stats?.revenue || 0).toLocaleString()}`,
-      change: "+8.5% this week",
+      title: "Product Orders",
+      value: totalOrders,
+      change: "Total orders",
+      changeType: "info",
+      icon: <ShoppingBag className="w-6 h-6 text-purple-600" />,
+      iconBg: "bg-purple-100",
+    },
+    {
+      title: "Total Revenue",
+      value: `₹${totalRevenue.toLocaleString()}`,
+      change: "All time earnings",
       changeType: "positive",
-      icon: (
-        <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-        </svg>
-      ),
-      iconBg: "bg-green-100",
+      icon: <TrendingUp className="w-6 h-6 text-emerald-600" />,
+      iconBg: "bg-emerald-100",
+    },
+    {
+      title: "Pending Approvals",
+      value: pendingApprovals,
+      change: "Partner verifications",
+      changeType: "warning",
+      icon: <Clock className="w-6 h-6 text-amber-600" />,
+      iconBg: "bg-amber-100",
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
       {statsCards.map((card, index) => (
-        <div key={index} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">{card.title}</p>
-              <p className="text-2xl font-bold text-gray-900">{card.value}</p>
-              <p className={`text-sm ${
-                card.changeType === 'positive' ? 'text-green-600' : 'text-orange-600'
+        <div 
+          key={index} 
+          className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
+          data-testid={`stat-card-${card.title.toLowerCase().replace(/\s+/g, '-')}`}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <p className="text-sm text-gray-500 font-medium">{card.title}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+              <p className={`text-xs mt-1 ${
+                card.changeType === 'positive' ? 'text-green-600' : 
+                card.changeType === 'warning' ? 'text-orange-600' : 
+                'text-gray-500'
               }`}>
                 {card.change}
               </p>
             </div>
-            <div className={`w-12 h-12 ${card.iconBg} rounded-lg flex items-center justify-center`}>
+            <div className={`w-10 h-10 ${card.iconBg} rounded-lg flex items-center justify-center flex-shrink-0`}>
               {card.icon}
             </div>
           </div>

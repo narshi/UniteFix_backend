@@ -246,7 +246,11 @@ export class DatabaseStorage implements IStorage {
     
     const [provider] = await db
       .insert(serviceProviders)
-      .values({ ...insertProvider, partnerId })
+      .values({ 
+        ...insertProvider, 
+        partnerId,
+        skills: insertProvider.skills || null 
+      } as any)
       .returning();
     return provider;
   }

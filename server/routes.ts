@@ -7,32 +7,71 @@ import {
   insertServiceRequestSchema,
   insertProductOrderSchema,
   insertProductSchema,
-  insertCartItemSchema,
-  insertInvoiceSchema,
-  insertOtpVerificationSchema
+  insertServiceProviderSchema,
+  insertServiceablePincodeSchema
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
+const COMMISSION_RATE = 0.10; // 10% commission
+const MAX_SERVICE_START_DISTANCE = 200; // meters
 
-// Extend Express Request interface
+// Haversine formula for geo-fencing
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Extended Request types
 interface AuthenticatedRequest extends Request {
   user?: {
     userId: number;
-    userType: string;
-    isAdmin?: boolean;
+    role: string;
   };
 }
 
-// Middleware to verify JWT for regular users
-async function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+// Global error handler middleware
+function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
+  console.error('Error:', err.message);
+  
+  if (err.name === 'ZodError') {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Validation failed', 
+      errors: (err as any).errors 
+    });
+  }
+  
+  if (err.message.includes('not found')) {
+    return res.status(404).json({ success: false, message: err.message });
+  }
+  
+  if (err.message.includes('unauthorized') || err.message.includes('Invalid')) {
+    return res.status(401).json({ success: false, message: err.message });
+  }
+  
+  if (err.message.includes('forbidden') || err.message.includes('too far')) {
+    return res.status(403).json({ success: false, message: err.message });
+  }
+  
+  res.status(500).json({ success: false, message: 'Internal server error' });
+}
+
+// JWT Authentication middleware
+function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ message: 'Access token required' });
+    return res.status(401).json({ success: false, message: 'Access token required' });
   }
 
   try {
@@ -40,134 +79,212 @@ async function authenticateToken(req: AuthenticatedRequest, res: Response, next:
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(403).json({ message: 'Invalid token' });
+    return res.status(403).json({ success: false, message: 'Invalid or expired token' });
   }
 }
 
-// Middleware to verify JWT for admin users
-async function authenticateAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+// Admin authentication middleware
+function authenticateAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ message: 'Admin access token required' });
+    return res.status(401).json({ success: false, message: 'Admin token required' });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    if (!decoded.isAdmin) {
-      return res.status(403).json({ message: 'Admin access required' });
+    if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
     }
     req.user = decoded;
     next();
   } catch (error) {
-    return res.status(403).json({ message: 'Invalid admin token' });
+    return res.status(403).json({ success: false, message: 'Invalid admin token' });
   }
 }
 
-// Helper function to validate Uttara Kannada pin codes
-function isValidUttaraKannadaPinCode(pinCode: string): boolean {
-  const uttaraKannadaPinCodes = [
-    '581301', '581302', '581303', '581304', '581305', '581306', '581307', '581308', '581309', '581310',
-    '581311', '581312', '581313', '581314', '581315', '581316', '581317', '581318', '581319', '581320',
-    '581321', '581322', '581323', '581324', '581325', '581326', '581327', '581328', '581329', '581330',
-    '581331', '581332', '581333', '581334', '581335', '581336', '581337', '581338', '581339', '581340',
-    '581341', '581342', '581343', '581344', '581345', '581346', '581347', '581348', '581349', '581350',
-    '581351', '581352', '581353', '581354', '581355', '581356', '581357', '581358', '581359', '581360'
-  ];
-  return uttaraKannadaPinCodes.includes(pinCode);
+// Serviceman authentication middleware
+function authenticateServiceman(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (decoded.role !== 'serviceman' && decoded.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Serviceman access required' });
+    }
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(403).json({ success: false, message: 'Invalid token' });
+  }
 }
 
-// Helper function to generate OTP
+// Helper to generate OTP
 function generateOTP(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-// Helper function to generate 4-digit verification code
-function generateVerificationCode(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+// Helper to generate referral code
+function generateReferralCode(): string {
+  return `UF${Date.now().toString(36).toUpperCase()}`;
 }
 
-// Helper function to get user-friendly service status messages
-function getServiceStatusMessage(status: string): string {
-  const statusMessages = {
-    'placed': 'Your service request has been received and is being reviewed.',
-    'confirmed': 'Your service request has been confirmed. A partner will be assigned soon.',
-    'partner_assigned': 'A service partner has been assigned to your request.',
-    'service_started': 'Service work has begun. Your partner is on-site.',
-    'service_completed': 'Service has been completed successfully.',
-    'cancelled': 'This service request has been cancelled.'
+// Pagination helper
+function paginate<T>(data: T[], page: number = 1, limit: number = 20): { data: T[]; pagination: { page: number; limit: number; total: number; pages: number } } {
+  const total = data.length;
+  const pages = Math.ceil(total / limit);
+  const offset = (page - 1) * limit;
+  return {
+    data: data.slice(offset, offset + limit),
+    pagination: { page, limit, total, pages }
   };
-  return statusMessages[status] || 'Status unknown';
-}
-
-// Helper function to get user-friendly order status messages
-function getOrderStatusMessage(status: string): string {
-  const statusMessages = {
-    'placed': 'Your order has been placed and is being processed.',
-    'confirmed': 'Your order has been confirmed and is being prepared.',
-    'shipped': 'Your order has been shipped and is on the way.',
-    'delivered': 'Your order has been delivered successfully.',
-    'cancelled': 'This order has been cancelled.'
-  };
-  return statusMessages[status] || 'Status unknown';
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
-  // Admin Authentication routes
-  app.post("/api/admin/auth/login", async (req, res) => {
+  // ==================== AUTHENTICATION ROUTES ====================
+  
+  // User Signup with referral code support
+  app.post("/api/auth/signup", async (req, res, next) => {
+    try {
+      const userData = insertUserSchema.parse(req.body);
+      
+      // Check if pincode is serviceable
+      const isServiceable = await storage.isPincodeServiceable(userData.pinCode || '');
+      if (userData.pinCode && !isServiceable) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Service not available in your area. We are expanding soon!" 
+        });
+      }
+
+      // Check for existing user
+      const existingUser = await storage.getUserByPhone(userData.phone);
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Phone number already registered" });
+      }
+
+      // Handle referral code
+      let referredById: number | undefined;
+      if (req.body.referralCode) {
+        const referrer = await storage.getUserByReferralCode(req.body.referralCode);
+        if (referrer) {
+          referredById = referrer.id;
+        }
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(userData.password, 10);
+      
+      const user = await storage.createUser({
+        ...userData,
+        password: hashedPassword,
+        referredById,
+      });
+
+      const token = jwt.sign(
+        { userId: user.id, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+
+      res.status(201).json({ 
+        success: true,
+        message: "User registered successfully",
+        user: { ...user, password: undefined },
+        token 
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // User Login
+  app.post("/api/auth/login", async (req, res, next) => {
+    try {
+      const { phone, password } = req.body;
+      
+      const user = await storage.getUserByPhone(phone);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Invalid credentials" });
+      }
+
+      const validPassword = await bcrypt.compare(password, user.password);
+      if (!validPassword) {
+        return res.status(401).json({ success: false, message: "Invalid credentials" });
+      }
+
+      const token = jwt.sign(
+        { userId: user.id, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+
+      res.json({ 
+        success: true,
+        message: "Login successful",
+        user: { ...user, password: undefined },
+        token 
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Admin Login
+  app.post("/api/admin/auth/login", async (req, res, next) => {
     try {
       const { username, password } = req.body;
       
       const admin = await storage.getAdminByUsername(username) || 
                     await storage.getAdminByEmail(username);
       
-      if (!admin) {
-        return res.status(401).json({ message: "Invalid admin credentials" });
-      }
-
-      if (!admin.isActive) {
-        return res.status(401).json({ message: "Admin account is deactivated" });
+      if (!admin || !admin.isActive) {
+        return res.status(401).json({ success: false, message: "Invalid admin credentials" });
       }
 
       const validPassword = await bcrypt.compare(password, admin.password);
       if (!validPassword) {
-        return res.status(401).json({ message: "Invalid admin credentials" });
+        return res.status(401).json({ success: false, message: "Invalid admin credentials" });
       }
 
-      // Update last login
       await storage.updateAdminUser(admin.id, { lastLogin: new Date() });
 
       const token = jwt.sign(
-        { userId: admin.id, userType: 'admin', isAdmin: true },
+        { userId: admin.id, role: admin.role },
         JWT_SECRET,
         { expiresIn: '8h' }
       );
 
       res.json({ 
+        success: true,
         message: "Admin login successful",
         admin: { ...admin, password: undefined },
         token 
       });
     } catch (error) {
-      res.status(500).json({ message: "Admin login failed" });
+      next(error);
     }
   });
 
-  app.post("/api/admin/auth/register", async (req, res) => {
+  // Admin Registration (for initial setup)
+  app.post("/api/admin/auth/register", async (req, res, next) => {
     try {
       const adminData = insertAdminUserSchema.parse(req.body);
       
-      // Check if admin already exists
       const existingAdmin = await storage.getAdminByEmail(adminData.email) || 
                             await storage.getAdminByUsername(adminData.username);
       
       if (existingAdmin) {
-        return res.status(400).json({ message: "Admin user already exists" });
+        return res.status(400).json({ success: false, message: "Admin already exists" });
       }
 
-      // Hash password
       const hashedPassword = await bcrypt.hash(adminData.password, 10);
       
       const admin = await storage.createAdminUser({
@@ -176,256 +293,806 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.status(201).json({ 
-        message: "Admin user created successfully",
+        success: true,
+        message: "Admin created successfully",
         admin: { ...admin, password: undefined }
       });
     } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Admin registration failed" });
+      next(error);
     }
   });
 
-  app.get("/api/admin/auth/profile", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
+  // ==================== ADMIN DASHBOARD ROUTES ====================
+  
+  // Dashboard Statistics (Optimized SQL aggregations)
+  app.get("/api/admin/stats", async (req, res, next) => {
     try {
-      const admin = await storage.getAdminUser(req.user!.userId);
-      if (!admin) {
-        return res.status(404).json({ message: "Admin not found" });
-      }
-      res.json({ ...admin, password: undefined });
+      const stats = await storage.getAdminStats();
+      res.json({ success: true, data: stats });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch admin profile" });
+      next(error);
     }
   });
 
-  // Client App Authentication routes for Mobile/External Apps
-  app.post("/api/client/auth/register", async (req, res) => {
+  // Revenue chart data
+  app.get("/api/admin/revenue/chart", async (req, res, next) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+      const days = parseInt(req.query.days as string) || 30;
+      const revenueData = await storage.getRevenueByPeriod(days);
+      res.json({ success: true, data: revenueData });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get all users with pagination
+  app.get("/api/admin/users", async (req, res, next) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
       
-      // Validate pin code for Uttara Kannada region
-      if (!isValidUttaraKannadaPinCode(userData.pinCode)) {
+      const allUsers = await storage.getAllUsers();
+      const result = paginate(allUsers, page, limit);
+      
+      res.json({ 
+        success: true, 
+        data: result.data.map(u => ({ ...u, password: undefined })),
+        pagination: result.pagination
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== SERVICE PROVIDER MANAGEMENT ====================
+  
+  // Get all service providers with filtering
+  app.get("/api/admin/servicemen/list", async (req, res, next) => {
+    try {
+      const { status, page = '1', limit = '20' } = req.query;
+      
+      let providers;
+      if (status === 'pending') {
+        providers = await storage.getPendingServiceProviders();
+      } else if (status === 'verified') {
+        providers = await storage.getVerifiedServiceProviders();
+      } else {
+        providers = await storage.getAllServiceProviders();
+      }
+      
+      const result = paginate(providers, parseInt(page as string), parseInt(limit as string));
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get partners sorted by distance from a location
+  app.get("/api/admin/servicemen/nearby", async (req, res, next) => {
+    try {
+      const { lat, long, status } = req.query;
+      
+      if (!lat || !long) {
+        return res.status(400).json({ success: false, message: "Latitude and longitude required" });
+      }
+      
+      const providers = await storage.getProvidersSortedByDistance(
+        parseFloat(lat as string),
+        parseFloat(long as string),
+        status as string
+      );
+      
+      res.json({ 
+        success: true, 
+        data: providers.map(p => ({
+          ...p,
+          distanceKm: (p.distance / 1000).toFixed(2)
+        }))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Create new service provider
+  app.post("/api/admin/servicemen/create", async (req, res, next) => {
+    try {
+      const providerData = insertServiceProviderSchema.parse(req.body);
+      const provider = await storage.createServiceProvider(providerData);
+      res.status(201).json({ success: true, data: provider });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Approve/Verify service provider
+  app.post("/api/admin/servicemen/:id/approve", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.updateServiceProvider(id, { 
+        verificationStatus: 'verified',
+        isActive: true 
+      });
+      
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+      
+      res.json({ success: true, message: "Provider approved", data: provider });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Suspend service provider
+  app.post("/api/admin/servicemen/:id/suspend", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      const provider = await storage.updateServiceProvider(id, { 
+        verificationStatus: 'suspended',
+        isActive: false 
+      });
+      
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+      
+      res.json({ success: true, message: "Provider suspended", data: provider });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Top up provider wallet
+  app.post("/api/admin/servicemen/:id/topup", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { amount, description } = req.body;
+      
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid amount" });
+      }
+      
+      const transaction = await storage.topUpProviderWallet(id, amount, description || 'Admin top-up');
+      res.json({ success: true, message: "Wallet topped up", data: transaction });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get provider wallet transactions
+  app.get("/api/admin/servicemen/:id/transactions", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const transactions = await storage.getProviderWalletTransactions(id);
+      res.json({ success: true, data: transactions });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Business partners endpoints (backward compatibility)
+  app.get("/api/business/partners", async (req, res, next) => {
+    try {
+      const providers = await storage.getAllServiceProviders();
+      res.json(providers);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/business/partners", async (req, res, next) => {
+    try {
+      const providerData = insertServiceProviderSchema.parse(req.body);
+      const provider = await storage.createServiceProvider({
+        ...providerData,
+        verificationStatus: 'verified'
+      });
+      res.status(201).json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/business/partners/pending", async (req, res, next) => {
+    try {
+      const providers = await storage.getPendingServiceProviders();
+      res.json(providers);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/business/partners/:id", async (req, res, next) => {
+    try {
+      const provider = await storage.getServiceProvider(parseInt(req.params.id));
+      if (!provider) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      res.json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/business/partners/:id", async (req, res, next) => {
+    try {
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), req.body);
+      if (!provider) {
+        return res.status(404).json({ message: "Partner not found" });
+      }
+      res.json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/business/partners/:id", async (req, res, next) => {
+    try {
+      await storage.deleteServiceProvider(parseInt(req.params.id));
+      res.json({ message: "Partner deleted" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/business/partners/:id/verify", async (req, res, next) => {
+    try {
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
+        verificationStatus: 'verified' 
+      });
+      res.json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/business/partners/:id/suspend", async (req, res, next) => {
+    try {
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
+        verificationStatus: 'suspended',
+        isActive: false 
+      });
+      res.json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/business/partners/:id/deactivate", async (req, res, next) => {
+    try {
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
+        isActive: false 
+      });
+      res.json(provider);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== SERVICE REQUEST MANAGEMENT ====================
+  
+  // Get all service requests (admin) with pagination
+  app.get("/api/admin/services", async (req, res, next) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const status = req.query.status as string;
+      
+      let services = await storage.getAllServiceRequests();
+      
+      if (status) {
+        services = services.filter(s => s.status === status);
+      }
+      
+      const result = paginate(services, page, limit);
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get recent services
+  app.get("/api/admin/services/recent", async (req, res, next) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 5;
+      const services = await storage.getRecentServices(limit);
+      res.json(services);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get pending assignments
+  app.get("/api/admin/services/pending", async (req, res, next) => {
+    try {
+      const services = await storage.getPendingAssignments();
+      res.json(services);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Assign provider to service request
+  app.post("/api/admin/requests/assign", async (req, res, next) => {
+    try {
+      const { request_id, provider_id } = req.body;
+      
+      if (!request_id || !provider_id) {
+        return res.status(400).json({ success: false, message: "request_id and provider_id required" });
+      }
+      
+      const service = await storage.assignProviderToService(request_id, provider_id);
+      
+      if (!service) {
+        return res.status(404).json({ success: false, message: "Service request not found" });
+      }
+      
+      res.json({ success: true, message: "Provider assigned successfully", data: service });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Update service status
+  app.patch("/api/admin/services/:id/status", async (req, res, next) => {
+    try {
+      const { status } = req.body;
+      const service = await storage.updateServiceRequestStatus(parseInt(req.params.id), status);
+      
+      if (!service) {
+        return res.status(404).json({ success: false, message: "Service not found" });
+      }
+      
+      res.json({ success: true, data: service });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Assign partner (backward compatibility)
+  app.post("/api/admin/services/:id/assign", async (req, res, next) => {
+    try {
+      const { partnerId } = req.body;
+      const service = await storage.assignProviderToService(parseInt(req.params.id), partnerId);
+      
+      if (!service) {
+        return res.status(404).json({ message: "Service not found" });
+      }
+      
+      res.json(service);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== SERVICEMAN APP ROUTES ====================
+  
+  // Update serviceman location (lightweight)
+  app.post("/api/serviceman/location/update", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { lat, long } = req.body;
+      
+      if (!lat || !long) {
+        return res.status(400).json({ success: false, message: "Latitude and longitude required" });
+      }
+      
+      const provider = await storage.getServiceProviderByUserId(req.user!.userId);
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider profile not found" });
+      }
+      
+      await storage.updateProviderLocation(provider.id, lat, long);
+      res.json({ success: true, message: "Location updated" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get serviceman assignments
+  app.get("/api/serviceman/assignments", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const provider = await storage.getServiceProviderByUserId(req.user!.userId);
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider profile not found" });
+      }
+      
+      const assignments = await storage.getProviderServiceRequests(provider.id);
+      res.json({ success: true, data: assignments });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Verify handshake OTP
+  app.post("/api/service/verify-handshake", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { serviceId, otp } = req.body;
+      
+      const service = await storage.getServiceRequest(parseInt(serviceId));
+      if (!service) {
+        return res.status(404).json({ success: false, message: "Service not found" });
+      }
+      
+      if (service.handshakeOtp !== otp) {
+        return res.status(400).json({ success: false, message: "Invalid OTP" });
+      }
+      
+      res.json({ success: true, message: "OTP verified successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Start service with geo-fencing
+  app.post("/api/service/start", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { serviceId, providerLat, providerLong } = req.body;
+      
+      const service = await storage.getServiceRequest(parseInt(serviceId));
+      if (!service) {
+        return res.status(404).json({ success: false, message: "Service not found" });
+      }
+      
+      // Geo-fencing check
+      if (service.locationLat && service.locationLong) {
+        const distance = calculateDistance(
+          providerLat,
+          providerLong,
+          service.locationLat,
+          service.locationLong
+        );
+        
+        if (distance > MAX_SERVICE_START_DISTANCE) {
+          return res.status(403).json({ 
+            success: false, 
+            message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)` 
+          });
+        }
+      }
+      
+      const updatedService = await storage.updateServiceRequest(parseInt(serviceId), {
+        status: 'service_started',
+        startedAt: new Date()
+      });
+      
+      res.json({ success: true, message: "Service started", data: updatedService });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Complete service with ACID transaction
+  app.post("/api/service/complete", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { serviceId, totalAmount } = req.body;
+      
+      if (!serviceId || !totalAmount) {
+        return res.status(400).json({ success: false, message: "serviceId and totalAmount required" });
+      }
+      
+      const result = await storage.completeServiceWithTransaction(
+        parseInt(serviceId),
+        totalAmount,
+        COMMISSION_RATE
+      );
+      
+      res.json({ 
+        success: true, 
+        message: "Service completed successfully",
+        data: {
+          service: result.service,
+          commission: result.transaction
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== USER APP ROUTES ====================
+  
+  // Create service request
+  app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const serviceData = insertServiceRequestSchema.parse({
+        ...req.body,
+        userId: req.user!.userId
+      });
+      
+      const service = await storage.createServiceRequest(serviceData);
+      res.status(201).json({ success: true, data: service });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get user's service requests
+  app.get("/api/services/my-requests", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const services = await storage.getUserServiceRequests(req.user!.userId);
+      res.json({ success: true, data: services });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Cancel service (before partner assignment only)
+  app.post("/api/services/:id/cancel", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const service = await storage.getServiceRequest(parseInt(req.params.id));
+      
+      if (!service || service.userId !== req.user!.userId) {
+        return res.status(404).json({ success: false, message: "Service not found" });
+      }
+      
+      if (!['placed', 'confirmed'].includes(service.status)) {
         return res.status(400).json({ 
-          message: "Service is only available in Uttara Kannada region. Please check your pin code." 
+          success: false, 
+          message: "Cannot cancel after partner assignment. Please contact support." 
         });
       }
-
-      // Check if user already exists
-      const existingUser = await storage.getUserByPhone(userData.phone) || 
-                           await storage.getUserByEmail(userData.email);
       
-      if (existingUser) {
-        return res.status(400).json({ message: "User already exists with this phone or email" });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(userData.password, 10);
-      
-      const user = await storage.createUser({
-        ...userData,
-        password: hashedPassword,
-        isVerified: false, // Require verification for client apps
-      });
-
-      // Generate JWT token for client apps
-      const token = jwt.sign(
-        { userId: user.id, userType: user.userType },
-        JWT_SECRET,
-        { expiresIn: '30d' } // Longer expiry for mobile apps
-      );
-
-      res.status(201).json({ 
-        message: "User registered successfully",
-        user: { ...user, password: undefined },
-        token,
-        requiresVerification: true
-      });
+      const updated = await storage.updateServiceRequestStatus(service.id, 'cancelled');
+      res.json({ success: true, message: "Service cancelled", data: updated });
     } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Registration failed" });
+      next(error);
     }
   });
 
-  app.post("/api/client/auth/login", async (req, res) => {
+  // ==================== PRODUCTS & ORDERS ====================
+  
+  // Get products with pagination
+  app.get("/api/products/list", async (req, res, next) => {
     try {
-      const { identifier, password } = req.body; // identifier can be phone or email
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const category = req.query.category as string;
       
-      const user = await storage.getUserByPhone(identifier) || 
-                   await storage.getUserByEmail(identifier);
+      let products;
+      if (category) {
+        products = await storage.getProductsByCategory(category);
+      } else {
+        products = await storage.getAllProducts();
+      }
       
-      if (!user) {
-        return res.status(401).json({ message: "Invalid credentials" });
+      const result = paginate(products, page, limit);
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get all orders (admin)
+  app.get("/api/admin/orders", async (req, res, next) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      const orders = await storage.getAllProductOrders();
+      const result = paginate(orders, page, limit);
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get recent orders
+  app.get("/api/admin/orders/recent", async (req, res, next) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 5;
+      const orders = await storage.getRecentOrders(limit);
+      res.json(orders);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Update order status
+  app.patch("/api/admin/orders/:id/status", async (req, res, next) => {
+    try {
+      const { status } = req.body;
+      const order = await storage.updateProductOrderStatus(parseInt(req.params.id), status);
+      
+      if (!order) {
+        return res.status(404).json({ success: false, message: "Order not found" });
       }
+      
+      res.json({ success: true, data: order });
+    } catch (error) {
+      next(error);
+    }
+  });
 
-      const validPassword = await bcrypt.compare(password, user.password);
-      if (!validPassword) {
-        return res.status(401).json({ message: "Invalid credentials" });
+  // Place order
+  app.post("/api/orders/place", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { products, address, deliveryLat, deliveryLong } = req.body;
+      
+      // Calculate total
+      let totalAmount = 0;
+      for (const item of products) {
+        const product = await storage.getProduct(item.productId);
+        if (product) {
+          totalAmount += product.price * item.quantity;
+        }
       }
+      
+      const order = await storage.createProductOrder({
+        userId: req.user!.userId,
+        products,
+        totalAmount,
+        address,
+        deliveryLat,
+        deliveryLong
+      });
+      
+      // Clear cart
+      await storage.clearCart(req.user!.userId);
+      
+      res.status(201).json({ success: true, data: order });
+    } catch (error) {
+      next(error);
+    }
+  });
 
-      // Generate JWT token for client apps
-      const token = jwt.sign(
-        { userId: user.id, userType: user.userType },
-        JWT_SECRET,
-        { expiresIn: '30d' } // Longer expiry for mobile apps
-      );
+  // Cart endpoints
+  app.get("/api/cart", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const items = await storage.getCartItems(req.user!.userId);
+      res.json({ success: true, data: items });
+    } catch (error) {
+      next(error);
+    }
+  });
 
+  app.post("/api/cart/add", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { productId, quantity } = req.body;
+      const item = await storage.addToCart({
+        userId: req.user!.userId,
+        productId,
+        quantity: quantity || 1
+      });
+      res.status(201).json({ success: true, data: item });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      await storage.removeFromCart(parseInt(req.params.id));
+      res.json({ success: true, message: "Item removed" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== INVOICES ====================
+  
+  app.get("/api/admin/invoices/all", async (req, res, next) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      const invoices = await storage.getAllInvoices();
+      const result = paginate(invoices, page, limit);
+      res.json({ success: true, data: result.data, pagination: result.pagination });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/invoices", async (req, res, next) => {
+    try {
+      const invoices = await storage.getAllInvoices();
+      res.json(invoices);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/invoices/:id", async (req, res, next) => {
+    try {
+      const invoice = await storage.getInvoice(parseInt(req.params.id));
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== PINCODES MANAGEMENT ====================
+  
+  app.get("/api/admin/pincodes", async (req, res, next) => {
+    try {
+      const pincodes = await storage.getAllServiceablePincodes();
+      res.json({ success: true, data: pincodes });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/pincodes", async (req, res, next) => {
+    try {
+      const pincodeData = insertServiceablePincodeSchema.parse(req.body);
+      const pincode = await storage.createServiceablePincode(pincodeData);
+      res.status(201).json({ success: true, data: pincode });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/pincodes/toggle", async (req, res, next) => {
+    try {
+      const { pincode } = req.body;
+      const result = await storage.togglePincodeStatus(pincode);
+      
+      if (!result) {
+        return res.status(404).json({ success: false, message: "Pincode not found" });
+      }
+      
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Validate pincode
+  app.post("/api/validate-pincode", async (req, res, next) => {
+    try {
+      const { pinCode } = req.body;
+      const isServiceable = await storage.isPincodeServiceable(pinCode);
+      
       res.json({ 
-        message: "Login successful",
-        user: { ...user, password: undefined },
-        token,
-        isVerified: user.isVerified
+        success: true,
+        valid: isServiceable,
+        message: isServiceable ? "Valid pin code" : "Service not available in your area"
       });
     } catch (error) {
-      res.status(500).json({ message: "Login failed" });
+      next(error);
     }
   });
 
-  app.post("/api/client/auth/refresh-token", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  // Backward compatibility for locations
+  app.get("/api/admin/locations", async (req, res, next) => {
     try {
-      const user = await storage.getUser(req.user!.userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Generate new token
-      const token = jwt.sign(
-        { userId: user.id, userType: user.userType },
-        JWT_SECRET,
-        { expiresIn: '30d' }
-      );
-
-      res.json({ 
-        message: "Token refreshed",
-        token,
-        user: { ...user, password: undefined }
-      });
+      const pincodes = await storage.getAllServiceablePincodes();
+      res.json(pincodes);
     } catch (error) {
-      res.status(500).json({ message: "Token refresh failed" });
+      next(error);
     }
   });
 
-  app.get("/api/client/auth/profile", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.patch("/api/admin/locations/:pinCode/toggle", async (req, res, next) => {
     try {
-      const user = await storage.getUser(req.user!.userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
+      const result = await storage.togglePincodeStatus(req.params.pinCode);
+      if (!result) {
+        return res.status(404).json({ message: "Pincode not found" });
       }
-      res.json({ ...user, password: undefined });
+      res.json(result);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch user profile" });
+      next(error);
     }
   });
 
-  app.patch("/api/client/auth/profile", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const updates = req.body;
-      
-      // Don't allow updating sensitive fields
-      delete updates.id;
-      delete updates.password;
-      delete updates.isVerified;
-
-      const user = await storage.updateUser(req.user!.userId, updates);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      res.json({ 
-        message: "Profile updated successfully",
-        user: { ...user, password: undefined }
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update profile" });
-    }
-  });
-
-  // Legacy User Authentication routes (keeping for backward compatibility)
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const userData = insertUserSchema.parse(req.body);
-      
-      // Validate pin code
-      if (!isValidUttaraKannadaPinCode(userData.pinCode)) {
-        return res.status(400).json({ 
-          message: "Currently, we are not serving in your area. We are expanding soon!" 
-        });
-      }
-
-      // Check if user already exists
-      const existingUser = await storage.getUserByEmail(userData.email) || 
-                          await storage.getUserByPhone(userData.phone) ||
-                          await storage.getUserByUsername(userData.username);
-      
-      if (existingUser) {
-        return res.status(400).json({ message: "User already exists" });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(userData.password, 10);
-      
-      const user = await storage.createUser({
-        ...userData,
-        password: hashedPassword,
-      });
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { userId: user.id, userType: user.userType },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.status(201).json({ 
-        message: "User created successfully",
-        user: { ...user, password: undefined },
-        token 
-      });
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Registration failed" });
-    }
-  });
-
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { username, password } = req.body;
-      
-      const user = await storage.getUserByUsername(username) || 
-                   await storage.getUserByEmail(username) ||
-                   await storage.getUserByPhone(username);
-      
-      if (!user) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      const validPassword = await bcrypt.compare(password, user.password);
-      if (!validPassword) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      const token = jwt.sign(
-        { userId: user.id, userType: user.userType },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({ 
-        message: "Login successful",
-        user: { ...user, password: undefined },
-        token 
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Login failed" });
-    }
-  });
-
-  // OTP routes
-  app.post("/api/otp/send", async (req, res) => {
+  // ==================== OTP ROUTES ====================
+  
+  app.post("/api/otp/send", async (req, res, next) => {
     try {
       const { phone, email, purpose } = req.body;
       
       if (!phone && !email) {
-        return res.status(400).json({ message: "Phone or email required" });
+        return res.status(400).json({ success: false, message: "Phone or email required" });
       }
 
       const otp = generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await storage.createOtpVerification({
         phone,
@@ -435,1050 +1102,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiresAt,
       });
 
-      // In a real app, send OTP via SMS/Email service
       console.log(`OTP for ${phone || email}: ${otp}`);
       
-      res.json({ message: "OTP sent successfully" });
+      res.json({ success: true, message: "OTP sent successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to send OTP" });
+      next(error);
     }
   });
 
-  app.post("/api/otp/verify", async (req, res) => {
+  app.post("/api/otp/verify", async (req, res, next) => {
     try {
       const { phone, email, otp, purpose } = req.body;
       
       const isValid = await storage.verifyOtp(phone, email, otp, purpose);
       
       if (isValid) {
-        res.json({ message: "OTP verified successfully" });
+        res.json({ success: true, message: "OTP verified successfully" });
       } else {
-        res.status(400).json({ message: "Invalid or expired OTP" });
+        res.status(400).json({ success: false, message: "Invalid or expired OTP" });
       }
     } catch (error) {
-      res.status(500).json({ message: "OTP verification failed" });
+      next(error);
     }
   });
 
-  // Pin code validation
-  app.post("/api/validate-pincode", (req, res) => {
-    try {
-      const { pinCode } = req.body;
-      const isValid = isValidUttaraKannadaPinCode(pinCode);
-      
-      res.json({ 
-        valid: isValid,
-        message: isValid ? "Valid pin code" : "Currently, we are not serving in your area. We are expanding soon!"
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Validation failed" });
-    }
-  });
-
-  // Client App Service Management API
-  app.get("/api/client/services/types", async (req, res) => {
-    try {
-      const serviceTypes = [
-        { id: 1, name: "AC Repair", category: "Appliance", estimatedDuration: "2-4 hours" },
-        { id: 2, name: "Laptop Repair", category: "Electronics", estimatedDuration: "1-3 days" },
-        { id: 3, name: "Water Heater Repair", category: "Appliance", estimatedDuration: "2-4 hours" },
-        { id: 4, name: "Refrigerator Repair", category: "Appliance", estimatedDuration: "2-6 hours" },
-        { id: 5, name: "Washing Machine Repair", category: "Appliance", estimatedDuration: "2-4 hours" },
-        { id: 6, name: "Microwave Repair", category: "Appliance", estimatedDuration: "1-2 hours" },
-        { id: 7, name: "TV Repair", category: "Electronics", estimatedDuration: "2-5 hours" },
-        { id: 8, name: "Mobile Phone Repair", category: "Electronics", estimatedDuration: "30 minutes - 2 hours" }
-      ];
-      res.json(serviceTypes);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch service types" });
-    }
-  });
-
-  app.post("/api/client/services/request", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const serviceData = insertServiceRequestSchema.parse({
-        ...req.body,
-        userId: req.user!.userId
-      });
-      
-      const serviceRequest = await storage.createServiceRequest({
-        ...serviceData,
-        verificationCode: generateVerificationCode(),
-      });
-
-      res.status(201).json({
-        message: "Service request created successfully",
-        serviceRequest,
-        estimatedResponse: "You will receive confirmation within 2 hours"
-      });
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create service request" });
-    }
-  });
-
-  app.get("/api/client/services/my-requests", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const services = await storage.getUserServiceRequests(req.user!.userId);
-      const enrichedServices = services.map(service => ({
-        ...service,
-        statusMessage: getServiceStatusMessage(service.status),
-        canCancel: ['placed', 'confirmed'].includes(service.status)
-      }));
-      res.json(enrichedServices);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch service requests" });
-    }
-  });
-
-  app.patch("/api/client/services/:id/cancel", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const serviceId = parseInt(req.params.id);
-      const service = await storage.getServiceRequest(serviceId);
-      
-      if (!service || service.userId !== req.user!.userId) {
-        return res.status(404).json({ message: "Service request not found" });
-      }
-
-      if (!['placed', 'confirmed'].includes(service.status)) {
-        return res.status(400).json({ 
-          message: "Service cannot be cancelled at this stage. Contact support for assistance." 
-        });
-      }
-
-      const updatedService = await storage.updateServiceRequestStatus(serviceId, 'cancelled');
-      res.json({ 
-        message: "Service request cancelled successfully",
-        service: updatedService
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to cancel service request" });
-    }
-  });
-
-  // Client App Products API
-  app.get("/api/client/products", async (req, res) => {
-    try {
-      const { category, search } = req.query;
-      let products = await storage.getAllProducts();
-      
-      if (category) {
-        products = products.filter(p => p.category === category);
-      }
-      
-      if (search) {
-        const searchTerm = (search as string).toLowerCase();
-        products = products.filter(p => 
-          p.name.toLowerCase().includes(searchTerm) ||
-          p.description.toLowerCase().includes(searchTerm)
-        );
-      }
-      
-      res.json(products);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch products" });
-    }
-  });
-
-  app.get("/api/client/products/categories", async (req, res) => {
-    try {
-      const categories = [
-        { id: 1, name: "AC", icon: "ac_unit" },
-        { id: 2, name: "Laptop", icon: "laptop" },
-        { id: 3, name: "Water Heater", icon: "water_drop" },
-        { id: 4, name: "Refrigerator", icon: "kitchen" },
-        { id: 5, name: "Washing Machine", icon: "local_laundry_service" },
-        { id: 6, name: "Microwave", icon: "microwave" },
-        { id: 7, name: "TV", icon: "tv" },
-        { id: 8, name: "Mobile Phone", icon: "smartphone" }
-      ];
-      res.json(categories);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch categories" });
-    }
-  });
-
-  // Client App Cart Management
-  app.get("/api/client/cart", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const cartItems = await storage.getCartItems(req.user!.userId);
-      const enrichedCart = await Promise.all(
-        cartItems.map(async (item) => {
-          const product = await storage.getProduct(item.productId);
-          return {
-            ...item,
-            product,
-            totalPrice: item.quantity * (product?.price || 0)
-          };
-        })
-      );
-      
-      const cartTotal = enrichedCart.reduce((sum, item) => sum + item.totalPrice, 0);
-      
-      res.json({
-        items: enrichedCart,
-        itemCount: enrichedCart.length,
-        totalAmount: cartTotal
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cart" });
-    }
-  });
-
-  app.post("/api/client/cart/add", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { productId, quantity = 1 } = req.body;
-      
-      // Check if product exists
-      const product = await storage.getProduct(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      const cartItem = await storage.addToCart({
-        userId: req.user!.userId,
-        productId,
-        quantity,
-      });
-      
-      res.status(201).json({
-        message: "Product added to cart",
-        cartItem: {
-          ...cartItem,
-          product,
-          totalPrice: cartItem.quantity * product.price
-        }
-      });
-    } catch (error) {
-      res.status(400).json({ message: "Failed to add product to cart" });
-    }
-  });
-
-  app.post("/api/client/orders/place", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { deliveryAddress, paymentMethod } = req.body;
-      
-      // Get cart items
-      const cartItems = await storage.getCartItems(req.user!.userId);
-      if (cartItems.length === 0) {
-        return res.status(400).json({ message: "Cart is empty" });
-      }
-
-      // Calculate total
-      let totalAmount = 0;
-      const products = [];
-      
-      for (const item of cartItems) {
-        const product = await storage.getProduct(item.productId);
-        if (product) {
-          const itemTotal = item.quantity * product.price;
-          totalAmount += itemTotal;
-          products.push({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: product.price,
-            name: product.name
-          });
-        }
-      }
-
-      const order = await storage.createProductOrder({
-        userId: req.user!.userId,
-        products,
-        totalAmount,
-        deliveryAddress,
-        paymentMethod,
-        status: 'placed'
-      });
-
-      // Clear cart
-      await storage.clearCart(req.user!.userId);
-
-      res.status(201).json({
-        message: "Order placed successfully",
-        order,
-        estimatedDelivery: "3-5 business days"
-      });
-    } catch (error) {
-      res.status(400).json({ message: "Failed to place order" });
-    }
-  });
-
-  app.get("/api/client/orders/my-orders", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const orders = await storage.getUserProductOrders(req.user!.userId);
-      const enrichedOrders = orders.map(order => ({
-        ...order,
-        statusMessage: getOrderStatusMessage(order.status),
-        canCancel: ['placed', 'confirmed'].includes(order.status)
-      }));
-      res.json(enrichedOrders);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch orders" });
-    }
-  });
-
-  // Service request routes (legacy)
-  app.post("/api/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const serviceData = insertServiceRequestSchema.parse(req.body);
-      
-      const serviceRequest = await storage.createServiceRequest({
-        ...serviceData,
-        userId: req.user!.userId,
-        verificationCode: generateVerificationCode(),
-      });
-
-      res.status(201).json(serviceRequest);
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create service request" });
-    }
-  });
-
-  app.get("/api/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const services = await storage.getUserServiceRequests(req.user!.userId);
-      res.json(services);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch services" });
-    }
-  });
-
-  app.get("/api/services/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const service = await storage.getServiceRequest(parseInt(req.params.id));
-      if (!service) {
-        return res.status(404).json({ message: "Service not found" });
-      }
-      res.json(service);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch service" });
-    }
-  });
-
-  app.patch("/api/services/:id/status", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { status } = req.body;
-      const service = await storage.updateServiceRequestStatus(parseInt(req.params.id), status);
-      
-      if (!service) {
-        return res.status(404).json({ message: "Service not found" });
-      }
-      
-      res.json(service);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update service status" });
-    }
-  });
-
-  // Product routes
-  app.get("/api/products", async (req, res) => {
-    try {
-      const { category } = req.query;
-      const products = category 
-        ? await storage.getProductsByCategory(category as string)
-        : await storage.getAllProducts();
-      res.json(products);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch products" });
-    }
-  });
-
-  app.get("/api/products/:id", async (req, res) => {
-    try {
-      const product = await storage.getProduct(parseInt(req.params.id));
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-      res.json(product);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch product" });
-    }
-  });
-
-  // Cart routes
-  app.post("/api/cart", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const cartData = insertCartItemSchema.parse(req.body);
-      const cartItem = await storage.addToCart({
-        ...cartData,
-        userId: req.user!.userId,
-      });
-      res.status(201).json(cartItem);
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to add to cart" });
-    }
-  });
-
-  app.get("/api/cart", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const cartItems = await storage.getCartItems(req.user!.userId);
-      res.json(cartItems);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch cart items" });
-    }
-  });
-
-  app.patch("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { quantity } = req.body;
-      const cartItem = await storage.updateCartItemQuantity(parseInt(req.params.id), quantity);
-      
-      if (!cartItem) {
-        return res.status(404).json({ message: "Cart item not found" });
-      }
-      
-      res.json(cartItem);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update cart item" });
-    }
-  });
-
-  app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const success = await storage.removeFromCart(parseInt(req.params.id));
-      
-      if (!success) {
-        return res.status(404).json({ message: "Cart item not found" });
-      }
-      
-      res.json({ message: "Item removed from cart" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to remove from cart" });
-    }
-  });
-
-  // Product order routes
-  app.post("/api/orders", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const orderData = insertProductOrderSchema.parse(req.body);
-      const order = await storage.createProductOrder({
-        ...orderData,
-        userId: req.user!.userId,
-      });
-
-      // Clear cart after successful order
-      await storage.clearCart(req.user!.userId);
-      
-      res.status(201).json(order);
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create order" });
-    }
-  });
-
-  app.get("/api/orders", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const orders = await storage.getUserProductOrders(req.user!.userId);
-      res.json(orders);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch orders" });
-    }
-  });
-
-  // Business user routes
-  app.get("/api/business/services", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      if (req.user!.userType !== 'business') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      
-      const services = await storage.getPartnerServiceRequests(req.user!.userId);
-      res.json(services);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch partner services" });
-    }
-  });
-
-  // Service Partners API - Mobile Partner Signup
-  app.post("/api/service-partners/signup", async (req, res) => {
-    try {
-      const { partnerName, phone, email, password, partnerType, services, businessName } = req.body;
-
-      // Validate required fields
-      if (!partnerName || !phone || !email || !password || !partnerType || !services || services.length === 0) {
-        return res.status(400).json({ message: "All required fields must be provided" });
-      }
-
-      // Check if partner already exists
-      const existingPartner = await storage.getServicePartnerByPhone(phone) || 
-                             await storage.getServicePartnerByEmail(email);
-      
-      if (existingPartner) {
-        return res.status(400).json({ message: "Partner already exists with this phone or email" });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Extract pin code from location if provided, otherwise use default
-      const location = req.body.location || "581301";
-
-      // Create partner with Pending Verification status
-      const partner = await storage.createServicePartner({
-        partnerName,
-        phone,
-        email,
-        password: hashedPassword,
-        partnerType,
-        services,
-        location,
-        verificationStatus: "Pending Verification",
-        businessName: partnerType === "Business" ? businessName : undefined,
-        address: req.body.address,
-        isActive: true,
-      });
-
-      res.status(201).json({
-        message: "Signup successful. Your account is pending admin verification.",
-        partner_id: partner.partnerId,
-        verification_status: partner.verificationStatus,
-      });
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Partner signup failed" });
-    }
-  });
-
-  // Get all Service Partners (admin)
-  app.get("/api/service-partners", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { service, verificationStatus } = req.query;
-      let partners = await storage.getAllServicePartners();
-      
-      // Filter by service if provided
-      if (service) {
-        partners = partners.filter(p => p.services.includes(service as string));
-      }
-
-      // Filter by verification status if provided
-      if (verificationStatus) {
-        partners = partners.filter(p => p.verificationStatus === verificationStatus);
-      }
-
-      // Remove sensitive information
-      const sanitizedPartners = partners.map(partner => ({
-        ...partner,
-        password: undefined,
-      }));
-      
-      res.json(sanitizedPartners);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch service partners" });
-    }
-  });
-
-  // Get verified Service Partners only (for assignment)
-  app.get("/api/service-partners/verified", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const partners = await storage.getVerifiedServicePartners();
-      
-      const sanitizedPartners = partners.map(partner => ({
-        ...partner,
-        password: undefined,
-      }));
-      
-      res.json(sanitizedPartners);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch verified partners" });
-    }
-  });
-
-  // Create Service Partner (admin)
-  app.post("/api/service-partners", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { partnerName, phone, email, password, partnerType, services, location, businessName, address } = req.body;
-
-      // Check if partner already exists
-      const existingPartner = await storage.getServicePartnerByPhone(phone) || 
-                             await storage.getServicePartnerByEmail(email);
-      
-      if (existingPartner) {
-        return res.status(400).json({ message: "Partner already exists with this phone or email" });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Create partner - admin-created partners are Verified by default
-      const partner = await storage.createServicePartner({
-        partnerName,
-        phone,
-        email,
-        password: hashedPassword,
-        partnerType,
-        services,
-        location: location || "581301",
-        verificationStatus: "Verified", // Admin-created partners are verified by default
-        businessName: partnerType === "Business" ? businessName : undefined,
-        address,
-        isActive: true,
-      });
-
-      res.status(201).json({
-        message: "Service partner created successfully",
-        partner: { ...partner, password: undefined },
-      });
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create partner" });
-    }
-  });
-
-  // Update Service Partner
-  app.patch("/api/service-partners/:id", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const partnerId = parseInt(req.params.id);
-      const updates = req.body;
-
-      // Don't allow updating sensitive fields via this endpoint
-      delete updates.id;
-      delete updates.partnerId;
-      delete updates.password;
-
-      const partner = await storage.updateServicePartner(partnerId, updates);
-      
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-
-      res.json({
-        message: "Partner updated successfully",
-        partner: { ...partner, password: undefined },
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update partner" });
-    }
-  });
-
-  // Update Partner Verification Status
-  app.patch("/api/service-partners/:id/status", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const partnerId = parseInt(req.params.id);
-      const { verification_status } = req.body;
-
-      if (!verification_status || !["Verified", "Pending Verification"].includes(verification_status)) {
-        return res.status(400).json({ message: "Invalid verification status" });
-      }
-
-      const partner = await storage.updatePartnerVerificationStatus(partnerId, verification_status);
-      
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-
-      res.json({
-        message: "Status updated successfully",
-        partner_id: partner.partnerId,
-        verification_status: partner.verificationStatus,
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update verification status" });
-    }
-  });
-
-  // Delete Service Partner
-  app.delete("/api/service-partners/:id", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const partnerId = parseInt(req.params.id);
-      const success = await storage.deleteServicePartner(partnerId);
-      
-      if (!success) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-
-      res.json({ message: "Partner deleted successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete partner" });
-    }
-  });
-
-  // Admin routes (protected with admin authentication)
-  app.get("/api/admin/stats", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const stats = {
-        totalUsers: await storage.getTotalUsers(),
-        activeServices: await storage.getActiveServices(),
-        productOrders: await storage.getTotalProductOrders(),
-        revenue: await storage.getTotalRevenue(),
-      };
-      
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch stats" });
-    }
-  });
-
-  app.get("/api/admin/services/recent", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const limit = parseInt(req.query.limit as string) || 10;
-      const services = await storage.getRecentServices(limit);
-      
-      // Fetch user details for each service
-      const servicesWithUsers = await Promise.all(
-        services.map(async (service) => {
-          const user = await storage.getUser(service.userId);
-          return {
-            ...service,
-            user: user ? { id: user.id, username: user.username, phone: user.phone } : null,
-          };
-        })
-      );
-      
-      res.json(servicesWithUsers);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch recent services" });
-    }
-  });
-
-  app.get("/api/admin/orders/recent", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const limit = parseInt(req.query.limit as string) || 10;
-      const orders = await storage.getRecentOrders(limit);
-      
-      // Fetch user details for each order
-      const ordersWithUsers = await Promise.all(
-        orders.map(async (order) => {
-          const user = await storage.getUser(order.userId);
-          return {
-            ...order,
-            user: user ? { id: user.id, username: user.username, phone: user.phone } : null,
-          };
-        })
-      );
-      
-      res.json(ordersWithUsers);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch recent orders" });
-    }
-  });
-
-  app.get("/api/admin/services/pending", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const pendingServices = await storage.getPendingAssignments();
-      
-      // Fetch user details for each service
-      const servicesWithUsers = await Promise.all(
-        pendingServices.map(async (service) => {
-          const user = await storage.getUser(service.userId);
-          return {
-            ...service,
-            user: user ? { id: user.id, username: user.username, phone: user.phone, homeAddress: user.homeAddress } : null,
-          };
-        })
-      );
-      
-      res.json(servicesWithUsers);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch pending assignments" });
-    }
-  });
-
-  app.post("/api/admin/services/:id/assign", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { partnerId } = req.body;
-      const serviceId = parseInt(req.params.id);
-      
-      // Verify that the partner exists and is verified
-      const partner = await storage.getServicePartner(partnerId);
-      if (!partner) {
-        return res.status(404).json({ message: "Service partner not found" });
-      }
-      
-      if (partner.verificationStatus !== "Verified") {
-        return res.status(400).json({ 
-          message: "Cannot assign partner. Only verified partners can be assigned to service requests." 
-        });
-      }
-      
-      const service = await storage.assignPartnerToService(serviceId, partnerId);
-      if (!service) {
-        return res.status(404).json({ message: "Service request not found" });
-      }
-      
-      // Create partner assignment record
-      await storage.assignPartner(serviceId, partnerId);
-      
-      res.json({ 
-        message: "Partner assigned successfully", 
-        service,
-        partner: { ...partner, password: undefined }
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to assign partner" });
-    }
-  });
-
-  // Invoice routes
-  app.post("/api/invoices", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const invoiceData = insertInvoiceSchema.parse(req.body);
-      const invoice = await storage.createInvoice(invoiceData);
-      res.status(201).json(invoice);
-    } catch (error) {
-      res.status(400).json({ message: error instanceof Error ? error.message : "Failed to create invoice" });
-    }
-  });
-
-  app.get("/api/invoices/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
-    try {
-      const invoice = await storage.getInvoiceByInvoiceId(req.params.id);
-      if (!invoice) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      res.json(invoice);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoice" });
-    }
-  });
-
-  // Admin routes for new pages
-  app.get("/api/admin/users", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const users = [];
-      const normalUsers = Array.from((storage as any).users.values());
-      const businessUsers = await storage.getAllBusinessUsers();
-      users.push(...normalUsers, ...businessUsers);
-      res.json(users);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
-  });
-
-  app.get("/api/admin/invoices", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const allInvoices = Array.from((storage as any).invoices.values());
-      res.json(allInvoices);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch invoices" });
-    }
-  });
-
-  app.get("/api/admin/services", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const allServices = await storage.getAllServiceRequests();
-      // Enrich with user and partner details
-      const enrichedServices = await Promise.all(allServices.map(async (service) => {
-        const user = await storage.getUser(service.userId);
-        const partner = service.partnerId ? await storage.getUser(service.partnerId) : null;
-        return {
-          ...service,
-          user,
-          partner
-        };
-      }));
-      res.json(enrichedServices);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch all services" });
-    }
-  });
-
-  app.get("/api/admin/orders", authenticateAdmin, async (req: AuthenticatedRequest, res) => {
-    try {
-      const allOrders = await storage.getAllProductOrders();
-      // Enrich with user details
-      const enrichedOrders = await Promise.all(allOrders.map(async (order) => {
-        const user = await storage.getUser(order.userId);
-        return {
-          ...order,
-          user
-        };
-      }));
-      res.json(enrichedOrders);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch all orders" });
-    }
-  });
-
-  // Location Management endpoints with in-memory storage
-  const locationStorage = new Map([
-    ["581301", { pinCode: "581301", area: "Sirsi", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581320", { pinCode: "581320", area: "Yellapur", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581343", { pinCode: "581343", area: "Kumta", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581355", { pinCode: "581355", area: "Karwar", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581313", { pinCode: "581313", area: "Dandeli", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581325", { pinCode: "581325", area: "Haliyal", district: "Uttara Kannada", state: "Karnataka", isActive: false }],
-    ["581350", { pinCode: "581350", area: "Ankola", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-    ["581345", { pinCode: "581345", area: "Honnavar", district: "Uttara Kannada", state: "Karnataka", isActive: true }],
-  ]);
-
-  app.get("/api/admin/locations", async (req, res) => {
-    try {
-      const locations = Array.from(locationStorage.values());
-      res.json(locations);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch locations" });
-    }
-  });
-
-  app.get("/api/admin/location-stats", async (req, res) => {
-    try {
-      const locations = Array.from(locationStorage.values());
-      
-      const stats = {
-        totalLocations: locations.length,
-        activeLocations: locations.filter(l => l.isActive).length,
-        inactiveLocations: locations.filter(l => !l.isActive).length,
-        districtsCovered: Array.from(new Set(locations.map(l => l.district))).length
-      };
-      
-      res.json(stats);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch location stats" });
-    }
-  });
-
-  app.post("/api/admin/locations", async (req, res) => {
-    try {
-      const locationData = req.body;
-      
-      // Validate if it's a valid Uttara Kannada pin code
-      if (!isValidUttaraKannadaPinCode(locationData.pinCode)) {
-        return res.status(400).json({ 
-          message: "Pin code is not in Uttara Kannada region. Only Uttara Kannada pin codes are allowed." 
-        });
-      }
-      
-      // In a real app, save to database
-      res.status(201).json({ 
-        message: "Location added successfully",
-        location: locationData 
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to add location" });
-    }
-  });
-
-  app.patch("/api/admin/locations/:pinCode/toggle", async (req, res) => {
-    try {
-      const { pinCode } = req.params;
-      
-      const location = locationStorage.get(pinCode);
-      if (!location) {
-        return res.status(404).json({ message: "Location not found" });
-      }
-      
-      // Toggle the active status
-      location.isActive = !location.isActive;
-      locationStorage.set(pinCode, location);
-      
-      res.json({ 
-        message: `Location ${location.isActive ? 'activated' : 'deactivated'} successfully`,
-        location
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to update location status" });
-    }
-  });
-
-  app.post("/api/utils/validate-pincode", (req, res) => {
-    try {
-      const { pinCode } = req.body;
-      const isValid = isValidUttaraKannadaPinCode(pinCode);
-      
-      res.json({
-        valid: isValid,
-        message: isValid 
-          ? "Pin code is valid and serviceable in Uttara Kannada region"
-          : "Pin code is not in Uttara Kannada region or invalid format"
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to validate pin code" });
-    }
-  });
-
-  // Utility routes
-  app.post("/api/utils/generate-code", (req, res) => {
-    const code = generateVerificationCode();
-    res.json({ code });
-  });
-
-  // Partner management endpoints
-  app.post("/api/admin/partners/:partnerId/verify", async (req, res) => {
-    try {
-      const { partnerId } = req.params;
-      const { comment } = req.body;
-      
-      const partner = await storage.updateUser(parseInt(partnerId), { 
-        isVerified: true,
-        verificationDate: new Date(),
-        verificationComment: comment 
-      });
-      
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      
-      res.json({ message: "Partner verified successfully", partner });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to verify partner" });
-    }
-  });
-
-  app.post("/api/admin/partners/:partnerId/suspend", async (req, res) => {
-    try {
-      const { partnerId } = req.params;
-      const { comment, days } = req.body;
-      
-      const suspendUntil = new Date();
-      suspendUntil.setDate(suspendUntil.getDate() + parseInt(days));
-      
-      const partner = await storage.updateUser(parseInt(partnerId), { 
-        status: 'suspended',
-        suspendedUntil: suspendUntil,
-        suspensionReason: comment 
-      });
-      
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      
-      res.json({ message: "Partner suspended successfully", partner });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to suspend partner" });
-    }
-  });
-
-  app.post("/api/admin/partners/:partnerId/deactivate", async (req, res) => {
-    try {
-      const { partnerId } = req.params;
-      const { comment } = req.body;
-      
-      const partner = await storage.updateUser(parseInt(partnerId), { 
-        status: 'deactivated',
-        deactivationReason: comment,
-        deactivatedAt: new Date()
-      });
-      
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      
-      res.json({ message: "Partner deactivated successfully", partner });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to deactivate partner" });
-    }
-  });
-
-  app.post("/api/admin/partners/:partnerId/delete", async (req, res) => {
-    try {
-      const { partnerId } = req.params;
-      const { comment } = req.body;
-      
-      // In a real app, you might want to soft delete or archive instead
-      const partner = await storage.getUser(parseInt(partnerId));
-      if (!partner) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      
-      // For now, we'll mark as deleted rather than actually removing
-      await storage.updateUser(parseInt(partnerId), { 
-        status: 'deleted',
-        deletionReason: comment,
-        deletedAt: new Date()
-      });
-      
-      res.json({ message: "Partner deleted successfully" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete partner" });
-    }
-  });
+  // Apply error handler
+  app.use(errorHandler);
 
   const httpServer = createServer(app);
   return httpServer;

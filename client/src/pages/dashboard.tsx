@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import Sidebar from "@/components/admin/sidebar";
 import StatsCards from "@/components/admin/stats-cards";
+import RevenueChart from "@/components/admin/revenue-chart";
 import RecentActivity from "@/components/admin/recent-activity";
 import PendingAssignments from "@/components/admin/pending-assignments";
 import QuickActions from "@/components/admin/quick-actions";
@@ -137,15 +138,15 @@ export default function Dashboard() {
           <StatsCards />
         </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <RevenueChart />
+          <QuickActions />
+        </div>
+
         <RecentActivity />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
-          <div className="lg:col-span-2">
-            <PendingAssignments onAssignPartner={handleAssignPartner} />
-          </div>
-          <div>
-            <QuickActions />
-          </div>
+        <div className="mt-8">
+          <PendingAssignments onAssignPartner={handleAssignPartner} />
         </div>
 
         <PartnerAssignmentModal
