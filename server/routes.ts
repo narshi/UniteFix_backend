@@ -344,6 +344,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user status (activate/deactivate)
+  app.patch("/api/admin/users/:id/status", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { isActive } = req.body;
+      const user = await storage.updateUser(id, { isActive });
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      res.json({ success: true, data: user });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ==================== SERVICE PROVIDER MANAGEMENT ====================
   
   // Get all service providers with filtering
@@ -356,6 +371,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providers = await storage.getPendingServiceProviders();
       } else if (status === 'verified') {
         providers = await storage.getVerifiedServiceProviders();
+      } else if (status === 'suspended') {
+        providers = await storage.getAllServiceProviders().then(ps => ps.filter(p => p.verificationStatus === 'suspended'));
       } else {
         providers = await storage.getAllServiceProviders();
       }
@@ -397,8 +414,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new service provider
   app.post("/api/admin/servicemen/create", async (req, res, next) => {
     try {
-      const providerData = insertServiceProviderSchema.parse(req.body);
-      const provider = await storage.createServiceProvider(providerData);
+      const { partnerName, email, phone, password, partnerType, services, location, address } = req.body;
+      
+      // 1. Create the user account first
+      const hashedPassword = await bcrypt.hash(password || 'Temp123!', 10);
+      const user = await storage.createUser({
+        username: partnerName,
+        email,
+        phone,
+        password: hashedPassword,
+        role: 'serviceman',
+        isVerified: true,
+        isActive: true,
+        pinCode: location,
+        homeAddress: address
+      });
+
+      // 2. Create the provider profile
+      const provider = await storage.createServiceProvider({
+        userId: user.id,
+        partnerName,
+        partnerType: partnerType || 'Individual',
+        services: services || [],
+        location,
+        address,
+        verificationStatus: 'verified',
+        isActive: true,
+        walletBalance: '0.00'
+      });
+
       res.status(201).json({ success: true, data: provider });
     } catch (error) {
       next(error);
