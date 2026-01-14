@@ -33,7 +33,7 @@ export default function PartnersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: partnersResponse, isLoading } = useQuery({
+  const { data: partnersResponse, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/servicemen/list"],
   });
 

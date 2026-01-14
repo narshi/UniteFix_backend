@@ -16,7 +16,7 @@ export default function UsersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  const { data: usersResponse, isLoading } = useQuery({
+  const { data: usersResponse, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/users"],
   });
 
