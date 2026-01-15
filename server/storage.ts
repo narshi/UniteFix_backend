@@ -10,6 +10,14 @@ import {
   serviceProviders,
   walletTransactions,
   serviceablePincodes,
+  // PHASE 2: New tables
+  platformConfig,
+  auditLogs,
+  // PHASE 3: Wallet and Inventory
+  partnerWallets,
+  walletTransactionsV2,
+  inventoryItems,
+  inventoryTransactions,
   type User,
   type InsertUser,
   type AdminUser,
@@ -32,9 +40,27 @@ import {
   type InsertWalletTransaction,
   type ServiceablePincode,
   type InsertServiceablePincode,
+  // PHASE 2: New types
+  type PlatformConfig,
+  type InsertPlatformConfig,
+  type AuditLog,
+  type InsertAuditLog,
+  // PHASE  3: Wallet and Inventory types
+  type PartnerWallet,
+  type WalletTransactionV2,
+  type InsertWalletTransactionV2,
+  type InventoryItem,
+  type InsertInventoryItem,
+  type InventoryTransaction,
+  type InsertInventoryTransaction,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, sum, gte, lte, or, ilike } from "drizzle-orm";
+// PHASE 2: State machine imports
+import { BookingState, validateStateTransition, shouldTriggerWalletCredit } from "./business/booking-state-machine";
+import { normalizeState, canonicalToLegacy, legacyToCanonical } from "./business/state-mapping";
+// PHASE 3: Config service for business values
+import { configService } from "./services/config.service";
 
 // Haversine formula for calculating distance between two points
 function calculateHaversineDistance(
@@ -49,9 +75,9 @@ function calculateHaversineDistance(
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c; // Distance in meters
 }
@@ -159,10 +185,50 @@ export interface IStorage {
   getRevenueByPeriod(days: number): Promise<{ date: string; revenue: number }[]>;
   getRecentServices(limit: number): Promise<ServiceRequest[]>;
   getRecentOrders(limit: number): Promise<ProductOrder[]>;
+
+  // PHASE 2: Platform Configuration
+  getPlatformConfig(key: string): Promise<PlatformConfig | undefined>;
+  getPlatformConfigByCategory(category: string): Promise<PlatformConfig[]>;
+  getAllPlatformConfigs(): Promise<PlatformConfig[]>;
+  updatePlatformConfig(key: string, value: string, updatedBy: number): Promise<void>;
+  seedDefaultConfig(): Promise<void>;
+
+  // PHASE 2: Audit Logging
+  logAuditEvent(event: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogs(entityType: string, entityId: number): Promise<AuditLog[]>;
+
+  // PHASE 2: Centralized State Transitions (CRITICAL)
+  transitionBookingState(
+    serviceRequestId: number,
+    newState: BookingState,
+    changedBy: number,
+    metadata?: any
+  ): Promise<ServiceRequest>;
+
+  // PHASE 3: Wallet Management
+  getOrCreatePartnerWallet(partnerId: number, tx?: any): Promise<PartnerWallet>;
+  creditWalletOnHold(
+    partnerId: number,
+    serviceRequestId: number,
+    amount: number,
+    releaseDate: Date,
+    tx?: any
+  ): Promise<WalletTransactionV2>;
+  releaseHeldBalance(transactionId: number): Promise<void>;
+  releaseAllExpiredHolds(): Promise<number>;
+
+  // PHASE 3: Inventory Management
+  getInventoryItemByCode(itemCode: string): Promise<InventoryItem | undefined>;
+  deductInventoryForBooking(
+    serviceRequestId: number,
+    items: Array<{ itemCode: string; quantity: number }>,
+    performedBy: number,
+    tx?: any
+  ): Promise<InventoryTransaction[]>;
 }
 
 export class DatabaseStorage implements IStorage {
-  
+
   // User management
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -243,13 +309,13 @@ export class DatabaseStorage implements IStorage {
   async createServiceProvider(insertProvider: InsertServiceProvider): Promise<ServiceProvider> {
     const countResult = await db.select({ count: count() }).from(serviceProviders);
     const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
-    
+
     const [provider] = await db
       .insert(serviceProviders)
-      .values({ 
-        ...insertProvider, 
+      .values({
+        ...insertProvider,
         partnerId,
-        skills: insertProvider.skills || null 
+        skills: insertProvider.skills || null
       } as any)
       .returning();
     return provider;
@@ -302,10 +368,10 @@ export class DatabaseStorage implements IStorage {
   async updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined> {
     const [provider] = await db
       .update(serviceProviders)
-      .set({ 
-        currentLat: lat, 
-        currentLong: long, 
-        lastLocationUpdate: new Date() 
+      .set({
+        currentLat: lat,
+        currentLong: long,
+        lastLocationUpdate: new Date()
       })
       .where(eq(serviceProviders.id, id))
       .returning();
@@ -314,8 +380,8 @@ export class DatabaseStorage implements IStorage {
 
   // Geo-spatial sorting using Haversine formula
   async getProvidersSortedByDistance(
-    lat: number, 
-    long: number, 
+    lat: number,
+    long: number,
     status?: string
   ): Promise<(ServiceProvider & { distance: number })[]> {
     const providers = await db
@@ -355,7 +421,7 @@ export class DatabaseStorage implements IStorage {
     const countResult = await db.select({ count: count() }).from(serviceRequests);
     const serviceId = `SR${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
     const handshakeOtp = Math.floor(1000 + Math.random() * 9000).toString();
-    
+
     const [request] = await db
       .insert(serviceRequests)
       .values({ ...insertRequest, serviceId, handshakeOtp })
@@ -410,11 +476,11 @@ export class DatabaseStorage implements IStorage {
   async assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined> {
     const [request] = await db
       .update(serviceRequests)
-      .set({ 
-        providerId, 
+      .set({
+        providerId,
         status: 'partner_assigned',
         assignedAt: new Date(),
-        updatedAt: new Date() 
+        updatedAt: new Date()
       })
       .where(eq(serviceRequests.id, serviceRequestId))
       .returning();
@@ -453,7 +519,7 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(serviceRequests)
         .where(eq(serviceRequests.id, serviceRequestId));
-      
+
       if (!service || !service.providerId) {
         throw new Error('Service request or provider not found');
       }
@@ -565,7 +631,7 @@ export class DatabaseStorage implements IStorage {
   async createProductOrder(insertOrder: InsertProductOrder): Promise<ProductOrder> {
     const countResult = await db.select({ count: count() }).from(productOrders);
     const orderId = `ORD${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-    
+
     const [order] = await db
       .insert(productOrders)
       .values({ ...insertOrder, orderId })
@@ -686,7 +752,7 @@ export class DatabaseStorage implements IStorage {
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
     const countResult = await db.select({ count: count() }).from(invoices);
     const invoiceId = `INV${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-    
+
     const [invoice] = await db
       .insert(invoices)
       .values({ ...insertInvoice, invoiceId })
@@ -809,7 +875,7 @@ export class DatabaseStorage implements IStorage {
   }> {
     const [userCount] = await db.select({ count: count() }).from(users);
     const [providerCount] = await db.select({ count: count() }).from(serviceProviders);
-    
+
     const [activeServiceCount] = await db
       .select({ count: count() })
       .from(serviceRequests)
@@ -821,14 +887,14 @@ export class DatabaseStorage implements IStorage {
           eq(serviceRequests.status, 'service_started')
         )
       );
-    
+
     const [completedServiceCount] = await db
       .select({ count: count() })
       .from(serviceRequests)
       .where(eq(serviceRequests.status, 'service_completed'));
 
     const [orderCount] = await db.select({ count: count() }).from(productOrders);
-    
+
     const [revenueResult] = await db
       .select({ total: sum(invoices.totalAmount) })
       .from(invoices);
@@ -883,6 +949,488 @@ export class DatabaseStorage implements IStorage {
       .from(productOrders)
       .orderBy(desc(productOrders.createdAt))
       .limit(limit);
+  }
+
+  // ==================== PHASE 2: PLATFORM CONFIGURATION ====================
+
+  async getPlatformConfig(key: string): Promise<PlatformConfig | undefined> {
+    const [config] = await db
+      .select()
+      .from(platformConfig)
+      .where(eq(platformConfig.key, key));
+    return config || undefined;
+  }
+
+  async getPlatformConfigByCategory(category: string): Promise<PlatformConfig[]> {
+    return await db
+      .select()
+      .from(platformConfig)
+      .where(eq(platformConfig.category, category))
+      .orderBy(platformConfig.key);
+  }
+
+  async getAllPlatformConfigs(): Promise<PlatformConfig[]> {
+    return await db.select().from(platformConfig).orderBy(platformConfig.category, platformConfig.key);
+  }
+
+  async updatePlatformConfig(key: string, value: string, updatedBy: number): Promise<void> {
+    await db
+      .update(platformConfig)
+      .set({ value, updatedBy, updatedAt: new Date() })
+      .where(eq(platformConfig.key, key));
+
+    // Log config change
+    await this.logAuditEvent({
+      entityType: 'platform_config',
+      entityId: 0, // Config doesn't have numeric ID
+      action: 'config_update',
+      toState: value,
+      changedBy: updatedBy,
+      metadata: { key, newValue: value },
+    });
+  }
+
+  async seedDefaultConfig(): Promise<void> {
+    const { DEFAULT_PLATFORM_CONFIG } = await import('./config/default-config');
+
+    for (const config of DEFAULT_PLATFORM_CONFIG) {
+      const existing = await this.getPlatformConfig(config.key);
+      if (!existing) {
+        await db.insert(platformConfig).values({
+          key: config.key,
+          value: config.value,
+          valueType: config.valueType,
+          category: config.category,
+          description: config.description,
+          isEditable: config.isEditable ?? true,
+        });
+      }
+    }
+  }
+
+  // ==================== PHASE 2: AUDIT LOGGING ====================
+
+  async logAuditEvent(event: InsertAuditLog): Promise<AuditLog> {
+    const [log] = await db
+      .insert(auditLogs)
+      .values(event)
+      .returning();
+    return log;
+  }
+
+  async getAuditLogs(entityType: string, entityId: number): Promise<AuditLog[]> {
+    return await db
+      .select()
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.entityType, entityType),
+          eq(auditLogs.entityId, entityId)
+        )
+      )
+      .orderBy(desc(auditLogs.createdAt));
+  }
+
+  // ==================== PHASE 2: CENTRALIZED STATE TRANSITIONS (CRITICAL) ====================
+
+  /**
+   * PHASE 2: Centralized booking state transition function
+   * 
+   * THIS IS THE ONLY FUNCTION THAT SHOULD UPDATE BOOKING STATUS
+   * 
+   * Responsibilities:
+   * 1. Validate state transitions using state machine
+   * 2. Apply backward-compatible state mapping (canonical ↔ legacy)
+   * 3. Log audit trail
+   * 4. Check wallet trigger (placeholder for Phase 3)
+   * 5. Update database within transaction
+   */
+  async transitionBookingState(
+    serviceRequestId: number,
+    newState: BookingState,
+    changedBy: number,
+    metadata?: any
+  ): Promise<ServiceRequest> {
+    // Get current service request
+    const service = await this.getServiceRequest(serviceRequestId);
+    if (!service) {
+      throw new Error(`Service request ${serviceRequestId} not found`);
+    }
+
+    // Normalize current state from DB (legacy → canonical)
+    const currentState = legacyToCanonical(service.status);
+
+    // Validate state transition
+    if (!validateStateTransition(currentState, newState)) {
+      throw new Error(
+        `Invalid state transition: ${currentState} → ${newState} for service ${service.serviceId}`
+      );
+    }
+
+    // Convert canonical state to legacy format for DB storage
+    const legacyState = canonicalToLegacy(newState);
+
+    // Execute within transaction to ensure atomicity
+    const result = await db.transaction(async (tx: any) => {
+      // 1. Update service request status
+      const statusUpdate: any = {
+        status: legacyState,
+        updatedAt: new Date(),
+      };
+
+      // Update timestamps based on state
+      if (newState === BookingState.ASSIGNED) {
+        statusUpdate.assignedAt = new Date();
+      } else if (newState === BookingState.IN_PROGRESS) {
+        statusUpdate.startedAt = new Date();
+      } else if (newState === BookingState.COMPLETED) {
+        statusUpdate.completedAt = new Date();
+      }
+
+      const [updatedService] = await tx
+        .update(serviceRequests)
+        .set(statusUpdate)
+        .where(eq(serviceRequests.id, serviceRequestId))
+        .returning();
+
+      // 2. Log audit event
+      await tx.insert(auditLogs).values({
+        entityType: 'service_request',
+        entityId: serviceRequestId,
+        action: 'state_change',
+        fromState: service.status, // Log legacy state for debugging
+        toState: legacyState,       // Log legacy state for debugging  
+        changedBy,
+        metadata: {
+          canonicalFromState: currentState,
+          canonicalToState: newState,
+          serviceId: service.serviceId,
+          ...metadata,
+        },
+      });
+
+      // ==================== PHASE 3 HOOK ====================
+      // 3. Check if wallet credit should be triggered
+      if (shouldTriggerWalletCredit(newState)) {
+        console.log(`[PHASE 3] Triggering wallet and inventory for service ${service.serviceId}`);
+
+        if (!service.providerId) {
+          throw new Error(`Cannot credit wallet: No provider assigned to service ${serviceRequestId}`);
+        }
+
+        // 3a. WALLET CREDIT (HOLD state)
+        try {
+          const baseFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 250);
+          const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
+          const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
+
+          const partnerAmount = (baseFee * partnerSharePct) / 100;
+
+          const releaseDate = new Date(statusUpdate.completedAt);
+          releaseDate.setDate(releaseDate.getDate() + holdDays);
+
+          await this.creditWalletOnHold(
+            service.providerId,
+            serviceRequestId,
+            partnerAmount,
+            releaseDate,
+            tx
+          );
+
+          console.log(`[WALLET] Credited ₹${partnerAmount} to HOLD for partner ${service.providerId}`);
+        } catch (walletError) {
+          console.error(`[WALLET ERROR]`, walletError);
+          throw walletError; // Rollback entire transaction
+        }
+
+        // 3b. INVENTORY DEDUCTION (if items used)
+        if (metadata?.inventoryItems && Array.isArray(metadata.inventoryItems)) {
+          try {
+            await this.deductInventoryForBooking(
+              serviceRequestId,
+              metadata.inventoryItems,
+              service.providerId,
+              tx
+            );
+
+            console.log(`[INVENTORY] Deducted items:`, metadata.inventoryItems);
+          } catch (inventoryError) {
+            console.error(`[INVENTORY ERROR]`, inventoryError);
+            throw inventoryError; // Rollback entire transaction (including wallet credit)
+          }
+        }
+      }
+      // ==================== END PHASE 3 HOOK ====================
+
+      return updatedService;
+    });
+
+    return result;
+  }
+
+  // ==================== PHASE 3: WALLET MANAGEMENT ====================
+
+  async getOrCreatePartnerWallet(partnerId: number, tx?: any): Promise<PartnerWallet> {
+    const dbCtx = tx || db;
+
+    const [wallet] = await dbCtx
+      .select()
+      .from(partnerWallets)
+      .where(eq(partnerWallets.partnerId, partnerId));
+
+    if (wallet) return wallet;
+
+    const [newWallet] = await dbCtx
+      .insert(partnerWallets)
+      .values({
+        partnerId,
+        balanceHold: '0.00',
+        balanceAvailable: '0.00',
+        totalEarned: '0.00',
+      })
+      .returning();
+
+    return newWallet;
+  }
+
+  async creditWalletOnHold(
+    partnerId: number,
+    serviceRequestId: number,
+    amount: number,
+    releaseDate: Date,
+    tx?: any
+  ): Promise<WalletTransactionV2> {
+    const dbCtx = tx || db;
+
+    // IDEMPOTENCY CHECK
+    const [existing] = await dbCtx
+      .select()
+      .from(walletTransactionsV2)
+      .where(
+        and(
+          eq(walletTransactionsV2.serviceRequestId, serviceRequestId),
+          eq(walletTransactionsV2.transactionType, 'hold_credit')
+        )
+      );
+
+    if (existing) {
+      console.log(`[IDEMPOTENCY] Wallet already credited for service ${serviceRequestId}`);
+      return existing;
+    }
+
+    // Get wallet
+    const wallet = await this.getOrCreatePartnerWallet(partnerId, dbCtx);
+
+    const currentHold = parseFloat(wallet.balanceHold);
+    const currentEarned = parseFloat(wallet.totalEarned);
+    const newHold = currentHold + amount;
+    const newEarned = currentEarned + amount;
+
+    const transactionId = `WHLD-${serviceRequestId}-${Date.now()}`;
+
+    const [transaction] = await dbCtx
+      .insert(walletTransactionsV2)
+      .values({
+        transactionId,
+        partnerId,
+        serviceRequestId,
+        transactionType: 'hold_credit',
+        amount: amount.toFixed(2),
+        balanceHoldBefore: wallet.balanceHold,
+        balanceHoldAfter: newHold.toFixed(2),
+        balanceAvailableBefore: wallet.balanceAvailable,
+        balanceAvailableAfter: wallet.balanceAvailable,
+        releaseDate,
+        isReleased: false,
+        description: `Earnings held for service completion`,
+        metadata: { serviceRequestId, releaseDate: releaseDate.toISOString() },
+      })
+      .returning();
+
+    await dbCtx
+      .update(partnerWallets)
+      .set({
+        balanceHold: newHold.toFixed(2),
+        totalEarned: newEarned.toFixed(2),
+        updatedAt: new Date(),
+      })
+      .where(eq(partnerWallets.partnerId, partnerId));
+
+    return transaction;
+  }
+
+  async releaseHeldBalance(transactionId: number): Promise<void> {
+    await db.transaction(async (tx: any) => {
+      const [holdTx] = await tx
+        .select()
+        .from(walletTransactionsV2)
+        .where(eq(walletTransactionsV2.id, transactionId));
+
+      if (!holdTx || holdTx.isReleased || holdTx.transactionType !== 'hold_credit') {
+        return;
+      }
+
+      const amount = parseFloat(holdTx.amount);
+
+      const [wallet] = await tx
+        .select()
+        .from(partnerWallets)
+        .where(eq(partnerWallets.partnerId, holdTx.partnerId));
+
+      const currentHold = parseFloat(wallet.balanceHold);
+      const currentAvailable = parseFloat(wallet.balanceAvailable);
+      const newHold = currentHold - amount;
+      const newAvailable = currentAvailable + amount;
+
+      await tx.insert(walletTransactionsV2).values({
+        transactionId: `WREL-${holdTx.id}-${Date.now()}`,
+        partnerId: holdTx.partnerId,
+        serviceRequestId: holdTx.serviceRequestId,
+        transactionType: 'release',
+        amount: '0.00',
+        balanceHoldBefore: wallet.balanceHold,
+        balanceHoldAfter: newHold.toFixed(2),
+        balanceAvailableBefore: wallet.balanceAvailable,
+        balanceAvailableAfter: newAvailable.toFixed(2),
+        parentTransactionId: holdTx.id,
+        description: `Released held earnings to available`,
+      });
+
+      await tx
+        .update(partnerWallets)
+        .set({
+          balanceHold: newHold.toFixed(2),
+          balanceAvailable: newAvailable.toFixed(2),
+          updatedAt: new Date(),
+        })
+        .where(eq(partnerWallets.partnerId, holdTx.partnerId));
+
+      await tx
+        .update(walletTransactionsV2)
+        .set({ isReleased: true, releasedAt: new Date() })
+        .where(eq(walletTransactionsV2.id, transactionId));
+    });
+  }
+
+  async releaseAllExpiredHolds(): Promise<number> {
+    const now = new Date();
+    const expiredHolds = await db
+      .select()
+      .from(walletTransactionsV2)
+      .where(
+        and(
+          eq(walletTransactionsV2.transactionType, 'hold_credit'),
+          eq(walletTransactionsV2.isReleased, false),
+          lte(walletTransactionsV2.releaseDate, now)
+        )
+      );
+
+    let count = 0;
+    for (const hold of expiredHolds) {
+      try {
+        await this.releaseHeldBalance(hold.id);
+        count++;
+      } catch (error) {
+        console.error(`Failed to release hold ${hold.id}:`, error);
+      }
+    }
+
+    console.log(`[CRON] Released ${count} expired holds`);
+    return count;
+  }
+
+  // ==================== PHASE 3: INVENTORY MANAGEMENT ====================
+
+  async getInventoryItemByCode(itemCode: string): Promise<InventoryItem | undefined> {
+    const [item] = await db
+      .select()
+      .from(inventoryItems)
+      .where(eq(inventoryItems.itemCode, itemCode));
+
+    return item || undefined;
+  }
+
+  async deductInventoryForBooking(
+    serviceRequestId: number,
+    items: Array<{ itemCode: string; quantity: number }>,
+    performedBy: number,
+    tx?: any
+  ): Promise<InventoryTransaction[]> {
+    const dbCtx = tx || db;
+    const transactions: InventoryTransaction[] = [];
+
+    for (const item of items) {
+      const [inventoryItem] = await dbCtx
+        .select()
+        .from(inventoryItems)
+        .where(eq(inventoryItems.itemCode, item.itemCode));
+
+      if (!inventoryItem) {
+        throw new Error(`Inventory item ${item.itemCode} not found`);
+      }
+
+      // IDEMPOTENCY CHECK
+      const [existing] = await dbCtx
+        .select()
+        .from(inventoryTransactions)
+        .where(
+          and(
+            eq(inventoryTransactions.serviceRequestId, serviceRequestId),
+            eq(inventoryTransactions.itemId, inventoryItem.id),
+            eq(inventoryTransactions.transactionType, 'consumption')
+          )
+        );
+
+      if (existing) {
+        console.log(`[IDEMPOTENCY] Inventory ${item.itemCode} already deducted for service ${serviceRequestId}`);
+        transactions.push(existing);
+        continue;
+      }
+
+      if (inventoryItem.currentStock < item.quantity) {
+        throw new Error(
+          `Insufficient stock for ${item.itemCode}. ` +
+          `Available: ${inventoryItem.currentStock}, Required: ${item.quantity}`
+        );
+      }
+
+      const stockBefore = inventoryItem.currentStock;
+      const stockAfter = stockBefore - item.quantity;
+      const totalCost = parseFloat(inventoryItem.unitCost) * item.quantity;
+
+      const [transaction] = await dbCtx
+        .insert(inventoryTransactions)
+        .values({
+          transactionId: `ICONS-${serviceRequestId}-${inventoryItem.id}-${Date.now()}`,
+          itemId: inventoryItem.id,
+          serviceRequestId,
+          transactionType: 'consumption',
+          quantity: -item.quantity,
+          unitCostSnapshot: inventoryItem.unitCost,
+          totalCost: totalCost.toFixed(2),
+          performedBy,
+          stockBefore,
+          stockAfter,
+          notes: `Consumed during service ${serviceRequestId}`,
+        })
+        .returning();
+
+      await dbCtx
+        .update(inventoryItems)
+        .set({
+          currentStock: stockAfter,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventoryItems.id, inventoryItem.id));
+
+      transactions.push(transaction);
+
+      if (stockAfter < (inventoryItem.minStockLevel || 10)) {
+        console.warn(`[LOW STOCK] ${item.itemCode} is low: ${stockAfter}`);
+      }
+    }
+
+    return transactions;
   }
 }
 

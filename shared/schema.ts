@@ -6,8 +6,34 @@ import { z } from "zod";
 // Enums for better data integrity
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'serviceman']);
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected', 'suspended']);
-export const serviceStatusEnum = pgEnum('service_status', ['placed', 'confirmed', 'partner_assigned', 'service_started', 'service_completed', 'cancelled']);
+// PHASE 2: Updated booking state machine - normalized states
+export const serviceStatusEnum = pgEnum('service_status', [
+  'created',      // User creates service request
+  'assigned',     // Admin assigns partner  
+  'accepted',     // Partner accepts the job
+  'in_progress',  // Service work started
+  'completed',    // Service finished (triggers wallet credit & inventory deduction)
+  'cancelled',    // User/admin cancelled
+  'disputed'      // Reserved for future dispute handling
+]);
 export const orderStatusEnum = pgEnum('order_status', ['placed', 'confirmed', 'in_transit', 'out_for_delivery', 'delivered', 'cancelled']);
+// PHASE 3: Wallet transaction types (ledger-based events)
+export const walletTransactionTypeEnum = pgEnum('wallet_transaction_type', [
+  'hold_credit',          // Earnings credited to HOLD on service completion
+  'release',              // HOLD → AVAILABLE after dispute window
+  'withdraw_bank',        // AVAILABLE → WITHDRAWN (bank transfer)
+  'withdraw_upi',         // AVAILABLE → WITHDRAWN (UPI)
+  'refund',               // Reverse hold_credit
+  'adjustment',           // Manual admin adjustment
+  'commission_deduction', // Platform commission
+]);
+// PHASE 3: Inventory transaction types
+export const inventoryTransactionTypeEnum = pgEnum('inventory_transaction_type', [
+  'consumption',  // Used during service
+  'restock',      // New stock added
+  'adjustment',   // Manual stock adjustment
+  'return',       // Returned from service (refund scenario)
+]);
 export const transactionTypeEnum = pgEnum('transaction_type', ['credit', 'debit', 'commission', 'refund', 'topup']);
 export const bookingFeeStatusEnum = pgEnum('booking_fee_status', ['pending', 'paid', 'refunded']);
 
@@ -191,6 +217,120 @@ export const otpVerifications = pgTable("otp_verifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// PHASE 2: Platform configuration table
+export const platformConfig = pgTable("platform_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  valueType: text("value_type").notNull(), // 'string', 'number', 'boolean', 'json'
+  category: text("category").notNull(), // 'BUSINESS_CONFIG' or 'OPERATIONAL_CONFIG'
+  description: text("description"),
+  isEditable: boolean("is_editable").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedBy: integer("updated_by"), // Admin user ID
+}, (table) => ({
+  categoryIdx: index("platform_config_category_idx").on(table.category),
+}));
+
+// PHASE 2: Audit logs table for state transitions and admin actions
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  entityType: text("entity_type").notNull(), // 'service_request', 'user', 'config', etc.
+  entityId: integer("entity_id").notNull(),
+  action: text("action").notNull(), // 'state_change', 'update', 'delete', 'config_update'
+  fromState: text("from_state"),
+  toState: text("to_state"),
+  changedBy: integer("changed_by"), // User/Admin ID
+  metadata: json("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  entityIdx: index("audit_logs_entity_idx").on(table.entityType, table.entityId),
+  createdIdx: index("audit_logs_created_idx").on(table.createdAt),
+}));
+
+// PHASE 3: Partner Wallets (Ledger-Based)
+export const partnerWallets = pgTable("partner_wallets", {
+  id: serial("id").primaryKey(),
+  partnerId: integer("partner_id").notNull().unique().references(() => serviceProviders.id),
+  balanceHold: decimal("balance_hold", { precision: 10, scale: 2 }).notNull().default('0.00'),
+  balanceAvailable: decimal("balance_available", { precision: 10, scale: 2 }).notNull().default('0.00'),
+  totalEarned: decimal("total_earned", { precision: 10, scale: 2 }).notNull().default('0.00'),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  partnerIdx: uniqueIndex("partner_wallets_partner_idx").on(table.partnerId),
+}));
+
+// PHASE 3: Wallet Transactions (Ledger Events)
+export const walletTransactionsV2 = pgTable("wallet_transactions_v2", {
+  id: serial("id").primaryKey(),
+  transactionId: text("transaction_id").notNull().unique(),
+  partnerId: integer("partner_id").notNull().references(() => serviceProviders.id),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  transactionType: walletTransactionTypeEnum("transaction_type").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  balanceHoldBefore: decimal("balance_hold_before", { precision: 10, scale: 2 }),
+  balanceHoldAfter: decimal("balance_hold_after", { precision: 10, scale: 2 }),
+  balanceAvailableBefore: decimal("balance_available_before", { precision: 10, scale: 2 }),
+  balanceAvailableAfter: decimal("balance_available_after", { precision: 10, scale: 2 }),
+  releaseDate: timestamp("release_date"), // For hold_credit transactions
+  isReleased: boolean("is_released").default(false),
+  releasedAt: timestamp("released_at"),
+  parentTransactionId: integer("parent_transaction_id").references((): any => walletTransactionsV2.id),
+  description: text("description"),
+  metadata: json("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  partnerIdx: index("wallet_trans_v2_partner_idx").on(table.partnerId),
+  serviceIdx: index("wallet_trans_v2_service_idx").on(table.serviceRequestId),
+  typeIdx: index("wallet_trans_v2_type_idx").on(table.transactionType),
+  releaseIdx: index("wallet_trans_v2_release_idx").on(table.isReleased, table.releaseDate),
+  // IDEMPOTENCY: Unique constraint on service_request_id + transaction_type for hold_credit
+  uniqueHoldCredit: uniqueIndex("wallet_trans_v2_unique_hold_credit").on(table.serviceRequestId, table.transactionType),
+}));
+
+// PHASE 3: Inventory Items (Platform-Owned)
+export const inventoryItems = pgTable("inventory_items", {
+  id: serial("id").primaryKey(),
+  itemCode: text("item_code").notNull().unique(),
+  itemName: text("item_name").notNull(),
+  category: text("category"),
+  unit: text("unit").notNull(), // 'piece', 'meter', 'liter', etc.
+  unitCost: decimal("unit_cost", { precision: 10, scale: 2 }).notNull(),
+  currentStock: integer("current_stock").notNull().default(0),
+  minStockLevel: integer("min_stock_level").default(10),
+  ownerPartnerId: text("owner_partner_id").notNull().default('UNITEFIX_PLATFORM'),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  codeIdx: uniqueIndex("inventory_items_code_idx").on(table.itemCode),
+  ownerIdx: index("inventory_items_owner_idx").on(table.ownerPartnerId),
+  stockIdx: index("inventory_items_stock_idx").on(table.currentStock),
+}));
+
+// PHASE 3: Inventory Transactions (Audit Trail)
+export const inventoryTransactions = pgTable("inventory_transactions", {
+  id: serial("id").primaryKey(),
+  transactionId: text("transaction_id").notNull().unique(),
+  itemId: integer("item_id").notNull().references(() => inventoryItems.id),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  transactionType: inventoryTransactionTypeEnum("transaction_type").notNull(),
+  quantity: integer("quantity").notNull(), // Negative for consumption
+  unitCostSnapshot: decimal("unit_cost_snapshot", { precision: 10, scale: 2 }).notNull(),
+  totalCost: decimal("total_cost", { precision: 10, scale: 2 }).notNull(),
+  performedBy: integer("performed_by"), // Partner ID who consumed/restocked
+  stockBefore: integer("stock_before").notNull(),
+  stockAfter: integer("stock_after").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  itemIdx: index("inventory_trans_item_idx").on(table.itemId),
+  serviceIdx: index("inventory_trans_service_idx").on(table.serviceRequestId),
+  typeIdx: index("inventory_trans_type_idx").on(table.transactionType),
+  // IDEMPOTENCY: Unique constraint on service_request_id + item_id for consumption
+  uniqueConsumption: uniqueIndex("inventory_trans_unique_consumption").on(table.serviceRequestId, table.itemId, table.transactionType),
+}));
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
@@ -332,6 +472,16 @@ export const insertServiceablePincodeSchema = createInsertSchema(serviceablePinc
   createdAt: true,
 });
 
+// PHASE 2: Platform config and audit logs schemas
+export const insertPlatformConfigSchema = createInsertSchema(platformConfig).omit({
+  updatedAt: true,
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -365,3 +515,46 @@ export type WalletTransaction = typeof walletTransactions.$inferSelect;
 
 export type InsertServiceablePincode = z.infer<typeof insertServiceablePincodeSchema>;
 export type ServiceablePincode = typeof serviceablePincodes.$inferSelect;
+
+// PHASE 2: New types
+export type InsertPlatformConfig = z.infer<typeof insertPlatformConfigSchema>;
+export type PlatformConfig = typeof platformConfig.$inferSelect;
+
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+// PHASE 3: Wallet and Inventory schemas
+export const insertPartnerWalletSchema = createInsertSchema(partnerWallets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertWalletTransactionV2Schema = createInsertSchema(walletTransactionsV2).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInventoryTransactionSchema = createInsertSchema(inventoryTransactions).omit({
+  id: true,
+  createdAt: true,
+});
+
+// PHASE 3: Types
+export type PartnerWallet = typeof partnerWallets.$inferSelect;
+export type InsertPartnerWallet = z.infer<typeof insertPartnerWalletSchema>;
+
+export type WalletTransactionV2 = typeof walletTransactionsV2.$inferSelect;
+export type InsertWalletTransactionV2 = z.infer<typeof insertWalletTransactionV2Schema>;
+
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+
+export type InventoryTransaction = typeof inventoryTransactions.$inferSelect;
+export type InsertInventoryTransaction = z.infer<typeof insertInventoryTransactionSchema>;
