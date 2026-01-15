@@ -712,6 +712,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== UTILS ====================
+
+  app.post("/api/utils/validate-pincode", async (req, res, next) => {
+    try {
+      const { pinCode } = req.body;
+      if (!pinCode) {
+        return res.status(400).json({ success: false, message: "Pin code required" });
+      }
+
+      const isServiceable = await storage.isPincodeServiceable(pinCode);
+      const pincodeDetails = await storage.getServiceablePincode(pinCode);
+
+      if (isServiceable && pincodeDetails) {
+        res.json({ 
+          success: true, 
+          valid: true, 
+          message: `Service available in ${pincodeDetails.area}, ${pincodeDetails.district}`,
+          data: pincodeDetails
+        });
+      } else {
+        res.json({ 
+          success: true, 
+          valid: false, 
+          message: "Service not available in this area yet" 
+        });
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ==================== SERVICEMAN APP ROUTES ====================
   
   // Update serviceman location (lightweight)
