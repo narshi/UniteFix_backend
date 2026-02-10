@@ -1,0 +1,6 @@
+              conname              | pg_get_constraintdef 
+-----------------------------------+----------------------
+ serviceable_pincodes_pkey         | PRIMARY KEY (id)
+ serviceable_pincodes_pin_code_key | UNIQUE (pin_code)
+(2 rows)
+

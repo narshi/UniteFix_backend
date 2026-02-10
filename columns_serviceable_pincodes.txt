@@ -1,0 +1,12 @@
+ column_name |          data_type          | is_nullable 
+-------------+-----------------------------+-------------
+ id          | integer                     | NO
+ pin_code    | text                        | NO
+ area        | text                        | NO
+ district    | text                        | NO
+ state       | text                        | NO
+ is_active   | boolean                     | YES
+ created_at  | timestamp without time zone | YES
+ updated_at  | timestamp without time zone | YES
+(8 rows)
+

@@ -59,6 +59,27 @@ export function shouldTriggerWalletCredit(newState: BookingState): boolean {
 }
 
 /**
+ * PHASE 4: OTP Requirement Check
+ * Determines if OTP validation is required for a state transition
+ * LOCKED: Only required for ACCEPTED → IN_PROGRESS
+ */
+export function requiresOtpValidation(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.ACCEPTED && to === BookingState.IN_PROGRESS;
+}
+
+/**
+ * PHASE 5: Payment Verification Requirement
+ * Determines if payment verification is required for a state transition
+ * LOCKED: Only required for IN_PROGRESS → COMPLETED
+ * Final payment must be verified via Razorpay webhook
+ */
+export function requiresPaymentVerification(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.IN_PROGRESS && to === BookingState.COMPLETED;
+}
+
+
+
+/**
  * Get human-readable state description
  */
 export function getStateDescription(state: BookingState): string {

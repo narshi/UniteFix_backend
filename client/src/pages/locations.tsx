@@ -8,11 +8,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface LocationData {
   pinCode: string;
   area: string;
   district: string;
+  state: string;
+  isActive: boolean;
+}
+
+interface District {
+  id: number;
+  name: string;
   state: string;
   isActive: boolean;
 }
@@ -30,8 +38,12 @@ export default function LocationsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: locations = [], isLoading } = useQuery({
+  const { data: locations = [], isLoading } = useQuery<LocationData[]>({
     queryKey: ["/api/admin/locations"],
+  });
+
+  const { data: districts } = useQuery<District[]>({
+    queryKey: ["/api/admin/districts"],
   });
 
   const { data: stats = {} } = useQuery({
@@ -40,16 +52,14 @@ export default function LocationsPage() {
 
   const addLocationMutation = useMutation({
     mutationFn: async (location: LocationData) => {
-      const response = await fetch("/api/admin/locations", {
+      const response = await apiRequest("/api/admin/locations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(location),
+        body: JSON.stringify({
+          ...location,
+          pincode: location.pinCode // Map camelCase to lowercase for backend schema
+        }),
       });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to add location");
-      }
-      return response.json();
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/locations"] });
@@ -65,26 +75,21 @@ export default function LocationsPage() {
       toast({ title: "Location added successfully" });
     },
     onError: (error: any) => {
-      toast({ 
-        title: "Error adding location", 
+      toast({
+        title: "Error adding location",
         description: error.message,
-        variant: "destructive" 
+        variant: "destructive"
       });
     }
   });
 
   const toggleLocationMutation = useMutation({
     mutationFn: async ({ pinCode, isActive }: { pinCode: string; isActive: boolean }) => {
-      const response = await fetch(`/api/admin/locations/${pinCode}/toggle`, {
+      const response = await apiRequest(`/api/admin/locations/${pinCode}/toggle`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),
       });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to update location");
-      }
-      return response.json();
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/locations"] });
@@ -92,29 +97,24 @@ export default function LocationsPage() {
       toast({ title: "Location status updated" });
     },
     onError: (error: any) => {
-      toast({ 
-        title: "Error updating location", 
+      toast({
+        title: "Error updating location",
         description: error.message,
-        variant: "destructive" 
+        variant: "destructive"
       });
     }
   });
 
   const testPinCodeMutation = useMutation({
     mutationFn: async (pinCode: string) => {
-      const response = await fetch("/api/utils/validate-pincode", {
+      const response = await apiRequest("/api/validate-pincode", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pinCode }),
       });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to validate pin code");
-      }
-      return response.json();
+      return response;
     },
     onSuccess: (data: any) => {
-      toast({ 
+      toast({
         title: data.valid ? "Pin Code Valid" : "Pin Code Invalid",
         description: data.message,
         variant: data.valid ? "default" : "destructive"
@@ -124,20 +124,31 @@ export default function LocationsPage() {
 
   const handleAddLocation = () => {
     if (!newLocation.pinCode || !newLocation.area || !newLocation.district) {
-      toast({ 
+      toast({
         title: "Please fill all required fields",
-        variant: "destructive" 
+        variant: "destructive"
       });
       return;
     }
+
+    // Strict validation check on client side for better UX
+    if (!newLocation.pinCode.startsWith('581')) {
+      toast({
+        title: "Invalid Pincode Region",
+        description: "Pincode must start with 581 (Uttara Kannada)",
+        variant: "destructive"
+      });
+      return;
+    }
+
     addLocationMutation.mutate(newLocation);
   };
 
   const handleTestPinCode = () => {
     if (!testPinCode) {
-      toast({ 
+      toast({
         title: "Please enter a pin code to test",
-        variant: "destructive" 
+        variant: "destructive"
       });
       return;
     }
@@ -147,85 +158,104 @@ export default function LocationsPage() {
   return (
     <div className="flex-1 p-8">
       <div className="mb-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-8">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Location Management</h2>
-            <p className="text-gray-600">Manage serviceable areas and pin codes for Uttara Kannada region</p>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Location Management</h1>
+            <p className="text-gray-500 mt-2">Manage serviceable areas and pin codes for Uttara Kannada region</p>
           </div>
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
             <DialogTrigger asChild>
-              <Button>Add New Location</Button>
+              <Button className="bg-primary hover:bg-primary/90 text-white shadow-sm transition-all duration-200">
+                <span className="material-icons text-sm mr-2" style={{ fontFamily: 'Material Icons' }}>add</span>
+                Add New Location
+              </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>Add New Serviceable Location</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="pinCode">Pin Code *</Label>
+              <div className="grid gap-6 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="pinCode" className="text-right font-medium">Pin Code *</Label>
                   <Input
                     id="pinCode"
                     value={newLocation.pinCode}
-                    onChange={(e) => setNewLocation(prev => ({ ...prev, pinCode: e.target.value }))}
-                    placeholder="Enter 6-digit pin code"
+                    onChange={(e) => setNewLocation({ ...newLocation, pinCode: e.target.value })}
+                    className="col-span-3"
+                    placeholder="e.g. 581341"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="area">Area/Locality *</Label>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="area" className="text-right font-medium">Area/Locality *</Label>
                   <Input
                     id="area"
                     value={newLocation.area}
-                    onChange={(e) => setNewLocation(prev => ({ ...prev, area: e.target.value }))}
-                    placeholder="Enter area or locality name"
+                    onChange={(e) => setNewLocation({ ...newLocation, area: e.target.value })}
+                    className="col-span-3"
+                    placeholder="e.g. Karki"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="district">District *</Label>
-                  <Input
-                    id="district"
-                    value={newLocation.district}
-                    onChange={(e) => setNewLocation(prev => ({ ...prev, district: e.target.value }))}
-                    placeholder="Enter district name"
-                  />
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="district" className="text-right font-medium">District *</Label>
+                  <div className="col-span-3">
+                    <Select
+                      value={newLocation.district}
+                      onValueChange={(value) => {
+                        const district = districts?.find(d => d.name === value);
+                        setNewLocation({
+                          ...newLocation,
+                          district: value,
+                          state: district?.state || 'Karnataka'
+                        });
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select district" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {districts?.filter(d => d.isActive).map(d => (
+                          <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="state">State</Label>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="state" className="text-right font-medium">State</Label>
                   <Input
                     id="state"
                     value={newLocation.state}
-                    onChange={(e) => setNewLocation(prev => ({ ...prev, state: e.target.value }))}
-                    disabled
+                    readOnly
+                    className="col-span-3 bg-muted/50"
                   />
                 </div>
-                <div className="flex justify-end space-x-2 pt-4">
-                  <Button variant="outline" onClick={() => setIsAddModalOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button 
-                    onClick={handleAddLocation}
-                    disabled={addLocationMutation.isPending}
-                  >
-                    {addLocationMutation.isPending ? "Adding..." : "Add Location"}
-                  </Button>
-                </div>
               </div>
+              <Button
+                onClick={handleAddLocation}
+                className="w-full transition-all duration-200"
+                disabled={addLocationMutation.isPending}
+              >
+                {addLocationMutation.isPending ? "Adding..." : "Add Location"}
+              </Button>
             </DialogContent>
           </Dialog>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
+          <Card className="shadow-sm border border-gray-100 bg-white hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Locations</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Total Locations</CardTitle>
+              <span className="material-icons text-gray-400 text-lg">place</span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{(stats as any)?.totalLocations || 0}</div>
+              <div className="text-2xl font-bold text-gray-900">{(stats as any)?.totalLocations || 0}</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="shadow-sm border border-gray-100 bg-white hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Locations</CardTitle>
+              <CardTitle className="text-sm font-medium text-gray-600">Active Locations</CardTitle>
+              <span className="material-icons text-green-500 text-lg">check_circle</span>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{(stats as any)?.activeLocations || 0}</div>
@@ -262,7 +292,7 @@ export default function LocationsPage() {
                 onChange={(e) => setTestPinCode(e.target.value)}
                 className="max-w-xs"
               />
-              <Button 
+              <Button
                 onClick={handleTestPinCode}
                 disabled={testPinCodeMutation.isPending}
               >
@@ -354,6 +384,6 @@ export default function LocationsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </div >
   );
 }

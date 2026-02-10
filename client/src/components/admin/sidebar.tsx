@@ -8,6 +8,7 @@ const navigation = [
   { name: "Product Orders", href: "/orders", icon: "shopping_cart" },
   { name: "Service Partners", href: "/partners", icon: "handyman" },
   { name: "Payments & Invoices", href: "/payments", icon: "payment" },
+  { name: "Districts", href: "/districts", icon: "map" },
   { name: "Location Management", href: "/locations", icon: "location_on" },
   { name: "Developer Details", href: "/developer", icon: "code" },
   { name: "Settings", href: "/settings", icon: "settings" },
@@ -39,7 +40,7 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-      
+
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
           {navigation.map((item) => {
@@ -48,11 +49,10 @@ export default function Sidebar() {
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${
-                    isActive
+                  className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${isActive
                       ? "bg-blue-50 text-blue-600 font-medium"
                       : "text-gray-700 hover:bg-gray-50"
-                  }`}
+                    }`}
                 >
                   <span className="material-icons text-lg" style={{ fontFamily: 'Material Icons' }}>{item.icon}</span>
                   <span>{item.name}</span>

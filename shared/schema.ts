@@ -133,11 +133,21 @@ export const walletTransactions = pgTable("wallet_transactions", {
   typeIdx: index("wallet_transactions_type_idx").on(table.type),
 }));
 
+// Districts management
+export const districts = pgTable("districts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(), // e.g., "Uttara Kannada"
+  state: text("state").default('Karnataka'),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Serviceable Pincodes table
 export const serviceablePincodes = pgTable("serviceable_pincodes", {
   pincode: text("pincode").primaryKey(),
   area: text("area"),
-  district: text("district"),
+  district: text("district"), // Keeping text for backward compat, ideally redundant with districtId
+  districtId: integer("district_id").references(() => districts.id), // New FK
   state: text("state").default('Karnataka'),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -468,7 +478,13 @@ export const insertWalletTransactionSchema = createInsertSchema(walletTransactio
   createdAt: true,
 });
 
+
 export const insertServiceablePincodeSchema = createInsertSchema(serviceablePincodes).omit({
+  createdAt: true,
+});
+
+export const insertDistrictSchema = createInsertSchema(districts).omit({
+  id: true,
   createdAt: true,
 });
 
@@ -515,6 +531,9 @@ export type WalletTransaction = typeof walletTransactions.$inferSelect;
 
 export type InsertServiceablePincode = z.infer<typeof insertServiceablePincodeSchema>;
 export type ServiceablePincode = typeof serviceablePincodes.$inferSelect;
+
+export type InsertDistrict = z.infer<typeof insertDistrictSchema>;
+export type District = typeof districts.$inferSelect;
 
 // PHASE 2: New types
 export type InsertPlatformConfig = z.infer<typeof insertPlatformConfigSchema>;

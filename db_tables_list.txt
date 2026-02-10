@@ -1,0 +1,25 @@
+ schemaname |       tablename        
+------------+------------------------
+ public     | admin_users
+ public     | audit_logs
+ public     | cart_items
+ public     | inventory_items
+ public     | inventory_transactions
+ public     | invoices
+ public     | otp_verifications
+ public     | partner_wallets
+ public     | payment_transactions
+ public     | platform_config
+ public     | product_orders
+ public     | products
+ public     | service_charges
+ public     | service_otps
+ public     | service_providers
+ public     | service_requests
+ public     | serviceable_pincodes
+ public     | shipments
+ public     | support_tickets
+ public     | users
+ public     | wallet_transactions
+(21 rows)
+

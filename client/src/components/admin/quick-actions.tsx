@@ -13,8 +13,11 @@ export default function QuickActions() {
 
   const validatePinMutation = useMutation({
     mutationFn: async (pinCode: string) => {
-      const response = await apiRequest("POST", "/api/validate-pincode", { pinCode });
-      return response.json();
+      const response = await apiRequest("/api/validate-pincode", {
+        method: "POST",
+        body: JSON.stringify({ pinCode })
+      });
+      return response;
     },
     onSuccess: (data) => {
       toast({
@@ -34,11 +37,11 @@ export default function QuickActions() {
 
   const generateOtpMutation = useMutation({
     mutationFn: async (phone: string) => {
-      const response = await apiRequest("POST", "/api/otp/send", { 
-        phone, 
-        purpose: "test" 
+      const response = await apiRequest("/api/otp/send", {
+        method: "POST",
+        body: JSON.stringify({ phone, purpose: "test" })
       });
-      return response.json();
+      return response;
     },
     onSuccess: () => {
       toast({
@@ -57,8 +60,10 @@ export default function QuickActions() {
 
   const generateCodeMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/utils/generate-code");
-      return response.json();
+      const response = await apiRequest("/api/utils/generate-code", {
+        method: "POST"
+      });
+      return response;
     },
     onSuccess: (data) => {
       setGeneratedCode(data.code);
@@ -152,7 +157,7 @@ export default function QuickActions() {
       ];
 
       // Convert to CSV string
-      const csv = csvContent.map(row => 
+      const csv = csvContent.map(row =>
         row.map((cell: any) => `"${cell}"`).join(",")
       ).join("\n");
 
@@ -187,19 +192,19 @@ export default function QuickActions() {
       </div>
       <div className="p-6">
         <div className="space-y-4">
-          
+
           {/* Location Validator */}
           <div className="border border-gray-200 rounded-lg p-4">
             <h4 className="font-medium text-gray-900 mb-3">Location Validator</h4>
             <div className="space-y-3">
-              <input 
-                type="text" 
-                placeholder="Enter Pin Code" 
+              <input
+                type="text"
+                placeholder="Enter Pin Code"
                 value={pinCode}
                 onChange={(e) => setPinCode(e.target.value)}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <button 
+              <button
                 onClick={handleValidatePinCode}
                 disabled={validatePinMutation.isPending}
                 className="w-full bg-blue-600 text-white py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
@@ -213,14 +218,14 @@ export default function QuickActions() {
           <div className="border border-gray-200 rounded-lg p-4">
             <h4 className="font-medium text-gray-900 mb-3">OTP Simulator</h4>
             <div className="space-y-3">
-              <input 
-                type="tel" 
-                placeholder="Phone Number" 
+              <input
+                type="tel"
+                placeholder="Phone Number"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
-              <button 
+              <button
                 onClick={handleGenerateOTP}
                 disabled={generateOtpMutation.isPending}
                 className="w-full bg-orange-600 text-white py-2 rounded text-sm hover:bg-orange-700 disabled:opacity-50 transition-colors"
@@ -238,7 +243,7 @@ export default function QuickActions() {
                 <p className="text-2xl font-bold text-blue-600">{generatedCode}</p>
                 <p className="text-xs text-gray-500">Current verification code</p>
               </div>
-              <button 
+              <button
                 onClick={handleGenerateCode}
                 disabled={generateCodeMutation.isPending}
                 className="w-full bg-green-600 text-white py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"

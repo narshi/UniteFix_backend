@@ -57,7 +57,7 @@ import {
 import { db } from "./db";
 import { eq, and, desc, sql, count, sum, gte, lte, or, ilike } from "drizzle-orm";
 // PHASE 2: State machine imports
-import { BookingState, validateStateTransition, shouldTriggerWalletCredit } from "./business/booking-state-machine";
+import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
 import { normalizeState, canonicalToLegacy, legacyToCanonical } from "./business/state-mapping";
 // PHASE 3: Config service for business values
 import { configService } from "./services/config.service";
@@ -817,8 +817,40 @@ export class DatabaseStorage implements IStorage {
     return false;
   }
 
+  // Districts
+  async createDistrict(district: InsertDistrict): Promise<District> {
+    const [result] = await db
+      .insert(districts)
+      .values(district)
+      .returning();
+    return result;
+  }
+
+  async getAllDistricts(): Promise<District[]> {
+    return await db.select().from(districts).orderBy(districts.name);
+  }
+
+  async toggleDistrictStatus(id: number, isActive?: boolean): Promise<District | undefined> {
+    const [existing] = await db.select().from(districts).where(eq(districts.id, id));
+    if (!existing) return undefined;
+
+    const newStatus = isActive !== undefined ? isActive : !existing.isActive;
+
+    const [result] = await db
+      .update(districts)
+      .set({ isActive: newStatus })
+      .where(eq(districts.id, id))
+      .returning();
+    return result;
+  }
+
   // Serviceable Pincodes
   async createServiceablePincode(pincode: InsertServiceablePincode): Promise<ServiceablePincode> {
+    // strict validation: must start with 581 (Uttara Kannada)
+    if (!pincode.pincode.startsWith('581')) {
+      throw new Error("Validation Error: Pincode must belong to Uttara Kannada (581xxx) region.");
+    }
+
     const [result] = await db
       .insert(serviceablePincodes)
       .values(pincode)
@@ -838,29 +870,37 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(serviceablePincodes);
   }
 
-  async togglePincodeStatus(pincode: string): Promise<ServiceablePincode | undefined> {
+  async togglePincodeStatus(pincode: string, explicitStatus?: boolean): Promise<ServiceablePincode | undefined> {
     const existing = await this.getServiceablePincode(pincode);
     if (!existing) return undefined;
 
+    const newStatus = explicitStatus !== undefined ? explicitStatus : !existing.isActive;
+
     const [result] = await db
       .update(serviceablePincodes)
-      .set({ isActive: !existing.isActive })
+      .set({ isActive: newStatus })
       .where(eq(serviceablePincodes.pincode, pincode))
       .returning();
     return result || undefined;
   }
 
   async isPincodeServiceable(pincode: string): Promise<boolean> {
+    // 1. Direct check in database
     const [result] = await db
-      .select()
+      .select({ count: count() })
       .from(serviceablePincodes)
-      .where(
-        and(
-          eq(serviceablePincodes.pincode, pincode),
-          eq(serviceablePincodes.isActive, true)
-        )
-      );
-    return !!result;
+      .where(and(eq(serviceablePincodes.pincode, pincode), eq(serviceablePincodes.isActive, true)));
+
+    if (result.count > 0) return true;
+
+    // 2. Fallback: Check if it's a valid Uttara Kannada pincode (starts with 581)
+    // This ensures specific rural areas not manually seeded are still accepted if valid
+    // Per user request: ALL 581xxx pincodes must be accepted unconditionally as they belong to the target region.
+    if (pincode.startsWith('581')) {
+      return true;
+    }
+
+    return false;
   }
 
   // Admin Statistics (optimized SQL aggregations)
@@ -1059,6 +1099,33 @@ export class DatabaseStorage implements IStorage {
 
     // Normalize current state from DB (legacy → canonical)
     const currentState = legacyToCanonical(service.status);
+
+    // PHASE 4: OTP Guard - Check if OTP validation is required
+    if (requiresOtpValidation(currentState, newState)) {
+      const { OtpService } = await import('./services/otp.service');
+      const hasValidOtp = await OtpService.hasValidOtp(serviceRequestId);
+
+      if (!hasValidOtp) {
+        throw new Error(
+          `OTP verification required. Service cannot be started without valid OTP. ` +
+          `Customer must generate OTP and technician must validate it before starting service.`
+        );
+      }
+    }
+
+    // PHASE 5: Payment Verification Gate
+    if (requiresPaymentVerification(currentState, newState)) {
+      const { PaymentService } = await import('./services/payment.service');
+      const isPaymentVerified = await PaymentService.isFinalPaymentVerified(serviceRequestId);
+      if (!isPaymentVerified) {
+        throw new Error(
+          `Payment verification required. Service cannot be marked as COMPLETED without verified final payment.`
+        );
+      }
+      if (service.providerId && service.userId) {
+        await PaymentService.generateInvoice(serviceRequestId, service.userId, service.providerId);
+      }
+    }
 
     // Validate state transition
     if (!validateStateTransition(currentState, newState)) {

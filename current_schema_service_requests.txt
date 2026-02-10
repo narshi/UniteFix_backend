@@ -1,0 +1,36 @@
+                                                                        Table "public.service_requests"
+       Column        |            Type             | Collation | Nullable |                   Default                    | Storage  | Compression | Stats target | Description 
+---------------------+-----------------------------+-----------+----------+----------------------------------------------+----------+-------------+--------------+-------------
+ id                  | integer                     |           | not null | nextval('service_requests_id_seq'::regclass) | plain    |             |              | 
+ user_id             | integer                     |           | not null |                                              | plain    |             |              | 
+ provider_id         | integer                     |           |          |                                              | plain    |             |              | 
+ service_type        | text                        |           | not null |                                              | extended |             |              | 
+ description         | text                        |           |          |                                              | extended |             |              | 
+ status              | text                        |           | not null | 'created'::text                              | extended |             |              | 
+ scheduled_date      | date                        |           |          |                                              | plain    |             |              | 
+ scheduled_time_slot | text                        |           |          |                                              | extended |             |              | 
+ address             | text                        |           | not null |                                              | extended |             |              | 
+ pin_code            | text                        |           | not null |                                              | extended |             |              | 
+ estimated_cost      | numeric(10,2)               |           |          |                                              | main     |             |              | 
+ final_cost          | numeric(10,2)               |           |          |                                              | main     |             |              | 
+ payment_status      | text                        |           |          | 'pending'::text                              | extended |             |              | 
+ created_at          | timestamp without time zone |           |          | now()                                        | plain    |             |              | 
+ updated_at          | timestamp without time zone |           |          | now()                                        | plain    |             |              | 
+ completed_at        | timestamp without time zone |           |          |                                              | plain    |             |              | 
+Indexes:
+    "service_requests_pkey" PRIMARY KEY, btree (id)
+    "service_requests_created_idx" btree (created_at DESC)
+    "service_requests_provider_idx" btree (provider_id)
+    "service_requests_status_idx" btree (status)
+    "service_requests_user_idx" btree (user_id)
+Foreign-key constraints:
+    "service_requests_provider_id_fkey" FOREIGN KEY (provider_id) REFERENCES service_providers(id)
+    "service_requests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
+Referenced by:
+    TABLE "payment_transactions" CONSTRAINT "payment_transactions_service_request_id_fkey" FOREIGN KEY (service_request_id) REFERENCES service_requests(id)
+    TABLE "service_charges" CONSTRAINT "service_charges_service_request_id_fkey" FOREIGN KEY (service_request_id) REFERENCES service_requests(id)
+    TABLE "service_otps" CONSTRAINT "service_otps_service_request_id_fkey" FOREIGN KEY (service_request_id) REFERENCES service_requests(id)
+    TABLE "support_tickets" CONSTRAINT "support_tickets_service_request_id_fkey" FOREIGN KEY (service_request_id) REFERENCES service_requests(id)
+    TABLE "wallet_transactions" CONSTRAINT "wallet_transactions_service_request_id_fkey" FOREIGN KEY (service_request_id) REFERENCES service_requests(id)
+Access method: heap
+

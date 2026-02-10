@@ -1,0 +1,20 @@
+                                                                   Table "public.serviceable_pincodes"
+   Column   |            Type             | Collation | Nullable |                     Default                      | Storage  | Compression | Stats target | Description 
+------------+-----------------------------+-----------+----------+--------------------------------------------------+----------+-------------+--------------+-------------
+ id         | integer                     |           | not null | nextval('serviceable_pincodes_id_seq'::regclass) | plain    |             |              | 
+ pin_code   | text                        |           | not null |                                                  | extended |             |              | 
+ area       | text                        |           | not null |                                                  | extended |             |              | 
+ district   | text                        |           | not null |                                                  | extended |             |              | 
+ state      | text                        |           | not null | 'Karnataka'::text                                | extended |             |              | 
+ is_active  | boolean                     |           |          | true                                             | plain    |             |              | 
+ created_at | timestamp without time zone |           |          | now()                                            | plain    |             |              | 
+ updated_at | timestamp without time zone |           |          | now()                                            | plain    |             |              | 
+Indexes:
+    "serviceable_pincodes_pkey" PRIMARY KEY, btree (id)
+    "idx_serviceable_pincodes_active" btree (is_active)
+    "idx_serviceable_pincodes_pin" btree (pin_code)
+    "serviceable_pincodes_pin_code_key" UNIQUE CONSTRAINT, btree (pin_code)
+Triggers:
+    update_serviceable_pincodes_updated_at BEFORE UPDATE ON serviceable_pincodes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+Access method: heap
+

@@ -12,6 +12,7 @@ import OrdersPage from "@/pages/orders";
 import PartnersPage from "@/pages/partners";
 import PaymentsPage from "@/pages/payments";
 import LocationsPage from "@/pages/locations";
+import DistrictsPage from "@/pages/admin/districts";
 import DeveloperPage from "@/pages/developer";
 import SettingsPage from "@/pages/settings";
 import AdminLogin from "@/pages/admin-login";
@@ -24,7 +25,7 @@ function Router() {
   const checkAuthentication = () => {
     const token = localStorage.getItem("adminToken");
     const adminUser = localStorage.getItem("adminUser");
-    
+
     if (token && adminUser) {
       // Verify token is still valid by checking expiration
       try {
@@ -60,7 +61,7 @@ function Router() {
     };
 
     window.addEventListener('storage', handleStorageChange);
-    
+
     // Also check authentication periodically
     const interval = setInterval(checkAuthentication, 60000); // Check every minute
 
@@ -105,6 +106,7 @@ function Router() {
         <Route path="/partners" component={PartnersPage} />
         <Route path="/payments" component={PaymentsPage} />
         <Route path="/locations" component={LocationsPage} />
+        <Route path="/districts" component={DistrictsPage} />
         <Route path="/developer" component={DeveloperPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />

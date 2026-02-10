@@ -1,0 +1,8 @@
+{
+    "username": "testuser",
+    "email": "test@example.com",
+    "phone": "9876543210",
+    "password": "test123",
+    "role": "user",
+    "pinCode": "581320"
+}

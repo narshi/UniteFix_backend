@@ -1,14 +1,15 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { 
+import {
   insertUserSchema,
   insertAdminUserSchema,
   insertServiceRequestSchema,
   insertProductOrderSchema,
   insertProductSchema,
   insertServiceProviderSchema,
-  insertServiceablePincodeSchema
+  insertServiceablePincodeSchema,
+  insertDistrictSchema
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -41,27 +42,27 @@ interface AuthenticatedRequest extends Request {
 // Global error handler middleware
 function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   console.error('Error:', err.message);
-  
+
   if (err.name === 'ZodError') {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'Validation failed', 
-      errors: (err as any).errors 
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: (err as any).errors
     });
   }
-  
+
   if (err.message.includes('not found')) {
     return res.status(404).json({ success: false, message: err.message });
   }
-  
+
   if (err.message.includes('unauthorized') || err.message.includes('Invalid')) {
     return res.status(401).json({ success: false, message: err.message });
   }
-  
+
   if (err.message.includes('forbidden') || err.message.includes('too far')) {
     return res.status(403).json({ success: false, message: err.message });
   }
-  
+
   res.status(500).json({ success: false, message: 'Internal server error' });
 }
 
@@ -147,20 +148,20 @@ function paginate<T>(data: T[], page: number = 1, limit: number = 20): { data: T
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  
+
   // ==================== AUTHENTICATION ROUTES ====================
-  
+
   // User Signup with referral code support
   app.post("/api/auth/signup", async (req, res, next) => {
     try {
       const userData = insertUserSchema.parse(req.body);
-      
+
       // Check if pincode is serviceable
       const isServiceable = await storage.isPincodeServiceable(userData.pinCode || '');
       if (userData.pinCode && !isServiceable) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Service not available in your area. We are expanding soon!" 
+        return res.status(400).json({
+          success: false,
+          message: "Service not available in your area. We are expanding soon!"
         });
       }
 
@@ -181,7 +182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Hash password
       const hashedPassword = await bcrypt.hash(userData.password, 10);
-      
+
       const user = await storage.createUser({
         ...userData,
         password: hashedPassword,
@@ -194,11 +195,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { expiresIn: '30d' }
       );
 
-      res.status(201).json({ 
+      res.status(201).json({
         success: true,
         message: "User registered successfully",
         user: { ...user, password: undefined },
-        token 
+        token
       });
     } catch (error) {
       next(error);
@@ -209,7 +210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/login", async (req, res, next) => {
     try {
       const { phone, password } = req.body;
-      
+
       const user = await storage.getUserByPhone(phone);
       if (!user) {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
@@ -226,11 +227,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { expiresIn: '30d' }
       );
 
-      res.json({ 
+      res.json({
         success: true,
         message: "Login successful",
         user: { ...user, password: undefined },
-        token 
+        token
       });
     } catch (error) {
       next(error);
@@ -241,10 +242,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/auth/login", async (req, res, next) => {
     try {
       const { username, password } = req.body;
-      
-      const admin = await storage.getAdminByUsername(username) || 
-                    await storage.getAdminByEmail(username);
-      
+
+      const admin = await storage.getAdminByUsername(username) ||
+        await storage.getAdminByEmail(username);
+
       if (!admin || !admin.isActive) {
         return res.status(401).json({ success: false, message: "Invalid admin credentials" });
       }
@@ -262,11 +263,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { expiresIn: '8h' }
       );
 
-      res.json({ 
+      res.json({
         success: true,
         message: "Admin login successful",
         admin: { ...admin, password: undefined },
-        token 
+        token
       });
     } catch (error) {
       next(error);
@@ -277,22 +278,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/auth/register", async (req, res, next) => {
     try {
       const adminData = insertAdminUserSchema.parse(req.body);
-      
-      const existingAdmin = await storage.getAdminByEmail(adminData.email) || 
-                            await storage.getAdminByUsername(adminData.username);
-      
+
+      const existingAdmin = await storage.getAdminByEmail(adminData.email) ||
+        await storage.getAdminByUsername(adminData.username);
+
       if (existingAdmin) {
         return res.status(400).json({ success: false, message: "Admin already exists" });
       }
 
       const hashedPassword = await bcrypt.hash(adminData.password, 10);
-      
+
       const admin = await storage.createAdminUser({
         ...adminData,
         password: hashedPassword,
       });
 
-      res.status(201).json({ 
+      res.status(201).json({
         success: true,
         message: "Admin created successfully",
         admin: { ...admin, password: undefined }
@@ -303,7 +304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== ADMIN DASHBOARD ROUTES ====================
-  
+
   // Dashboard Statistics (Optimized SQL aggregations)
   app.get("/api/admin/stats", async (req, res, next) => {
     try {
@@ -330,12 +331,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
-      
+
       const allUsers = await storage.getAllUsers();
       const result = paginate(allUsers, page, limit);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: result.data.map(u => ({ ...u, password: undefined })),
         pagination: result.pagination
       });
@@ -360,12 +361,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== SERVICE PROVIDER MANAGEMENT ====================
-  
+
   // Get all service providers with filtering
   app.get("/api/admin/servicemen/list", async (req, res, next) => {
     try {
       const { status, page = '1', limit = '20' } = req.query;
-      
+
       let providers;
       if (status === 'pending') {
         providers = await storage.getPendingServiceProviders();
@@ -376,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         providers = await storage.getAllServiceProviders();
       }
-      
+
       const result = paginate(providers, parseInt(page as string), parseInt(limit as string));
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
@@ -388,19 +389,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/servicemen/nearby", async (req, res, next) => {
     try {
       const { lat, long, status } = req.query;
-      
+
       if (!lat || !long) {
         return res.status(400).json({ success: false, message: "Latitude and longitude required" });
       }
-      
+
       const providers = await storage.getProvidersSortedByDistance(
         parseFloat(lat as string),
         parseFloat(long as string),
         status as string
       );
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: providers.map(p => ({
           ...p,
           distanceKm: (p.distance / 1000).toFixed(2)
@@ -415,7 +416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/servicemen/create", async (req, res, next) => {
     try {
       const { partnerName, email, phone, password, partnerType, services, location, address } = req.body;
-      
+
       // 1. Create the user account first
       const hashedPassword = await bcrypt.hash(password || 'Temp123!', 10);
       const user = await storage.createUser({
@@ -453,15 +454,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/servicemen/:id/approve", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
-      const provider = await storage.updateServiceProvider(id, { 
+      const provider = await storage.updateServiceProvider(id, {
         verificationStatus: 'verified',
-        isActive: true 
+        isActive: true
       });
-      
+
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
-      
+
       res.json({ success: true, message: "Provider approved", data: provider });
     } catch (error) {
       next(error);
@@ -473,16 +474,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const { reason } = req.body;
-      
-      const provider = await storage.updateServiceProvider(id, { 
+
+      const provider = await storage.updateServiceProvider(id, {
         verificationStatus: 'suspended',
-        isActive: false 
+        isActive: false
       });
-      
+
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
-      
+
       res.json({ success: true, message: "Provider suspended", data: provider });
     } catch (error) {
       next(error);
@@ -494,11 +495,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const { amount, description } = req.body;
-      
+
       if (!amount || amount <= 0) {
         return res.status(400).json({ success: false, message: "Invalid amount" });
       }
-      
+
       const transaction = await storage.topUpProviderWallet(id, amount, description || 'Admin top-up');
       res.json({ success: true, message: "Wallet topped up", data: transaction });
     } catch (error) {
@@ -584,8 +585,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/business/partners/:id/verify", async (req, res, next) => {
     try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
-        verificationStatus: 'verified' 
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
+        verificationStatus: 'verified'
       });
       res.json(provider);
     } catch (error) {
@@ -595,9 +596,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/business/partners/:id/suspend", async (req, res, next) => {
     try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
         verificationStatus: 'suspended',
-        isActive: false 
+        isActive: false
       });
       res.json(provider);
     } catch (error) {
@@ -607,8 +608,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/business/partners/:id/deactivate", async (req, res, next) => {
     try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), { 
-        isActive: false 
+      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
+        isActive: false
       });
       res.json(provider);
     } catch (error) {
@@ -617,20 +618,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== SERVICE REQUEST MANAGEMENT ====================
-  
+
   // Get all service requests (admin) with pagination
   app.get("/api/admin/services", async (req, res, next) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const status = req.query.status as string;
-      
+
       let services = await storage.getAllServiceRequests();
-      
+
       if (status) {
         services = services.filter(s => s.status === status);
       }
-      
+
       const result = paginate(services, page, limit);
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
@@ -663,17 +664,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/requests/assign", async (req, res, next) => {
     try {
       const { request_id, provider_id } = req.body;
-      
+
       if (!request_id || !provider_id) {
         return res.status(400).json({ success: false, message: "request_id and provider_id required" });
       }
-      
+
       const service = await storage.assignProviderToService(request_id, provider_id);
-      
+
       if (!service) {
         return res.status(404).json({ success: false, message: "Service request not found" });
       }
-      
+
       res.json({ success: true, message: "Provider assigned successfully", data: service });
     } catch (error) {
       next(error);
@@ -685,11 +686,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { status } = req.body;
       const service = await storage.updateServiceRequestStatus(parseInt(req.params.id), status);
-      
+
       if (!service) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
-      
+
       res.json({ success: true, data: service });
     } catch (error) {
       next(error);
@@ -701,11 +702,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { partnerId } = req.body;
       const service = await storage.assignProviderToService(parseInt(req.params.id), partnerId);
-      
+
       if (!service) {
         return res.status(404).json({ message: "Service not found" });
       }
-      
+
       res.json(service);
     } catch (error) {
       next(error);
@@ -725,17 +726,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pincodeDetails = await storage.getServiceablePincode(pinCode);
 
       if (isServiceable && pincodeDetails) {
-        res.json({ 
-          success: true, 
-          valid: true, 
+        res.json({
+          success: true,
+          valid: true,
           message: `Service available in ${pincodeDetails.area}, ${pincodeDetails.district}`,
           data: pincodeDetails
         });
       } else {
-        res.json({ 
-          success: true, 
-          valid: false, 
-          message: "Service not available in this area yet" 
+        res.json({
+          success: true,
+          valid: false,
+          message: "Service not available in this area yet"
         });
       }
     } catch (error) {
@@ -744,21 +745,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== SERVICEMAN APP ROUTES ====================
-  
+
   // Update serviceman location (lightweight)
   app.post("/api/serviceman/location/update", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { lat, long } = req.body;
-      
+
       if (!lat || !long) {
         return res.status(400).json({ success: false, message: "Latitude and longitude required" });
       }
-      
+
       const provider = await storage.getServiceProviderByUserId(req.user!.userId);
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider profile not found" });
       }
-      
+
       await storage.updateProviderLocation(provider.id, lat, long);
       res.json({ success: true, message: "Location updated" });
     } catch (error) {
@@ -773,7 +774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider profile not found" });
       }
-      
+
       const assignments = await storage.getProviderServiceRequests(provider.id);
       res.json({ success: true, data: assignments });
     } catch (error) {
@@ -785,16 +786,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/service/verify-handshake", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { serviceId, otp } = req.body;
-      
+
       const service = await storage.getServiceRequest(parseInt(serviceId));
       if (!service) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
-      
+
       if (service.handshakeOtp !== otp) {
         return res.status(400).json({ success: false, message: "Invalid OTP" });
       }
-      
+
       res.json({ success: true, message: "OTP verified successfully" });
     } catch (error) {
       next(error);
@@ -805,12 +806,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/service/start", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { serviceId, providerLat, providerLong } = req.body;
-      
+
       const service = await storage.getServiceRequest(parseInt(serviceId));
       if (!service) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
-      
+
       // Geo-fencing check
       if (service.locationLat && service.locationLong) {
         const distance = calculateDistance(
@@ -819,20 +820,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           service.locationLat,
           service.locationLong
         );
-        
+
         if (distance > MAX_SERVICE_START_DISTANCE) {
-          return res.status(403).json({ 
-            success: false, 
-            message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)` 
+          return res.status(403).json({
+            success: false,
+            message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)`
           });
         }
       }
-      
+
       const updatedService = await storage.updateServiceRequest(parseInt(serviceId), {
         status: 'service_started',
         startedAt: new Date()
       });
-      
+
       res.json({ success: true, message: "Service started", data: updatedService });
     } catch (error) {
       next(error);
@@ -843,19 +844,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/service/complete", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { serviceId, totalAmount } = req.body;
-      
+
       if (!serviceId || !totalAmount) {
         return res.status(400).json({ success: false, message: "serviceId and totalAmount required" });
       }
-      
+
       const result = await storage.completeServiceWithTransaction(
         parseInt(serviceId),
         totalAmount,
         COMMISSION_RATE
       );
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: "Service completed successfully",
         data: {
           service: result.service,
@@ -868,7 +869,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== USER APP ROUTES ====================
-  
+
   // Create service request
   app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
@@ -876,7 +877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         userId: req.user!.userId
       });
-      
+
       const service = await storage.createServiceRequest(serviceData);
       res.status(201).json({ success: true, data: service });
     } catch (error) {
@@ -898,18 +899,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/services/:id/cancel", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
       const service = await storage.getServiceRequest(parseInt(req.params.id));
-      
+
       if (!service || service.userId !== req.user!.userId) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
-      
+
       if (!['placed', 'confirmed'].includes(service.status)) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Cannot cancel after partner assignment. Please contact support." 
+        return res.status(400).json({
+          success: false,
+          message: "Cannot cancel after partner assignment. Please contact support."
         });
       }
-      
+
       const updated = await storage.updateServiceRequestStatus(service.id, 'cancelled');
       res.json({ success: true, message: "Service cancelled", data: updated });
     } catch (error) {
@@ -918,21 +919,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PRODUCTS & ORDERS ====================
-  
+
   // Get products with pagination
   app.get("/api/products/list", async (req, res, next) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const category = req.query.category as string;
-      
+
       let products;
       if (category) {
         products = await storage.getProductsByCategory(category);
       } else {
         products = await storage.getAllProducts();
       }
-      
+
       const result = paginate(products, page, limit);
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
@@ -945,7 +946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
-      
+
       const orders = await storage.getAllProductOrders();
       const result = paginate(orders, page, limit);
       res.json({ success: true, data: result.data, pagination: result.pagination });
@@ -970,11 +971,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { status } = req.body;
       const order = await storage.updateProductOrderStatus(parseInt(req.params.id), status);
-      
+
       if (!order) {
         return res.status(404).json({ success: false, message: "Order not found" });
       }
-      
+
       res.json({ success: true, data: order });
     } catch (error) {
       next(error);
@@ -985,7 +986,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/orders/place", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
-      
+
       // Calculate total
       let totalAmount = 0;
       for (const item of products) {
@@ -994,7 +995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           totalAmount += product.price * item.quantity;
         }
       }
-      
+
       const order = await storage.createProductOrder({
         userId: req.user!.userId,
         products,
@@ -1003,10 +1004,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deliveryLat,
         deliveryLong
       });
-      
+
       // Clear cart
       await storage.clearCart(req.user!.userId);
-      
+
       res.status(201).json({ success: true, data: order });
     } catch (error) {
       next(error);
@@ -1047,12 +1048,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== INVOICES ====================
-  
+
   app.get("/api/admin/invoices/all", async (req, res, next) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
-      
+
       const invoices = await storage.getAllInvoices();
       const result = paginate(invoices, page, limit);
       res.json({ success: true, data: result.data, pagination: result.pagination });
@@ -1083,7 +1084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PINCODES MANAGEMENT ====================
-  
+
   app.get("/api/admin/pincodes", async (req, res, next) => {
     try {
       const pincodes = await storage.getAllServiceablePincodes();
@@ -1107,11 +1108,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { pincode } = req.body;
       const result = await storage.togglePincodeStatus(pincode);
-      
+
       if (!result) {
         return res.status(404).json({ success: false, message: "Pincode not found" });
       }
-      
+
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -1123,12 +1124,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { pinCode } = req.body;
       const isServiceable = await storage.isPincodeServiceable(pinCode);
-      
-      res.json({ 
+
+      res.json({
         success: true,
         valid: isServiceable,
         message: isServiceable ? "Valid pin code" : "Service not available in your area"
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== DISTRICT ROUTES ====================
+
+  app.get("/api/admin/districts", async (req, res, next) => {
+    try {
+      const districts = await storage.getAllDistricts();
+      res.json(districts);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/districts", async (req, res, next) => {
+    try {
+      const data = insertDistrictSchema.parse(req.body);
+      const district = await storage.createDistrict(data);
+      res.status(201).json(district);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/admin/districts/:id/toggle", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { isActive } = req.body;
+      const result = await storage.toggleDistrictStatus(id, isActive);
+      if (!result) {
+        return res.status(404).json({ message: "District not found" });
+      }
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -1146,7 +1182,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/locations/:pinCode/toggle", async (req, res, next) => {
     try {
-      const result = await storage.togglePincodeStatus(req.params.pinCode);
+      const { isActive } = req.body;
+      // togglePincodeStatus now accepts optional explicit status
+      const result = await storage.togglePincodeStatus(req.params.pinCode, isActive);
       if (!result) {
         return res.status(404).json({ message: "Pincode not found" });
       }
@@ -1156,12 +1194,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create new location (serviceable pincode)
+  app.post("/api/admin/locations", async (req, res, next) => {
+    try {
+      const data = insertServiceablePincodeSchema.parse(req.body);
+
+      // Check if already exists
+      const existing = await storage.getServiceablePincode(data.pincode);
+      if (existing) {
+        return res.status(409).json({ message: "Pincode already exists" });
+      }
+
+      const location = await storage.createServiceablePincode(data);
+      res.status(201).json(location);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Get location statistics
+  app.get("/api/admin/location-stats", async (req, res, next) => {
+    try {
+      const pincodes = await storage.getAllServiceablePincodes();
+
+      const totalLocations = pincodes.length;
+      const activeLocations = pincodes.filter(p => p.isActive).length;
+      const inactiveLocations = totalLocations - activeLocations;
+
+      // Count unique districts
+      const districts = new Set(pincodes.map(p => p.district));
+      const districtsCovered = districts.size;
+
+      res.json({
+        totalLocations,
+        activeLocations,
+        inactiveLocations,
+        districtsCovered
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // ==================== OTP ROUTES ====================
-  
+
   app.post("/api/otp/send", async (req, res, next) => {
     try {
       const { phone, email, purpose } = req.body;
-      
+
       if (!phone && !email) {
         return res.status(400).json({ success: false, message: "Phone or email required" });
       }
@@ -1178,19 +1258,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       console.log(`OTP for ${phone || email}: ${otp}`);
-      
-      res.json({ success: true, message: "OTP sent successfully" });
+
+      // For simulator/testing purposes, return the OTP
+      res.json({ success: true, message: "OTP sent successfully", otp });
     } catch (error) {
       next(error);
     }
   });
 
+  // Utility route for generating verification codes
+  app.post("/api/utils/generate-code", (req, res) => {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    res.json({ success: true, code });
+  });
+
   app.post("/api/otp/verify", async (req, res, next) => {
     try {
       const { phone, email, otp, purpose } = req.body;
-      
+
       const isValid = await storage.verifyOtp(phone, email, otp, purpose);
-      
+
       if (isValid) {
         res.json({ success: true, message: "OTP verified successfully" });
       } else {
