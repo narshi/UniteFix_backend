@@ -12,3 +12,30 @@ vite.config.ts.*
 
 # Database migrations (generated)
 migrations/
+
+# Diagnostic & debug files
+*.ps1
+*.sql
+*_backup.*
+diagnostic_results.*
+verification_output.*
+server-log.txt
+db_status.json
+
+# Temp schema/audit dumps
+audit_*.txt
+*_schema*.txt
+columns_*.txt
+constraint*.txt
+indexes_*.txt
+db_tables_list.txt
+
+# Test data files
+test-user.json
+step*.json
+
+# Secret keys - NEVER COMMIT!
+Secure Keys*
+
+# Attached assets (Replit paste artifacts)
+attached_assets/

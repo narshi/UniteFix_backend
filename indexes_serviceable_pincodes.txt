@@ -1,8 +1,0 @@
-             indexname             |                                                  indexdef                                                   
------------------------------------+-------------------------------------------------------------------------------------------------------------
- serviceable_pincodes_pkey         | CREATE UNIQUE INDEX serviceable_pincodes_pkey ON public.serviceable_pincodes USING btree (id)
- serviceable_pincodes_pin_code_key | CREATE UNIQUE INDEX serviceable_pincodes_pin_code_key ON public.serviceable_pincodes USING btree (pin_code)
- idx_serviceable_pincodes_pin      | CREATE INDEX idx_serviceable_pincodes_pin ON public.serviceable_pincodes USING btree (pin_code)
- idx_serviceable_pincodes_active   | CREATE INDEX idx_serviceable_pincodes_active ON public.serviceable_pincodes USING btree (is_active)
-(4 rows)
-
