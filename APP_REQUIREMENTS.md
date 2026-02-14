@@ -1,599 +1,455 @@
 # UniteFix — Mobile App Requirements Document
 ### For Emergent AI Development Reference
 
-> **Version:** 2.0  
+> **Version:** 3.0 (Audited)  
 > **Date:** 2026-02-15  
 > **Platforms:** Android & iOS  
-> **Design Source:** Figma (60-70% screens designed)  
-> **Backend Coordination:** See `BACKEND_ADMIN_REQUIREMENTS.md`
+> **Design Source:** Figma (3 design files, 15+ screens)  
+> **Backend Coordination:** See `BACKEND_ADMIN_REQUIREMENTS.md`  
+> **Design-to-Backend Alignment: 53%** (corrected from 67%)
+
+---
+
+## ⚠️ CRITICAL: Backend Issues Affecting App
+
+Before app development begins, these backend issues must be resolved:
+
+1. **4 route files are dead code** — Payment, advanced admin, product, and OTP routes exist but are never registered. See `BACKEND_ADMIN_REQUIREMENTS.md` §1.
+2. **4 database tables missing** — `support_tickets`, `ticket_messages`, `service_charges`, `shipments` referenced in code but not in schema.
+3. **OTP sends to console only** — No SMS/email provider integrated. App OTP flows will fail in production.
 
 ---
 
 ## 1. App Overview
 
-UniteFix is a home services and product ordering app serving the Uttara Kannada region of Karnataka. The app supports two user types:
+UniteFix is a home services and product ordering app for Uttara Kannada, Karnataka. Two user types share one app with role-based UI:
 
 - **Customer (User):** Books repair/maintenance services, orders products
 - **Service Partner:** Receives and completes service assignments, earns via wallet
 
-Both user types share a single app with role-based UI.
+---
+
+## 2. Screen-by-Screen Requirements
+
+### 2.1 Splash Screen
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| UniteFix logo + branding | None (static) | ✅ Ready |
+| User type selection (User / Partner) | None (stored locally) | ✅ Ready |
 
 ---
 
-## 2. User Flows (From Figma Designs)
+### 2.2 Login Screen
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Email input | `POST /api/auth/login` | ✅ Working |
+| Phone input | `POST /api/auth/login` | ✅ Working |
+| Password (show/hide toggle) | `POST /api/auth/login` | ✅ Working |
+| Remember me checkbox | Extend JWT expiry | ⚠️ Not implemented |
+| **Forgot password** | `POST /api/auth/forgot-password` | ❌ NOT BUILT |
+| Login button | `POST /api/auth/login` | ✅ Working |
+| **Facebook login** | `POST /api/auth/social/facebook` | ❌ NOT BUILT |
+| **Google login** | `POST /api/auth/social/google` | ❌ NOT BUILT |
+| Sign Up link | Navigation only | ✅ Ready |
 
-### 2.1 Onboarding Flow
-```
-App Launch → Splash Screen → User Type Selection → Login / Sign Up → Home
-                                  ↓
-                          [User]    [Partner]
-                             ↓          ↓
-                         User Home   Partner Home
-```
-
-### 2.2 Service Booking Flow (User)
-```
-Home → Select Category → Fill Request Form → Confirm → Payment (₹250) → Request Created
-                                                                              ↓
-                                              Track Status ← Partner Assigned ←
-                                                    ↓
-                                              Service Started (OTP Verify)
-                                                    ↓
-                                              Service Completed → Rate Partner → Invoice
-```
-
-### 2.3 Service Management Flow (Partner)
-```
-Partner Home → Incoming Services → Accept/Deny → Navigate to Customer
-                                                       ↓
-                                                  Enter OTP → Start Service
-                                                       ↓
-                                                  Enter Charges → Complete
-                                                       ↓
-                                                  Wallet Credit → Past Services
-```
-
----
-
-## 3. Screen-by-Screen Requirements
-
-### 3.1 Splash Screen
-**Design:** ✅ Complete
-
-| Element | Requirement | Backend API |
-|---------|------------|-------------|
-| UniteFix Logo | Brand logo display | None (static) |
-| Welcome text | "Welcome" heading | None |
-| User type cards | Two options: "User" & "Partner" with images | None |
-| Selection | Tap to proceed to Login/Signup | None |
-
-**Notes:** No backend dependency. Store selected type locally for routing.
-
----
-
-### 3.2 Login Screen
-**Design:** ✅ Complete
-
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Email input | Email text field | `POST /api/auth/login` | ✅ Ready |
-| Phone input | Phone text field | `POST /api/auth/login` | ✅ Ready |
-| Password input | Secure field with show/hide toggle | `POST /api/auth/login` | ✅ Ready |
-| Remember me | Checkbox for persistent session | — | ⚠️ Use longer token |
-| Forgot password | Link to password reset flow | `POST /api/auth/forgot-password` | ❌ NOT BUILT |
-| Login button | Submit credentials | `POST /api/auth/login` | ✅ Ready |
-| Facebook login | OAuth social login | `POST /api/auth/social/facebook` | ❌ NOT BUILT |
-| Google login | OAuth social login | `POST /api/auth/social/google` | ❌ NOT BUILT |
-| Sign Up link | Navigate to registration | — | ✅ Ready |
-
-**API Response (Login):**
+**Login response:**
 ```json
 {
   "success": true,
-  "message": "Login successful",
-  "user": {
-    "id": 123,
-    "phone": "+919876543210",
-    "email": "user@email.com",
-    "username": "John Doe",
-    "role": "user",
-    "isVerified": true
-  },
-  "token": "eyJhbGciOiJIUzI1NiIs..."
+  "user": { "id": 123, "phone": "+91...", "role": "user", ... },
+  "token": "eyJ..."
 }
 ```
+Token: Store in Keychain (iOS) / Keystore (Android). Expires 30 days.
 
-**Token Storage:** Store JWT securely in device Keychain (iOS) / Keystore (Android). Token expires in 30 days for users.
-
----
-
-### 3.3 Sign Up Screen
-**Design:** ✅ Complete
-
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Full name | Text input | `username` field in signup | ✅ Ready |
-| Email | Email input | `email` field | ✅ Ready |
-| Phone | Phone input with country code | `phone` field (unique) | ✅ Ready |
-| Partnership type | Radio: Individual / Business | `partnerType` field | ✅ Ready (Partner signup) |
-| Password | Secure input with toggle | bcrypt hashed on server | ✅ Ready |
-| Privacy Policy | Checkbox + link | — | ⚠️ Need timestamp field |
-| Sign Up button | Submit registration | `POST /api/auth/signup` | ✅ Ready |
-| Social signup | Facebook / Google | — | ❌ NOT BUILT |
-| Login link | Navigate to login | — | ✅ Ready |
-
-**API: `POST /api/auth/signup`**
-```json
-{
-  "phone": "+919876543210",
-  "email": "user@email.com",
-  "password": "SecurePass123",
-  "username": "John Doe",
-  "role": "user",
-  "pinCode": "581301",
-  "homeAddress": "123 Main St, Sirsi",
-  "referralCode": "UFABC123"
-}
-```
-
-**Pincode Validation:** On signup, the backend checks if the pincode is in the `serviceable_pincodes` table. Returns error if not serviceable.
+**Completion: 55%**
 
 ---
 
-### 3.4 Home Screen (User)
-**Design:** ✅ Complete
+### 2.3 Sign Up Screen
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Full name | `username` field | ✅ Working |
+| Email | `email` field | ✅ Working |
+| Phone (with country code) | `phone` field (unique) | ✅ Working |
+| Partnership type (Individual/Business) | `partnerType` field | ✅ Working (partner signup) |
+| Password (show/hide) | bcrypt hashed server-side | ✅ Working |
+| Privacy Policy checkbox | — | ⚠️ No timestamp field in schema |
+| Sign Up button | `POST /api/auth/signup` | ✅ Working |
+| Social signup | — | ❌ NOT BUILT |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Welcome greeting | "Welcome {firstName}" | Token → user profile | ✅ Ready |
-| Notification bell | Navigate to notifications | `GET /api/notifications` | ❌ NOT BUILT |
-| Service grid | Category cards with icons | `GET /api/client/services/types` | ✅ Ready |
-| — AC Services | Category with icon | — | ⚠️ Need icon URLs |
-| — Refrigerator | Category with icon | — | ⚠️ Need icon URLs |
-| — TV Repair | Category with icon | — | ⚠️ Need icon URLs |
-| — Laptop Repair | Category with icon | — | ⚠️ Need icon URLs |
-| — Water Filter | Category with icon | — | ⚠️ Need icon URLs |
-| — Mobile Repair | Category with icon | — | ⚠️ Need icon URLs |
-| — Others | Show all categories | — | ⚠️ Need icon URLs |
-| Bottom nav | Home / Service / Orders / Payments / Profile | — | App-side |
-
-**Recommendation:** Add `iconUrl` and `startingPrice` to service types response so the app can render category cards with icons and price indicators.
+**Completion: 70%**
 
 ---
 
-### 3.5 Service Request Form
-**Design:** ✅ Complete
+### 2.4 Home Screen (User)
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| "Welcome {name}" greeting | Token → user profile | ✅ Working |
+| Service category grid (AC, Refrigerator, TV, Laptop, Water Filter, Mobile, Others) | Service types API | ✅ Working |
+| Category icons | — | ⚠️ No `iconUrl` field in schema |
+| Notification bell | `GET /api/notifications` | ❌ NOT BUILT |
+| Bottom navigation (5 tabs) | App-side | ✅ Ready |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Service type | Pre-selected from category | `serviceType` | ✅ Ready |
-| Brand | Text input (e.g. "Samsung") | `brand` | ✅ Ready |
-| Model | Text input | `model` | ✅ Ready |
-| Description | Textarea for problem | `description` | ✅ Ready |
-| Photos | Multi-image picker (max 5) | `photos[]` | ✅ Ready |
-| Preferred date | Date picker | `preferredDate` | ✅ Ready |
-| Preferred time | Time slot selector | `preferredTime` | ✅ Ready |
-| Address | Text + map pin | `address` + `locationLat/Long` | ✅ Ready |
-| Booking fee | Display ₹250 | `bookingFee` | ✅ Ready |
-| Submit | "Request Service" button | `POST /api/services/create` | ✅ Ready |
-
-**API: `POST /api/services/create`**
-```json
-{
-  "serviceType": "AC Repair",
-  "brand": "Samsung",
-  "model": "AR18TY",
-  "description": "AC not cooling properly",
-  "photos": ["url1.jpg", "url2.jpg"],
-  "address": "123 Main St, Sirsi",
-  "locationLat": 14.5886,
-  "locationLong": 74.8345,
-  "bookingFee": 250
-}
-```
-
-**Note:** Photos need a file upload API. Currently `photos` field expects URLs — need to build upload endpoint that returns URLs to store.
+**Completion: 60%**
 
 ---
 
-### 3.6 My Service Requests (User)
-**Design:** Implied from flow
+### 2.5 Service Request Form
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Service type (pre-selected) | `serviceType` | ✅ Working |
+| Brand input | `brand` | ✅ Working |
+| Model input | `model` | ✅ Working |
+| Description textarea | `description` | ✅ Working |
+| Photo upload (max 5) | `photos[]` — expects URLs | ⚠️ No file upload endpoint |
+| Preferred date | `preferredDate` | ✅ Working |
+| Preferred time | `preferredTime` | ✅ Working |
+| Address + GPS coordinates | `address` + `locationLat/Long` | ✅ Working |
+| ₹250 booking fee display | `bookingFee` | ✅ Working |
+| Submit button | `POST /api/services/create` | ✅ Working |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Request list | List of user's service requests | `GET /api/services/my-requests` | ✅ Ready |
-| Status badge | Color-coded status display | `status` field | ✅ Ready |
-| Request details | Tap to view full details | Service request object | ✅ Ready |
-| Cancel button | Cancel if pre-assignment | `POST /api/services/:id/cancel` | ✅ Ready |
+**API: `POST /api/services/create`** — Requires auth token.
 
-**Status Display Mapping:**
-| Status | Label | Color |
+**Issue:** Photos field expects URL strings, but there's no file upload API. Need `POST /api/uploads/image` returning CDN URL.
+
+**Completion: 80%**
+
+---
+
+### 2.6 My Service Requests (User)
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Request list | `GET /api/services/my-requests` | ✅ Working |
+| Status badge (color-coded) | `status` field | ✅ Working |
+| Request details | Service request object | ✅ Working |
+| Cancel button | `POST /api/services/:id/cancel` | ✅ Working |
+| **Rate service** | `POST /api/ratings/service/:id` | ❌ NOT BUILT |
+
+**Status colors:**
+| Status | Color | Label |
 |--------|-------|-------|
-| created | Request Placed | Blue |
-| assigned | Partner Assigned | Orange |
-| accepted | Partner Accepted | Green |
-| in_progress | Service In Progress | Yellow |
-| completed | Completed | Green |
-| cancelled | Cancelled | Red |
-| disputed | Under Review | Red |
+| created | Blue | Request Placed |
+| assigned | Orange | Partner Assigned |
+| accepted | Green | Partner Accepted |
+| in_progress | Yellow | In Progress |
+| completed | Green | Completed |
+| cancelled | Red | Cancelled |
+
+**Completion: 75%**
 
 ---
 
-### 3.7 Incoming Services (Partner)
-**Design:** ✅ Complete
+### 2.7 Incoming Services (Partner) — CRITICAL GAPS
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Assigned request cards | `GET /api/serviceman/assignments` | ✅ Working |
+| Customer info | Included in assignment data | ⚠️ No profile picture |
+| Request title | `serviceType` | ✅ Working |
+| Request ID | `serviceId` | ✅ Working |
+| Date | `assignedAt` | ✅ Working |
+| Price per hour | — | ⚠️ No hourly rate field |
+| **Accept button** | `POST /api/serviceman/requests/:id/accept` | ❌ NOT BUILT |
+| **Deny button** | `POST /api/serviceman/requests/:id/deny` | ❌ NOT BUILT |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Request cards | List of assigned requests | `GET /api/serviceman/assignments` | ✅ Ready |
-| Customer info | Name, avatar | Included in assignment | ⚠️ No profile picture |
-| Request title | "Request for {serviceType} service" | `serviceType` | ✅ Ready |
-| Request ID | Display request identifier | `serviceId` | ✅ Ready |
-| Date | Assignment date | `assignedAt` | ✅ Ready |
-| Price | "₹{price} per hour" | — | ⚠️ Need hourly rate |
-| Accept button | Accept the job | `POST /api/serviceman/requests/:id/accept` | ❌ NOT BUILT |
-| Deny button | Reject the request | `POST /api/serviceman/requests/:id/deny` | ❌ NOT BUILT |
+**This is the biggest gap.** The Figma design prominently shows Accept/Deny buttons, but no backend endpoints exist.
 
-**Critical Gap:** The app design prominently shows Accept/Deny buttons, but these API endpoints don't exist yet.
-
-**Required New Endpoints:**
+**Required new endpoints:**
 ```
 POST /api/serviceman/requests/:id/accept
-  → Updates status: assigned → accepted
-  → Returns: updated service request
+  → assigned → accepted (state machine supports this)
 
 POST /api/serviceman/requests/:id/deny
-  → Updates status: assigned → created (returns to pool)
-  → Requires: { reason: "string" }
-  → Returns: success message
+  → assigned → created (back to pool)
+  → Body: { reason: "string" }
 ```
+
+**Completion: 40%**
 
 ---
 
-### 3.8 Past Services (Partner)
-**Design:** ✅ Complete
+### 2.8 Service Execution (Partner)
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| OTP verification | `POST /api/service/verify-handshake` | ✅ Working |
+| Start service (geo-fenced 500m) | `POST /api/service/start` | ✅ Working |
+| Enter charges | `POST /api/technician/services/:id/enter-service-charge` | ⚠️ Route exists but NOT REGISTERED |
+| Complete service | `POST /api/service/complete` | ✅ Working |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Service list | Completed services history | `GET /api/serviceman/assignments?status=completed` | ⚠️ Need filter |
-| Service icon | Category icon | — | ⚠️ Need icon URLs |
-| Service name | e.g. "TV Repair" | `serviceType` | ✅ Ready |
-| Service ID | e.g. "254-647-944F" | `serviceId` | ✅ Ready |
-| Date | Completion date | `completedAt` | ✅ Ready |
-| Price | Earnings from this service | `totalAmount` | ✅ Ready |
-| Rating | Star rating (e.g. ★ 4.7) | — | ❌ NOT BUILT |
-
-**Critical Gap:** No rating system exists. Design shows star ratings on every past service.
+**Completion: 65%**
 
 ---
 
-### 3.9 Service Details (Partner)
-**Design:** ✅ Complete
+### 2.9 Past Services (Partner)
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Completed services list | `GET /api/serviceman/assignments` (filter) | ⚠️ No status filter |
+| Service name + ID | `serviceType`, `serviceId` | ✅ Working |
+| Date | `completedAt` | ✅ Working |
+| Price earned | `totalAmount` | ✅ Working |
+| **Star rating** | `GET /api/ratings/provider/:id` | ❌ NOT BUILT |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Header | "Request for {serviceType} service" | `serviceType` | ✅ Ready |
-| Customer name | Customer who booked | via `userId` join | ✅ Ready |
-| Service Request ID | e.g. "254-647-944F" | `serviceId` | ✅ Ready |
-| Date | Service date | `createdAt` | ✅ Ready |
-| Customer ID | e.g. "A7556367" | `userId` | ⚠️ Need UFID format |
-| Amount received | Earnings | `totalAmount` | ✅ Ready |
-| Time | Service time | `startedAt` / `completedAt` | ✅ Ready |
-| Download Invoice | Generate and download PDF | `GET /api/invoices/:id/download` | ❌ NOT BUILT |
-
-**Required New Endpoint:**
-```
-GET /api/invoices/:id/download
-  → Returns: PDF file stream
-  → Content-Type: application/pdf
-```
+**Completion: 45%**
 
 ---
 
-### 3.10 Profile Screen
-**Design:** ✅ Complete
+### 2.10 Service Details (Partner)
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| Service info | Service request object | ✅ Working |
+| Customer name | via userId join | ✅ Working |
+| Amount earned | `totalAmount` | ✅ Working |
+| **Download invoice (PDF)** | `GET /api/invoices/:id/download` | ❌ NOT BUILT |
 
-| Element | Requirement | Backend API | Status |
-|---------|------------|-------------|--------|
-| Profile picture | Circular avatar + edit icon | `GET/POST /api/client/profile/picture` | ❌ NOT BUILT |
-| Full name | Display name | `username` | ✅ Ready |
-| User ID | "UFID-{formatted_id}" | — | ⚠️ Need UFID format |
-| Email | Display email | `email` | ✅ Ready |
-| Edit Profile | Navigate to profile editor | `PATCH /api/client/auth/profile` | ✅ Ready |
-| Contact Support | Open support form | `POST /api/support/ticket` | ❌ NOT BUILT |
-| Log Out | Clear token, redirect to login | Client-side | ✅ Ready |
-| Delete Account | Account removal | `DELETE /api/client/account` | ❌ NOT BUILT |
+**Completion: 60%**
 
 ---
 
-### 3.11 Bottom Navigation
-**Design:** ✅ Complete (5 tabs)
+### 2.11 Profile Screen
+| Element | Backend API | Status |
+|---------|-------------|--------|
+| **Profile picture** | `POST /api/client/profile/picture` | ❌ NOT BUILT |
+| User name | `username` | ✅ Working |
+| User ID (UFID format) | — | ⚠️ No UFID generation |
+| Email | `email` | ✅ Working |
+| Edit profile | `PATCH /api/client/auth/profile` | ✅ Working |
+| **Contact Support** | `POST /api/customer/tickets` | ❌ Route exists but NOT REGISTERED + No DB table |
+| Log Out | Client-side token clear | ✅ Ready |
+| **Delete Account** | `DELETE /api/client/account` | ❌ NOT BUILT |
 
-| Tab | Icon | Description | User | Partner |
-|-----|------|-------------|------|---------|
-| Home | 🏠 | Dashboard / Categories | Home screen | — |
-| Incoming Service | 📥 | Incoming assignments | — | Incoming requests |
-| Past Service | 📋 | History & tracking | My requests | Past services |
-| Start Service | ▶️ | Initiate service | — | OTP + start service |
-| Payments | 💰 | Payment/wallet | Payment history | Wallet & earnings |
-| Profile | 👤 | User profile | Profile | Profile |
-
-**Note:** Navigation tabs differ between User and Partner views based on role.
+**Completion: 40%**
 
 ---
 
-## 4. Feature Requirements Not in Figma (But Needed for App)
+## 3. Features Not in Figma But Needed
 
-### 4.1 Password Reset Flow
+### 3.1 Password Reset
 ```
-Forgot Password → Enter Phone/Email → Receive OTP → Enter OTP → New Password → Success
+Forgot Password → Enter Phone/Email → OTP → Verify → New Password → Login
 ```
+**APIs needed:**
+- `POST /api/auth/forgot-password` → Send OTP
+- `POST /api/auth/verify-reset-otp` → Return reset token
+- `POST /api/auth/reset-password` → Update password
 
-**Required APIs:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `POST /api/auth/forgot-password` | Initiate reset, send OTP | ❌ Build |
-| `POST /api/auth/verify-reset-otp` | Verify OTP, return reset token | ❌ Build |
-| `POST /api/auth/reset-password` | Change password with reset token | ❌ Build |
-
-### 4.2 Rating & Review System
-After service completion, user rates the partner (1-5 stars + optional text review).
-
-**Required APIs:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `POST /api/ratings/service/:serviceId` | Submit rating | ❌ Build |
-| `GET /api/ratings/provider/:providerId` | Get provider's ratings | ❌ Build |
-| `GET /api/ratings/provider/:providerId/average` | Average rating | ❌ Build |
-
-**Database Table Needed:**
+### 3.2 Rating & Review System
+**Database table needed:**
 ```sql
 CREATE TABLE ratings (
   id SERIAL PRIMARY KEY,
   service_request_id INTEGER REFERENCES service_requests(id),
-  from_user_id INTEGER NOT NULL REFERENCES users(id),
-  to_user_id INTEGER NOT NULL REFERENCES users(id),
+  from_user_id INTEGER NOT NULL,
+  to_user_id INTEGER NOT NULL,
   provider_id INTEGER REFERENCES service_providers(id),
-  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  rating INTEGER CHECK (rating BETWEEN 1 AND 5),
   review TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 ```
+**APIs needed:**
+- `POST /api/ratings/service/:serviceId` — Submit rating
+- `GET /api/ratings/provider/:providerId` — Provider's ratings
+- `GET /api/ratings/provider/:providerId/average` — Average score
 
-### 4.3 Push Notifications
-| Trigger | Notification to | Content |
-|---------|----------------|---------|
-| Service request created | Admin | "New service request: {type}" |
-| Partner assigned | User | "A partner has been assigned to your request" |
-| Partner accepts | User | "{partnerName} accepted your request" |
-| Service started | User | "Your {serviceType} service has started" |
-| Service completed | User | "Service completed! Rate your experience" |
-| Payment received | Partner | "₹{amount} credited to your wallet" |
-| New assignment | Partner | "New job: {serviceType} at {location}" |
+### 3.3 Push Notifications
+**Trigger events:**
+| Event | Notify | Content |
+|-------|--------|---------|
+| Partner assigned | User | "A partner has been assigned" |
+| Partner accepts | User | "{name} accepted your request" |
+| Service started | User | "Your service has started" |
+| Service completed | User | "Rate your experience" |
+| New assignment | Partner | "New job: {type} at {location}" |
+| Payment received | Partner | "₹{amount} credited to wallet" |
 
-**Required APIs:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `POST /api/notifications/register-device` | Register FCM/APNS token | ❌ Build |
-| `GET /api/notifications` | Get user's notifications | ❌ Build |
-| `PATCH /api/notifications/:id/read` | Mark as read | ❌ Build |
+**Tables needed:** `deviceTokens`, `notifications`
+**Infrastructure:** Firebase Cloud Messaging (Android) + APNS (iOS)
 
-### 4.4 Support Ticket System
-**Required APIs:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `POST /api/support/ticket` | Create ticket | ❌ Build |
-| `GET /api/support/tickets` | User's tickets | ❌ Build |
-| `POST /api/support/tickets/:id/message` | Add message | ❌ Build |
-
-### 4.5 Profile Picture Upload
-**Required APIs:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `POST /api/client/profile/picture` | Upload image | ❌ Build |
-| `DELETE /api/client/profile/picture` | Remove image | ❌ Build |
-
-**Implementation:** Use multipart/form-data upload → store in cloud (S3/Cloudinary) → save URL to user record.
-
-### 4.6 Account Deletion
-**Required API:**
-| API | Purpose | Status |
-|-----|---------|--------|
-| `DELETE /api/client/account` | Delete account + data | ❌ Build |
-
-**Flow:** Confirm via password → soft-delete user → anonymize data → schedule hard delete after 30 days.
+### 3.4 Profile Picture Upload
+**Implementation:** Multipart upload → Cloud storage (S3/Cloudinary) → CDN URL → Save to user record
+**APIs needed:**
+- `POST /api/client/profile/picture` — Upload
+- `DELETE /api/client/profile/picture` — Remove
 
 ---
 
-## 5. API Endpoints Summary for App
+## 4. API Quick Reference for App
 
-### Already Working (Use Immediately)
-| Endpoint | Purpose |
-|----------|---------|
-| `POST /api/auth/signup` | Register new user/partner |
-| `POST /api/auth/login` | Login with phone + password |
-| `POST /api/services/create` | Create service request |
-| `GET /api/services/my-requests` | User's service history |
-| `POST /api/services/:id/cancel` | Cancel request |
-| `GET /api/serviceman/assignments` | Partner's assigned jobs |
-| `POST /api/serviceman/location/update` | Update partner GPS |
-| `POST /api/service/verify-handshake` | Verify OTP at service start |
-| `POST /api/service/start` | Start service (geo-fenced) |
-| `POST /api/service/complete` | Complete service |
-| `GET /api/products/list` | Browse products |
-| `POST /api/cart/add` | Add to cart |
-| `GET /api/cart` | View cart |
-| `DELETE /api/cart/:id` | Remove from cart |
-| `POST /api/orders/place` | Place product order |
-| `POST /api/validate-pincode` | Check if area is serviced |
-| `POST /api/otp/send` | Send OTP |
-| `POST /api/otp/verify` | Verify OTP |
+### Working — Use Immediately
+```
+Auth:
+  POST /api/auth/signup
+  POST /api/auth/login
+
+Services:
+  POST /api/services/create
+  GET  /api/services/my-requests
+  POST /api/services/:id/cancel
+
+Serviceman:
+  POST /api/serviceman/location/update
+  GET  /api/serviceman/assignments
+  POST /api/service/verify-handshake
+  POST /api/service/start
+  POST /api/service/complete
+
+Products:
+  GET  /api/products/list?category=X
+  POST /api/cart/add
+  GET  /api/cart
+  DELETE /api/cart/:id
+  POST /api/orders/place
+
+Utils:
+  POST /api/validate-pincode
+  POST /api/otp/send
+  POST /api/otp/verify
+```
 
 ### Must Build Before App Launch
-| Endpoint | Purpose | Priority |
-|----------|---------|----------|
-| `POST /api/auth/forgot-password` | Password reset initiation | 🔴 Critical |
-| `POST /api/auth/reset-password` | Complete password reset | 🔴 Critical |
-| `POST /api/auth/social/google` | Google OAuth login | 🔴 Critical |
-| `POST /api/auth/social/facebook` | Facebook OAuth login | 🔴 Critical |
-| `POST /api/serviceman/requests/:id/accept` | Accept assigned job | 🔴 Critical |
-| `POST /api/serviceman/requests/:id/deny` | Deny assigned job | 🔴 Critical |
-| `POST /api/ratings/service/:id` | Rate completed service | 🔴 Critical |
-| `GET /api/ratings/provider/:id` | Get provider ratings | 🟡 Important |
-| `POST /api/client/profile/picture` | Upload profile picture | 🟡 Important |
-| `DELETE /api/client/account` | Delete user account | 🟡 Important |
-| `GET /api/invoices/:id/download` | Download PDF invoice | 🟡 Important |
-| `POST /api/support/ticket` | Create support ticket | 🟡 Important |
-| `POST /api/notifications/register-device` | Register push token | 🟡 Important |
-| `GET /api/notifications` | Get notifications | 🟡 Important |
+```
+🔴 CRITICAL:
+  POST /api/auth/forgot-password
+  POST /api/auth/reset-password
+  POST /api/auth/social/google
+  POST /api/auth/social/facebook
+  POST /api/serviceman/requests/:id/accept
+  POST /api/serviceman/requests/:id/deny
+  POST /api/ratings/service/:id
+  GET  /api/ratings/provider/:id
+
+🟡 HIGH:
+  POST /api/client/profile/picture
+  DELETE /api/client/account
+  GET  /api/invoices/:id/download
+  POST /api/notifications/register-device
+  GET  /api/notifications
+  
+⚠️ FIX (exists but broken):
+  Register payment.routes.ts
+  Register product.routes.ts  
+  Register admin.routes.ts
+  Add missing DB tables to schema
+```
 
 ---
 
-## 6. Data Contracts (Key Request/Response Formats)
+## 5. Data Contracts
 
-### 6.1 Auth Token
-All authenticated requests must include:
+### Auth Header
 ```
 Authorization: Bearer <jwt_token>
 ```
 
-Token payload contains:
+### Standard Success Response
 ```json
-{ "userId": 123, "role": "user" | "serviceman", "iat": ..., "exp": ... }
+{ "success": true, "data": {...} }
 ```
 
-### 6.2 Error Response (Consistent)
+### Standard Error Response
 ```json
-{
-  "success": false,
-  "message": "Error description"
-}
+{ "success": false, "message": "Error description" }
 ```
 
-### 6.3 Paginated Response
+### Paginated Response
 ```json
 {
   "success": true,
   "data": [...],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 150,
-    "pages": 8
-  }
+  "pagination": { "page": 1, "limit": 20, "total": 150, "pages": 8 }
 }
 ```
 
-### 6.4 Service Status Values
+### Status Enums
 ```typescript
-type ServiceStatus = 
-  'created' | 'assigned' | 'accepted' | 
-  'in_progress' | 'completed' | 'cancelled' | 'disputed';
-```
+// Service
+type ServiceStatus = 'created' | 'assigned' | 'accepted' | 'in_progress' | 'completed' | 'cancelled' | 'disputed';
 
-### 6.5 Order Status Values
-```typescript
-type OrderStatus = 
-  'placed' | 'confirmed' | 'in_transit' | 
-  'out_for_delivery' | 'delivered' | 'cancelled';
+// Order
+type OrderStatus = 'placed' | 'confirmed' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'cancelled';
 ```
 
 ---
 
-## 7. Technical Integration Notes
+## 6. Technical Notes for App Team
 
-### 7.1 Authentication Storage
-- **iOS:** Keychain
-- **Android:** EncryptedSharedPreferences / Keystore
-- **Token Refresh:** Re-login when 401 received (no refresh token endpoint yet)
-- **Token Expiry:** 30 days for users
+### Location
+- Partner GPS updates: `POST /api/serviceman/location/update` — call periodically
+- Service start geo-fence: Must be within 500m of service location
+- Pincode validation: Only 581xxx (Uttara Kannada) accepted
 
-### 7.2 Location Services
-- Partner app must send GPS updates periodically via `POST /api/serviceman/location/update`
-- Service start requires being within 500m of service location (geo-fencing)
-- Location format: `{ lat: number, long: number }`
-
-### 7.3 Image Uploads
-- Currently `photos` field expects URL strings
-- **Need to build:** File upload API that returns URLs
-- Recommended: Use multipart/form-data → cloud storage → return CDN URL
-
-### 7.4 Payment Integration
-- Razorpay SDK should be integrated in the mobile app
-- Flow: Create order (server) → Open Razorpay checkout (app) → Verify payment (server webhook)
+### Payments
+- Razorpay SDK integration required in mobile app
+- Flow: Create order (server) → Razorpay checkout (app) → Webhook verifies (server)
 - Booking fee: ₹250 on service creation
-- Final payment: After service completion
+- ⚠️ Payment routes not yet registered — backend fix needed first
 
-### 7.5 Real-time Updates (Future)
-- Currently polling-based (app must refresh)
-- WebSocket support planned for live updates
-- Push notifications planned via FCM (Android) / APNS (iOS)
+### Images
+- `photos[]` field expects URLs, not files
+- Need file upload endpoint that returns CDN URLs
+- Max 5 photos per service request
+
+### Real-time (Not Available Yet)
+- Currently polling-based — app must refresh manually
+- WebSocket support not built
+- Push notifications not built
+- Plan for pull-to-refresh in first version
 
 ---
 
-## 8. Implementation Roadmap for App
+## 7. App Implementation Roadmap
 
-### Phase 1: Core App (Weeks 1-3)
-- [ ] Splash screen + user type selection
-- [ ] Login with email/phone
-- [ ] Sign up with all fields
-- [ ] Home screen with service categories
-- [ ] Service request form + submission
-- [ ] My service requests list
-- [ ] Basic profile view/edit
-- [ ] Logout
+### Phase 1: Core (Weeks 1-3) — Uses Working APIs Only
+- Splash + user type selection
+- Login (email/phone)
+- Signup
+- Home with service categories
+- Service request form + submission
+- My service requests list
+- Basic profile view/edit + logout
 
-### Phase 2: Partner Features (Weeks 3-5)
-- [ ] Incoming services list
-- [ ] Accept/deny requests (after backend builds API)
-- [ ] OTP verification handshake
-- [ ] Start service (with geo-fence)
-- [ ] Complete service
-- [ ] Past services history
+### Phase 2: Partner (Weeks 3-5) — Needs Backend Fixes
+- ⚠️ Accept/deny (needs new endpoint)
+- OTP verification handshake
+- Start service (geo-fenced)
+- Complete service
+- Past services history
 
-### Phase 3: Enhanced Features (Weeks 5-7)
-- [ ] Password reset flow
-- [ ] Google/Facebook login
-- [ ] Rating & reviews
-- [ ] Profile picture upload
-- [ ] Invoice download
-- [ ] Product browsing & cart
-- [ ] Order placement & tracking
+### Phase 3: Enhanced (Weeks 5-7) — Needs New Backend Features
+- Password reset (needs new endpoints)
+- Google/Facebook login (needs OAuth integration)
+- Rating & reviews (needs new table + endpoints)
+- Profile picture upload (needs file upload + cloud storage)
+- Invoice download (needs PDF generation)
+- Products + cart + checkout
 
 ### Phase 4: Polish (Weeks 7-9)
-- [ ] Push notifications
-- [ ] Support ticket system
-- [ ] Payment integration (Razorpay SDK)
-- [ ] Account deletion
-- [ ] Settings & preferences
-- [ ] Error handling & edge cases
-- [ ] App Store/Play Store submission
+- Push notifications
+- Support tickets
+- Account deletion
+- Settings/preferences
+- Error handling polish
+- Store submission
 
 ---
 
-## 9. Design System Notes (From Figma)
+## 8. Design System (From Figma)
 
-### Color Palette
-- **Primary:** #2196F3 (Blue)
-- **Primary Light:** #64B5F6
-- **Background:** #FFFFFF
-- **Surface:** #F5F5F5
-- **Text Primary:** #212121
-- **Text Secondary:** #757575
-- **Success:** #4CAF50
-- **Error:** #F44336
-- **Warning:** #FFC107
+### Colors
+- Primary: `#2196F3` (Blue)
+- Background: `#FFFFFF`
+- Surface: `#F5F5F5`
+- Text: `#212121` / `#757575`
+- Success: `#4CAF50`
+- Error: `#F44336`
 
-### Typography
-- Headings: Semi-bold, 18-24px
-- Body: Regular, 14-16px
-- Captions: Regular, 12px
-
-### Component Style
-- Cards: White background, subtle shadow, rounded corners (12px)
-- Buttons: Full-width primary blue, rounded corners (8px)
-- Inputs: Outlined style with icons, rounded (8px)
-- Bottom nav: 5 tabs, active tab highlighted in blue
+### Components
+- Cards: White, subtle shadow, 12px radius
+- Buttons: Full-width blue, 8px radius
+- Inputs: Outlined with icons, 8px radius
+- Bottom nav: 5 tabs, blue active state
 
 ---
 
-*This document serves as the complete reference for the UniteFix Mobile App for the Emergent AI development team. All API endpoints referenced here coordinate with the backend system documented in `BACKEND_ADMIN_REQUIREMENTS.md`.*
+*Version 3.0 — Audited. All API statuses verified against actual registered routes.*  
+*Cross-reference: `BACKEND_ADMIN_REQUIREMENTS.md` for full backend details.*
