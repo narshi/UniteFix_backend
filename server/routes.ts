@@ -19,6 +19,7 @@ import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
 import { registerOtpRoutes } from "./routes/otp.routes";
+import { registerClientFeatureRoutes } from "./routes/client-features.routes";
 
 const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
 const COMMISSION_RATE = 0.10; // 10% commission
@@ -1493,6 +1494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerPaymentRoutes(app);
   registerProductRoutes(app);
   registerOtpRoutes(app);
+  registerClientFeatureRoutes(app);
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);

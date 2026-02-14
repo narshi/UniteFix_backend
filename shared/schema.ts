@@ -50,6 +50,7 @@ export const users = pgTable("users", {
   email: text("email"),
   password: text("password").notNull(),
   username: text("username"),
+  profilePicture: text("profile_picture"), // CDN URL for avatar
   role: userRoleEnum("role").notNull().default('user'),
   referralCode: text("referral_code").unique(),
   referredById: integer("referred_by_id"),
@@ -57,6 +58,7 @@ export const users = pgTable("users", {
   pinCode: text("pin_code"),
   isVerified: boolean("is_verified").default(false),
   isActive: boolean("is_active").default(true),
+  deletedAt: timestamp("deleted_at"), // Soft delete
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -429,6 +431,22 @@ export const serviceOtps = pgTable("service_otps", {
   serviceRequestIdx: index("service_otps_service_request_idx").on(table.serviceRequestId),
 }));
 
+// PHASE 8: Ratings table
+export const ratings = pgTable("ratings", {
+  id: serial("id").primaryKey(),
+  serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
+  fromUserId: integer("from_user_id").notNull().references(() => users.id),
+  toProviderId: integer("to_provider_id").notNull().references(() => serviceProviders.id),
+  rating: integer("rating").notNull(), // 1-5 stars
+  review: text("review"),
+  isVisible: boolean("is_visible").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  serviceRequestIdx: uniqueIndex("ratings_service_request_idx").on(table.serviceRequestId), // One rating per service
+  providerIdx: index("ratings_provider_idx").on(table.toProviderId),
+  userIdx: index("ratings_user_idx").on(table.fromUserId),
+}));
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
@@ -616,6 +634,12 @@ export const insertServiceOtpSchema = createInsertSchema(serviceOtps).omit({
   createdAt: true,
 });
 
+// PHASE 8: Rating schema
+export const insertRatingSchema = createInsertSchema(ratings).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -712,3 +736,7 @@ export type InsertShipment = z.infer<typeof insertShipmentSchema>;
 
 export type ServiceOtp = typeof serviceOtps.$inferSelect;
 export type InsertServiceOtp = z.infer<typeof insertServiceOtpSchema>;
+
+// PHASE 8: Rating types
+export type Rating = typeof ratings.$inferSelect;
+export type InsertRating = z.infer<typeof insertRatingSchema>;
