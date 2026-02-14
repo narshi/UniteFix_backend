@@ -447,6 +447,47 @@ export const ratings = pgTable("ratings", {
   userIdx: index("ratings_user_idx").on(table.fromUserId),
 }));
 
+// PHASE 9: Social Auth
+export const socialAuthProviders = pgTable("social_auth_providers", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  provider: text("provider").notNull(), // google, facebook
+  providerId: text("provider_id").notNull(),
+  email: text("email"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  providerUnique: uniqueIndex("social_auth_provider_unique").on(table.provider, table.providerId),
+  userIdx: index("social_auth_user_idx").on(table.userId),
+}));
+
+// PHASE 9: Notifications & Device Tokens
+export const deviceTokens = pgTable("device_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  token: text("token").notNull(), // FCM/APNS token
+  platform: text("platform").notNull(), // android, ios, web
+  isActive: boolean("is_active").default(true),
+  lastUsedAt: timestamp("last_used_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userTokenUnique: uniqueIndex("device_tokens_unique").on(table.userId, table.token),
+}));
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  type: text("type").notNull(), // order_update, promo, system
+  data: jsonb("data"), // Deep link or extra data
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("notifications_user_idx").on(table.userId),
+}));
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
@@ -640,6 +681,24 @@ export const insertRatingSchema = createInsertSchema(ratings).omit({
   createdAt: true,
 });
 
+// PHASE 9: Social Auth & Notifications schemas
+export const insertSocialAuthSchema = createInsertSchema(socialAuthProviders).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDeviceTokenSchema = createInsertSchema(deviceTokens).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  isRead: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -740,3 +799,13 @@ export type InsertServiceOtp = z.infer<typeof insertServiceOtpSchema>;
 // PHASE 8: Rating types
 export type Rating = typeof ratings.$inferSelect;
 export type InsertRating = z.infer<typeof insertRatingSchema>;
+
+// PHASE 9: Social Auth & Notification types
+export type SocialAuthProvider = typeof socialAuthProviders.$inferSelect;
+export type InsertSocialAuth = z.infer<typeof insertSocialAuthSchema>;
+
+export type DeviceToken = typeof deviceTokens.$inferSelect;
+export type InsertDeviceToken = z.infer<typeof insertDeviceTokenSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;

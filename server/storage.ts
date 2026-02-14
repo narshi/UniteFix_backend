@@ -54,6 +54,22 @@ import {
   type InventoryTransaction,
   type InsertInventoryTransaction,
 } from "@shared/schema";
+import {
+  InsertServiceOtp,
+  ServiceOtp,
+  ratings,
+  InsertRating,
+  Rating,
+  socialAuthProviders,
+  deviceTokens,
+  notifications,
+  InsertSocialAuth,
+  SocialAuthProvider,
+  InsertDeviceToken,
+  DeviceToken,
+  InsertNotification,
+  Notification
+} from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, sum, gte, lte, or, ilike } from "drizzle-orm";
 // PHASE 2: State machine imports
@@ -225,6 +241,18 @@ export interface IStorage {
     performedBy: number,
     tx?: any
   ): Promise<InventoryTransaction[]>;
+
+  // PHASE 9: Social Auth
+  findSocialProvider(provider: string, providerId: string): Promise<SocialAuthProvider | undefined>;
+  linkSocialProvider(data: InsertSocialAuth): Promise<SocialAuthProvider>;
+
+  // PHASE 9: Notifications
+  addDeviceToken(userId: number, token: string, platform: string): Promise<DeviceToken>;
+  removeDeviceToken(userId: number, token: string): Promise<void>;
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getUserNotifications(userId: number, page?: number, limit?: number): Promise<{ notifications: Notification[], total: number }>;
+  markNotificationRead(id: number): Promise<void>;
+  markAllNotificationsRead(userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1498,6 +1526,98 @@ export class DatabaseStorage implements IStorage {
     }
 
     return transactions;
+  }
+
+  // PHASE 9: Social Auth
+  async findSocialProvider(provider: string, providerId: string): Promise<SocialAuthProvider | undefined> {
+    const [result] = await db.select()
+      .from(socialAuthProviders)
+      .where(and(
+        eq(socialAuthProviders.provider, provider),
+        eq(socialAuthProviders.providerId, providerId)
+      ))
+      .limit(1);
+    return result || undefined;
+  }
+
+  async linkSocialProvider(data: InsertSocialAuth): Promise<SocialAuthProvider> {
+    const [result] = await db.insert(socialAuthProviders)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [socialAuthProviders.provider, socialAuthProviders.providerId],
+        set: {
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          email: data.email, // Update email if changed
+        }
+      })
+      .returning();
+    return result;
+  }
+
+  // PHASE 9: Notifications
+  async addDeviceToken(userId: number, token: string, platform: string): Promise<DeviceToken> {
+    const [result] = await db.insert(deviceTokens)
+      .values({ userId, token, platform })
+      .onConflictDoUpdate({
+        target: [deviceTokens.userId, deviceTokens.token],
+        set: {
+          isActive: true,
+          lastUsedAt: new Date(),
+          platform // Update platform matching token
+        }
+      })
+      .returning();
+    return result;
+  }
+
+  async removeDeviceToken(userId: number, token: string): Promise<void> {
+    await db.update(deviceTokens)
+      .set({ isActive: false })
+      .where(and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.token, token)
+      ));
+  }
+
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [result] = await db.insert(notifications)
+      .values(data)
+      .returning();
+    return result;
+  }
+
+  async getUserNotifications(userId: number, page: number = 1, limit: number = 20): Promise<{ notifications: Notification[], total: number }> {
+    const offset = (page - 1) * limit;
+
+    const data = await db.select()
+      .from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ count: count() })
+      .from(notifications)
+      .where(eq(notifications.userId, userId));
+
+    return {
+      notifications: data,
+      total: Number(countResult?.count || 0)
+    };
+  }
+
+  async markNotificationRead(id: number): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.id, id));
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.userId, userId));
   }
 }
 

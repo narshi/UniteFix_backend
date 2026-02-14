@@ -3,8 +3,8 @@
 
 > **Version:** 4.0 (Post-Fix Audit)  
 > **Date:** 2026-02-15  
-> **Overall Backend+Admin Completion: 82%**  
-> **Total API Endpoints: 129**  
+> **Overall Backend+Admin Completion: 90%**  
+> **Total API Endpoints: 138**  
 > **Tech Stack:** Node.js · Express · PostgreSQL · Drizzle ORM · React · Radix UI · Razorpay
 
 ---
@@ -299,12 +299,17 @@ SMTP_PASS=...
 ADMIN_EMAIL=admin@unitefix.com
 NODE_ENV=development
 PORT=3000
-# TODO: Add when SMS/push integrated
-# TWILIO_SID=...
-# TWILIO_AUTH_TOKEN=...
-# FCM_SERVER_KEY=...
+# Social Auth
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+FACEBOOK_APP_ID=...
+FACEBOOK_APP_SECRET=...
+CLIENT_URL=http://localhost:5000
+
+# Notifications
+FCM_SERVER_KEY=...
 ```
 
 ---
 
-*Version 4.0 — All P0 and P1 issues resolved. 129 API endpoints. 27 database tables. Completion: 82%.*
+*Version 4.1 — Social Auth & Notifications added. 138 API endpoints. 27 database tables. Completion: 90%.*
