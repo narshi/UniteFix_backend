@@ -9,25 +9,12 @@
  * - Customer generates after ACCEPTED
  * - Technician validates before IN_PROGRESS
  * - NO financial or inventory side effects
- * - Unlimit
-
-ed retries
+ * - Unlimited retries
  */
 
 import { db } from "../db";
-import { sql } from "drizzle-orm";
-
-interface ServiceOtp {
-    id: number;
-    serviceRequestId: number;
-    otp: string;
-    generatedBy: number;
-    isVerified: boolean;
-    verifiedBy: number | null;
-    verifiedAt: Date | null;
-    expiresAt: Date;
-    createdAt: Date;
-}
+import { eq, and, desc } from "drizzle-orm";
+import { serviceRequests, serviceOtps } from "@shared/schema";
 
 export class OtpService {
     /**
@@ -39,11 +26,11 @@ export class OtpService {
         customerId: number
     ): Promise<{ otp: string; expiresAt: Date }> {
         // 1. Validate service is in ACCEPTED state
-        const [service] = await db.execute(sql`
-      SELECT id, status, user_id 
-      FROM service_requests 
-      WHERE id = ${serviceRequestId}
-    `);
+        const [service] = await db
+            .select()
+            .from(serviceRequests)
+            .where(eq(serviceRequests.id, serviceRequestId))
+            .limit(1);
 
         if (!service) {
             throw new Error("Service request not found");
@@ -55,17 +42,20 @@ export class OtpService {
             );
         }
 
-        if (service.user_id !== customerId) {
+        if (service.userId !== customerId) {
             throw new Error("Only the customer can generate OTP for their service");
         }
 
         // 2. Invalidate any previous active OTPs for this service
-        await db.execute(sql`
-      UPDATE service_otps 
-      SET is_verified = true 
-      WHERE service_request_id = ${serviceRequestId} 
-        AND is_verified = false
-    `);
+        await db
+            .update(serviceOtps)
+            .set({ isVerified: true })
+            .where(
+                and(
+                    eq(serviceOtps.serviceRequestId, serviceRequestId),
+                    eq(serviceOtps.isVerified, false)
+                )
+            );
 
         // 3. Generate 4-digit OTP
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -73,20 +63,13 @@ export class OtpService {
         // 4. Calculate expiry (10 minutes from now)
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // 5. Insert OTP
-        await db.execute(sql`
-      INSERT INTO service_otps (
-        service_request_id,
-        otp,
-        generated_by,
-        expires_at
-      ) VALUES (
-        ${serviceRequestId},
-        ${otp},
-        ${customerId},
-        ${expiresAt}
-      )
-    `);
+        // 5. Insert OTP using Drizzle
+        await db.insert(serviceOtps).values({
+            serviceRequestId,
+            otp,
+            generatedBy: customerId,
+            expiresAt,
+        });
 
         return { otp, expiresAt };
     }
@@ -101,13 +84,17 @@ export class OtpService {
         technicianId: number
     ): Promise<{ valid: boolean; message: string }> {
         // 1. Get the latest active OTP
-        const [otpRecord] = await db.execute<ServiceOtp>(sql`
-      SELECT * FROM service_otps 
-      WHERE service_request_id = ${serviceRequestId}
-        AND is_verified = false
-      ORDER BY created_at DESC
-      LIMIT 1
-    `);
+        const [otpRecord] = await db
+            .select()
+            .from(serviceOtps)
+            .where(
+                and(
+                    eq(serviceOtps.serviceRequestId, serviceRequestId),
+                    eq(serviceOtps.isVerified, false)
+                )
+            )
+            .orderBy(desc(serviceOtps.createdAt))
+            .limit(1);
 
         if (!otpRecord) {
             return {
@@ -133,13 +120,14 @@ export class OtpService {
         }
 
         // 4. Mark OTP as verified
-        await db.execute(sql`
-      UPDATE service_otps 
-      SET is_verified = true,
-          verified_by = ${technicianId},
-          verified_at = NOW()
-      WHERE id = ${otpRecord.id}
-    `);
+        await db
+            .update(serviceOtps)
+            .set({
+                isVerified: true,
+                verifiedBy: technicianId,
+                verifiedAt: new Date(),
+            })
+            .where(eq(serviceOtps.id, otpRecord.id));
 
         return {
             valid: true,
@@ -152,12 +140,16 @@ export class OtpService {
      * Called by transitionBookingState before allowing ACCEPTED → IN_PROGRESS
      */
     static async hasValidOtp(serviceRequestId: number): Promise<boolean> {
-        const [otpRecord] = await db.execute(sql`
-      SELECT id FROM service_otps 
-      WHERE service_request_id = ${serviceRequestId}
-        AND is_verified = true
-      LIMIT 1
-    `);
+        const [otpRecord] = await db
+            .select({ id: serviceOtps.id })
+            .from(serviceOtps)
+            .where(
+                and(
+                    eq(serviceOtps.serviceRequestId, serviceRequestId),
+                    eq(serviceOtps.isVerified, true)
+                )
+            )
+            .limit(1);
 
         return !!otpRecord;
     }

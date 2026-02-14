@@ -36,6 +36,12 @@ export const inventoryTransactionTypeEnum = pgEnum('inventory_transaction_type',
 ]);
 export const transactionTypeEnum = pgEnum('transaction_type', ['credit', 'debit', 'commission', 'refund', 'topup']);
 export const bookingFeeStatusEnum = pgEnum('booking_fee_status', ['pending', 'paid', 'refunded']);
+// PHASE 7: Support ticket enums
+export const ticketStatusEnum = pgEnum('ticket_status', ['open', 'in_progress', 'resolved', 'closed']);
+export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'urgent']);
+export const ticketCategoryEnum = pgEnum('ticket_category', ['service', 'product', 'payment', 'general']);
+// PHASE 5: Shipment status enum
+export const shipmentStatusEnum = pgEnum('shipment_status', ['created', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'returned']);
 
 // Users table - handles all user types
 export const users = pgTable("users", {
@@ -96,7 +102,7 @@ export const serviceRequests = pgTable("service_requests", {
   model: text("model"),
   description: text("description").notNull(),
   photos: text("photos").array(),
-  status: serviceStatusEnum("status").notNull().default('placed'),
+  status: serviceStatusEnum("status").notNull().default('created'),
   handshakeOtp: text("handshake_otp"),
   bookingFee: integer("booking_fee").default(250),
   bookingFeeStatus: bookingFeeStatusEnum("booking_fee_status").default('pending'),
@@ -341,6 +347,88 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
   uniqueConsumption: uniqueIndex("inventory_trans_unique_consumption").on(table.serviceRequestId, table.itemId, table.transactionType),
 }));
 
+// PHASE 7: Support Tickets table
+export const supportTickets = pgTable("support_tickets", {
+  id: serial("id").primaryKey(),
+  ticketId: text("ticket_id").notNull().unique(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  subject: text("subject").notNull(),
+  description: text("description").notNull(),
+  category: ticketCategoryEnum("category").notNull().default('general'),
+  status: ticketStatusEnum("status").notNull().default('open'),
+  priority: ticketPriorityEnum("priority").notNull().default('medium'),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  productOrderId: integer("product_order_id").references(() => productOrders.id),
+  assignedTo: integer("assigned_to"), // Admin user ID
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("support_tickets_user_id_idx").on(table.userId),
+  statusIdx: index("support_tickets_status_idx").on(table.status),
+  categoryIdx: index("support_tickets_category_idx").on(table.category),
+}));
+
+// PHASE 7: Ticket Messages table
+export const ticketMessages = pgTable("ticket_messages", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => supportTickets.id),
+  senderType: text("sender_type").notNull(), // 'customer', 'admin', 'system'
+  senderId: integer("sender_id"),
+  message: text("message").notNull(),
+  isInternal: boolean("is_internal").default(false), // Internal admin notes
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  ticketIdIdx: index("ticket_messages_ticket_id_idx").on(table.ticketId),
+}));
+
+// PHASE 5: Service Charges table (technician enters after service)
+export const serviceCharges = pgTable("service_charges", {
+  id: serial("id").primaryKey(),
+  serviceRequestId: integer("service_request_id").notNull().unique().references(() => serviceRequests.id),
+  serviceAmount: decimal("service_amount", { precision: 10, scale: 2 }).notNull(),
+  partsUsed: text("parts_used"),
+  technicianNotes: text("technician_notes"),
+  enteredBy: integer("entered_by").notNull(), // Provider ID
+  enteredAt: timestamp("entered_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  serviceRequestIdx: uniqueIndex("service_charges_service_request_idx").on(table.serviceRequestId),
+}));
+
+// PHASE 5: Shipments table (Delhivery integration)
+export const shipments = pgTable("shipments", {
+  id: serial("id").primaryKey(),
+  orderId: text("order_id").notNull().references(() => productOrders.orderId),
+  waybill: text("waybill").notNull().unique(),
+  shipmentId: text("shipment_id"),
+  carrier: text("carrier").notNull().default('delhivery'),
+  status: shipmentStatusEnum("status").notNull().default('created'),
+  trackingUrl: text("tracking_url"),
+  estimatedDelivery: timestamp("estimated_delivery"),
+  deliveredAt: timestamp("delivered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  orderIdIdx: index("shipments_order_id_idx").on(table.orderId),
+  waybillIdx: uniqueIndex("shipments_waybill_idx").on(table.waybill),
+}));
+
+// PHASE 4: Service OTPs table (handshake verification)
+export const serviceOtps = pgTable("service_otps", {
+  id: serial("id").primaryKey(),
+  serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
+  otp: text("otp").notNull(),
+  generatedBy: integer("generated_by").notNull(), // Customer user ID
+  isVerified: boolean("is_verified").default(false),
+  verifiedBy: integer("verified_by"), // Technician provider ID
+  verifiedAt: timestamp("verified_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  serviceRequestIdx: index("service_otps_service_request_idx").on(table.serviceRequestId),
+}));
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
@@ -498,6 +586,36 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   createdAt: true,
 });
 
+// PHASE 7: Support ticket schemas
+export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({
+  id: true,
+  ticketId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+// PHASE 5: Service charge and shipment schemas
+export const insertServiceChargeSchema = createInsertSchema(serviceCharges).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertShipmentSchema = createInsertSchema(shipments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertServiceOtpSchema = createInsertSchema(serviceOtps).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -577,3 +695,20 @@ export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 
 export type InventoryTransaction = typeof inventoryTransactions.$inferSelect;
 export type InsertInventoryTransaction = z.infer<typeof insertInventoryTransactionSchema>;
+
+// PHASE 7: Support types
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+
+export type TicketMessage = typeof ticketMessages.$inferSelect;
+export type InsertTicketMessage = z.infer<typeof insertTicketMessageSchema>;
+
+// PHASE 5: Service charge and shipment types
+export type ServiceCharge = typeof serviceCharges.$inferSelect;
+export type InsertServiceCharge = z.infer<typeof insertServiceChargeSchema>;
+
+export type Shipment = typeof shipments.$inferSelect;
+export type InsertShipment = z.infer<typeof insertShipmentSchema>;
+
+export type ServiceOtp = typeof serviceOtps.$inferSelect;
+export type InsertServiceOtp = z.infer<typeof insertServiceOtpSchema>;

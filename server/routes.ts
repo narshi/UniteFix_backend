@@ -14,6 +14,11 @@ import {
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+// PHASE 7: Import modular route registrations
+import { registerAdminRoutes } from "./routes/admin.routes";
+import { registerPaymentRoutes } from "./routes/payment.routes";
+import { registerProductRoutes } from "./routes/product.routes";
+import { registerOtpRoutes } from "./routes/otp.routes";
 
 const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
 const COMMISSION_RATE = 0.10; // 10% commission
@@ -298,6 +303,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Admin created successfully",
         admin: { ...admin, password: undefined }
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== PASSWORD RESET FLOW ====================
+
+  // Step 1: Request password reset — sends OTP to phone/email
+  app.post("/api/auth/forgot-password", async (req, res, next) => {
+    try {
+      const { phone, email } = req.body;
+      if (!phone && !email) {
+        return res.status(400).json({ success: false, message: "Phone or email is required" });
+      }
+
+      // Verify user exists
+      let user;
+      if (phone) {
+        user = await storage.getUserByPhone(phone);
+      } else if (email) {
+        user = await storage.getUserByEmail(email);
+      }
+
+      // Don't reveal if user exists (security best practice)
+      if (!user) {
+        return res.json({ success: true, message: "If the account exists, an OTP has been sent" });
+      }
+
+      // Generate 6-digit OTP
+      const otp = generateOTP();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Store OTP
+      await storage.createOtpVerification({
+        phone: phone || null,
+        email: email || null,
+        otp,
+        purpose: 'password_reset',
+        expiresAt,
+      });
+
+      // TODO: Send OTP via SMS/Email provider (Twilio/MSG91)
+      // For now, log to console in dev mode
+      console.log(`[PASSWORD RESET] OTP for ${phone || email}: ${otp}`);
+
+      res.json({ success: true, message: "If the account exists, an OTP has been sent" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Step 2: Verify reset OTP — returns a short-lived reset token
+  app.post("/api/auth/verify-reset-otp", async (req, res, next) => {
+    try {
+      const { phone, email, otp } = req.body;
+      if (!otp || (!phone && !email)) {
+        return res.status(400).json({ success: false, message: "OTP and phone/email are required" });
+      }
+
+      const isValid = await storage.verifyOtp(phone, email, otp, 'password_reset');
+      if (!isValid) {
+        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+      }
+
+      // Find the user
+      let user;
+      if (phone) {
+        user = await storage.getUserByPhone(phone);
+      } else if (email) {
+        user = await storage.getUserByEmail(email);
+      }
+
+      if (!user) {
+        return res.status(400).json({ success: false, message: "User not found" });
+      }
+
+      // Generate a short-lived reset token (5 minutes)
+      const resetToken = jwt.sign(
+        { userId: user.id, purpose: 'password_reset' },
+        JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+
+      res.json({ success: true, message: "OTP verified", resetToken });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Step 3: Reset password using the reset token
+  app.post("/api/auth/reset-password", async (req, res, next) => {
+    try {
+      const { resetToken, newPassword } = req.body;
+      if (!resetToken || !newPassword) {
+        return res.status(400).json({ success: false, message: "Reset token and new password are required" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+      }
+
+      // Verify the reset token
+      let decoded: any;
+      try {
+        decoded = jwt.verify(resetToken, JWT_SECRET);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
+      }
+
+      if (decoded.purpose !== 'password_reset') {
+        return res.status(400).json({ success: false, message: "Invalid reset token" });
+      }
+
+      // Hash and update password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateUser(decoded.userId, { password: hashedPassword });
+
+      res.json({ success: true, message: "Password reset successfully. Please login with your new password." });
     } catch (error) {
       next(error);
     }
@@ -830,7 +953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedService = await storage.updateServiceRequest(parseInt(serviceId), {
-        status: 'service_started',
+        status: 'in_progress',
         startedAt: new Date()
       });
 
@@ -1288,7 +1411,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Apply error handler
+  // ==================== PARTNER ACCEPT/DENY ====================
+  // Critical: These are the #1 missing feature from Figma designs
+
+  // Partner accepts an assigned service request
+  app.post("/api/serviceman/requests/:id/accept", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const serviceId = parseInt(req.params.id);
+      const userId = req.user?.userId;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      // Verify the provider is assigned to this service
+      const provider = await storage.getServiceProviderByUserId(userId);
+      if (!provider) return res.status(404).json({ success: false, message: "Provider not found" });
+
+      const service = await storage.getServiceRequest(serviceId);
+      if (!service) return res.status(404).json({ success: false, message: "Service not found" });
+      if (service.providerId !== provider.id) {
+        return res.status(403).json({ success: false, message: "This service is not assigned to you" });
+      }
+
+      // Use state machine: ASSIGNED → ACCEPTED
+      const { BookingState } = await import("./business/booking-state-machine");
+      const updated = await storage.transitionBookingState(
+        serviceId,
+        BookingState.ACCEPTED,
+        userId,
+        { action: 'partner_accepted' }
+      );
+
+      res.json({ success: true, message: "Service accepted successfully", service: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Partner denies an assigned service request (back to pool)
+  app.post("/api/serviceman/requests/:id/deny", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const serviceId = parseInt(req.params.id);
+      const userId = req.user?.userId;
+      const { reason } = req.body;
+      if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+      const provider = await storage.getServiceProviderByUserId(userId);
+      if (!provider) return res.status(404).json({ success: false, message: "Provider not found" });
+
+      const service = await storage.getServiceRequest(serviceId);
+      if (!service) return res.status(404).json({ success: false, message: "Service not found" });
+      if (service.providerId !== provider.id) {
+        return res.status(403).json({ success: false, message: "This service is not assigned to you" });
+      }
+
+      // Reset to CREATED and unassign provider (back to pool)
+      const updated = await storage.updateServiceRequest(serviceId, {
+        status: 'created',
+        providerId: null as any,
+        assignedAt: null as any,
+      });
+
+      // Log the denial in audit
+      await storage.logAuditEvent({
+        entityType: 'service_request',
+        entityId: serviceId,
+        action: 'partner_denied',
+        fromState: 'assigned',
+        toState: 'created',
+        changedBy: userId,
+        metadata: { reason, providerId: provider.id, partnerName: provider.partnerName },
+      });
+
+      res.json({ success: true, message: "Service denied. It will be reassigned.", service: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== REGISTER MODULAR ROUTES ====================
+  // These were previously dead code — now properly connected
+  registerAdminRoutes(app);
+  registerPaymentRoutes(app);
+  registerProductRoutes(app);
+  registerOtpRoutes(app);
+
+  // Apply error handler (must be LAST)
   app.use(errorHandler);
 
   const httpServer = createServer(app);

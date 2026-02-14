@@ -15,7 +15,7 @@ export function registerOtpRoutes(app: Express) {
      */
     app.post("/api/customer/services/:id/generate-otp", async (req: Request, res: Response) => {
         try {
-            const service Id = parseInt(req.params.id);
+            const serviceId = parseInt(req.params.id);
             const customerId = (req as any).user?.id; // Assumes auth middleware sets req.user
 
             if (!customerId) {
