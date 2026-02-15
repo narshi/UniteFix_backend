@@ -43,11 +43,9 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 // Extended Request types
+// Extended Request types
 interface AuthenticatedRequest extends Request {
-  user?: {
-    userId: number;
-    role: string;
-  };
+  user?: any;
 }
 
 // Global error handler middleware
@@ -177,6 +175,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check for existing user
+      if (!userData.phone) {
+        return res.status(400).json({ success: false, message: "Phone number is required for registration" });
+      }
       const existingUser = await storage.getUserByPhone(userData.phone);
       if (existingUser) {
         return res.status(400).json({ success: false, message: "Phone number already registered" });

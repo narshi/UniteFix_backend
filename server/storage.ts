@@ -506,7 +506,7 @@ export class DatabaseStorage implements IStorage {
       .update(serviceRequests)
       .set({
         providerId,
-        status: 'partner_assigned',
+        status: 'assigned',
         assignedAt: new Date(),
         updatedAt: new Date()
       })
@@ -521,8 +521,7 @@ export class DatabaseStorage implements IStorage {
       .from(serviceRequests)
       .where(
         or(
-          eq(serviceRequests.status, 'placed'),
-          eq(serviceRequests.status, 'confirmed')
+          eq(serviceRequests.status, 'created')
         )
       )
       .orderBy(desc(serviceRequests.createdAt));
@@ -569,7 +568,7 @@ export class DatabaseStorage implements IStorage {
       const [updatedService] = await tx
         .update(serviceRequests)
         .set({
-          status: 'service_completed',
+          status: 'completed',
           totalAmount,
           commissionAmount,
           completedAt: new Date(),

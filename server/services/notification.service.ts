@@ -49,7 +49,6 @@ export class NotificationService {
       body,
       type,
       data,
-      isRead: false,
     });
 
     // 2. Get active device tokens

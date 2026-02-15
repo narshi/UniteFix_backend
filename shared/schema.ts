@@ -46,7 +46,7 @@ export const shipmentStatusEnum = pgEnum('shipment_status', ['created', 'picked_
 // Users table - handles all user types
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  phone: text("phone").notNull().unique(),
+  phone: text("phone").unique(),
   email: text("email"),
   password: text("password").notNull(),
   username: text("username"),
@@ -636,9 +636,7 @@ export const insertDistrictSchema = createInsertSchema(districts).omit({
 });
 
 // PHASE 2: Platform config and audit logs schemas
-export const insertPlatformConfigSchema = createInsertSchema(platformConfig).omit({
-  updatedAt: true,
-});
+export const insertPlatformConfigSchema = createInsertSchema(platformConfig);
 
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   id: true,
