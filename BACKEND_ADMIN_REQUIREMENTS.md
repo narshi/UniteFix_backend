@@ -290,7 +290,14 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 
 ---
 
-## 7. Environment Variables
+### 🔴 Known Issues / Technical Debt
+| Issue | Impact | Fix |
+|-------|--------|-----|
+| `users.phone` is NOT NULL | Breaks Social Login (Google/FB don't provide phone) | Make `phone` nullable or add phone collection flow |
+| `npm run check` Type Errors | Build noise | Refactor `AuthenticatedRequest` types |
+| Missing Unit Tests | Reliability | Implement Test Suite (Phase 10) |
+
+## 4. Configuration & Environment Variables
 ```env
 DATABASE_URL=postgresql://...
 JWT_SECRET=your-secret-key
@@ -315,4 +322,4 @@ FCM_SERVER_KEY=...
 
 ---
 
-*Version 4.2 — Rate Limiting, Helper PDF & OTP integrated. 139 API endpoints. 27 database tables. Completion: 95%.*
+*Version 4.3 — Core Features Complete (Phases 1-9). Audit Passed. Social Auth restricted by schema. Completion: 98% (Core), 90% (Overall).*
