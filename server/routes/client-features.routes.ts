@@ -20,6 +20,7 @@ import {
 } from "@shared/schema";
 import jwt from "jsonwebtoken";
 import { SupportTicketService } from "../services/support.service";
+import { InvoiceGenerator } from "../services/invoice-generator";
 
 const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
 
@@ -602,6 +603,37 @@ export function registerClientFeatureRoutes(app: Express) {
             }
 
             res.json({ success: true, data: invoice });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * GET /api/client/invoices/:invoiceId/download
+     * Download invoice as PDF
+     */
+    app.get("/api/client/invoices/:invoiceId/download", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+        try {
+            const userId = req.user!.userId;
+            const invoiceIdStr = req.params.invoiceId;
+
+            const [invoice] = await db.select()
+                .from(invoices)
+                .where(and(
+                    eq(invoices.invoiceId, invoiceIdStr),
+                    eq(invoices.userId, userId)
+                ))
+                .limit(1);
+
+            if (!invoice) {
+                return res.status(404).json({ success: false, message: "Invoice not found" });
+            }
+
+            const pdfBuffer = await InvoiceGenerator.generatePDF(invoice.id);
+
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader("Content-Disposition", `attachment; filename=${invoiceIdStr}.pdf`);
+            res.send(pdfBuffer);
         } catch (error) {
             next(error);
         }

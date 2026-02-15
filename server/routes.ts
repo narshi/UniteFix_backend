@@ -22,7 +22,9 @@ import { registerOtpRoutes } from "./routes/otp.routes";
 import { registerClientFeatureRoutes } from "./routes/client-features.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
 import { registerSocialAuthRoutes } from "./routes/auth-social.routes";
+import { NotificationService } from "./services/notification.service";
 import { registerNotificationRoutes } from "./routes/notification.routes";
+import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 
 const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
 const COMMISSION_RATE = 0.10; // 10% commission
@@ -1384,7 +1386,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiresAt,
       });
 
-      console.log(`OTP for ${phone || email}: ${otp}`);
+      const message = `Your UniteFix verification code is: ${otp}. Do not share this code with anyone.`;
+
+      if (phone) {
+        // Send SMS
+        await NotificationService.sendSms(phone, message);
+      }
+
+      if (email) {
+        // Send Email
+        await NotificationService.sendEmail(
+          email,
+          "UniteFix Verification Code",
+          `<p>Your verification code is: <strong>${otp}</strong></p><p>This code expires in 10 minutes.</p>`
+        );
+      }
 
       // For simulator/testing purposes, return the OTP
       res.json({ success: true, message: "OTP sent successfully", otp });
@@ -1493,6 +1509,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== REGISTER MODULAR ROUTES ====================
   // These were previously dead code — now properly connected
+  // ==================== RATE LIMITING ====================
+  // Essential security layer (Post-Launch Task #6)
+  app.use("/api/auth", authLimiter);
+  app.use("/api/otp", authLimiter); // Protect OTP generation strongly
+  app.use("/api/admin/auth", authLimiter); // Admin login protection
+
+  app.use("/api/admin", adminLimiter);
+  app.use("/api/serviceman", partnerLimiter);
+  app.use("/api/partner", partnerLimiter); // Wallet/Earnings APIs
+  app.use("/api/business", partnerLimiter); // Partner onboarding
+
+  app.use("/api/client", mobileLimiter);
+  app.use("/api/services", mobileLimiter); // Service creation
+  app.use("/api/products", mobileLimiter); // Product listing
+  app.use("/api/orders", mobileLimiter);   // Order placement
+  app.use("/api/cart", mobileLimiter);     // Cart management
+
+  // Public/Default
+  app.use("/api/public", publicLimiter);
+
+  // ==================== ROUTE REGISTRATION ====================
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
   registerProductRoutes(app);

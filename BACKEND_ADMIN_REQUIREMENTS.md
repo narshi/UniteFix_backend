@@ -199,10 +199,8 @@ All payment routes now registered: create-with-payment, enter-service-charge, fi
 ### 3.8 NOT Built Yet
 | Feature | Endpoints Needed | Priority |
 |---------|-----------------|----------|
-| Social auth (Google/FB) | 4 endpoints | 🟡 Medium |
-| Push notifications | 5 endpoints | 🟡 Medium |
-| Invoice PDF download | 1 endpoint | 🟡 Medium |
-| OTP SMS/Email delivery | Integration only | 🟡 Medium |
+| WebSocket real-time | - | 🟢 Post-Launch |
+| Chat messaging | - | 🟢 Post-Launch |
 
 ---
 
@@ -250,11 +248,16 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 ### 🟡 Remaining (Weeks 1-2)
 | # | Task | Effort | Details |
 |---|------|--------|---------|
-| 1 | **Social login (Google/FB)** | 3-4 days | OAuth2, passport.js already in package.json |
-| 2 | **OTP SMS/Email delivery** | 1-2 days | Replace console.log with Twilio/MSG91 |
-| 3 | **Invoice PDF generation** | 1-2 days | PDF rendering + download endpoint |
-| 4 | **Push notifications** | 4-5 days | FCM/APNS + deviceTokens table |
-| 5 | **DB Migration** | 1 hour | Run `npx drizzle-kit push` (role column type conflict needs manual handling) |
+| 1 | **DB Migration** | 1 hour | Run `npx drizzle-kit push` (role column type conflict needs manual handling) |
+
+### 🟢 Completed Phase 9 & 10
+| # | Task | Status |
+|---|------|--------|
+| 2 | **Social login (Google/FB)** | ✅ **DONE** |
+| 3 | **Push notifications** | ✅ **DONE** |
+| 4 | **OTP SMS/Email delivery** | ✅ **DONE** (Nodemailer + Twilio stub) |
+| 5 | **Invoice PDF generation** | ✅ **DONE** (PDFKit) |
+| 6 | **Rate limiting** | ✅ **DONE** (express-rate-limit) |
 
 ### 🟢 Post-Launch
 | # | Task | Effort |
@@ -279,7 +282,7 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 | Error handler (JSON-only) | ✅ |
 | Password reset (time-limited tokens) | ✅ **NEW** |
 | Account soft delete | ✅ **NEW** |
-| Rate limiting | ❌ Config exists, not applied |
+| Rate limiting | ✅ **FIXED** — Applied per-route limiters |
 | HTTPS enforcement | ❌ |
 | CSRF/XSS protection | ❌ |
 | Security headers (Helmet) | ❌ |
@@ -312,4 +315,4 @@ FCM_SERVER_KEY=...
 
 ---
 
-*Version 4.1 — Social Auth & Notifications added. 138 API endpoints. 27 database tables. Completion: 90%.*
+*Version 4.2 — Rate Limiting, Helper PDF & OTP integrated. 139 API endpoints. 27 database tables. Completion: 95%.*
