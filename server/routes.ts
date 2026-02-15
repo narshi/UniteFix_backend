@@ -107,7 +107,7 @@ function authenticateAdmin(req: AuthenticatedRequest, res: Response, next: NextF
     if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
-    req.user = decoded;
+    req.user = { ...decoded, isAdmin: true };
     next();
   } catch (error) {
     return res.status(403).json({ success: false, message: 'Invalid admin token' });
@@ -1531,6 +1531,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/public", publicLimiter);
 
   // ==================== ROUTE REGISTRATION ====================
+  // Apply Admin Authentication Middleware (skipping login/register)
+  app.use("/api/admin", (req, res, next) => {
+    if (req.path.startsWith("/auth")) return next();
+    authenticateAdmin(req as AuthenticatedRequest, res, next);
+  });
+
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
   registerProductRoutes(app);
