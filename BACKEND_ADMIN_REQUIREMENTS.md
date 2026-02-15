@@ -305,6 +305,7 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 | Low | Rate limiting configuration tuning needed | ⚠️ Pending |
 | Critical | Social Auth User Creation (Phone constraint) | ✅ FIXED |
 | Critical | Admin Routes Unprotected (Middleware missing) | ✅ FIXED |
+| High | Admin User Management API (`/api/admin/users`) | ❌ Missing |
 
 ## 4. Configuration & Environment Variables
 ```env
