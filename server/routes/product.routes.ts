@@ -181,7 +181,7 @@ export function registerProductRoutes(app: Express) {
      */
     app.post("/api/admin/products", async (req: Request, res: Response) => {
         try {
-            const { name, description, category, price, stockQuantity, imageUrl } = req.body;
+            const { name, description, category, price, stock, images } = req.body;
 
             // Validate admin role
             if (!(req as any).user?.isAdmin) {
@@ -193,8 +193,8 @@ export function registerProductRoutes(app: Express) {
                 description,
                 category,
                 price,
-                stockQuantity,
-                imageUrl,
+                stock,
+                images,
             });
 
             res.json({ product });

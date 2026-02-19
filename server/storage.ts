@@ -10,6 +10,7 @@ import {
   serviceProviders,
   walletTransactions,
   serviceablePincodes,
+  districts,
   // PHASE 2: New tables
   platformConfig,
   auditLogs,
@@ -39,6 +40,8 @@ import {
   type WalletTransaction,
   type InsertWalletTransaction,
   type ServiceablePincode,
+  type District,
+  type InsertDistrict,
   type InsertServiceablePincode,
   // PHASE 2: New types
   type PlatformConfig,
@@ -71,32 +74,16 @@ import {
   Notification
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, sum, gte, lte, or, ilike } from "drizzle-orm";
+import { eq, and, desc, sql, count, sum, gte, lte, or, ilike, gt } from "drizzle-orm";
+import crypto from "crypto";
 // PHASE 2: State machine imports
 import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
 import { normalizeState, canonicalToLegacy, legacyToCanonical } from "./business/state-mapping";
 // PHASE 3: Config service for business values
 import { configService } from "./services/config.service";
 
-// Haversine formula for calculating distance between two points
-function calculateHaversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371000; // Earth's radius in meters
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) *
-    Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in meters
-}
+// Geo utilities: single source of truth
+import { calculateHaversineDistance } from "./lib/geo";
 
 export interface IStorage {
   // User management
@@ -106,7 +93,10 @@ export interface IStorage {
   getUserByReferralCode(code: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
-  getAllUsers(): Promise<User[]>;
+  getAllUsers(limit?: number, offset?: number): Promise<User[]>;
+  countUsers(filters?: { role?: string; search?: string }): Promise<number>;
+  getUsers(filters?: { role?: string; search?: string }, limit?: number, offset?: number): Promise<User[]>;
+  updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
 
   // Admin management
   getAdminUser(id: number): Promise<AdminUser | undefined>;
@@ -120,9 +110,10 @@ export interface IStorage {
   getServiceProvider(id: number): Promise<ServiceProvider | undefined>;
   getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined>;
   getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined>;
-  getAllServiceProviders(): Promise<ServiceProvider[]>;
-  getVerifiedServiceProviders(): Promise<ServiceProvider[]>;
-  getPendingServiceProviders(): Promise<ServiceProvider[]>;
+  getAllServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
+  getVerifiedServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
+  getPendingServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
+  countServiceProviders(status?: string): Promise<number>;
   updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined>;
   updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined>;
   getProvidersSortedByDistance(lat: number, long: number, status?: string): Promise<(ServiceProvider & { distance: number })[]>;
@@ -147,6 +138,7 @@ export interface IStorage {
     commissionRate: number
   ): Promise<{ service: ServiceRequest; transaction: WalletTransaction }>;
   topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction>;
+  deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction>;
   getProviderWalletTransactions(providerId: number): Promise<WalletTransaction[]>;
 
   // Product orders
@@ -160,8 +152,11 @@ export interface IStorage {
   createProduct(product: InsertProduct): Promise<Product>;
   getProduct(id: number): Promise<Product | undefined>;
   getAllProducts(): Promise<Product[]>;
+  getAdminProducts(): Promise<Product[]>; // For admin inventory
   getProductsByCategory(category: string): Promise<Product[]>;
+  updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product | undefined>;
   updateProductStock(id: number, stock: number): Promise<Product | undefined>;
+  deleteProduct(id: number): Promise<boolean>;
 
   // Cart management
   addToCart(item: InsertCartItem): Promise<CartItem>;
@@ -180,6 +175,12 @@ export interface IStorage {
   // OTP verification
   createOtpVerification(otp: InsertOtpVerification): Promise<OtpVerification>;
   verifyOtp(phone: string | undefined, email: string | undefined, otp: string, purpose: string): Promise<boolean>;
+
+  // Districts
+  getAllDistricts(): Promise<District[]>;
+  createDistrict(district: InsertDistrict): Promise<District>;
+  toggleDistrictStatus(id: number, isActive: boolean): Promise<District | undefined>;
+  deleteDistrict(id: number): Promise<void>;
 
   // Serviceable Pincodes
   createServiceablePincode(pincode: InsertServiceablePincode): Promise<ServiceablePincode>;
@@ -296,8 +297,57 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).orderBy(desc(users.createdAt));
+  async getAllUsers(limit: number = 100, offset: number = 0): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt)).limit(limit).offset(offset);
+  }
+
+  async countUsers(filters?: { role?: string; search?: string }): Promise<number> {
+    const conditions = [];
+    if (filters?.role) {
+      conditions.push(eq(users.role, filters.role as any));
+    }
+    if (filters?.search) {
+      conditions.push(
+        or(
+          ilike(users.username, `%${filters.search}%`),
+          ilike(users.email, `%${filters.search}%`),
+          ilike(users.phone, `%${filters.search}%`)
+        )
+      );
+    }
+    let query = db.select({ count: count() }).from(users);
+    if (conditions.length > 0) {
+      const condition = conditions.length === 1 ? conditions[0]! : and(...conditions);
+      if (condition) query = query.where(condition) as any;
+    }
+    const [result] = await query;
+    return result?.count ?? 0;
+  }
+
+  async getUsers(filters?: { role?: string; search?: string }, limit: number = 100, offset: number = 0): Promise<User[]> {
+    let query = db.select().from(users);
+    const conditions = [];
+
+    if (filters?.role) {
+      conditions.push(eq(users.role, filters.role as any));
+    }
+
+    if (filters?.search) {
+      conditions.push(
+        or(
+          ilike(users.username, `%${filters.search}%`),
+          ilike(users.email, `%${filters.search}%`),
+          ilike(users.phone, `%${filters.search}%`)
+        )
+      );
+    }
+
+    if (conditions.length > 0) {
+      const condition = conditions.length === 1 ? conditions[0]! : and(...conditions);
+      if (condition) query = query.where(condition) as any;
+    }
+
+    return await (query as any).orderBy(desc(users.id)).limit(limit).offset(offset);
   }
 
   // Admin management
@@ -364,24 +414,37 @@ export class DatabaseStorage implements IStorage {
     return provider || undefined;
   }
 
-  async getAllServiceProviders(): Promise<ServiceProvider[]> {
-    return await db.select().from(serviceProviders).orderBy(desc(serviceProviders.createdAt));
+  async getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
+    return await db.select().from(serviceProviders).orderBy(desc(serviceProviders.createdAt)).limit(limit).offset(offset);
   }
 
-  async getVerifiedServiceProviders(): Promise<ServiceProvider[]> {
+  async getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
     return await db
       .select()
       .from(serviceProviders)
       .where(eq(serviceProviders.verificationStatus, 'verified'))
-      .orderBy(desc(serviceProviders.createdAt));
+      .orderBy(desc(serviceProviders.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
-  async getPendingServiceProviders(): Promise<ServiceProvider[]> {
+  async getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
     return await db
       .select()
       .from(serviceProviders)
       .where(eq(serviceProviders.verificationStatus, 'pending'))
-      .orderBy(desc(serviceProviders.createdAt));
+      .orderBy(desc(serviceProviders.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async countServiceProviders(status?: string): Promise<number> {
+    let query = db.select({ count: count() }).from(serviceProviders);
+    if (status) {
+      query = query.where(eq(serviceProviders.verificationStatus, status as any)) as any;
+    }
+    const [result] = await query;
+    return result?.count ?? 0;
   }
 
   async updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined> {
@@ -448,7 +511,7 @@ export class DatabaseStorage implements IStorage {
   async createServiceRequest(insertRequest: InsertServiceRequest): Promise<ServiceRequest> {
     const countResult = await db.select({ count: count() }).from(serviceRequests);
     const serviceId = `SR${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-    const handshakeOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    const handshakeOtp = crypto.randomInt(1000, 9999).toString();
 
     const [request] = await db
       .insert(serviceRequests)
@@ -646,6 +709,52 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
+    const result = await db.transaction(async (tx) => {
+      const [provider] = await tx
+        .select()
+        .from(serviceProviders)
+        .where(eq(serviceProviders.id, providerId));
+
+      if (!provider) {
+        throw new Error('Provider not found');
+      }
+
+      const currentBalance = parseFloat(provider.walletBalance || '0');
+
+      // Prevent negative balance
+      if (currentBalance < amount) {
+        throw new Error('Insufficient wallet balance');
+      }
+
+      const newBalance = currentBalance - amount;
+
+      await tx
+        .update(serviceProviders)
+        .set({
+          walletBalance: newBalance.toFixed(2),
+          updatedAt: new Date()
+        })
+        .where(eq(serviceProviders.id, providerId));
+
+      const [transaction] = await tx
+        .insert(walletTransactions)
+        .values({
+          providerId,
+          amount: (-amount).toFixed(2), // Negative amount for deduction record
+          type: 'debit',
+          description,
+          balanceBefore: currentBalance.toFixed(2),
+          balanceAfter: newBalance.toFixed(2)
+        })
+        .returning();
+
+      return transaction;
+    });
+
+    return result;
+  }
+
   async getProviderWalletTransactions(providerId: number): Promise<WalletTransaction[]> {
     return await db
       .select()
@@ -724,6 +833,29 @@ export class DatabaseStorage implements IStorage {
       .where(eq(products.id, id))
       .returning();
     return product || undefined;
+  }
+
+  async getAdminProducts(): Promise<Product[]> {
+    return await db.select().from(products).where(eq(products.isActive, true)).orderBy(desc(products.id));
+  }
+
+  async updateProduct(id: number, updates: Partial<InsertProduct>): Promise<Product | undefined> {
+    const [product] = await db
+      .update(products)
+      .set({ ...updates, updatedAt: new Date() } as any) // Cast to any to handle type mismatch with defaults if needed
+      .where(eq(products.id, id))
+      .returning();
+    return product || undefined;
+  }
+
+  async deleteProduct(id: number): Promise<boolean> {
+    // Soft delete by default
+    const [product] = await db
+      .update(products)
+      .set({ isActive: false })
+      .where(eq(products.id, id))
+      .returning();
+    return !!product;
   }
 
   // Cart management
@@ -844,43 +976,62 @@ export class DatabaseStorage implements IStorage {
     return false;
   }
 
-  // Districts
-  async createDistrict(district: InsertDistrict): Promise<District> {
-    const [result] = await db
-      .insert(districts)
-      .values(district)
-      .returning();
-    return result;
+
+
+  async getDistrict(id: number): Promise<District | undefined> {
+    const [district] = await db
+      .select()
+      .from(districts)
+      .where(eq(districts.id, id));
+    return district;
   }
 
-  async getAllDistricts(): Promise<District[]> {
-    return await db.select().from(districts).orderBy(districts.name);
-  }
+  async deleteDistrict(id: number): Promise<void> {
+    const district = await this.getDistrict(id);
+    if (!district) throw new Error("District not found");
 
-  async toggleDistrictStatus(id: number, isActive?: boolean): Promise<District | undefined> {
-    const [existing] = await db.select().from(districts).where(eq(districts.id, id));
-    if (!existing) return undefined;
+    // Protection for default district
+    if (district.name === 'Uttara Kannada') {
+      throw new Error("Cannot delete default district 'Uttara Kannada'");
+    }
 
-    const newStatus = isActive !== undefined ? isActive : !existing.isActive;
+    // Cascade delete locations (serviceable pincodes)
+    // Delete by districtId OR district name to cover legacy data
+    await db.delete(serviceablePincodes).where(
+      or(
+        eq(serviceablePincodes.districtId, id),
+        eq(serviceablePincodes.district, district.name)
+      )
+    );
 
-    const [result] = await db
-      .update(districts)
-      .set({ isActive: newStatus })
-      .where(eq(districts.id, id))
-      .returning();
-    return result;
+    // Delete the district
+    await db
+      .delete(districts)
+      .where(eq(districts.id, id));
   }
 
   // Serviceable Pincodes
   async createServiceablePincode(pincode: InsertServiceablePincode): Promise<ServiceablePincode> {
-    // strict validation: must start with 581 (Uttara Kannada)
-    if (!pincode.pincode.startsWith('581')) {
-      throw new Error("Validation Error: Pincode must belong to Uttara Kannada (581xxx) region.");
+    // Dynamic validation: check pincode against district
+    let districtId: number | undefined;
+
+    if (pincode.district) {
+      const districtRecord = await db.query.districts.findFirst({
+        where: eq(districts.name, pincode.district)
+      });
+
+      if (districtRecord) {
+        districtId = districtRecord.id;
+
+        if (districtRecord.pincodePrefix && !pincode.pincode.startsWith(districtRecord.pincodePrefix)) {
+          throw new Error(`Validation Error: Pincode must start with ${districtRecord.pincodePrefix} for ${pincode.district} region.`);
+        }
+      }
     }
 
     const [result] = await db
       .insert(serviceablePincodes)
-      .values(pincode)
+      .values({ ...pincode, districtId })
       .returning();
     return result;
   }
@@ -940,7 +1091,7 @@ export class DatabaseStorage implements IStorage {
     totalRevenue: number;
     pendingApprovals: number;
   }> {
-    const [userCount] = await db.select({ count: count() }).from(users);
+    const [userCount] = await db.select({ count: count() }).from(users).where(eq(users.role, 'user'));
     const [providerCount] = await db.select({ count: count() }).from(serviceProviders);
 
     const [activeServiceCount] = await db
@@ -948,17 +1099,17 @@ export class DatabaseStorage implements IStorage {
       .from(serviceRequests)
       .where(
         or(
-          eq(serviceRequests.status, 'placed'),
-          eq(serviceRequests.status, 'confirmed'),
-          eq(serviceRequests.status, 'partner_assigned'),
-          eq(serviceRequests.status, 'service_started')
+          eq(serviceRequests.status, 'created'),
+          eq(serviceRequests.status, 'assigned'),
+          eq(serviceRequests.status, 'accepted'),
+          eq(serviceRequests.status, 'in_progress')
         )
       );
 
     const [completedServiceCount] = await db
       .select({ count: count() })
       .from(serviceRequests)
-      .where(eq(serviceRequests.status, 'service_completed'));
+      .where(eq(serviceRequests.status, 'completed'));
 
     const [orderCount] = await db.select({ count: count() }).from(productOrders);
 
@@ -1043,7 +1194,7 @@ export class DatabaseStorage implements IStorage {
   async updatePlatformConfig(key: string, value: string, updatedBy: number): Promise<void> {
     await db
       .update(platformConfig)
-      .set({ value, updatedBy, updatedAt: new Date() })
+      .set({ value, updatedBy })
       .where(eq(platformConfig.key, key));
 
     // Log config change
@@ -1539,20 +1690,6 @@ export class DatabaseStorage implements IStorage {
     return result || undefined;
   }
 
-  async linkSocialProvider(data: InsertSocialAuth): Promise<SocialAuthProvider> {
-    const [result] = await db.insert(socialAuthProviders)
-      .values(data)
-      .onConflictDoUpdate({
-        target: [socialAuthProviders.provider, socialAuthProviders.providerId],
-        set: {
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken,
-          email: data.email, // Update email if changed
-        }
-      })
-      .returning();
-    return result;
-  }
 
   // PHASE 9: Notifications
   async addDeviceToken(userId: number, token: string, platform: string): Promise<DeviceToken> {
@@ -1577,13 +1714,6 @@ export class DatabaseStorage implements IStorage {
         eq(deviceTokens.userId, userId),
         eq(deviceTokens.token, token)
       ));
-  }
-
-  async createNotification(data: InsertNotification): Promise<Notification> {
-    const [result] = await db.insert(notifications)
-      .values(data)
-      .returning();
-    return result;
   }
 
   async getUserNotifications(userId: number, page: number = 1, limit: number = 20): Promise<{ notifications: Notification[], total: number }> {
@@ -1617,6 +1747,66 @@ export class DatabaseStorage implements IStorage {
     await db.update(notifications)
       .set({ isRead: true })
       .where(eq(notifications.userId, userId));
+  }
+
+
+  async linkSocialProvider(data: InsertSocialAuth): Promise<SocialAuthProvider> {
+    const [result] = await db
+      .insert(socialAuthProviders)
+      .values(data)
+      .returning();
+    return result;
+  }
+
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [result] = await db
+      .insert(notifications)
+      .values(data)
+      .returning();
+    return result;
+  }
+
+  // Districts Implementation
+  async getAllDistricts(): Promise<District[]> {
+    return await db.select().from(districts);
+  }
+
+  async createDistrict(district: InsertDistrict): Promise<District> {
+    const [result] = await db
+      .insert(districts)
+      .values(district)
+      .returning();
+    return result;
+  }
+
+  async toggleDistrictStatus(id: number, isActive: boolean): Promise<District> {
+    const [result] = await db
+      .update(districts)
+      .set({ isActive })
+      .where(eq(districts.id, id))
+      .returning();
+    return result;
+  }
+
+  // Helper to ensure default district exists
+  async ensureDefaultDistrict(): Promise<void> {
+    const existing = await db.query.districts.findFirst({
+      where: (districts, { eq }) => eq(districts.name, 'Uttara Kannada')
+    });
+
+    if (!existing) {
+      await this.createDistrict({
+        name: 'Uttara Kannada',
+        state: 'Karnataka',
+        pincodePrefix: '581',
+        isActive: true
+      });
+      console.log('Default district "Uttara Kannada" created.');
+    }
+  }
+
+  constructor() {
+    this.ensureDefaultDistrict().catch(console.error);
   }
 }
 

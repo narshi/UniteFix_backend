@@ -6,11 +6,12 @@ const navigation = [
   { name: "User Management", href: "/users", icon: "people" },
   { name: "Service Requests", href: "/services", icon: "build" },
   { name: "Product Orders", href: "/orders", icon: "shopping_cart" },
+  { name: "Inventory", href: "/admin/inventory", icon: "inventory_2" },
   { name: "Service Partners", href: "/partners", icon: "handyman" },
   { name: "Payments & Invoices", href: "/payments", icon: "payment" },
-  { name: "Districts", href: "/districts", icon: "map" },
+  { name: "Districts", href: "/admin/districts", icon: "map" },
   { name: "Location Management", href: "/locations", icon: "location_on" },
-  { name: "Developer Details", href: "/developer", icon: "code" },
+  { name: "Developer Details", href: "/admin/developer", icon: "code" },
   { name: "Settings", href: "/settings", icon: "settings" },
 ];
 
@@ -50,8 +51,8 @@ export default function Sidebar() {
                 <Link
                   href={item.href}
                   className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${isActive
-                      ? "bg-blue-50 text-blue-600 font-medium"
-                      : "text-gray-700 hover:bg-gray-50"
+                    ? "bg-blue-50 text-blue-600 font-medium"
+                    : "text-gray-700 hover:bg-gray-50"
                     }`}
                 >
                   <span className="material-icons text-lg" style={{ fontFamily: 'Material Icons' }}>{item.icon}</span>

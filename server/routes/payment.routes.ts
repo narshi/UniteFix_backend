@@ -10,6 +10,9 @@ import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
+import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
+import { mobileLimiter } from "../middleware/rate-limit";
+import { storage } from "../storage";
 
 export function registerPaymentRoutes(app: Express) {
     /**
@@ -17,25 +20,35 @@ export function registerPaymentRoutes(app: Express) {
      * Create service and booking order
      * This replaces or enhances existing service creation
      */
-    app.post("/api/services/create-with-payment", async (req: Request, res: Response) => {
+    app.post("/api/services/create-with-payment", mobileLimiter, authenticateToken as any, async (req: Request, res: Response) => {
         try {
             const { serviceType, description, address, pincode } = req.body;
-            const customerId = (req as any).user?.id;
+            const customerId = (req as any).user?.userId;
 
             if (!customerId) {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
-            // Create service request (implement via storage layer)
-            // For now, assuming service created, get ID
-            const serviceRequestId = 1; // TODO: Get from storage.createServiceRequest()
+            if (!serviceType || !description || !address) {
+                return res.status(400).json({ error: "serviceType, description, and address are required" });
+            }
+
+            // Create service request via storage layer
+            const serviceRequest = await storage.createServiceRequest({
+                userId: customerId,
+                serviceType,
+                description,
+                address,
+                status: 'created',
+            });
 
             // Create Razorpay order for booking charge
-            const order = await PaymentService.createBookingOrder(serviceRequestId, customerId);
+            const order = await PaymentService.createBookingOrder(serviceRequest.id, customerId);
 
             res.json({
                 message: "Service created. Please complete booking payment.",
-                serviceRequestId,
+                serviceRequestId: serviceRequest.id,
+                serviceId: serviceRequest.serviceId,
                 razorpayOrder: order,
             });
         } catch (error: any) {
@@ -47,11 +60,11 @@ export function registerPaymentRoutes(app: Express) {
      * POST /api/technician/services/:id/enter-service-charge
      * Technician enters service charge after completing work
      */
-    app.post("/api/technician/services/:id/enter-service-charge", async (req: Request, res: Response) => {
+    app.post("/api/technician/services/:id/enter-service-charge", authenticatePartner as any, async (req: Request, res: Response) => {
         try {
             const serviceId = parseInt(req.params.id);
             const { serviceAmount, partsUsed, notes } = req.body;
-            const technicianId = (req as any).user?.serviceProviderId;
+            const technicianId = (req as any).user?.userId;
 
             if (!technicianId) {
                 return res.status(401).json({ error: "Unauthorized - Technician only" });
@@ -96,20 +109,21 @@ export function registerPaymentRoutes(app: Express) {
      * POST /api/customer/services/:id/create-final-payment
      * Customer creates final payment order after service charge entered
      */
-    app.post("/api/customer/services/:id/create-final-payment", async (req: Request, res: Response) => {
+    app.post("/api/customer/services/:id/create-final-payment", authenticateToken as any, async (req: Request, res: Response) => {
         try {
             const serviceId = parseInt(req.params.id);
-            const customerId = (req as any).user?.id;
+            const customerId = (req as any).user?.userId;
 
             if (!customerId) {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
             // Get service charge
-            const [serviceCharge] = await db.execute(sql`
+            const serviceChargeResult = await db.execute(sql`
         SELECT service_amount FROM service_charges 
         WHERE service_request_id = ${serviceId}
-      `);
+      `) as any;
+            const serviceCharge = serviceChargeResult?.[0];
 
             if (!serviceCharge) {
                 return res.status(400).json({
@@ -142,7 +156,11 @@ export function registerPaymentRoutes(app: Express) {
      */
     app.post("/api/webhooks/razorpay", async (req: Request, res: Response) => {
         try {
-            const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || "your_webhook_secret";
+            const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+            if (!webhookSecret) {
+                console.error('RAZORPAY_WEBHOOK_SECRET not configured');
+                return res.status(500).json({ error: "Webhook not configured" });
+            }
             const signature = req.headers["x-razorpay-signature"] as string;
 
             if (!signature) {
@@ -175,14 +193,15 @@ export function registerPaymentRoutes(app: Express) {
      * GET /api/customer/services/:id/invoice
      * Get invoice for completed service
      */
-    app.get("/api/customer/services/:id/invoice", async (req: Request, res: Response) => {
+    app.get("/api/customer/services/:id/invoice", authenticateToken as any, async (req: Request, res: Response) => {
         try {
             const serviceId = parseInt(req.params.id);
 
-            const [invoice] = await db.execute(sql`
+            const invoiceResult = await db.execute(sql`
         SELECT * FROM invoices 
         WHERE service_request_id = ${serviceId}
-      `);
+      `) as any;
+            const invoice = invoiceResult?.[0];
 
             if (!invoice) {
                 return res.status(404).json({ error: "Invoice not found" });

@@ -39,7 +39,7 @@ export class AdminServiceManager {
         const conditions: any[] = [];
 
         if (filters.status) {
-            conditions.push(eq(serviceRequests.status, filters.status));
+            conditions.push(eq(serviceRequests.status, filters.status as any));
         }
 
         if (filters.technicianId) {
@@ -51,7 +51,9 @@ export class AdminServiceManager {
         }
 
         if (filters.pincode) {
-            conditions.push(eq(serviceRequests.pincode, filters.pincode));
+            // Note: serviceRequests has 'address' but no 'pincode' column
+            // Filter by address containing the pincode instead
+            conditions.push(sql`${serviceRequests.address} ILIKE ${'%' + filters.pincode + '%'}`);
         }
 
         if (filters.startDate) {
@@ -62,27 +64,25 @@ export class AdminServiceManager {
             conditions.push(lte(serviceRequests.createdAt, new Date(filters.endDate)));
         }
 
-        // Get total count
-        const [countResult] = await db.execute(sql`
+        const countResult = await db.execute(sql`
       SELECT COUNT(*) as count
       FROM service_requests
       ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
-    `);
+    `) as any;
 
-        const total = parseInt(countResult?.count || "0");
+        const total = parseInt(countResult?.[0]?.count || "0");
 
         // Get services with customer and technician details
         const services = await db
             .select({
                 id: serviceRequests.id,
                 serviceId: serviceRequests.serviceId,
-                customerName: users.name,
+                customerName: users.username,
                 customerPhone: users.phone,
                 technicianName: sql`sp.user_id`, // Will join to get technician name
                 serviceType: serviceRequests.serviceType,
                 status: serviceRequests.status,
                 address: serviceRequests.address,
-                pincode: serviceRequests.pincode,
                 createdAt: serviceRequests.createdAt,
                 assignedAt: serviceRequests.assignedAt,
                 completedAt: serviceRequests.completedAt,
@@ -288,7 +288,7 @@ export class AdminServiceManager {
         const [updated] = await db
             .update(serviceRequests)
             .set({
-                status: newState,
+                status: newState as any,
                 updatedAt: new Date(),
             })
             .where(eq(serviceRequests.id, serviceId))
@@ -326,7 +326,7 @@ export class AdminServiceManager {
             conditions.push(lte(serviceRequests.createdAt, new Date(endDate)));
         }
 
-        const [stats] = await db.execute(sql`
+        const statsResult = await db.execute(sql`
       SELECT
         COUNT(*) as total_services,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
@@ -340,8 +340,9 @@ export class AdminServiceManager {
         ) as avg_completion_hours
       FROM service_requests
       ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
-    `);
+    `) as any;
 
+        const stats = statsResult?.[0];
         return stats;
     }
 
@@ -349,7 +350,7 @@ export class AdminServiceManager {
      * Get technician performance metrics
      */
     static async getTechnicianPerformance(technicianId: number): Promise<any> {
-        const [metrics] = await db.execute(sql`
+        const metricsResult = await db.execute(sql`
       SELECT
         COUNT(*) as total_services,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_services,
@@ -361,14 +362,16 @@ export class AdminServiceManager {
         ) as avg_service_hours
       FROM service_requests
       WHERE provider_id = ${technicianId}
-    `);
+    `) as any;
+        const metrics = metricsResult?.[0];
 
         // Get wallet balance
-        const [wallet] = await db.execute(sql`
+        const walletResult = await db.execute(sql`
       SELECT balance_hold, balance_available, total_earned
       FROM partner_wallets
       WHERE partner_id = ${technicianId}
-    `);
+    `) as any;
+        const wallet = walletResult?.[0];
 
         return {
             ...metrics,

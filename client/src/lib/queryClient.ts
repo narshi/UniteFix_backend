@@ -8,14 +8,14 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export async function apiRequest(
+  method: string,
   url: string,
-  options: RequestInit = {}
+  body?: unknown
 ): Promise<any> {
   // Add admin token to requests if available
   const adminToken = localStorage.getItem("adminToken");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...options.headers,
   };
 
   // Add admin token to admin routes and service partner routes (admin-only endpoints)
@@ -24,9 +24,10 @@ export async function apiRequest(
   }
 
   const res = await fetch(url, {
+    method,
     credentials: "include",
-    ...options,
     headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   if (!res.ok) {
@@ -42,6 +43,10 @@ export async function apiRequest(
     throw new Error(`${res.status}: ${text}`);
   }
 
+  if (res.status === 204) {
+    return null;
+  }
+
   return await res.json();
 }
 
@@ -50,38 +55,38 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const url = queryKey[0] as string;
-    const adminToken = localStorage.getItem("adminToken");
-    const headers: Record<string, string> = {};
+    async ({ queryKey }) => {
+      const url = queryKey[0] as string;
+      const adminToken = localStorage.getItem("adminToken");
+      const headers: Record<string, string> = {};
 
-    // Add admin token to admin routes and service partner routes (admin-only endpoints)
-    if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
-      headers.Authorization = `Bearer ${adminToken}`;
-    }
-
-    const res = await fetch(url, {
-      credentials: "include",
-      headers,
-    });
-
-    if (res.status === 401) {
-      if (url.includes("/api/admin/") || url.includes("/api/service-partners")) {
-        // Admin token expired or invalid, clear storage and redirect to login
-        localStorage.removeItem("adminToken");
-        localStorage.removeItem("adminUser");
-        window.location.reload();
-        return;
+      // Add admin token to admin routes and service partner routes (admin-only endpoints)
+      if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
+        headers.Authorization = `Bearer ${adminToken}`;
       }
 
-      if (unauthorizedBehavior === "returnNull") {
-        return null;
-      }
-    }
+      const res = await fetch(url, {
+        credentials: "include",
+        headers,
+      });
 
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
+      if (res.status === 401) {
+        if (url.includes("/api/admin/") || url.includes("/api/service-partners")) {
+          // Admin token expired or invalid, clear storage and redirect to login
+          localStorage.removeItem("adminToken");
+          localStorage.removeItem("adminUser");
+          window.location.reload();
+          return;
+        }
+
+        if (unauthorizedBehavior === "returnNull") {
+          return null;
+        }
+      }
+
+      await throwIfResNotOk(res);
+      return await res.json();
+    };
 
 export const queryClient = new QueryClient({
   defaultOptions: {

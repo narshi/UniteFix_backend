@@ -15,7 +15,7 @@ export default function UsersPage() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const { data: usersResponse, isLoading } = useQuery<any>({
     queryKey: ["/api/admin/users"],
   });
@@ -24,10 +24,7 @@ export default function UsersPage() {
 
   const updateUserStatusMutation = useMutation({
     mutationFn: async ({ userId, isActive }: { userId: number; isActive: boolean }) => {
-      return await apiRequest(`/api/admin/users/${userId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ isActive }),
-      });
+      return await apiRequest("PATCH", `/api/admin/users/${userId}/status`, { isActive });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
@@ -147,9 +144,9 @@ export default function UsersPage() {
                           <Button size="sm" variant="ghost" onClick={() => handleViewDetails(user)}>
                             <Eye className="w-4 h-4" />
                           </Button>
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             className={user.isActive ? "text-red-600" : "text-green-600"}
                             onClick={() => handleToggleStatus(user)}
                             disabled={updateUserStatusMutation.isPending}
@@ -173,7 +170,7 @@ export default function UsersPage() {
             <DialogTitle>User Details</DialogTitle>
             <DialogDescription>Full profile information for {selectedUser?.username}</DialogDescription>
           </DialogHeader>
-          
+
           {selectedUser && (
             <div className="space-y-6">
               <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
@@ -210,8 +207,8 @@ export default function UsersPage() {
               </div>
 
               <div className="pt-4 border-t flex gap-2">
-                <Button 
-                  className="flex-1" 
+                <Button
+                  className="flex-1"
                   variant={selectedUser.isActive ? "destructive" : "default"}
                   onClick={() => {
                     handleToggleStatus(selectedUser);

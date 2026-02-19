@@ -33,9 +33,10 @@ db_tables_list.txt
 # Test data files
 test-user.json
 step*.json
+*.xlsx
 
 # Secret keys - NEVER COMMIT!
 Secure Keys*
 
-# Attached assets (Replit paste artifacts)
+# Attached assets
 attached_assets/

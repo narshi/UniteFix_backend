@@ -6,6 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +25,7 @@ interface District {
     id: number;
     name: string;
     state: string;
+    pincodePrefix: string;
     isActive: boolean;
     createdAt: string;
 }
@@ -25,6 +37,7 @@ export default function DistrictsPage() {
     const [newDistrict, setNewDistrict] = useState({
         name: '',
         state: 'Karnataka',
+        pincodePrefix: '581',
         isActive: true
     });
 
@@ -34,10 +47,7 @@ export default function DistrictsPage() {
 
     const addDistrictMutation = useMutation({
         mutationFn: async (district: typeof newDistrict) => {
-            const response = await apiRequest("/api/admin/districts", {
-                method: "POST",
-                body: JSON.stringify(district),
-            });
+            const response = await apiRequest("POST", "/api/admin/districts", district);
             return response;
         },
         onSuccess: () => {
@@ -46,6 +56,7 @@ export default function DistrictsPage() {
             setNewDistrict({
                 name: '',
                 state: 'Karnataka',
+                pincodePrefix: '581',
                 isActive: true
             });
             toast({ title: "District added successfully" });
@@ -61,10 +72,7 @@ export default function DistrictsPage() {
 
     const toggleDistrictMutation = useMutation({
         mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
-            const response = await apiRequest(`/api/admin/districts/${id}/toggle`, {
-                method: "PATCH",
-                body: JSON.stringify({ isActive }),
-            });
+            const response = await apiRequest("PATCH", `/api/admin/districts/${id}/toggle`, { isActive });
             return response;
         },
         onSuccess: () => {
@@ -80,11 +88,45 @@ export default function DistrictsPage() {
         }
     });
 
+    const deleteDistrictMutation = useMutation({
+        mutationFn: async (id: number) => {
+            await apiRequest("DELETE", `/api/admin/districts/${id}`);
+        },
+        onMutate: async (id) => {
+            await queryClient.cancelQueries({ queryKey: ["/api/admin/districts"] });
+            const previousDistricts = queryClient.getQueryData<District[]>(["/api/admin/districts"]);
+
+            if (previousDistricts) {
+                queryClient.setQueryData<District[]>(["/api/admin/districts"], (old) =>
+                    old ? old.filter((d) => d.id !== id) : []
+                );
+            }
+
+            return { previousDistricts };
+        },
+        onError: (err, id, context) => {
+            if (context?.previousDistricts) {
+                queryClient.setQueryData(["/api/admin/districts"], context.previousDistricts);
+            }
+            toast({
+                title: "Error deleting district",
+                description: err.message,
+                variant: "destructive"
+            });
+        },
+        onSettled: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/districts"] });
+        },
+        onSuccess: () => {
+            toast({ title: "District deleted successfully" });
+        },
+    });
+
     if (isLoading) return <div>Loading districts...</div>;
 
     return (
         <div className="p-8">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex flex-row w-full justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900 tracking-tight">District Management</h1>
                     <p className="text-gray-500 mt-2">Manage backend service districts and their active status.</p>
@@ -100,9 +142,11 @@ export default function DistrictsPage() {
                         <DialogHeader>
                             <DialogTitle>Add New District</DialogTitle>
                         </DialogHeader>
-                        <div className="grid gap-6 py-4">
+                        <div className="grid gap-4 py-4">
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="name" className="text-right font-medium">Name</Label>
+                                <Label htmlFor="name" className="text-right">
+                                    Name
+                                </Label>
                                 <Input
                                     id="name"
                                     value={newDistrict.name}
@@ -112,23 +156,26 @@ export default function DistrictsPage() {
                                 />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="state" className="text-right font-medium">State</Label>
+                                <Label htmlFor="prefix" className="text-right">
+                                    Prefix
+                                </Label>
                                 <Input
-                                    id="state"
-                                    value={newDistrict.state}
-                                    onChange={(e) => setNewDistrict({ ...newDistrict, state: e.target.value })}
-                                    className="col-span-3 bg-muted/50"
-                                    readOnly
+                                    id="prefix"
+                                    value={newDistrict.pincodePrefix}
+                                    onChange={(e) => setNewDistrict({ ...newDistrict, pincodePrefix: e.target.value })}
+                                    className="col-span-3"
+                                    placeholder="e.g. 581"
                                 />
                             </div>
                         </div>
-                        <Button
-                            onClick={() => addDistrictMutation.mutate(newDistrict)}
-                            disabled={addDistrictMutation.isPending || !newDistrict.name}
-                            className="w-full transition-all duration-200"
-                        >
-                            {addDistrictMutation.isPending ? "Adding..." : "Add District"}
-                        </Button>
+                        <div className="flex justify-end">
+                            <Button
+                                onClick={() => addDistrictMutation.mutate(newDistrict)}
+                                disabled={addDistrictMutation.isPending || !newDistrict.name}
+                            >
+                                {addDistrictMutation.isPending ? "Adding..." : "Add District"}
+                            </Button>
+                        </div>
                     </DialogContent>
                 </Dialog>
             </div>
@@ -144,6 +191,7 @@ export default function DistrictsPage() {
                                 <tr>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">State</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Prefix</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
@@ -156,6 +204,9 @@ export default function DistrictsPage() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {district.state}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {district.pincodePrefix}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <Badge variant={district.isActive ? "default" : "secondary"} className={district.isActive ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-gray-100 text-gray-700"}>
@@ -178,6 +229,41 @@ export default function DistrictsPage() {
                                                     className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer accent-primary"
                                                 />
                                             </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {district.name !== 'Uttara Kannada' && (
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                        >
+                                                            <span className="material-icons text-sm mr-1">delete</span>
+                                                            Delete
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This action cannot be undone. This will permanently delete the district
+                                                                <strong> {district.name} </strong>
+                                                                and ALL associated locations (pincodes).
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction
+                                                                className="bg-red-600 hover:bg-red-700"
+                                                                onClick={() => deleteDistrictMutation.mutate(district.id)}
+                                                            >
+                                                                Delete
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

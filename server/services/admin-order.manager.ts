@@ -1,21 +1,28 @@
 /**
- * PHASE 7: Admin Order Management & Delhivery Integration
+ * PHASE 7+10: Admin Order Management & Delhivery Integration
  * 
  * Handles:
  * - Order management (view, update status)
- * - Delhivery shipment creation
+ * - Delhivery shipment creation (mock/live toggle)
  * - Shipment tracking (admin + customer)
- * - Returns and refunds
+ * - Reverse shipment for returns
+ * - Full audit trail on status changes
+ * 
+ * DELHIVERY_MODE: 'mock' (default) | 'live'
+ * - mock: Generates fake waybills, simulated responses (no API key needed)
+ * - live: Real Delhivery API calls (requires DELHIVERY_API_KEY)
  */
 
 import { db } from "../db";
 import { sql, eq, and, desc } from "drizzle-orm";
-import { productOrders } from "@shared/schema";
+import { productOrders, shipments, auditLogs } from "@shared/schema";
 import axios from "axios";
+import crypto from "crypto";
 
 interface DelhiveryConfig {
     apiKey: string;
     baseUrl: string;
+    mode: 'mock' | 'live';
 }
 
 export class AdminOrderManager {
@@ -31,34 +38,31 @@ export class AdminOrderManager {
 
         const conditions: any[] = [];
         if (status) {
-            conditions.push(eq(productOrders.status, status));
+            conditions.push(eq(productOrders.status, status as any));
         }
 
-        // Get total count
-        const [countResult] = await db.execute(sql`
-      SELECT COUNT(*) as count
-      FROM product_orders
-      ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
-    `);
+        const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-        const total = parseInt(countResult?.count || "0");
+        const [orders, countResult] = await Promise.all([
+            db.select()
+                .from(productOrders)
+                .where(whereClause)
+                .orderBy(desc(productOrders.createdAt))
+                .limit(limit)
+                .offset(offset),
+            db.select({ count: sql<number>`count(*)::int` })
+                .from(productOrders)
+                .where(whereClause),
+        ]);
 
-        // Get orders
-        const orders = await db
-            .select()
-            .from(productOrders)
-            .where(conditions.length > 0 ? and(...conditions) : undefined)
-            .orderBy(desc(productOrders.createdAt))
-            .limit(limit)
-            .offset(offset);
-
+        const total = countResult[0]?.count || 0;
         const pages = Math.ceil(total / limit);
 
         return { orders, total, page, pages };
     }
 
     /**
-     * Get order details
+     * Get order details with shipment tracking
      */
     static async getOrderDetails(orderId: string): Promise<any> {
         const [order] = await db
@@ -71,7 +75,7 @@ export class AdminOrderManager {
         }
 
         // Get shipment tracking if exists
-        const shipment = await this.getShipmentTracking(orderId);
+        const shipment = await DelhiveryService.getShipmentByOrder(orderId);
 
         return {
             order,
@@ -80,44 +84,77 @@ export class AdminOrderManager {
     }
 
     /**
-     * Update order status
+     * Update order status with audit logging
      */
     static async updateOrderStatus(
         orderId: string,
         newStatus: string,
         adminId: number
     ): Promise<any> {
+        // Get current order for fromState
+        const [currentOrder] = await db.select()
+            .from(productOrders)
+            .where(eq(productOrders.orderId, orderId))
+            .limit(1);
+
+        if (!currentOrder) {
+            throw new Error("Order not found");
+        }
+
+        const fromState = currentOrder.status;
+
         const [order] = await db
             .update(productOrders)
             .set({
-                status: newStatus,
+                status: newStatus as any,
                 updatedAt: new Date(),
             })
             .where(eq(productOrders.orderId, orderId))
             .returning();
 
-        // Audit log
-        await db.execute(sql`
-      INSERT INTO audit_logs (entity_type, entity_id, action, changed_by, metadata)
-      VALUES ('product_order', ${order.id}, 'status_updated', ${adminId}, 
-        ${JSON.stringify({ orderId, newStatus })})
-    `);
+        // Audit log using Drizzle ORM
+        await db.insert(auditLogs).values({
+            entityType: 'product_order',
+            entityId: order.id,
+            action: 'status_updated',
+            fromState,
+            toState: newStatus,
+            changedBy: adminId,
+            metadata: { orderId, newStatus },
+        });
 
         return order;
+    }
+
+    /**
+     * Get shipment tracking info for an order
+     */
+    private static async getShipmentTracking(orderId: string): Promise<any> {
+        return DelhiveryService.getShipmentByOrder(orderId);
     }
 }
 
 /**
- * Delhivery Integration Service
+ * Delhivery Integration Service (Mock/Live Toggle)
+ * 
+ * Set DELHIVERY_MODE=mock in .env for testing without API credentials
+ * Set DELHIVERY_MODE=live for production with real Delhivery API
  */
 export class DelhiveryService {
-    private static config: DelhiveryConfig = {
-        apiKey: process.env.DELHIVERY_API_KEY || "",
-        baseUrl: process.env.DELHIVERY_BASE_URL || "https://track.delhivery.com/api",
-    };
+    private static getConfig(): DelhiveryConfig {
+        return {
+            apiKey: process.env.DELHIVERY_API_KEY || "",
+            baseUrl: process.env.DELHIVERY_BASE_URL || "https://track.delhivery.com/api",
+            mode: (process.env.DELHIVERY_MODE as 'mock' | 'live') || 'mock',
+        };
+    }
+
+    private static generateMockWaybill(): string {
+        return `MOCK${Date.now()}${crypto.randomInt(10000)}`;
+    }
 
     /**
-     * Create shipment in Delhivery
+     * Create shipment (forward or reverse)
      */
     static async createShipment(orderData: {
         orderId: string;
@@ -128,6 +165,147 @@ export class DelhiveryService {
         totalAmount: number;
         productDetails: string;
     }): Promise<{ waybill: string; shipmentId: string }> {
+        const config = this.getConfig();
+
+        if (config.mode === 'mock') {
+            return this.createMockShipment(orderData);
+        }
+
+        return this.createLiveShipment(orderData, config);
+    }
+
+    /**
+     * Create a reverse shipment for returns
+     */
+    static async createReverseShipment(data: {
+        orderId: string;
+        customerName: string;
+        customerPhone: string;
+        pickupAddress: string;
+        pickupPincode: string;
+        productDetails: string;
+    }): Promise<{ waybill: string; shipmentId: string }> {
+        const config = this.getConfig();
+
+        if (config.mode === 'mock') {
+            const waybill = `RVS${this.generateMockWaybill()}`;
+            const shipmentId = `RVSMOCK-${data.orderId}`;
+
+            // Save reverse shipment to DB
+            await db.insert(shipments).values({
+                orderId: data.orderId,
+                waybill,
+                shipmentId,
+                carrier: 'delhivery',
+                status: 'created',
+                trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+            });
+
+            console.log(`[DELHIVERY MOCK] Reverse shipment created: waybill=${waybill}`);
+
+            return { waybill, shipmentId };
+        }
+
+        // Live reverse shipment via Delhivery API
+        try {
+            const payload = {
+                pickup: {
+                    name: data.customerName,
+                    phone: data.customerPhone,
+                    add: data.pickupAddress,
+                    pin: data.pickupPincode,
+                    city: "",
+                    state: "",
+                    country: "India",
+                },
+                return_address: {
+                    name: "UniteFix Warehouse",
+                    add: process.env.WAREHOUSE_ADDRESS || "UniteFix Warehouse",
+                    pin: process.env.WAREHOUSE_PINCODE || "581320",
+                    city: process.env.WAREHOUSE_CITY || "Uttara Kannada",
+                    state: process.env.WAREHOUSE_STATE || "Karnataka",
+                    country: "India",
+                    phone: process.env.WAREHOUSE_PHONE || "9876543210",
+                },
+                order_id: data.orderId,
+                products_desc: data.productDetails,
+            };
+
+            const response = await axios.post(
+                `${config.baseUrl}/p/packing_slip`,
+                { format: "json", data: JSON.stringify(payload) },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Token ${config.apiKey}`,
+                    },
+                }
+            );
+
+            const waybill = response.data.packages?.[0]?.waybill || this.generateMockWaybill();
+            const shipmentId = response.data.packages?.[0]?.refnum || `RVS-${data.orderId}`;
+
+            await db.insert(shipments).values({
+                orderId: data.orderId,
+                waybill,
+                shipmentId,
+                carrier: 'delhivery',
+                status: 'created',
+                trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+            });
+
+            return { waybill, shipmentId };
+        } catch (error: any) {
+            throw new Error(`Delhivery reverse shipment failed: ${error.message}`);
+        }
+    }
+
+    /**
+     * Mock shipment creation (no API call)
+     */
+    private static async createMockShipment(orderData: {
+        orderId: string;
+        customerName: string;
+        customerPhone: string;
+        address: string;
+        pincode: string;
+        totalAmount: number;
+        productDetails: string;
+    }): Promise<{ waybill: string; shipmentId: string }> {
+        const waybill = this.generateMockWaybill();
+        const shipmentId = `MOCK-${orderData.orderId}`;
+
+        // Save to database
+        await db.insert(shipments).values({
+            orderId: orderData.orderId,
+            waybill,
+            shipmentId,
+            carrier: 'delhivery',
+            status: 'created',
+            trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+            estimatedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // +5 days
+        });
+
+        console.log(`[DELHIVERY MOCK] Shipment created for order ${orderData.orderId}: waybill=${waybill}`);
+
+        return { waybill, shipmentId };
+    }
+
+    /**
+     * Live shipment creation via Delhivery API
+     */
+    private static async createLiveShipment(
+        orderData: {
+            orderId: string;
+            customerName: string;
+            customerPhone: string;
+            address: string;
+            pincode: string;
+            totalAmount: number;
+            productDetails: string;
+        },
+        config: DelhiveryConfig
+    ): Promise<{ waybill: string; shipmentId: string }> {
         try {
             const payload = {
                 shipments: [
@@ -135,50 +313,50 @@ export class DelhiveryService {
                         name: orderData.customerName,
                         add: orderData.address,
                         pin: orderData.pincode,
-                        city: "", // Would need pincode to city mapping
+                        city: "",
                         state: "",
                         country: "India",
                         phone: orderData.customerPhone,
                         order: orderData.orderId,
                         payment_mode: "Prepaid",
-                        return_pin: "581320", // Uttara Kannada return address
-                        return_city: "Uttara Kannada",
-                        return_phone: "9876543210",
-                        return_add: "UniteFix Warehouse, Uttara Kannada",
+                        return_pin: process.env.WAREHOUSE_PINCODE || "581320",
+                        return_city: process.env.WAREHOUSE_CITY || "Uttara Kannada",
+                        return_phone: process.env.WAREHOUSE_PHONE || "9876543210",
+                        return_add: process.env.WAREHOUSE_ADDRESS || "UniteFix Warehouse, Uttara Kannada",
                         products_desc: orderData.productDetails,
                         hsn_code: "",
                         cod_amount: "0",
                         order_date: new Date().toISOString(),
                         total_amount: orderData.totalAmount.toString(),
-                        seller_add: "UniteFix Warehouse, Uttara Kannada",
+                        seller_add: process.env.WAREHOUSE_ADDRESS || "UniteFix Warehouse, Uttara Kannada",
                         seller_name: "UniteFix",
                         seller_inv: orderData.orderId,
                         quantity: "1",
-                        waybill: "", // Delhivery generates this
+                        waybill: "",
                         shipment_width: "10",
                         shipment_height: "10",
-                        weight: "500", // grams
-                        seller_gst_tin: "", // Add GST number
+                        weight: process.env.DEFAULT_WEIGHT_GRAMS || "500",
+                        seller_gst_tin: process.env.GST_NUMBER || "",
                         shipping_mode: "Surface",
                         address_type: "home",
                     },
                 ],
                 pickup_location: {
                     name: "UniteFix Warehouse",
-                    city: "Uttara Kannada",
-                    pin_code: "581320",
+                    city: process.env.WAREHOUSE_CITY || "Uttara Kannada",
+                    pin_code: process.env.WAREHOUSE_PINCODE || "581320",
                     country: "India",
-                    phone_number: "9876543210",
+                    phone_number: process.env.WAREHOUSE_PHONE || "9876543210",
                 },
             };
 
             const response = await axios.post(
-                `${this.config.baseUrl}/cmu/create.json`,
+                `${config.baseUrl}/cmu/create.json`,
                 { format: "json", data: JSON.stringify(payload) },
                 {
                     headers: {
                         "Content-Type": "application/json",
-                        Authorization: `Token ${this.config.apiKey}`,
+                        Authorization: `Token ${config.apiKey}`,
                     },
                 }
             );
@@ -186,14 +364,15 @@ export class DelhiveryService {
             const waybill = response.data.packages[0].waybill;
             const shipmentId = response.data.packages[0].refnum;
 
-            // Save to database
-            await db.execute(sql`
-        INSERT INTO shipments (
-          order_id, waybill, shipment_id, carrier, status, created_at
-        ) VALUES (
-          ${orderData.orderId}, ${waybill}, ${shipmentId}, 'delhivery', 'created', NOW()
-        )
-      `);
+            // Save to database using Drizzle ORM
+            await db.insert(shipments).values({
+                orderId: orderData.orderId,
+                waybill,
+                shipmentId,
+                carrier: 'delhivery',
+                status: 'created',
+                trackingUrl: `https://www.delhivery.com/track/package/${waybill}`,
+            });
 
             return { waybill, shipmentId };
         } catch (error: any) {
@@ -202,15 +381,44 @@ export class DelhiveryService {
     }
 
     /**
-     * Track shipment
+     * Track shipment (mock or live)
      */
     static async trackShipment(waybill: string): Promise<any> {
+        const config = this.getConfig();
+
+        if (config.mode === 'mock') {
+            return {
+                waybill,
+                status: "In Transit",
+                currentLocation: "Bangalore Hub",
+                expectedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+                scans: [
+                    {
+                        time: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                        location: "Uttara Kannada",
+                        activity: "Picked up by courier",
+                    },
+                    {
+                        time: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+                        location: "Hubli Hub",
+                        activity: "In transit",
+                    },
+                    {
+                        time: new Date().toISOString(),
+                        location: "Bangalore Hub",
+                        activity: "Arrived at destination hub",
+                    },
+                ],
+                _mode: "mock",
+            };
+        }
+
         try {
             const response = await axios.get(
-                `${this.config.baseUrl}/v1/packages/json/?waybill=${waybill}`,
+                `${config.baseUrl}/v1/packages/json/?waybill=${waybill}`,
                 {
                     headers: {
-                        Authorization: `Token ${this.config.apiKey}`,
+                        Authorization: `Token ${config.apiKey}`,
                     },
                 }
             );
@@ -230,26 +438,28 @@ export class DelhiveryService {
     }
 
     /**
-     * Get shipment tracking for order (from database)
+     * Get shipment tracking for order (from database + live/mock tracking)
      */
     static async getShipmentByOrder(orderId: string): Promise<any> {
-        const [shipment] = await db.execute(sql`
-      SELECT * FROM shipments
-      WHERE order_id = ${orderId}
-      ORDER BY created_at DESC
-      LIMIT 1
-    `);
+        const [shipment] = await db.select()
+            .from(shipments)
+            .where(eq(shipments.orderId, orderId))
+            .orderBy(desc(shipments.createdAt))
+            .limit(1);
 
         if (!shipment) {
             return null;
         }
 
-        // Get live tracking from Delhivery
-        const liveTracking = await this.trackShipment(shipment.waybill);
-
-        return {
-            ...shipment,
-            liveTracking,
-        };
+        try {
+            const liveTracking = await this.trackShipment(shipment.waybill);
+            return {
+                ...shipment,
+                liveTracking,
+            };
+        } catch {
+            // If tracking fails, return DB data only
+            return shipment;
+        }
     }
 }

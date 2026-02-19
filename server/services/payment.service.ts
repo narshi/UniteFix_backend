@@ -20,6 +20,7 @@ import crypto from "crypto";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { configService } from "./config.service";
+import { PaymentTrackingService } from "./payment-tracking.service";
 
 interface RazorpayConfig {
     keyId: string;
@@ -35,8 +36,8 @@ export class PaymentService {
     private static async getRazorpayInstance(): Promise<Razorpay> {
         if (this.razorpay) return this.razorpay;
 
-        const keyId = await configService.getConfigValue("PAYMENT_CONFIG.RAZORPAY_KEY_ID");
-        const keySecret = await configService.getConfigValue("PAYMENT_CONFIG.RAZORPAY_KEY_SECRET");
+        const keyId = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_ID");
+        const keySecret = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_SECRET");
 
         if (!keyId || !keySecret) {
             throw new Error("Razorpay credentials not configured");
@@ -61,7 +62,7 @@ export class PaymentService {
         const razorpay = await this.getRazorpayInstance();
 
         // Get booking charge from config
-        const bookingCharge = await configService.getConfigValue("BUSINESS_CONFIG.BASE_SERVICE_FEE");
+        const bookingCharge = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
         const amount = parseFloat(bookingCharge || "250") * 100; // Convert to paise
 
         // Create Razorpay order
@@ -94,6 +95,17 @@ export class PaymentService {
         'pending'
       )
     `);
+
+        // PHASE 10: Record to payment audit trail
+        await PaymentTrackingService.recordPaymentEvent({
+            serviceRequestId,
+            razorpayOrderId: order.id,
+            amount: amount, // in paise
+            currency: 'INR',
+            eventType: 'order_created',
+            status: 'pending',
+            metadata: { paymentType: 'booking_charge', customerId },
+        });
 
         return {
             orderId: order.id,
@@ -148,6 +160,17 @@ export class PaymentService {
       )
     `);
 
+        // PHASE 10: Record to payment audit trail
+        await PaymentTrackingService.recordPaymentEvent({
+            serviceRequestId,
+            razorpayOrderId: order.id,
+            amount: invoice.amountDue * 100, // in paise
+            currency: 'INR',
+            eventType: 'order_created',
+            status: 'pending',
+            metadata: { paymentType: 'final_payment', invoice },
+        });
+
         return {
             orderId: order.id,
             amount: invoice.amountDue,
@@ -173,8 +196,8 @@ export class PaymentService {
         amountDue: number;
     }> {
         // Get booking charge from config
-        const bookingChargeStr = await configService.getConfigValue("BUSINESS_CONFIG.BASE_SERVICE_FEE");
-        const gstPercentageStr = await configService.getConfigValue("BUSINESS_CONFIG.GST_PERCENTAGE");
+        const bookingChargeStr = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
+        const gstPercentageStr = await configService.get<string>("BUSINESS_CONFIG.GST_PERCENTAGE");
 
         const bookingCharge = parseFloat(bookingChargeStr || "250");
         const gstPercentage = parseFloat(gstPercentageStr || "18");
@@ -239,6 +262,18 @@ export class PaymentService {
         WHERE razorpay_order_id = ${orderId}
       `);
 
+            // PHASE 10: Record capture to audit trail
+            await PaymentTrackingService.recordPaymentEvent({
+                razorpayOrderId: orderId,
+                razorpayPaymentId: paymentId,
+                amount: amount * 100, // in paise
+                currency: 'INR',
+                eventType: 'payment_captured',
+                status: 'captured',
+                method: payload.payment?.entity?.method,
+                metadata: payload.payment?.entity,
+            });
+
             return {
                 success: true,
                 message: `Payment ${paymentId} captured successfully`,
@@ -251,9 +286,18 @@ export class PaymentService {
             await db.execute(sql`
         UPDATE payment_transactions 
         SET payment_status = 'failed',
-            updated_at = NOW()
+                updated_at = NOW()
         WHERE razorpay_order_id = ${orderId}
-      `);
+                `);
+
+            // PHASE 10: Record failure to audit trail
+            await PaymentTrackingService.recordPaymentEvent({
+                razorpayOrderId: orderId,
+                amount: payload.payment.entity.amount / 100 || 0,
+                eventType: 'payment_failed',
+                status: 'failed',
+                metadata: payload.payment?.entity,
+            });
 
             return {
                 success: true,
@@ -269,14 +313,15 @@ export class PaymentService {
      * Called before allowing COMPLETED transition
      */
     static async isFinalPaymentVerified(serviceRequestId: number): Promise<boolean> {
-        const [payment] = await db.execute(sql`
+        const paymentResult = await db.execute(sql`
       SELECT id FROM payment_transactions 
       WHERE service_request_id = ${serviceRequestId}
         AND payment_type = 'final_payment'
         AND payment_status = 'captured'
         AND webhook_verified = true
       LIMIT 1
-    `);
+                `) as any;
+        const payment = paymentResult?.[0];
 
         return !!payment;
     }
@@ -291,10 +336,11 @@ export class PaymentService {
         providerId: number
     ): Promise<{ invoiceId: string }> {
         // Get service charge
-        const [serviceChargeRow] = await db.execute(sql`
+        const serviceChargeResult = await db.execute(sql`
       SELECT service_amount FROM service_charges 
       WHERE service_request_id = ${serviceRequestId}
-    `);
+                `) as any;
+        const serviceChargeRow = serviceChargeResult?.[0];
 
         if (!serviceChargeRow) {
             throw new Error("Service charge not entered");
@@ -303,40 +349,40 @@ export class PaymentService {
         const serviceCharge = parseFloat(serviceChargeRow.service_amount);
         const invoice = await this.calculateInvoice(serviceRequestId, serviceCharge);
 
-        const invoiceId = `INV-${serviceRequestId}-${Date.now()}`;
+        const invoiceId = `INV - ${serviceRequestId} - ${Date.now()}`;
 
         // Insert invoice
         await db.execute(sql`
-      INSERT INTO invoices (
-        invoice_id,
-        service_request_id,
-        user_id,
-        provider_id,
-        booking_charge,
-        service_charge,
-        subtotal,
-        gst_percentage,
-        gst_amount,
-        total_amount_updated,
-        amount_paid,
-        amount_due,
-        payment_status
-      ) VALUES (
-        ${invoiceId},
-        ${serviceRequestId},
-        ${customerId},
-        ${providerId},
-        ${invoice.bookingCharge},
-        ${invoice.serviceCharge},
-        ${invoice.subtotal},
-        ${invoice.gstPercentage},
-        ${invoice.gstAmount},
-        ${invoice.totalAmount},
-        ${invoice.amountPaid},
-        ${invoice.amountDue},
-        'paid'
-      )
-    `);
+      INSERT INTO invoices(
+                    invoice_id,
+                    service_request_id,
+                    user_id,
+                    provider_id,
+                    booking_charge,
+                    service_charge,
+                    subtotal,
+                    gst_percentage,
+                    gst_amount,
+                    total_amount_updated,
+                    amount_paid,
+                    amount_due,
+                    payment_status
+                ) VALUES(
+                    ${invoiceId},
+                    ${serviceRequestId},
+                    ${customerId},
+                    ${providerId},
+                    ${invoice.bookingCharge},
+                    ${invoice.serviceCharge},
+                    ${invoice.subtotal},
+                    ${invoice.gstPercentage},
+                    ${invoice.gstAmount},
+                    ${invoice.totalAmount},
+                    ${invoice.amountPaid},
+                    ${invoice.amountDue},
+                    'paid'
+                )
+                `);
 
         return { invoiceId };
     }

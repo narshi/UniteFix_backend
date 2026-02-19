@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface LocationData {
-  pinCode: string;
+  pincode: string;
   area: string;
   district: string;
   state: string;
@@ -22,13 +22,14 @@ interface District {
   id: number;
   name: string;
   state: string;
+  pincodePrefix?: string;
   isActive: boolean;
 }
 
 export default function LocationsPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newLocation, setNewLocation] = useState<LocationData>({
-    pinCode: '',
+    pincode: '',
     area: '',
     district: '',
     state: 'Karnataka',
@@ -46,18 +47,30 @@ export default function LocationsPage() {
     queryKey: ["/api/admin/districts"],
   });
 
+  // Filter active districts
+  const activeDistricts = districts?.filter(d => d.isActive) || [];
+
+  const handleDistrictChange = (districtName: string) => {
+    setNewLocation({ ...newLocation, district: districtName });
+  };
+
   const { data: stats = {} } = useQuery({
     queryKey: ["/api/admin/location-stats"],
   });
 
   const addLocationMutation = useMutation({
     mutationFn: async (location: LocationData) => {
-      const response = await apiRequest("/api/admin/locations", {
-        method: "POST",
-        body: JSON.stringify({
-          ...location,
-          pincode: location.pinCode // Map camelCase to lowercase for backend schema
-        }),
+      // Client-side validation
+      const selectedDistrict = districts?.find(d => d.name === location.district);
+      if (selectedDistrict?.pincodePrefix) {
+        if (!location.pincode.startsWith(selectedDistrict.pincodePrefix)) {
+          throw new Error(`Pincode for ${selectedDistrict.name} must start with ${selectedDistrict.pincodePrefix}`);
+        }
+      }
+
+      const response = await apiRequest("POST", "/api/admin/locations", {
+        ...location,
+        pincode: location.pincode
       });
       return response;
     },
@@ -66,7 +79,7 @@ export default function LocationsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/location-stats"] });
       setIsAddModalOpen(false);
       setNewLocation({
-        pinCode: '',
+        pincode: '',
         area: '',
         district: '',
         state: 'Karnataka',
@@ -84,11 +97,8 @@ export default function LocationsPage() {
   });
 
   const toggleLocationMutation = useMutation({
-    mutationFn: async ({ pinCode, isActive }: { pinCode: string; isActive: boolean }) => {
-      const response = await apiRequest(`/api/admin/locations/${pinCode}/toggle`, {
-        method: "PATCH",
-        body: JSON.stringify({ isActive }),
-      });
+    mutationFn: async ({ pincode, isActive }: { pincode: string; isActive: boolean }) => {
+      const response = await apiRequest("PATCH", `/api/admin/locations/${pincode}/toggle`, { isActive });
       return response;
     },
     onSuccess: () => {
@@ -107,10 +117,7 @@ export default function LocationsPage() {
 
   const testPinCodeMutation = useMutation({
     mutationFn: async (pinCode: string) => {
-      const response = await apiRequest("/api/validate-pincode", {
-        method: "POST",
-        body: JSON.stringify({ pinCode }),
-      });
+      const response = await apiRequest("POST", "/api/validate-pincode", { pinCode });
       return response;
     },
     onSuccess: (data: any) => {
@@ -123,7 +130,7 @@ export default function LocationsPage() {
   });
 
   const handleAddLocation = () => {
-    if (!newLocation.pinCode || !newLocation.area || !newLocation.district) {
+    if (!newLocation.pincode || !newLocation.area || !newLocation.district) {
       toast({
         title: "Please fill all required fields",
         variant: "destructive"
@@ -131,14 +138,17 @@ export default function LocationsPage() {
       return;
     }
 
-    // Strict validation check on client side for better UX
-    if (!newLocation.pinCode.startsWith('581')) {
-      toast({
-        title: "Invalid Pincode Region",
-        description: "Pincode must start with 581 (Uttara Kannada)",
-        variant: "destructive"
-      });
-      return;
+    // Dynamic validation check based on district
+    const selectedDistrict = districts?.find(d => d.name === newLocation.district);
+    if (selectedDistrict?.pincodePrefix) {
+      if (!newLocation.pincode.startsWith(selectedDistrict.pincodePrefix)) {
+        toast({
+          title: "Invalid Pincode Region",
+          description: `Pincode for ${selectedDistrict.name} must start with ${selectedDistrict.pincodePrefix}`,
+          variant: "destructive"
+        });
+        return;
+      }
     }
 
     addLocationMutation.mutate(newLocation);
@@ -176,11 +186,11 @@ export default function LocationsPage() {
               </DialogHeader>
               <div className="grid gap-6 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="pinCode" className="text-right font-medium">Pin Code *</Label>
+                  <Label htmlFor="pincode" className="text-right font-medium">Pin Code *</Label>
                   <Input
-                    id="pinCode"
-                    value={newLocation.pinCode}
-                    onChange={(e) => setNewLocation({ ...newLocation, pinCode: e.target.value })}
+                    id="pincode"
+                    value={newLocation.pincode}
+                    onChange={(e) => setNewLocation({ ...newLocation, pincode: e.target.value })}
                     className="col-span-3"
                     placeholder="e.g. 581341"
                   />
@@ -209,12 +219,14 @@ export default function LocationsPage() {
                         });
                       }}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select district" />
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select District" />
                       </SelectTrigger>
                       <SelectContent>
-                        {districts?.filter(d => d.isActive).map(d => (
-                          <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                        {activeDistricts.map((district) => (
+                          <SelectItem key={district.id} value={district.name}>
+                            {district.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -338,9 +350,9 @@ export default function LocationsPage() {
                 </thead>
                 <tbody>
                   {(locations as any[])?.map((location: any) => (
-                    <tr key={location.pinCode} className="border-b border-gray-100">
+                    <tr key={location.pincode} className="border-b border-gray-100">
                       <td className="py-3 px-4">
-                        <span className="font-medium text-gray-900">{location.pinCode}</span>
+                        <span className="font-medium text-gray-900">{location.pincode}</span>
                       </td>
                       <td className="py-3 px-4">
                         <span className="text-gray-900">{location.area}</span>
@@ -361,7 +373,7 @@ export default function LocationsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => toggleLocationMutation.mutate({
-                            pinCode: location.pinCode,
+                            pincode: location.pincode,
                             isActive: !location.isActive
                           })}
                           disabled={toggleLocationMutation.isPending}

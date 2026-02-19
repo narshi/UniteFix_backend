@@ -15,6 +15,7 @@
 import { db } from "../db";
 import { eq, and, desc } from "drizzle-orm";
 import { serviceRequests, serviceOtps } from "@shared/schema";
+import crypto from "crypto";
 
 export class OtpService {
     /**
@@ -58,7 +59,7 @@ export class OtpService {
             );
 
         // 3. Generate 4-digit OTP
-        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const otp = crypto.randomInt(1000, 9999).toString();
 
         // 4. Calculate expiry (10 minutes from now)
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000);

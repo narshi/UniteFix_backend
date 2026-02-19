@@ -18,44 +18,18 @@ import {
     partnerWallets, walletTransactionsV2, invoices,
     supportTickets, ticketMessages,
 } from "@shared/schema";
-import jwt from "jsonwebtoken";
+import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 
-const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
+// Auth middleware aliases — import from canonical auth.middleware.ts
+// authenticateToken protects customer routes
+// authenticatePartner (aliased as authenticateServiceman) protects partner routes
+const authenticateServiceman = authenticatePartner;
 
-// Auth middleware (shared pattern)
+// Request type with user info from auth middleware
 interface AuthenticatedRequest extends Request {
     user?: { userId: number; role: string };
-}
-
-function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ success: false, message: 'Access token required' });
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        req.user = decoded;
-        next();
-    } catch (error) {
-        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
-    }
-}
-
-function authenticateServiceman(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ success: false, message: 'Token required' });
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        if (decoded.role !== 'serviceman' && decoded.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Serviceman access required' });
-        }
-        req.user = decoded;
-        next();
-    } catch (error) {
-        return res.status(403).json({ success: false, message: 'Invalid token' });
-    }
 }
 
 export function registerClientFeatureRoutes(app: Express) {
@@ -67,10 +41,10 @@ export function registerClientFeatureRoutes(app: Express) {
      * Submit a rating for a completed service
      * Auth: Customer only
      */
-    app.post("/api/ratings/service/:serviceId", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.post("/api/ratings/service/:serviceId", authenticateToken, async (req: Request, res, next) => {
         try {
             const serviceRequestId = parseInt(req.params.serviceId);
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { rating: ratingValue, review } = req.body;
 
             // Validate rating value
@@ -245,9 +219,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/profile
      * Get authenticated user's profile
      */
-    app.get("/api/client/profile", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/profile", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 
             if (!user || user.deletedAt) {
@@ -267,9 +241,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * PATCH /api/client/profile
      * Update user profile (name, email, address, pinCode)
      */
-    app.patch("/api/client/profile", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.patch("/api/client/profile", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { username, email, homeAddress, pinCode } = req.body;
 
             const updates: any = { updatedAt: new Date() };
@@ -298,9 +272,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * Upload profile picture (accepts base64 or URL)
      * In production, this would integrate with S3/Cloudinary
      */
-    app.post("/api/client/profile/picture", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.post("/api/client/profile/picture", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { imageUrl } = req.body;
 
             if (!imageUrl) {
@@ -328,9 +302,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * DELETE /api/client/profile/picture
      * Remove profile picture
      */
-    app.delete("/api/client/profile/picture", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.delete("/api/client/profile/picture", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
 
             await db.update(users)
                 .set({ profilePicture: null, updatedAt: new Date() })
@@ -348,9 +322,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * DELETE /api/client/account
      * Soft delete account (30-day recovery window)
      */
-    app.delete("/api/client/account", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.delete("/api/client/account", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { password } = req.body;
 
             if (!password) {
@@ -391,9 +365,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/partner/wallet/balance
      * Get partner's wallet balance (hold + available)
      */
-    app.get("/api/partner/wallet/balance", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/partner/wallet/balance", authenticateServiceman, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
 
             // Find the provider record
             const [provider] = await db.select().from(serviceProviders)
@@ -433,9 +407,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/partner/wallet/transactions
      * Get partner's transaction history
      */
-    app.get("/api/partner/wallet/transactions", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/partner/wallet/transactions", authenticateServiceman, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const page = parseInt(req.query.page as string) || 1;
             const limit = parseInt(req.query.limit as string) || 20;
             const offset = (page - 1) * limit;
@@ -480,9 +454,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * POST /api/partner/wallet/withdraw
      * Request withdrawal from available balance
      */
-    app.post("/api/partner/wallet/withdraw", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    app.post("/api/partner/wallet/withdraw", authenticateServiceman, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { amount, method } = req.body; // method: 'bank' or 'upi'
 
             if (!amount || amount <= 0) {
@@ -566,9 +540,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/invoices
      * Get all invoices for the authenticated user
      */
-    app.get("/api/client/invoices", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/invoices", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
 
             const userInvoices = await db.select()
                 .from(invoices)
@@ -585,9 +559,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/invoices/:invoiceId
      * Get specific invoice details
      */
-    app.get("/api/client/invoices/:invoiceId", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/invoices/:invoiceId", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const invoiceIdStr = req.params.invoiceId;
 
             const [invoice] = await db.select()
@@ -612,9 +586,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/invoices/:invoiceId/download
      * Download invoice as PDF
      */
-    app.get("/api/client/invoices/:invoiceId/download", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/invoices/:invoiceId/download", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const invoiceIdStr = req.params.invoiceId;
 
             const [invoice] = await db.select()
@@ -645,9 +619,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * POST /api/client/tickets
      * Create a support ticket
      */
-    app.post("/api/client/tickets", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.post("/api/client/tickets", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const { subject, description, category, serviceRequestId, productOrderId } = req.body;
 
             if (!subject || !description) {
@@ -673,9 +647,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/tickets
      * Get customer's support tickets
      */
-    app.get("/api/client/tickets", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/tickets", authenticateToken, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
             const tickets = await SupportTicketService.getUserTickets(userId);
             res.json({ success: true, data: tickets });
         } catch (error) {
@@ -687,13 +661,13 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/tickets/:ticketId
      * Get ticket details with messages
      */
-    app.get("/api/client/tickets/:ticketId", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/client/tickets/:ticketId", authenticateToken, async (req: Request, res, next) => {
         try {
             const ticketId = req.params.ticketId;
             const result = await SupportTicketService.getTicketDetails(ticketId);
 
             // Verify ticket belongs to this user
-            if (result.ticket.userId !== req.user!.userId) {
+            if (result.ticket.userId !== (req as any).user!.userId) {
                 return res.status(403).json({ success: false, message: "Access denied" });
             }
 
@@ -707,7 +681,7 @@ export function registerClientFeatureRoutes(app: Express) {
      * POST /api/client/tickets/:ticketId/reply
      * Customer replies to their ticket
      */
-    app.post("/api/client/tickets/:ticketId/reply", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    app.post("/api/client/tickets/:ticketId/reply", authenticateToken, async (req: Request, res, next) => {
         try {
             const ticketId = req.params.ticketId;
             const { message } = req.body;
@@ -717,7 +691,7 @@ export function registerClientFeatureRoutes(app: Express) {
             }
 
             const msg = await SupportTicketService.addMessage(
-                ticketId, message, 'customer', req.user!.userId
+                ticketId, message, 'customer', (req as any).user!.userId
             );
 
             res.json({ success: true, data: msg });
@@ -732,9 +706,9 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/partner/earnings/summary
      * Get partner's earnings summary (today, this week, this month, total)
      */
-    app.get("/api/partner/earnings/summary", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
+    app.get("/api/partner/earnings/summary", authenticateServiceman, async (req: Request, res, next) => {
         try {
-            const userId = req.user!.userId;
+            const userId = (req as any).user!.userId;
 
             const [provider] = await db.select().from(serviceProviders)
                 .where(eq(serviceProviders.userId, userId)).limit(1);

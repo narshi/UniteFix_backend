@@ -9,14 +9,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus } from "lucide-react";
+import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus, Minus, History } from "lucide-react";
+import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function PartnersPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
+  const [isDeductModalOpen, setIsDeductModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
   const [topupAmount, setTopupAmount] = useState("");
+  const [deductAmount, setDeductAmount] = useState("");
+  const [deductReason, setDeductReason] = useState("");
   const [verificationStatusFilter, setVerificationStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState('');
   const [newPartner, setNewPartner] = useState({
@@ -46,8 +51,8 @@ export default function PartnersPage() {
       partner.phone?.includes(searchTerm) ||
       partner.location?.includes(searchTerm) ||
       partner.services?.some((service: string) => service.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesStatus = verificationStatusFilter === "all" || 
+
+    const matchesStatus = verificationStatusFilter === "all" ||
       partner.verificationStatus === verificationStatusFilter;
 
     return matchesSearch && matchesStatus;
@@ -55,10 +60,7 @@ export default function PartnersPage() {
 
   const addPartnerMutation = useMutation({
     mutationFn: async (partnerData: any) => {
-      return await apiRequest("/api/admin/servicemen/create", {
-        method: "POST",
-        body: JSON.stringify(partnerData),
-      });
+      return await apiRequest("POST", "/api/admin/servicemen/create", partnerData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
@@ -83,10 +85,7 @@ export default function PartnersPage() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ partnerId, action, reason }: { partnerId: number; action: string; reason?: string }) => {
-      return await apiRequest(`/api/admin/servicemen/${partnerId}/${action}`, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      });
+      return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/${action}`, { reason });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
@@ -97,12 +96,21 @@ export default function PartnersPage() {
     }
   });
 
+
+
+  const { data: transactions = [] } = useQuery({
+    queryKey: ["/api/admin/servicemen", selectedPartner?.id, "transactions"],
+    queryFn: async () => {
+      if (!selectedPartner?.id) return [];
+      const res = await apiRequest("GET", `/api/admin/servicemen/${selectedPartner.id}/transactions`);
+      return res.data;
+    },
+    enabled: !!selectedPartner?.id && isHistoryModalOpen,
+  });
+
   const topupMutation = useMutation({
     mutationFn: async ({ partnerId, amount }: { partnerId: number; amount: number }) => {
-      return await apiRequest(`/api/admin/servicemen/${partnerId}/topup`, {
-        method: "POST",
-        body: JSON.stringify({ amount, description: "Admin manual topup" }),
-      });
+      return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/topup`, { amount, description: "Admin manual topup" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
@@ -115,11 +123,26 @@ export default function PartnersPage() {
     }
   });
 
+  const deductMutation = useMutation({
+    mutationFn: async ({ partnerId, amount, reason }: { partnerId: number; amount: number; reason: string }) => {
+      return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/deduct`, { amount, description: reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen", selectedPartner?.id, "transactions"] });
+      setIsDeductModalOpen(false);
+      setDeductAmount("");
+      setDeductReason("");
+      toast({ title: "Wallet deduction successful" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Deduction failed", description: error.message, variant: "destructive" });
+    }
+  });
+
   const deletePartnerMutation = useMutation({
     mutationFn: async (partnerId: number) => {
-      return await apiRequest(`/api/admin/servicemen/${partnerId}`, {
-        method: "DELETE",
-      });
+      return await apiRequest("DELETE", `/api/admin/servicemen/${partnerId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
@@ -163,11 +186,11 @@ export default function PartnersPage() {
             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
                 <Label>Partner Name *</Label>
-                <Input value={newPartner.partnerName} onChange={e => setNewPartner({...newPartner, partnerName: e.target.value})} />
+                <Input value={newPartner.partnerName} onChange={e => setNewPartner({ ...newPartner, partnerName: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Partner Type</Label>
-                <Select value={newPartner.partnerType} onValueChange={v => setNewPartner({...newPartner, partnerType: v})}>
+                <Select value={newPartner.partnerType} onValueChange={v => setNewPartner({ ...newPartner, partnerType: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Individual">Individual</SelectItem>
@@ -177,23 +200,46 @@ export default function PartnersPage() {
               </div>
               <div className="space-y-2">
                 <Label>Phone Number *</Label>
-                <Input value={newPartner.phone} onChange={e => setNewPartner({...newPartner, phone: e.target.value})} />
+                <Input value={newPartner.phone} onChange={e => setNewPartner({ ...newPartner, phone: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Email *</Label>
-                <Input type="email" value={newPartner.email} onChange={e => setNewPartner({...newPartner, email: e.target.value})} />
+                <Input type="email" value={newPartner.email} onChange={e => setNewPartner({ ...newPartner, email: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Pin Code *</Label>
-                <Input value={newPartner.location} onChange={e => setNewPartner({...newPartner, location: e.target.value})} />
+                <Input value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Password *</Label>
-                <Input type="password" value={newPartner.password} onChange={e => setNewPartner({...newPartner, password: e.target.value})} />
+                <Input type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>Address</Label>
-                <Input value={newPartner.address} onChange={e => setNewPartner({...newPartner, address: e.target.value})} />
+                <Input value={newPartner.address} onChange={e => setNewPartner({ ...newPartner, address: e.target.value })} />
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Services Offered *</Label>
+                <div className="grid grid-cols-2 gap-2 border p-3 rounded-md h-40 overflow-y-auto">
+                  {availableServices.map((service) => (
+                    <div key={service} className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id={`service-${service}`}
+                        checked={newPartner.services.includes(service)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewPartner({ ...newPartner, services: [...newPartner.services, service] });
+                          } else {
+                            setNewPartner({ ...newPartner, services: newPartner.services.filter(s => s !== service) });
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <label htmlFor={`service-${service}`} className="text-sm text-gray-700">{service}</label>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -217,8 +263,8 @@ export default function PartnersPage() {
                   <SelectItem value="suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
-              <Input 
-                placeholder="Search name, phone, service..." 
+              <Input
+                placeholder="Search name, phone, service..."
                 className="w-64"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
@@ -265,42 +311,70 @@ export default function PartnersPage() {
                         </div>
                       </td>
                       <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           <Wallet className="w-4 h-4 text-emerald-500" />
-                          <span className="font-mono font-bold text-emerald-700">₹{partner.walletBalance}</span>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
+                          <span className="font-mono font-bold text-emerald-700 mr-2">₹{partner.walletBalance}</span>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-gray-400 hover:text-blue-600"
+                            title="Transaction History"
+                            onClick={() => { setSelectedPartner(partner); setIsHistoryModalOpen(true); }}
+                          >
+                            <History className="w-3 h-3" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-emerald-600 hover:bg-emerald-50"
+                            title="Add Funds"
+                            disabled={partner.verificationStatus === 'suspended'}
                             onClick={() => { setSelectedPartner(partner); setIsTopupModalOpen(true); }}
                           >
                             <Plus className="w-3 h-3" />
                           </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-red-600 hover:bg-red-50"
+                            title="Deduct Funds"
+                            onClick={() => { setSelectedPartner(partner); setIsDeductModalOpen(true); }}
+                          >
+                            <Minus className="w-3 h-3" />
+                          </Button>
                         </div>
                       </td>
                       <td className="py-4 px-4">
-                        <Badge 
+                        <Badge
                           variant={
-                            partner.verificationStatus === 'verified' ? 'default' : 
-                            partner.verificationStatus === 'suspended' ? 'destructive' : 'secondary'
+                            partner.verificationStatus === 'verified' ? 'default' :
+                              partner.verificationStatus === 'suspended' ? 'destructive' : 'secondary'
                           }
                           className="flex items-center gap-1 w-fit"
                         >
-                          {partner.verificationStatus === 'verified' ? <CheckCircle className="w-3 h-3" /> : 
-                           partner.verificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          {partner.verificationStatus === 'verified' ? <CheckCircle className="w-3 h-3" /> :
+                            partner.verificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           {partner.verificationStatus}
                         </Badge>
                       </td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex justify-end gap-1">
                           {partner.verificationStatus === 'pending' && (
-                            <Button size="sm" variant="outline" className="h-8 text-green-600" onClick={() => updateStatusMutation.mutate({partnerId: partner.id, action: 'approve'})}>
+                            <Button size="sm" variant="outline" className="h-8 text-green-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'approve' })}>
                               <ShieldCheck className="w-4 h-4" />
                             </Button>
                           )}
                           {partner.verificationStatus === 'verified' && (
-                            <Button size="sm" variant="outline" className="h-8 text-orange-600" onClick={() => updateStatusMutation.mutate({partnerId: partner.id, action: 'suspend'})}>
+                            <Button size="sm" variant="outline" className="h-8 text-orange-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'suspend' })}>
                               <Ban className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {partner.verificationStatus === 'suspended' && (
+                            <Button size="sm" variant="outline" className="h-8 text-blue-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'activate' })}>
+                              <ShieldCheck className="w-4 h-4" />
                             </Button>
                           )}
                           <AlertDialog>
@@ -349,10 +423,81 @@ export default function PartnersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsTopupModalOpen(false)}>Cancel</Button>
-            <Button onClick={() => topupMutation.mutate({partnerId: selectedPartner.id, amount: parseFloat(topupAmount)})}>Confirm Top-up</Button>
+            <Button onClick={() => topupMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(topupAmount) })}>Confirm Top-up</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isDeductModalOpen} onOpenChange={setIsDeductModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deduct Funds</DialogTitle>
+            <DialogDescription>Deduct from {selectedPartner?.partnerName}'s wallet</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="bg-emerald-50 p-4 rounded-lg flex justify-between items-center text-emerald-800">
+              <span className="text-sm">Current Balance</span>
+              <span className="font-bold">₹{selectedPartner?.walletBalance}</span>
+            </div>
+            <div className="space-y-2">
+              <Label>Amount (₹)</Label>
+              <Input type="number" value={deductAmount} onChange={e => setDeductAmount(e.target.value)} placeholder="Amount to deduct" />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Input value={deductReason} onChange={e => setDeductReason(e.target.value)} placeholder="Reason for deduction" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeductModalOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deductMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(deductAmount), reason: deductReason })}>Confirm Deduction</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Transaction History</DialogTitle>
+            <DialogDescription>{selectedPartner?.partnerName}</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-gray-500">
+                  <th className="text-left py-2">Date</th>
+                  <th className="text-left py-2">Type</th>
+                  <th className="text-left py-2">Description</th>
+                  <th className="text-right py-2">Amount</th>
+                  <th className="text-right py-2">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-4 text-gray-500">No transactions found</td></tr>
+                ) : (
+                  transactions.map((tx: any) => (
+                    <tr key={tx.id} className="border-b border-gray-100">
+                      <td className="py-2">{format(new Date(tx.createdAt), 'dd MMM yyyy HH:mm')}</td>
+                      <td className="py-2 capitalize">
+                        <Badge variant={tx.type === 'credit' || tx.type === 'topup' ? 'default' : 'secondary'} className={tx.type === 'debit' ? 'bg-red-100 text-red-800' : ''}>
+                          {tx.type}
+                        </Badge>
+                      </td>
+                      <td className="py-2 text-gray-600">{tx.description}</td>
+                      <td className={`py-2 text-right font-mono font-bold ${Number(tx.amount) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {Number(tx.amount) > 0 ? '+' : ''}{tx.amount}
+                      </td>
+                      <td className="py-2 text-right font-mono text-gray-600">₹{tx.balanceAfter}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

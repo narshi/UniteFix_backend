@@ -13,6 +13,7 @@ import PartnersPage from "@/pages/partners";
 import PaymentsPage from "@/pages/payments";
 import LocationsPage from "@/pages/locations";
 import DistrictsPage from "@/pages/admin/districts";
+import InventoryPage from "@/pages/admin/inventory";
 import DeveloperPage from "@/pages/developer";
 import SettingsPage from "@/pages/settings";
 import AdminLogin from "@/pages/admin-login";
@@ -106,8 +107,9 @@ function Router() {
         <Route path="/partners" component={PartnersPage} />
         <Route path="/payments" component={PaymentsPage} />
         <Route path="/locations" component={LocationsPage} />
-        <Route path="/districts" component={DistrictsPage} />
-        <Route path="/developer" component={DeveloperPage} />
+        <Route path="/admin/districts" component={DistrictsPage} />
+        <Route path="/admin/inventory" component={InventoryPage} />
+        <Route path="/admin/developer" component={DeveloperPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>

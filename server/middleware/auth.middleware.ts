@@ -3,14 +3,20 @@
  * 
  * Separated auth middleware for mobile, partner, and admin audiences.
  * No shared middleware with role-based branching.
+ * 
+ * All middleware functions accept standard Express Request type for compatibility.
+ * Use the exported interface types (AuthRequest, etc.) in route handlers for type-safe access.
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'unitefix-secret-key-2024';
+if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET environment variable is required");
+}
+const JWT_SECRET: string = process.env.JWT_SECRET;
 
-// Extended Request types for each audience
+// Extended Request types for each audience — use in route handlers for type-safe access
 export interface AuthRequest extends Request {
     user?: {
         userId: number;
@@ -47,7 +53,7 @@ export interface AdminRequest extends Request {
  * Mobile client authentication middleware
  * Validates JWT token for mobile/customer users
  */
-export function authenticateMobile(req: MobileRequest, res: Response, next: NextFunction) {
+export function authenticateMobile(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -61,7 +67,6 @@ export function authenticateMobile(req: MobileRequest, res: Response, next: Next
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-        // Must be a regular user (not admin or serviceman)
         if (decoded.role !== 'user') {
             return res.status(403).json({
                 success: false,
@@ -69,7 +74,7 @@ export function authenticateMobile(req: MobileRequest, res: Response, next: Next
             });
         }
 
-        req.user = {
+        (req as any).user = {
             userId: decoded.userId,
             role: decoded.role,
             phone: decoded.phone,
@@ -88,7 +93,7 @@ export function authenticateMobile(req: MobileRequest, res: Response, next: Next
  * Partner/Serviceman authentication middleware
  * Validates JWT token for service partner users
  */
-export function authenticatePartner(req: PartnerRequest, res: Response, next: NextFunction) {
+export function authenticatePartner(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -102,7 +107,6 @@ export function authenticatePartner(req: PartnerRequest, res: Response, next: Ne
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-        // Must be a serviceman
         if (decoded.role !== 'serviceman') {
             return res.status(403).json({
                 success: false,
@@ -110,11 +114,17 @@ export function authenticatePartner(req: PartnerRequest, res: Response, next: Ne
             });
         }
 
-        req.partner = {
+        (req as any).partner = {
             userId: decoded.userId,
             partnerId: decoded.partnerId,
             role: decoded.role,
             verificationStatus: decoded.verificationStatus,
+        };
+
+        // Also set user for backward compat
+        (req as any).user = {
+            userId: decoded.userId,
+            role: decoded.role,
         };
 
         next();
@@ -130,7 +140,7 @@ export function authenticatePartner(req: PartnerRequest, res: Response, next: Ne
  * Admin authentication middleware
  * Validates JWT token for admin dashboard users
  */
-export function authenticateAdmin(req: AdminRequest, res: Response, next: NextFunction) {
+export function authenticateAdmin(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -144,7 +154,6 @@ export function authenticateAdmin(req: AdminRequest, res: Response, next: NextFu
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-        // Must be admin or super_admin
         if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
             return res.status(403).json({
                 success: false,
@@ -152,7 +161,7 @@ export function authenticateAdmin(req: AdminRequest, res: Response, next: NextFu
             });
         }
 
-        req.admin = {
+        (req as any).admin = {
             userId: decoded.userId,
             role: decoded.role,
             username: decoded.username,
@@ -171,7 +180,7 @@ export function authenticateAdmin(req: AdminRequest, res: Response, next: NextFu
  * General purpose auth middleware (for backward compatibility during migration)
  * @deprecated Use specific middleware instead
  */
-export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
+export function authenticateToken(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -181,7 +190,7 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as any;
-        req.user = {
+        (req as any).user = {
             userId: decoded.userId,
             role: decoded.role,
         };

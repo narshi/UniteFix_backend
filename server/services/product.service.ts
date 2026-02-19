@@ -34,13 +34,12 @@ export class ProductService {
      * Get all products (with optional category filter)
      */
     static async getProducts(category?: string): Promise<any[]> {
-        let query = db.select().from(products).where(eq(products.isActive, true));
-
         if (category) {
-            query = query.where(eq(products.category, category));
+            return await db.select().from(products).where(
+                and(eq(products.isActive, true), eq(products.category, category))
+            );
         }
-
-        return await query;
+        return await db.select().from(products).where(eq(products.isActive, true));
     }
 
     /**
@@ -71,10 +70,10 @@ export class ProductService {
         }
 
         // Check current stock (advisory only, no lock)
-        if (product.stockQuantity < quantity) {
+        if (product.stock < quantity) {
             return {
                 success: false,
-                message: `Insufficient stock. Available: ${product.stockQuantity}`,
+                message: `Insufficient stock. Available: ${product.stock}`,
             };
         }
 
@@ -88,10 +87,10 @@ export class ProductService {
             // Update quantity
             const newQuantity = existingCartItem.quantity + quantity;
 
-            if (product.stockQuantity < newQuantity) {
+            if (product.stock < newQuantity) {
                 return {
                     success: false,
-                    message: `Cannot add ${quantity} more. Only ${product.stockQuantity - existingCartItem.quantity} available.`,
+                    message: `Cannot add ${quantity} more. Only ${product.stock - existingCartItem.quantity} available.`,
                 };
             }
 
@@ -124,8 +123,8 @@ export class ProductService {
                 productName: products.name,
                 price: products.price,
                 quantity: cartItems.quantity,
-                stock: products.stockQuantity,
-                imageUrl: products.imageUrl,
+                stock: products.stock,
+                imageUrl: products.images,
             })
             .from(cartItems)
             .innerJoin(products, eq(cartItems.productId, products.id))
@@ -160,10 +159,10 @@ export class ProductService {
             return { success: false, message: "Product not available" };
         }
 
-        if (product.stockQuantity < quantity) {
+        if (product.stock < quantity) {
             return {
                 success: false,
-                message: `Insufficient stock. Available: ${product.stockQuantity}`,
+                message: `Insufficient stock. Available: ${product.stock}`,
             };
         }
 
@@ -223,11 +222,11 @@ export class ProductService {
         AND created_at > NOW() - INTERVAL '60 seconds'
       ORDER BY created_at DESC
       LIMIT 1
-    `);
+    `) as any;
 
         if (recentOrder && recentOrder.length > 0) {
             throw new Error(
-                `Duplicate checkout detected. Order ${recentOrder[0].order_id} was just created. Please wait before placing another order.`
+                `Duplicate checkout detected. Order ${(recentOrder as any)[0].order_id} was just created. Please wait before placing another order.`
             );
         }
 
@@ -343,11 +342,11 @@ export class AdminProductService {
      */
     static async createProduct(data: {
         name: string;
-        description: string;
+        description?: string;
         category: string;
         price: number;
-        stockQuantity: number;
-        imageUrl?: string;
+        stock: number;
+        images?: string[];
     }): Promise<any> {
         // Validate category (must be one of 3 fixed)
         const validCategories = await this.getCategories();
@@ -396,7 +395,7 @@ export class AdminProductService {
     static async updateStock(productId: number, newStock: number): Promise<any> {
         const [product] = await db
             .update(products)
-            .set({ stockQuantity: newStock })
+            .set({ stock: newStock })
             .where(eq(products.id, productId))
             .returning();
 
@@ -425,10 +424,11 @@ export class AdminProductService {
      * Get fixed categories from platform config
      */
     static async getCategories(): Promise<string[]> {
-        const [config] = await db.execute(sql`
+        const configResult = await db.execute(sql`
       SELECT value FROM platform_config
       WHERE key = 'PRODUCT_CONFIG.CATEGORIES'
-    `);
+    `) as any;
+        const config = configResult?.[0];
 
         if (!config) {
             // Default 3 categories

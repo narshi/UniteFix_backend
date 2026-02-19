@@ -22,29 +22,26 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
 
   const loginMutation = useMutation({
     mutationFn: async (data: { username: string; password: string }) => {
-      return await apiRequest("/api/admin/auth/login", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      return await apiRequest("POST", "/api/admin/auth/login", data);
     },
     onSuccess: (data) => {
       // Store admin token
       localStorage.setItem("adminToken", data.token);
       localStorage.setItem("adminUser", JSON.stringify(data.admin));
-      
+
       toast({
         title: "Login successful",
         description: `Welcome back, ${data.admin.username}!`,
       });
-      
+
       // Trigger auth change event
       window.dispatchEvent(new Event('authChanged'));
-      
+
       // Call the callback to update parent state
       if (onLoginSuccess) {
         onLoginSuccess();
       }
-      
+
       // Redirect to admin dashboard
       setLocation("/");
     },
@@ -122,7 +119,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
               {loginMutation.isPending ? "Signing in..." : "Sign In"}
             </Button>
           </form>
-          
+
           <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
             <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
               Demo Admin Credentials:

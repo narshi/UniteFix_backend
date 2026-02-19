@@ -5,7 +5,7 @@ UniteFix provides a comprehensive REST API for service booking and product order
 
 ## Base URL
 ```
-Production: https://your-domain.replit.app/api
+Production: https://api.unitefix.com
 Development: http://localhost:5000/api
 ```
 
@@ -559,7 +559,7 @@ For API support, contact: support@unitefix.com
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class UniteFix API {
-  static baseURL = 'https://your-domain.replit.app/api';
+  static baseURL = 'https://api.unitefix.com';
   
   static async makeRequest(endpoint, options = {}) {
     const token = await AsyncStorage.getItem('client_token');

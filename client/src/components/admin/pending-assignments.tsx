@@ -5,13 +5,13 @@ interface PendingAssignmentsProps {
 }
 
 export default function PendingAssignments({ onAssignPartner }: PendingAssignmentsProps) {
-  const { data: pendingServices, isLoading, refetch } = useQuery({
+  const { data: pendingServices, isLoading, refetch } = useQuery<any[]>({
     queryKey: ["/api/admin/services/pending"],
   });
 
   const getWaitingTimeColor = (createdAt: string) => {
     const hours = Math.floor((new Date().getTime() - new Date(createdAt).getTime()) / (1000 * 60 * 60));
-    
+
     if (hours > 24) return "bg-red-100 text-red-800";
     if (hours > 12) return "bg-yellow-100 text-yellow-800";
     return "bg-green-100 text-green-800";
@@ -19,11 +19,11 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
 
   const formatWaitingTime = (createdAt: string) => {
     const hours = Math.floor((new Date().getTime() - new Date(createdAt).getTime()) / (1000 * 60 * 60));
-    
+
     if (hours < 1) return "< 1 hour";
     if (hours === 1) return "1 hour";
     if (hours < 24) return `${hours} hours`;
-    
+
     const days = Math.floor(hours / 24);
     if (days === 1) return "1 day";
     return `${days} days`;
@@ -100,7 +100,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                       </span>
                     </td>
                     <td className="py-4">
-                      <button 
+                      <button
                         onClick={() => onAssignPartner(service)}
                         className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors"
                       >

@@ -112,12 +112,9 @@ UniteFix_backend/
 | `ratings` | ✅ **NEW** | serviceRequestId, fromUserId, toProviderId, 1-5 stars |
 | `paymentTransactions` | ✅ Working | Razorpay order tracking |
 
-### 2.2 Tables NOT YET Created
-| Table | Purpose | Priority |
-|-------|---------|----------|
-| `deviceTokens` | Push notification FCM/APNS tokens | 🟡 Medium |
-| `notifications` | In-app notification store | 🟡 Medium |
-| `socialAuthProviders` | Google/Facebook OAuth links | 🟡 Medium |
+### 2.2 All Schema Tables Created ✅
+
+> Previously listed as "NOT YET Created": `deviceTokens`, `notifications`, `socialAuthProviders` — all three are now defined in `shared/schema.ts` and have corresponding insert schemas and types.
 
 ---
 
@@ -282,10 +279,11 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 | Error handler (JSON-only) | ✅ |
 | Password reset (time-limited tokens) | ✅ **NEW** |
 | Account soft delete | ✅ **NEW** |
-| Rate limiting | ✅ **FIXED** — Applied per-route limiters |
-| HTTPS enforcement | ❌ |
-| CSRF/XSS protection | ❌ |
-| Security headers (Helmet) | ❌ |
+| Rate limiting | ✅ **APPLIED** — Per-route limiters |
+| HTTPS enforcement | ⚠️ Deployment-level |
+| CSRF/XSS protection | ✅ Helmet added (XSS, clickjacking, MIME) |
+| Security headers (Helmet) | ✅ **ADDED** |
+| CORS | ✅ **ADDED** — Whitelist-based |
 | File upload validation | ❌ |
 
 ---
@@ -305,7 +303,7 @@ CANCELLED CANCELLED  CANCELLED   DISPUTED       DISPUTED
 | Low | Rate limiting configuration tuning needed | ⚠️ Pending |
 | Critical | Social Auth User Creation (Phone constraint) | ✅ FIXED |
 | Critical | Admin Routes Unprotected (Middleware missing) | ✅ FIXED |
-| High | Admin User Management API (`/api/admin/users`) | ❌ Missing |
+| High | Admin User Management API (`/api/admin/users`) | ✅ FIXED |
 
 ## 4. Configuration & Environment Variables
 ```env

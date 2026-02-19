@@ -13,10 +13,7 @@ export default function QuickActions() {
 
   const validatePinMutation = useMutation({
     mutationFn: async (pinCode: string) => {
-      const response = await apiRequest("/api/validate-pincode", {
-        method: "POST",
-        body: JSON.stringify({ pinCode })
-      });
+      const response = await apiRequest("POST", "/api/validate-pincode", { pinCode });
       return response;
     },
     onSuccess: (data) => {
@@ -37,10 +34,7 @@ export default function QuickActions() {
 
   const generateOtpMutation = useMutation({
     mutationFn: async (phone: string) => {
-      const response = await apiRequest("/api/otp/send", {
-        method: "POST",
-        body: JSON.stringify({ phone, purpose: "test" })
-      });
+      const response = await apiRequest("POST", "/api/otp/send", { phone, purpose: "test" });
       return response;
     },
     onSuccess: () => {
@@ -60,9 +54,7 @@ export default function QuickActions() {
 
   const generateCodeMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("/api/utils/generate-code", {
-        method: "POST"
-      });
+      const response = await apiRequest("POST", "/api/utils/generate-code");
       return response;
     },
     onSuccess: (data) => {

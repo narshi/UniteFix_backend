@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, json, jsonb, doublePrecision, decimal, index, uniqueIndex, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, json, jsonb, doublePrecision, decimal, index, uniqueIndex, pgEnum, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -16,7 +16,40 @@ export const serviceStatusEnum = pgEnum('service_status', [
   'cancelled',    // User/admin cancelled
   'disputed'      // Reserved for future dispute handling
 ]);
-export const orderStatusEnum = pgEnum('order_status', ['placed', 'confirmed', 'in_transit', 'out_for_delivery', 'delivered', 'cancelled']);
+export const orderStatusEnum = pgEnum('order_status', [
+  'placed',              // Customer placed order
+  'confirmed',           // Admin/system confirmed
+  'shipped',             // Handed to Delhivery
+  'in_transit',          // In transit
+  'out_for_delivery',    // Out for delivery
+  'delivered',           // Delivered to customer
+  'return_requested',    // Customer requested return (within 1 day)
+  'return_approved',     // Admin approved return
+  'return_rejected',     // Admin rejected return
+  'return_shipped',      // Customer shipped return
+  'return_received',     // Warehouse received return
+  'exchange_requested',  // Customer requested exchange (within 1 day)
+  'exchange_approved',   // Admin approved exchange
+  'exchange_shipped',    // Replacement shipped
+  'refund_initiated',    // Razorpay refund initiated
+  'refunded',            // Refund completed
+  'completed',           // Final state (no action needed)
+  'cancelled',           // Cancelled before delivery
+]);
+// PHASE 10: Return/Exchange enums
+export const returnReasonEnum = pgEnum('return_reason', [
+  'defective', 'wrong_item', 'not_as_described', 'size_issue', 'changed_mind', 'other'
+]);
+export const returnTypeEnum = pgEnum('return_type', ['return', 'exchange']);
+export const returnStatusEnum = pgEnum('return_status', [
+  'requested', 'approved', 'rejected', 'shipped', 'received', 'refund_initiated', 'refunded', 'exchanged', 'closed'
+]);
+// PHASE 10: Payment tracking enums
+export const paymentEventTypeEnum = pgEnum('payment_event_type', [
+  'order_created', 'payment_captured', 'payment_failed', 'refund_initiated', 'refund_processed', 'refund_failed'
+]);
+export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'captured', 'failed', 'refunded']);
+export const refundStatusEnum = pgEnum('refund_status', ['initiated', 'processed', 'failed']);
 // PHASE 3: Wallet transaction types (ledger-based events)
 export const walletTransactionTypeEnum = pgEnum('wallet_transaction_type', [
   'hold_credit',          // Earnings credited to HOLD on service completion
@@ -145,9 +178,17 @@ export const walletTransactions = pgTable("wallet_transactions", {
 export const districts = pgTable("districts", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(), // e.g., "Uttara Kannada"
-  state: text("state").default('Karnataka'),
+  state: text("state").notNull().default('Karnataka'),
+  pincodePrefix: text("pincode_prefix").notNull().default('581'), // Added prefix for validation
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertDistrictSchema = createInsertSchema(districts).pick({
+  name: true,
+  state: true,
+  pincodePrefix: true, // Included in insert schema
+  isActive: true,
 });
 
 // Serviceable Pincodes table
@@ -161,19 +202,88 @@ export const serviceablePincodes = pgTable("serviceable_pincodes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Products table
+// PHASE 11: Product Catalog — Category → Brand → Product → Variant hierarchy
+export const productCategories = pgTable("product_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  slug: text("slug").notNull().unique(), // URL-safe: "laptops", "cc-cameras"
+  description: text("description"),
+  iconUrl: text("icon_url"), // Category thumbnail
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  slugIdx: uniqueIndex("product_categories_slug_idx").on(table.slug),
+}));
+
+export const productBrands = pgTable("product_brands", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logoUrl: text("logo_url"),
+  categoryId: integer("category_id").references(() => productCategories.id),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  categoryIdx: index("product_brands_category_idx").on(table.categoryId),
+  slugIdx: uniqueIndex("product_brands_slug_idx").on(table.slug),
+}));
+
+// Products table (enhanced with category/brand/variant support)
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  price: integer("price").notNull(),
-  category: text("category").notNull(),
-  stock: integer("stock").default(0),
-  images: text("images").array(),
+  price: integer("price").notNull(), // Base price (min variant price)
+  category: text("category").notNull(), // Legacy text category (kept for backward compat)
+  categoryId: integer("category_id").references(() => productCategories.id),
+  brandId: integer("brand_id").references(() => productBrands.id),
+  stock: integer("stock").default(0), // Computed sum of variant stocks
+  images: text("images").array(), // Legacy image array (kept for backward compat)
+  thumbnailUrl: text("thumbnail_url"), // Primary display image URL
+  specifications: jsonb("specifications"), // { display: "15.6 FHD", processor: "AMD Ryzen 5" }
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   categoryIdx: index("products_category_idx").on(table.category),
+  categoryIdIdx: index("products_category_id_idx").on(table.categoryId),
+  brandIdIdx: index("products_brand_id_idx").on(table.brandId),
+}));
+
+// Product Variants — SKU-level pricing and stock
+export const productVariants = pgTable("product_variants", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull().references(() => products.id),
+  sku: text("sku").notNull().unique(), // e.g. "DELL-INS15-8G-256SSD"
+  variantLabel: text("variant_label").notNull(), // e.g. "8GB RAM / 256GB SSD"
+  attributes: jsonb("attributes"), // { ram: "8GB", ssd: "256GB", color: "Silver" }
+  price: integer("price").notNull(), // Variant-specific price in paise
+  mrp: integer("mrp"), // Maximum retail price (for showing discounts)
+  stock: integer("stock").notNull().default(0),
+  lowStockThreshold: integer("low_stock_threshold").default(3),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  productIdx: index("product_variants_product_idx").on(table.productId),
+  skuIdx: uniqueIndex("product_variants_sku_idx").on(table.sku),
+  stockIdx: index("product_variants_stock_idx").on(table.stock),
+}));
+
+// Product Images — supports both external URLs and uploaded images
+export const productImages = pgTable("product_images", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").notNull().references(() => products.id),
+  variantId: integer("variant_id").references(() => productVariants.id), // null = shared across all variants
+  imageUrl: text("image_url").notNull(), // External URL or Cloudinary URL
+  source: text("source").notNull().default('external'), // 'external' | 'cloudinary' | 'upload'
+  sortOrder: integer("sort_order").default(0),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  productIdx: index("product_images_product_idx").on(table.productId),
+  variantIdx: index("product_images_variant_idx").on(table.variantId),
 }));
 
 // Product Orders table
@@ -488,6 +598,79 @@ export const notifications = pgTable("notifications", {
   userIdx: index("notifications_user_idx").on(table.userId),
 }));
 
+// PHASE 10: Payment Transactions table (tracks every Razorpay event)
+export const paymentTransactions = pgTable("payment_transactions", {
+  id: serial("id").primaryKey(),
+  orderId: text("order_id").references(() => productOrders.orderId),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  amount: integer("amount").notNull(), // In paise
+  currency: text("currency").notNull().default('INR'),
+  eventType: paymentEventTypeEnum("event_type").notNull(),
+  status: paymentStatusEnum("status").notNull().default('pending'),
+  method: text("method"), // upi, card, netbanking, wallet
+  metadata: jsonb("metadata"), // Raw Razorpay response
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  orderIdx: index("payment_tx_order_idx").on(table.orderId),
+  serviceIdx: index("payment_tx_service_idx").on(table.serviceRequestId),
+  razorpayOrderIdx: index("payment_tx_razorpay_order_idx").on(table.razorpayOrderId),
+  razorpayPaymentIdx: index("payment_tx_razorpay_payment_idx").on(table.razorpayPaymentId),
+  statusIdx: index("payment_tx_status_idx").on(table.status),
+}));
+
+// PHASE 10: Return Requests table
+export const returnRequests = pgTable("return_requests", {
+  id: serial("id").primaryKey(),
+  requestId: text("request_id").notNull().unique(), // RET-XXXXXXXX format
+  orderId: text("order_id").notNull().references(() => productOrders.orderId),
+  userId: integer("user_id").notNull().references(() => users.id),
+  type: returnTypeEnum("type").notNull(), // return or exchange
+  reason: returnReasonEnum("reason").notNull(),
+  description: text("description"),
+  photos: jsonb("photos"), // Array of photo URLs
+  status: returnStatusEnum("status").notNull().default('requested'),
+  refundAmount: integer("refund_amount"), // In paise, set by admin on approval
+  adminRemarks: text("admin_remarks"),
+  approvedBy: integer("approved_by"), // Admin user ID
+  returnWaybill: text("return_waybill"), // Delhivery waybill for return shipment
+  replacementOrderId: text("replacement_order_id"), // For exchanges
+  deliveredAt: timestamp("delivered_at"), // When original order was delivered
+  returnWindowExpiresAt: timestamp("return_window_expires_at"), // deliveredAt + 1 day
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  orderIdx: index("return_requests_order_idx").on(table.orderId),
+  userIdx: index("return_requests_user_idx").on(table.userId),
+  statusIdx: index("return_requests_status_idx").on(table.status),
+  typeIdx: index("return_requests_type_idx").on(table.type),
+}));
+
+// PHASE 10: Refunds table (tracks Razorpay refund lifecycle)
+export const refunds = pgTable("refunds", {
+  id: serial("id").primaryKey(),
+  refundId: text("refund_id").notNull().unique(), // REF-XXXXXXXX format
+  paymentTransactionId: integer("payment_transaction_id").references(() => paymentTransactions.id),
+  returnRequestId: integer("return_request_id").references(() => returnRequests.id),
+  razorpayRefundId: text("razorpay_refund_id"),
+  razorpayPaymentId: text("razorpay_payment_id"), // Original payment to refund against
+  amount: integer("amount").notNull(), // In paise
+  status: refundStatusEnum("status").notNull().default('initiated'),
+  reason: text("reason"),
+  initiatedBy: integer("initiated_by"), // Admin user ID
+  processedAt: timestamp("processed_at"),
+  metadata: jsonb("metadata"), // Raw Razorpay refund response
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  paymentTxIdx: index("refunds_payment_tx_idx").on(table.paymentTransactionId),
+  returnRequestIdx: index("refunds_return_request_idx").on(table.returnRequestId),
+  razorpayRefundIdx: uniqueIndex("refunds_razorpay_refund_idx").on(table.razorpayRefundId),
+  statusIdx: index("refunds_status_idx").on(table.status),
+}))
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
@@ -547,10 +730,49 @@ export const walletTransactionsRelations = relations(walletTransactions, ({ one 
   }),
 }));
 
-export const productOrdersRelations = relations(productOrders, ({ one }) => ({
+export const productOrdersRelations = relations(productOrders, ({ one, many }) => ({
   user: one(users, {
     fields: [productOrders.userId],
     references: [users.id],
+  }),
+  returnRequests: many(returnRequests),
+  paymentTransactions: many(paymentTransactions),
+}));
+
+// PHASE 10: Payment transaction relations
+export const paymentTransactionsRelations = relations(paymentTransactions, ({ one, many }) => ({
+  order: one(productOrders, {
+    fields: [paymentTransactions.orderId],
+    references: [productOrders.orderId],
+  }),
+  serviceRequest: one(serviceRequests, {
+    fields: [paymentTransactions.serviceRequestId],
+    references: [serviceRequests.id],
+  }),
+  refunds: many(refunds),
+}));
+
+// PHASE 10: Return request relations
+export const returnRequestsRelations = relations(returnRequests, ({ one }) => ({
+  order: one(productOrders, {
+    fields: [returnRequests.orderId],
+    references: [productOrders.orderId],
+  }),
+  user: one(users, {
+    fields: [returnRequests.userId],
+    references: [users.id],
+  }),
+}));
+
+// PHASE 10: Refund relations
+export const refundsRelations = relations(refunds, ({ one }) => ({
+  paymentTransaction: one(paymentTransactions, {
+    fields: [refunds.paymentTransactionId],
+    references: [paymentTransactions.id],
+  }),
+  returnRequest: one(returnRequests, {
+    fields: [refunds.returnRequestId],
+    references: [returnRequests.id],
   }),
 }));
 
@@ -562,6 +784,54 @@ export const cartItemsRelations = relations(cartItems, ({ one }) => ({
   product: one(products, {
     fields: [cartItems.productId],
     references: [products.id],
+  }),
+}));
+
+// PHASE 11: Product Catalog relations
+export const productCategoriesRelations = relations(productCategories, ({ many }) => ({
+  brands: many(productBrands),
+  products: many(products),
+}));
+
+export const productBrandsRelations = relations(productBrands, ({ one, many }) => ({
+  category: one(productCategories, {
+    fields: [productBrands.categoryId],
+    references: [productCategories.id],
+  }),
+  products: many(products),
+}));
+
+export const productsRelations = relations(products, ({ one, many }) => ({
+  productCategory: one(productCategories, {
+    fields: [products.categoryId],
+    references: [productCategories.id],
+  }),
+  brand: one(productBrands, {
+    fields: [products.brandId],
+    references: [productBrands.id],
+  }),
+  variants: many(productVariants),
+  productImages: many(productImages),
+  cartItems: many(cartItems),
+  productOrders: many(productOrders),
+}));
+
+export const productVariantsRelations = relations(productVariants, ({ one, many }) => ({
+  product: one(products, {
+    fields: [productVariants.productId],
+    references: [products.id],
+  }),
+  images: many(productImages),
+}));
+
+export const productImagesRelations = relations(productImages, ({ one }) => ({
+  product: one(products, {
+    fields: [productImages.productId],
+    references: [products.id],
+  }),
+  variant: one(productVariants, {
+    fields: [productImages.variantId],
+    references: [productVariants.id],
   }),
 }));
 
@@ -594,6 +864,29 @@ export const insertProductOrderSchema = createInsertSchema(productOrders).omit({
 });
 
 export const insertProductSchema = createInsertSchema(products).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// PHASE 11: Product Catalog schemas
+export const insertProductCategorySchema = createInsertSchema(productCategories).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertProductBrandSchema = createInsertSchema(productBrands).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertProductVariantSchema = createInsertSchema(productVariants).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProductImageSchema = createInsertSchema(productImages).omit({
   id: true,
   createdAt: true,
 });
@@ -630,10 +923,7 @@ export const insertServiceablePincodeSchema = createInsertSchema(serviceablePinc
   createdAt: true,
 });
 
-export const insertDistrictSchema = createInsertSchema(districts).omit({
-  id: true,
-  createdAt: true,
-});
+
 
 // PHASE 2: Platform config and audit logs schemas
 export const insertPlatformConfigSchema = createInsertSchema(platformConfig);
@@ -697,6 +987,27 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   isRead: true,
 });
 
+// PHASE 10: Payment transaction, return request, refund schemas
+export const insertPaymentTransactionSchema = createInsertSchema(paymentTransactions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertReturnRequestSchema = createInsertSchema(returnRequests).omit({
+  id: true,
+  requestId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRefundSchema = createInsertSchema(refunds).omit({
+  id: true,
+  refundId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -712,6 +1023,19 @@ export type ProductOrder = typeof productOrders.$inferSelect;
 
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
+
+// PHASE 11: Product Catalog types
+export type ProductCategory = typeof productCategories.$inferSelect;
+export type InsertProductCategory = z.infer<typeof insertProductCategorySchema>;
+
+export type ProductBrand = typeof productBrands.$inferSelect;
+export type InsertProductBrand = z.infer<typeof insertProductBrandSchema>;
+
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type InsertProductVariant = z.infer<typeof insertProductVariantSchema>;
+
+export type ProductImage = typeof productImages.$inferSelect;
+export type InsertProductImage = z.infer<typeof insertProductImageSchema>;
 
 export type InsertCartItem = z.infer<typeof insertCartItemSchema>;
 export type CartItem = typeof cartItems.$inferSelect;
@@ -807,3 +1131,36 @@ export type InsertDeviceToken = z.infer<typeof insertDeviceTokenSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+// PHASE 10: Payment, Return, Refund types
+export type PaymentTransaction = typeof paymentTransactions.$inferSelect;
+export type InsertPaymentTransaction = z.infer<typeof insertPaymentTransactionSchema>;
+
+export type ReturnRequest = typeof returnRequests.$inferSelect;
+export type InsertReturnRequest = z.infer<typeof insertReturnRequestSchema>;
+
+export type Refund = typeof refunds.$inferSelect;
+export type InsertRefund = z.infer<typeof insertRefundSchema>;
+
+// PHASE 12: Refresh Tokens — persisted in DB instead of in-memory Map
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256 hash of the refresh token
+  userRole: text("user_role").notNull(), // 'user', 'serviceman', 'admin'
+  deviceInfo: text("device_info"), // Optional: device identifier for multi-device support
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  tokenHashIdx: uniqueIndex("refresh_tokens_hash_idx").on(table.tokenHash),
+  userIdx: index("refresh_tokens_user_idx").on(table.userId),
+  expiresIdx: index("refresh_tokens_expires_idx").on(table.expiresAt),
+}));
+
+export const insertRefreshTokenSchema = createInsertSchema(refreshTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type RefreshToken = typeof refreshTokens.$inferSelect;
+export type InsertRefreshToken = z.infer<typeof insertRefreshTokenSchema>;

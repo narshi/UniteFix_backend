@@ -14,6 +14,10 @@ import {
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { TokenService } from "./services/token.service";
+import logger from "./lib/logger";
+import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pagination";
 // PHASE 7: Import modular route registrations
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
@@ -24,33 +28,31 @@ import { registerInventoryRoutes } from "./routes/inventory.routes";
 import { registerSocialAuthRoutes } from "./routes/auth-social.routes";
 import { NotificationService } from "./services/notification.service";
 import { registerNotificationRoutes } from "./routes/notification.routes";
+import { registerReturnRoutes } from "./routes/return.routes";
+import { registerCatalogRoutes } from "./routes/catalog.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 
-const JWT_SECRET = process.env.JWT_SECRET || "unitefix-secret-key-2024";
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET environment variable is required");
+}
+const JWT_SECRET: string = process.env.JWT_SECRET;
 const COMMISSION_RATE = 0.10; // 10% commission
 const MAX_SERVICE_START_DISTANCE = 500; // meters (per business requirement)
 
-// Haversine formula for geo-fencing
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+// Geo-fencing: use shared utility
+import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
-// Extended Request types
-// Extended Request types
+// Import canonical auth middleware (single source of truth)
+import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner } from "./middleware/auth.middleware";
+
+// Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
   user?: any;
 }
 
 // Global error handler middleware
 function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
-  console.error('Error:', err.message);
+  logger.error('Route error', { message: err.message, name: err.name });
 
   if (err.name === 'ZodError') {
     return res.status(400).json({
@@ -75,69 +77,35 @@ function errorHandler(err: Error, req: Request, res: Response, next: NextFunctio
   res.status(500).json({ success: false, message: 'Internal server error' });
 }
 
-// JWT Authentication middleware
-function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Access token required' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    req.user = decoded;
+// Admin authentication wrapper — adds isAdmin flag for backward compat
+function authenticateAdmin(req: Request, res: Response, next: NextFunction) {
+  _authenticateAdmin(req, res, (err?: any) => {
+    if (err) return next(err);
+    // Add backward-compat user object with isAdmin flag
+    const admin = (req as any).admin;
+    if (admin) {
+      (req as any).user = { ...admin, isAdmin: true };
+    }
     next();
-  } catch (error) {
-    return res.status(403).json({ success: false, message: 'Invalid or expired token' });
-  }
+  });
 }
 
-// Admin authentication middleware
-function authenticateAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Admin token required' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
+// Serviceman authentication — delegates to authenticatePartner
+function authenticateServiceman(req: Request, res: Response, next: NextFunction) {
+  authenticatePartner(req, res, (err?: any) => {
+    if (err) return next(err);
+    // Backward compat: ensure req.user is set
+    const partner = (req as any).partner;
+    if (partner && !(req as any).user) {
+      (req as any).user = { userId: partner.userId, role: partner.role };
     }
-    req.user = { ...decoded, isAdmin: true };
     next();
-  } catch (error) {
-    return res.status(403).json({ success: false, message: 'Invalid admin token' });
-  }
-}
-
-// Serviceman authentication middleware
-function authenticateServiceman(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Token required' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    if (decoded.role !== 'serviceman' && decoded.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Serviceman access required' });
-    }
-    req.user = decoded;
-    next();
-  } catch (error) {
-    return res.status(403).json({ success: false, message: 'Invalid token' });
-  }
+  });
 }
 
 // Helper to generate OTP
 function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 999999).toString();
 }
 
 // Helper to generate referral code
@@ -159,6 +127,15 @@ function paginate<T>(data: T[], page: number = 1, limit: number = 20): { data: T
 export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== AUTHENTICATION ROUTES ====================
+
+  // Apply Admin Authentication Middleware (skipping login/register)
+  // This must be registered BEFORE any admin routes
+  app.use("/api/admin", (req, res, next) => {
+    if (req.path.startsWith("/auth")) return next();
+    authenticateAdmin(req, res, next);
+  });
+
+  registerInventoryRoutes(app);
 
   // User Signup with referral code support
   app.post("/api/auth/signup", async (req, res, next) => {
@@ -201,17 +178,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referredById,
       });
 
-      const token = jwt.sign(
-        { userId: user.id, role: user.role },
-        JWT_SECRET,
-        { expiresIn: '30d' }
-      );
+      // Generate token pair (access + refresh) for mobile apps
+      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+      // Backward-compatible legacy token
+      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
 
       res.status(201).json({
         success: true,
         message: "User registered successfully",
         user: { ...user, password: undefined },
-        token
+        token,
+        ...tokens,
       });
     } catch (error) {
       next(error);
@@ -223,6 +200,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { phone, password } = req.body;
 
+      // Input validation
+      if (!phone || typeof phone !== 'string') {
+        return res.status(400).json({ success: false, message: "Phone number is required" });
+      }
+      if (!password || typeof password !== 'string') {
+        return res.status(400).json({ success: false, message: "Password is required" });
+      }
+
       const user = await storage.getUserByPhone(phone);
       if (!user) {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
@@ -233,18 +218,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
 
-      const token = jwt.sign(
-        { userId: user.id, role: user.role },
-        JWT_SECRET,
-        { expiresIn: '30d' }
-      );
+      // Generate token pair (access + refresh) for mobile apps
+      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+      // Backward-compatible legacy token
+      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
 
       res.json({
         success: true,
         message: "Login successful",
         user: { ...user, password: undefined },
-        token
+        token,
+        ...tokens,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Token Refresh — used by mobile app when access token expires
+  app.post("/api/auth/refresh", async (req, res, next) => {
+    try {
+      const { refreshToken } = req.body;
+
+      if (!refreshToken || typeof refreshToken !== 'string') {
+        return res.status(400).json({ success: false, message: "Refresh token is required" });
+      }
+
+      const tokens = await TokenService.refreshTokens(refreshToken);
+      if (!tokens) {
+        return res.status(401).json({ success: false, message: "Invalid or expired refresh token. Please login again." });
+      }
+
+      res.json({
+        success: true,
+        message: "Tokens refreshed",
+        ...tokens,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Logout — revoke all refresh tokens for user
+  app.post("/api/auth/logout", authenticateToken, async (req: any, res, next) => {
+    try {
+      const userId = req.user?.userId;
+      if (userId) {
+        await TokenService.revokeUserTokens(userId);
+      }
+      res.json({ success: true, message: "Logged out successfully" });
     } catch (error) {
       next(error);
     }
@@ -254,6 +276,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/auth/login", async (req, res, next) => {
     try {
       const { username, password } = req.body;
+
+      if (!username || typeof username !== 'string') {
+        return res.status(400).json({ success: false, message: "Username is required" });
+      }
+      if (!password || typeof password !== 'string') {
+        return res.status(400).json({ success: false, message: "Password is required" });
+      }
 
       const admin = await storage.getAdminByUsername(username) ||
         await storage.getAdminByEmail(username);
@@ -456,20 +485,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all users with pagination
+  // Get all users with DB-level pagination
   app.get("/api/admin/users", async (req, res, next) => {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
+      const { page, limit } = parsePaginationParams(req.query);
+      const offset = getOffset({ page, limit });
 
-      const allUsers = await storage.getAllUsers();
-      const result = paginate(allUsers, page, limit);
+      // DB-level pagination — count + limited fetch
+      const total = await storage.countUsers();
+      const pageData = await storage.getAllUsers(limit, offset);
 
-      res.json({
-        success: true,
-        data: result.data.map(u => ({ ...u, password: undefined })),
-        pagination: result.pagination
-      });
+      const result = buildPaginatedResult(
+        pageData.map(u => ({ ...u, password: undefined })),
+        total,
+        { page, limit }
+      );
+
+      res.json({ success: true, ...result });
     } catch (error) {
       next(error);
     }
@@ -492,23 +524,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== SERVICE PROVIDER MANAGEMENT ====================
 
-  // Get all service providers with filtering
+  // Get all service providers with filtering and DB-level pagination
   app.get("/api/admin/servicemen/list", async (req, res, next) => {
     try {
-      const { status, page = '1', limit = '20' } = req.query;
+      const { status } = req.query;
+      const { page, limit } = parsePaginationParams(req.query);
+      const offset = getOffset({ page, limit });
 
       let providers;
+      let total: number;
       if (status === 'pending') {
-        providers = await storage.getPendingServiceProviders();
+        providers = await storage.getPendingServiceProviders(limit, offset);
+        total = await storage.countServiceProviders('pending');
       } else if (status === 'verified') {
-        providers = await storage.getVerifiedServiceProviders();
+        providers = await storage.getVerifiedServiceProviders(limit, offset);
+        total = await storage.countServiceProviders('verified');
       } else if (status === 'suspended') {
-        providers = await storage.getAllServiceProviders().then(ps => ps.filter(p => p.verificationStatus === 'suspended'));
+        // Suspended doesn't have a dedicated method, use general with filter
+        providers = await storage.getAllServiceProviders(limit, offset);
+        providers = providers.filter(p => p.verificationStatus === 'suspended');
+        total = await storage.countServiceProviders('suspended');
       } else {
-        providers = await storage.getAllServiceProviders();
+        providers = await storage.getAllServiceProviders(limit, offset);
+        total = await storage.countServiceProviders();
       }
 
-      const result = paginate(providers, parseInt(page as string), parseInt(limit as string));
+      const result = buildPaginatedResult(providers, total, { page, limit });
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
       next(error);
@@ -620,10 +661,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Activate (Unsuspend) service provider
+  app.post("/api/admin/servicemen/:id/activate", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const provider = await storage.updateServiceProvider(id, {
+        verificationStatus: 'verified', // Restore to verified
+        isActive: true
+      });
+
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+
+      res.json({ success: true, message: "Provider activated", data: provider });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Delete service provider
+  app.delete("/api/admin/servicemen/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteServiceProvider(id);
+      res.json({ success: true, message: "Provider deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Top up provider wallet
   app.post("/api/admin/servicemen/:id/topup", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
+
+      const provider = await storage.getServiceProvider(id);
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+
+      if (provider.verificationStatus === 'suspended') {
+        return res.status(403).json({ success: false, message: "Cannot top up suspended provider wallet" });
+      }
+
       const { amount, description } = req.body;
 
       if (!amount || amount <= 0) {
@@ -632,6 +714,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const transaction = await storage.topUpProviderWallet(id, amount, description || 'Admin top-up');
       res.json({ success: true, message: "Wallet topped up", data: transaction });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Deduct from provider wallet
+  app.post("/api/admin/servicemen/:id/deduct", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const provider = await storage.getServiceProvider(id);
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+
+      const { amount, description } = req.body;
+
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid amount" });
+      }
+
+      if (!description) {
+        return res.status(400).json({ success: false, message: "Reason is required for deduction" });
+      }
+
+      try {
+        const transaction = await storage.deductProviderWallet(id, amount, description);
+        res.json({ success: true, message: "Wallet deducted", data: transaction });
+      } catch (err: any) {
+        // Handle insufficient balance or other errors
+        return res.status(400).json({ success: false, message: err.message });
+      }
     } catch (error) {
       next(error);
     }
@@ -1300,6 +1414,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/admin/districts/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteDistrict(id);
+      res.sendStatus(204);
+    } catch (error: any) {
+      if (error.message.includes("Cannot delete")) {
+        return res.status(403).json({ message: error.message });
+      }
+      next(error);
+    }
+  });
+
   // Backward compatibility for locations
   app.get("/api/admin/locations", async (req, res, next) => {
     try {
@@ -1412,7 +1539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Utility route for generating verification codes
   app.post("/api/utils/generate-code", (req, res) => {
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    const code = crypto.randomInt(1000, 9999).toString();
     res.json({ success: true, code });
   });
 
@@ -1526,25 +1653,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/products", mobileLimiter); // Product listing
   app.use("/api/orders", mobileLimiter);   // Order placement
   app.use("/api/cart", mobileLimiter);     // Cart management
+  app.use("/api/catalog", mobileLimiter);  // Product catalog
 
   // Public/Default
   app.use("/api/public", publicLimiter);
 
   // ==================== ROUTE REGISTRATION ====================
   // Apply Admin Authentication Middleware (skipping login/register)
-  app.use("/api/admin", (req, res, next) => {
-    if (req.path.startsWith("/auth")) return next();
-    authenticateAdmin(req as AuthenticatedRequest, res, next);
-  });
+  // Admin middleware moved to top
+
 
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
   registerProductRoutes(app);
   registerOtpRoutes(app);
   registerClientFeatureRoutes(app);
-  registerInventoryRoutes(app);
   registerSocialAuthRoutes(app);
   registerNotificationRoutes(app);
+  registerReturnRoutes(app);
+  registerCatalogRoutes(app);
+
+  // ==================== API VERSIONING ====================
+  // Forward /api/v1/* requests to /api/* handlers
+  // Mobile app should use /api/v1/, admin dashboard uses /api/ (backward compat)
+  app.use('/api/v1', (req: Request, res: Response, next: NextFunction) => {
+    // Rewrite the original URL so Express re-routes through registered handlers
+    req.url = '/api' + req.url;
+    next();
+  });
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);

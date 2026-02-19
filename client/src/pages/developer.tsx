@@ -42,7 +42,7 @@ export default function DeveloperPage() {
 
       const response = await fetch(testEndpoint, options);
       const data = await response.json();
-      
+
       setTestResponse(JSON.stringify({
         status: response.status,
         statusText: response.statusText,
@@ -241,7 +241,7 @@ import kotlinx.serialization.json.Json
 
 class UniteFIxAPI {
     private val client = HttpClient()
-    private val baseURL = "https://your-domain.replit.app/api"
+    private val baseURL = "https://api.unitefix.com"
     private var token: String? = null
     
     suspend fun login(identifier: String, password: String): LoginResponse {
@@ -295,7 +295,7 @@ class UniteFIxAPI {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class UniteFIxAPI {
-  static baseURL = 'https://your-domain.replit.app/api';
+  static baseURL = 'https://api.unitefix.com';
   
   static async makeRequest(endpoint, options = {}) {
     const token = await AsyncStorage.getItem('client_token');
@@ -345,7 +345,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class UniteFIxAPI {
-  static const String baseURL = 'https://your-domain.replit.app/api';
+  static const String baseURL = 'https://api.unitefix.com';
   
   static Future<Map<String, dynamic>> makeRequest(
     String endpoint, {
@@ -433,8 +433,8 @@ class UniteFIxAPI {
                 <h3 className="font-semibold mb-2">Base URLs</h3>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <code className="text-sm">Production: https://your-domain.replit.app/api</code>
-                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard("https://your-domain.replit.app/api", "prod-url")}>
+                    <code className="text-sm">Production: https://api.unitefix.com</code>
+                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard("https://api.unitefix.com", "prod-url")}>
                       {copiedCode === "prod-url" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     </Button>
                   </div>

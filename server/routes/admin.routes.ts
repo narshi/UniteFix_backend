@@ -13,6 +13,7 @@ import { AdminServiceManager } from "../services/admin-service.manager";
 import { AdminOrderManager, DelhiveryService } from "../services/admin-order.manager";
 import { SupportTicketService } from "../services/support.service";
 import { PaymentService } from "../services/payment.service";
+import { storage } from "../storage";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -399,6 +400,54 @@ export function registerAdminRoutes(app: Express) {
             }
 
             res.json({ tracking });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+    // ==================== USER MANAGEMENT ====================
+
+    /**
+     * GET /api/admin/users
+     * List all users with filtering
+     */
+    app.get("/api/admin/users", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const filters = {
+                role: req.query.role as string,
+                search: req.query.search as string
+            };
+
+            const users = await storage.getUsers(filters);
+            res.json({ data: users });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * PATCH /api/admin/users/:id/status
+     * Update user status/role
+     */
+    app.patch("/api/admin/users/:id/status", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const userId = parseInt(req.params.id);
+            const { isActive, role } = req.body;
+
+            const updated = await storage.updateUser(userId, { isActive, role });
+
+            if (!updated) {
+                return res.status(404).json({ error: "User not found" });
+            }
+
+            res.json(updated);
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

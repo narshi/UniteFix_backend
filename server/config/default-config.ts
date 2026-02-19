@@ -96,7 +96,7 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
     {
         key: 'OPERATIONAL_CONFIG.ENABLE_AUTO_ASSIGNMENT',
         value: 'false',
-        valueType: '  boolean',
+        valueType: 'boolean',
         category: 'OPERATIONAL_CONFIG',
         description: 'Enable automatic partner assignment based on proximity',
         isEditable: true,
