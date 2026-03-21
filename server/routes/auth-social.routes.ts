@@ -184,4 +184,101 @@ export function registerSocialAuthRoutes(app: Express) {
             }
         );
     }
+
+    // ============================================================
+    // MOBILE: Token-based social auth (no redirects)
+    // Mobile app sends idToken from Google/Facebook SDK → we verify → return JWT
+    // ============================================================
+    app.post('/api/auth/social/token', async (req, res) => {
+        try {
+            const { provider, idToken, accessToken: socialAccessToken } = req.body;
+
+            if (!provider || (!idToken && !socialAccessToken)) {
+                return res.status(400).json({ success: false, message: 'provider and idToken/accessToken are required' });
+            }
+
+            let email: string | undefined;
+            let displayName: string | undefined;
+            let providerId: string | undefined;
+            let profilePicture: string | undefined;
+
+            if (provider === 'google') {
+                // Verify Google ID token via tokeninfo endpoint
+                const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
+                if (!response.ok) {
+                    return res.status(401).json({ success: false, message: 'Invalid Google token' });
+                }
+                const payload: any = await response.json();
+                email = payload.email;
+                displayName = payload.name || payload.email;
+                providerId = payload.sub;
+                profilePicture = payload.picture;
+            } else if (provider === 'facebook') {
+                // Verify Facebook access token via Graph API
+                const token = socialAccessToken || idToken;
+                const response = await fetch(`https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${token}`);
+                if (!response.ok) {
+                    return res.status(401).json({ success: false, message: 'Invalid Facebook token' });
+                }
+                const payload: any = await response.json();
+                email = payload.email;
+                displayName = payload.name;
+                providerId = payload.id;
+                profilePicture = payload.picture?.data?.url;
+            } else {
+                return res.status(400).json({ success: false, message: 'Unsupported provider. Use google or facebook.' });
+            }
+
+            if (!providerId) {
+                return res.status(401).json({ success: false, message: 'Could not verify social account' });
+            }
+
+            // Find or create user
+            let providerLink = await storage.findSocialProvider(provider, providerId);
+            let user;
+
+            if (providerLink) {
+                user = await storage.getUser(providerLink.userId);
+            } else {
+                // Check if user exists by email
+                if (email) {
+                    user = await storage.getUserByEmail(email);
+                }
+
+                if (!user) {
+                    // Create new user
+                    const [newUser] = await db.insert(users).values({
+                        username: displayName || `${provider}_user`,
+                        email: email || `${provider}_${providerId}@noemail.com`,
+                        password: "", // No password for social users
+                        role: "user",
+                        isVerified: true,
+                        profilePicture: profilePicture,
+                    }).returning();
+                    user = newUser;
+                }
+
+                // Link social provider
+                await storage.linkSocialProvider({
+                    userId: user!.id,
+                    provider,
+                    providerId,
+                    email,
+                });
+            }
+
+            const token = generateToken(user);
+            return res.json({
+                success: true,
+                message: 'Social login successful',
+                user,
+                token,
+                accessToken: token,
+                refreshToken: '', // Social auth uses single token
+            });
+        } catch (err: any) {
+            console.error('Social token exchange error:', err);
+            return res.status(500).json({ success: false, message: 'Social authentication failed' });
+        }
+    });
 }

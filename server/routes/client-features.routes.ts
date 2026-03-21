@@ -21,6 +21,7 @@ import {
 import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
+import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 
 // Auth middleware aliases — import from canonical auth.middleware.ts
 // authenticateToken protects customer routes
@@ -33,6 +34,40 @@ interface AuthenticatedRequest extends Request {
 }
 
 export function registerClientFeatureRoutes(app: Express) {
+
+    // ==================== MY ORDERS ====================
+
+    /**
+     * GET /api/orders/mine
+     * Returns authenticated user's product orders
+     */
+    app.get('/api/orders/mine', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const authReq = req as AuthenticatedRequest;
+            const userId = authReq.user!.userId;
+            const orders = await getUserProductOrders(userId);
+            res.json({ success: true, data: orders });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * GET /api/orders/:id
+     * Returns a single order detail
+     */
+    app.get('/api/orders/:id', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const authReq = req as AuthenticatedRequest;
+            const order = await getProductOrder(parseInt(req.params.id));
+            if (!order || order.userId !== authReq.user!.userId) {
+                return res.status(404).json({ success: false, message: 'Order not found' });
+            }
+            res.json({ success: true, data: order });
+        } catch (error) {
+            next(error);
+        }
+    });
 
     // ==================== RATING SYSTEM ====================
 
