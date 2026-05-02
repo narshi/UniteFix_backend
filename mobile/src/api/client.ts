@@ -11,9 +11,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../stores/auth.store';
 
-// TODO: Set this to your actual backend URL
+// IMPORTANT: Change this IP to your machine's current local IP address.
+// Find it by running `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
+// Expo will also show it in the QR code URL (e.g., exp://192.168.x.x:8081).
 const API_BASE_URL = __DEV__
-    ? 'http://192.168.1.9:3000'  // Your dev machine local IP
+    ? 'http://192.168.1.38:3000'  // Your dev machine local IP (from Expo output)
     : 'https://api.unitefix.com';
 
 export const apiClient = axios.create({
