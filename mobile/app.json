@@ -17,6 +17,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.unitefix.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -30,7 +32,9 @@
     "plugins": [
       "expo-secure-store",
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withTruecaller"
     ]
+
   }
 }

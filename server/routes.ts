@@ -9,7 +9,8 @@ import {
   insertProductSchema,
   insertServiceProviderSchema,
   insertServiceablePincodeSchema,
-  insertDistrictSchema
+  insertDistrictSchema,
+  otpVerifications,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -137,7 +138,181 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   registerInventoryRoutes(app);
 
-  // User Signup with referral code support
+  // ==================== 3-STEP SIGNUP FLOW (Email OTP) ====================
+
+  // Step 1: Initiate signup — sends OTP to email
+  app.post("/api/auth/signup/initiate", async (req, res, next) => {
+    try {
+      const { email, role } = req.body;
+      const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+      if (!normalizedEmail) {
+        return res.status(400).json({ success: false, message: "Email is required" });
+      }
+
+      // Validate role — only 'user' or 'serviceman' are allowed
+      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
+
+      // Check if email is already registered
+      const existingUser = await storage.getUserByEmail(normalizedEmail);
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Email is already registered. Please login instead." });
+      }
+
+      // Generate 6-digit OTP
+      const otp = generateOTP();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+      // Store OTP
+      await storage.createOtpVerification({
+        email: normalizedEmail,
+        phone: null,
+        otp,
+        purpose: 'signup',
+        expiresAt,
+      });
+
+      // Send OTP via email
+      await NotificationService.sendEmail(
+        normalizedEmail,
+        "UniteFix — Verify Your Email",
+        `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+          <h2 style="color: #1a1a2e; text-align: center;">Welcome to UniteFix!</h2>
+          <p style="color: #555; text-align: center;">Use the code below to verify your email address:</p>
+          <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+            <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
+          </div>
+          <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes. If you didn't request this, please ignore this email.</p>
+        </div>`
+      );
+
+      logger.info(`[SIGNUP] OTP sent to ${normalizedEmail} (role: ${userRole})`);
+
+      res.json({
+        success: true,
+        message: "Verification code sent to your email",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Step 2: Verify signup OTP — returns a short-lived signupToken with role embedded
+  app.post("/api/auth/signup/verify", async (req, res, next) => {
+    try {
+      const { email, otp, role } = req.body;
+      const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+      if (!normalizedEmail || !otp) {
+        return res.status(400).json({ success: false, message: "Email and OTP are required" });
+      }
+
+      const isValid = await storage.verifyOtp(undefined, normalizedEmail, otp, 'signup');
+      if (!isValid) {
+        return res.status(400).json({ success: false, message: "Invalid or expired verification code" });
+      }
+
+      // Embed role in the token so it cannot be tampered with in subsequent steps
+      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
+      const signupToken = jwt.sign(
+        { email: normalizedEmail, role: userRole, purpose: 'signup' },
+        JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+
+      res.json({
+        success: true,
+        message: "Email verified successfully",
+        signupToken,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Step 3: Complete signup — create user using the signupToken
+  app.post("/api/auth/signup/complete", async (req, res, next) => {
+    try {
+      const { signupToken, password, username, phone } = req.body;
+
+      if (!signupToken || !password) {
+        return res.status(400).json({ success: false, message: "Signup token and password are required" });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
+      }
+
+      // Verify the signup token — role is read from the JWT, NOT from req.body
+      let decoded: any;
+      try {
+        decoded = jwt.verify(signupToken, JWT_SECRET);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: "Invalid or expired signup session. Please start over." });
+      }
+
+      if (decoded.purpose !== 'signup') {
+        return res.status(400).json({ success: false, message: "Invalid signup token" });
+      }
+
+      const email = decoded.email;
+      // Role was cryptographically bound at OTP-verify step — safe to trust
+      const userRole: 'user' | 'serviceman' = decoded.role === 'serviceman' ? 'serviceman' : 'user';
+
+      // Double-check email isn't taken (race condition guard)
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ success: false, message: "Email is already registered" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create user — role field is the single source of truth
+      const user = await storage.createUser({
+        email,
+        password: hashedPassword,
+        username: username || email.split('@')[0],
+        phone: phone || null,
+        role: userRole,
+        isVerified: true, // Email already verified via OTP
+        isActive: true,
+      });
+
+      // Create role-specific profile record (DB segregation)
+      if (userRole === 'serviceman') {
+        await storage.createEmployee({
+          userId: user.id,
+          fullName: username || email.split('@')[0],
+        });
+        logger.info(`[SIGNUP] Employee profile created for user ${user.id}`);
+      } else {
+        await storage.createCustomer({
+          userId: user.id,
+          fullName: username || email.split('@')[0],
+        });
+        logger.info(`[SIGNUP] Customer profile created for user ${user.id}`);
+      }
+
+      // Generate token pair (access + refresh) for mobile apps
+      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
+
+      logger.info(`[SIGNUP] User created: ${email} (ID: ${user.id})`);
+
+      res.status(201).json({
+        success: true,
+        message: "Account created successfully",
+        user: { ...user, password: undefined },
+        token,
+        ...tokens,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // User Signup with referral code support (legacy — kept for backward compatibility)
   app.post("/api/auth/signup", async (req, res, next) => {
     try {
       const userData = insertUserSchema.parse(req.body);
@@ -198,17 +373,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User Login
   app.post("/api/auth/login", async (req, res, next) => {
     try {
-      const { phone, password } = req.body;
+      const { phone, email, password } = req.body;
 
       // Input validation
-      if (!phone || typeof phone !== 'string') {
-        return res.status(400).json({ success: false, message: "Phone number is required" });
+      if (!phone && !email) {
+        return res.status(400).json({ success: false, message: "Phone number or email is required" });
       }
       if (!password || typeof password !== 'string') {
         return res.status(400).json({ success: false, message: "Password is required" });
       }
 
-      const user = await storage.getUserByPhone(phone);
+      let user;
+      if (phone) {
+        user = await storage.getUserByPhone(phone);
+      } else if (email) {
+        user = await storage.getUserByEmail(email);
+      }
+
       if (!user) {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
@@ -380,9 +561,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiresAt,
       });
 
-      // TODO: Send OTP via SMS/Email provider (Twilio/MSG91)
-      // For now, log to console in dev mode
-      console.log(`[PASSWORD RESET] OTP for ${phone || email}: ${otp}`);
+      // Send OTP via Email if email is provided
+      if (email) {
+        await NotificationService.sendEmail(
+          email,
+          "UniteFix Password Reset",
+          `<h1>Password Reset</h1><p>Your OTP for password reset is: <strong>${otp}</strong></p><p>This OTP will expire in 10 minutes.</p>`
+        );
+      } else {
+        // Fallback for phone (log to console as before)
+        console.log(`[PASSWORD RESET] OTP for ${phone}: ${otp}`);
+      }
 
       res.json({ success: true, message: "If the account exists, an OTP has been sent" });
     } catch (error) {
@@ -1668,7 +1857,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerProductRoutes(app);
   registerOtpRoutes(app);
   registerClientFeatureRoutes(app);
-  registerSocialAuthRoutes(app);
+  // registerSocialAuthRoutes(app);
   registerNotificationRoutes(app);
   registerReturnRoutes(app);
   registerCatalogRoutes(app);

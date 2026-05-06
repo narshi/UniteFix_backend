@@ -7,9 +7,11 @@ export type AuthStackParamList = {
     Login: undefined;
     Signup: undefined;
     ForgotPassword: undefined;
-    OTPVerification: { phone?: string; email?: string; purpose: 'reset' | 'verify' };
+    OTPVerification: { phone?: string; email?: string; purpose: 'reset' | 'verify' | 'signup'; role?: 'user' | 'serviceman' };
     ResetPassword: { token: string };
+    SetPassword: { signupToken: string; email: string };
 };
+
 
 export type CustomerTabParamList = {
     HomeTab: undefined;

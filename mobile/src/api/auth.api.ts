@@ -44,6 +44,21 @@ export const authApi = {
     signup: (data: SignupRequest) =>
         apiClient.post<AuthResponse>('/api/auth/signup', data),
 
+    // 3-Step Signup Flow
+    initiateSignup: (data: { email: string; role: 'user' | 'serviceman' }) =>
+        apiClient.post<{ success: boolean; message: string }>('/api/auth/signup/initiate', data),
+
+    verifySignupOtp: (data: { email: string; otp: string; role: 'user' | 'serviceman' }) =>
+        apiClient.post<{ success: boolean; message: string; signupToken: string }>('/api/auth/signup/verify', data),
+
+    completeSignup: (data: {
+        signupToken: string;
+        password: string;
+        username?: string;
+        phone?: string;
+        partnerType?: string;
+    }) => apiClient.post<AuthResponse>('/api/auth/signup/complete', data),
+
     refreshToken: (refreshToken: string) =>
         apiClient.post<TokenRefreshResponse>('/api/auth/refresh', { refreshToken }),
 
@@ -53,11 +68,20 @@ export const authApi = {
     verifyOtp: (data: { phone?: string; email?: string; otp: string }) =>
         apiClient.post<{ success: boolean; token: string }>('/api/otp/verify', data),
 
-    resendOtp: (data: { phone?: string; email?: string }) =>
+    verifyResetOtp: (data: { phone?: string; email?: string; otp: string }) =>
+        apiClient.post<{ success: boolean; resetToken: string }>('/api/auth/verify-reset-otp', data),
+
+    resendOtp: (data: { phone?: string; email?: string; purpose?: string }) =>
         apiClient.post('/api/auth/forgot-password', data),
 
+    resendSignupOtp: (data: { email: string }) =>
+        apiClient.post('/api/auth/signup/initiate', data),
+
     resetPassword: (data: { token: string; password: string }) =>
-        apiClient.post('/api/auth/reset-password', data),
+        apiClient.post('/api/auth/reset-password', {
+            resetToken: data.token,
+            newPassword: data.password,
+        }),
 
     getProfile: () =>
         apiClient.get('/api/client/auth/profile'),
@@ -74,3 +98,4 @@ export const authApi = {
     socialLogin: (data: { provider: 'google' | 'facebook'; idToken?: string; accessToken?: string }) =>
         apiClient.post<AuthResponse>('/api/auth/social/token', data),
 };
+

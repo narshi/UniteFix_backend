@@ -1,9 +1,14 @@
 /**
- * OTP Verification Screen — 6-digit PIN entry with timer and resend
- * Used after Forgot Password and Sign Up flows
+ * OTP Verification Screen — Production implementation
+ *
+ * Uses:
+ * - useOtp hook (all logic)
+ * - OTPInput component (all UI)
+ *
+ * The screen is now just layout + wiring.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import {
     View,
     Text,
@@ -11,14 +16,14 @@ import {
     TouchableOpacity,
     KeyboardAvoidingView,
     Platform,
-    TextInput,
-    Alert,
+    ScrollView,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Wrench, ShieldCheck } from 'lucide-react-native';
+import { ShieldCheck } from 'lucide-react-native';
 import { AuthStackParamList } from '../../types/navigation.types';
-import { authApi } from '../../api/auth.api';
-import { getApiErrorMessage } from '../../api/client';
+import { useOtp } from '../../hooks/useOtp';
+import { OTPInput } from '../../components/auth/OTPInput';
+import { maskContact } from '../../utils/validation';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -26,241 +31,305 @@ import { Button } from '../../components/ui';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'OTPVerification'>;
 
-const OTP_LENGTH = 6;
-const RESEND_COOLDOWN = 60; // seconds
-
 export function OtpVerificationScreen({ navigation, route }: Props) {
-    const { phone, email, purpose } = route.params;
-    const contact = phone || email || '';
-    const contactType = phone ? 'phone' : 'email';
+    const { phone, email, purpose, role } = route.params;
 
-    const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
-    const [loading, setLoading] = useState(false);
-    const [resendTimer, setResendTimer] = useState(RESEND_COOLDOWN);
-    const [resending, setResending] = useState(false);
+    const contact = email || phone || '';
+    const masked = maskContact(contact);
 
-    const inputRefs = useRef<(TextInput | null)[]>([]);
-
-    // Countdown timer
-    useEffect(() => {
-        if (resendTimer <= 0) return;
-        const timer = setInterval(() => {
-            setResendTimer((prev) => {
-                if (prev <= 1) { clearInterval(timer); return 0; }
-                return prev - 1;
-            });
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [resendTimer]);
-
-    const handleOtpChange = (value: string, index: number) => {
-        // Only allow digits
-        const digit = value.replace(/[^0-9]/g, '');
-        if (digit.length > 1) {
-            // Handle paste — distribute digits across fields
-            const digits = digit.split('').slice(0, OTP_LENGTH);
-            const newOtp = [...otp];
-            digits.forEach((d, i) => {
-                if (index + i < OTP_LENGTH) newOtp[index + i] = d;
-            });
-            setOtp(newOtp);
-            const nextIdx = Math.min(index + digits.length, OTP_LENGTH - 1);
-            inputRefs.current[nextIdx]?.focus();
-            return;
-        }
-
-        const newOtp = [...otp];
-        newOtp[index] = digit;
-        setOtp(newOtp);
-
-        // Auto-focus next
-        if (digit && index < OTP_LENGTH - 1) {
-            inputRefs.current[index + 1]?.focus();
-        }
-    };
-
-    const handleKeyPress = (key: string, index: number) => {
-        if (key === 'Backspace' && !otp[index] && index > 0) {
-            const newOtp = [...otp];
-            newOtp[index - 1] = '';
-            setOtp(newOtp);
-            inputRefs.current[index - 1]?.focus();
-        }
-    };
-
-    const otpString = otp.join('');
-    const isComplete = otpString.length === OTP_LENGTH;
-
-    const handleVerify = async () => {
-        if (!isComplete) {
-            Alert.alert('Incomplete', 'Please enter all 6 digits.');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const response = await authApi.verifyOtp({
-                [contactType]: contact,
-                otp: otpString,
-            });
-
-            const token = (response.data as any)?.token || otpString;
-
-            if (purpose === 'reset') {
-                navigation.replace('ResetPassword', { token });
+    const otpState = useOtp(
+        { email, phone, purpose, role },
+        // ── onSuccess callback ────────────────────────────────────────────
+        (payload) => {
+            if (purpose === 'signup') {
+                navigation.replace('SetPassword', {
+                    signupToken: payload.signupToken,
+                    email: email || '',
+                });
+            } else if (purpose === 'reset') {
+                navigation.replace('ResetPassword', {
+                    token: payload.resetToken || payload.token || '',
+                });
             } else {
-                // Signup verification — go to login
-                Alert.alert('Verified!', 'Your account has been verified. Please log in.', [
-                    { text: 'OK', onPress: () => navigation.replace('Login') },
-                ]);
+                navigation.replace('Login');
             }
-        } catch (err) {
-            Alert.alert('Invalid OTP', getApiErrorMessage(err));
-            // Clear OTP on error
-            setOtp(Array(OTP_LENGTH).fill(''));
-            inputRefs.current[0]?.focus();
-        } finally {
-            setLoading(false);
-        }
-    };
+        },
+    );
 
-    const handleResend = async () => {
-        if (resendTimer > 0) return;
-        setResending(true);
-        try {
-            await authApi.resendOtp({ [contactType]: contact });
-            setResendTimer(RESEND_COOLDOWN);
-            setOtp(Array(OTP_LENGTH).fill(''));
-            inputRefs.current[0]?.focus();
-            Alert.alert('Code Sent', `A new code has been sent to your ${contactType}.`);
-        } catch (err) {
-            Alert.alert('Error', getApiErrorMessage(err));
-        } finally {
-            setResending(false);
-        }
-    };
+    const {
+        otp, otpString, isComplete,
+        resendTimer, canResend,
+        loading, resending, errorMessage,
+        isLockedOut, attempts,
+        handleDigitChange, handleKeyPress, handleVerify, handleResend,
+        inputRefs,
+    } = otpState;
 
-    const maskedContact = phone
-        ? `${phone.slice(0, 3)}****${phone.slice(-3)}`
-        : email
-            ? email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
-            : '';
+    const resendLabel = resendTimer > 0
+        ? `Resend in ${resendTimer}s`
+        : resending
+            ? 'Sending...'
+            : 'Resend Code';
 
     return (
         <KeyboardAvoidingView
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <View style={styles.content}>
-                {/* Back */}
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
+                {/* ── Back ─────────────────────────────────────────────── */}
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                    accessibilityLabel="Go back"
+                    accessibilityRole="button"
+                >
                     <Text style={styles.backArrow}>←</Text>
                 </TouchableOpacity>
 
-                {/* Header */}
+                {/* ── Header ───────────────────────────────────────────── */}
                 <View style={styles.header}>
                     <View style={styles.iconCircle}>
                         <ShieldCheck size={28} color={colors.textInverse} />
                     </View>
-                    <Text style={styles.title}>Verify OTP</Text>
+                    <Text style={styles.title} accessibilityRole="header">
+                        Verify Code
+                    </Text>
                     <Text style={styles.subtitle}>
-                        Enter the 6-digit code sent to{'\n'}
-                        <Text style={styles.contactText}>{maskedContact}</Text>
+                        We sent a 6-digit code to{'\n'}
+                        <Text style={styles.contactText}>{masked}</Text>
+                    </Text>
+                    <Text style={styles.expiryNote}>
+                        Code expires in 15 minutes
                     </Text>
                 </View>
 
-                {/* OTP Input Grid */}
-                <View style={styles.otpContainer}>
-                    {otp.map((digit, index) => (
-                        <TextInput
-                            key={index}
-                            ref={(ref) => { inputRefs.current[index] = ref; }}
-                            style={[
-                                styles.otpInput,
-                                digit ? styles.otpInputFilled : null,
-                            ]}
-                            value={digit}
-                            onChangeText={(val) => handleOtpChange(val, index)}
-                            onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
-                            keyboardType="number-pad"
-                            maxLength={index === 0 ? OTP_LENGTH : 1}
-                            selectTextOnFocus
-                            autoFocus={index === 0}
-                        />
-                    ))}
-                </View>
-
-                {/* Verify Button */}
-                <Button
-                    title="Verify Code"
-                    onPress={handleVerify}
-                    loading={loading}
-                    disabled={!isComplete}
-                    style={{ marginTop: spacing.xl }}
-                />
-
-                {/* Resend */}
-                <View style={styles.resendRow}>
-                    <Text style={styles.resendLabel}>Didn't receive a code?</Text>
-                    {resendTimer > 0 ? (
-                        <Text style={styles.timerText}>
-                            Resend in {Math.floor(resendTimer / 60)}:{(resendTimer % 60).toString().padStart(2, '0')}
+                {/* ── Lockout state ─────────────────────────────────────── */}
+                {isLockedOut ? (
+                    <View style={styles.lockoutCard} accessibilityRole="alert">
+                        <Text style={styles.lockoutTitle}>Too many incorrect attempts</Text>
+                        <Text style={styles.lockoutBody}>
+                            Please tap "Resend Code" to receive a new code.
                         </Text>
+                        <TouchableOpacity
+                            style={styles.resendButton}
+                            onPress={handleResend}
+                            disabled={!canResend || resending}
+                            accessibilityLabel="Request new OTP code"
+                        >
+                            <Text style={[
+                                styles.resendButtonText,
+                                (!canResend || resending) && styles.resendButtonDisabled,
+                            ]}>
+                                {resending ? 'Sending...' : 'Request New Code'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <>
+                        {/* ── OTP Input ─────────────────────────────────── */}
+                        <View style={styles.otpWrapper}>
+                            <OTPInput
+                                value={otp}
+                                onChange={handleDigitChange}
+                                onKeyPress={handleKeyPress}
+                                inputRefs={inputRefs}
+                                error={errorMessage}
+                                autoFocus
+                            />
+                        </View>
+
+                        {/* ── Verify Button ─────────────────────────────── */}
+                        <Button
+                            title="Verify Code"
+                            onPress={handleVerify}
+                            loading={loading}
+                            disabled={!isComplete || loading}
+                            style={styles.verifyButton}
+                            accessibilityLabel="Verify OTP code"
+                        />
+                    </>
+                )}
+
+                {/* ── Resend Row ────────────────────────────────────────── */}
+                <View style={styles.resendRow}>
+                    <Text style={styles.resendLabel}>Didn't receive it?</Text>
+                    {resendTimer > 0 ? (
+                        <Text style={styles.timerText}>{resendLabel}</Text>
                     ) : (
-                        <TouchableOpacity onPress={handleResend} disabled={resending}>
-                            <Text style={styles.resendLink}>
-                                {resending ? 'Sending...' : 'Resend Code'}
+                        <TouchableOpacity
+                            onPress={handleResend}
+                            disabled={!canResend}
+                            accessibilityLabel={resendLabel}
+                            accessibilityRole="button"
+                            style={styles.resendTouchable}
+                        >
+                            <Text style={[
+                                styles.resendLink,
+                                !canResend && styles.resendLinkDisabled,
+                            ]}>
+                                {resendLabel}
                             </Text>
                         </TouchableOpacity>
                     )}
                 </View>
 
-                {/* Back to Login */}
+                {/* ── Back to Login ─────────────────────────────────────── */}
                 <TouchableOpacity
                     style={styles.backToLogin}
                     onPress={() => navigation.navigate('Login')}
+                    accessibilityLabel="Back to login"
+                    accessibilityRole="link"
                 >
-                    <Text style={styles.backToLoginText}>Back to Login</Text>
+                    <Text style={styles.backToLoginText}>← Back to Login</Text>
                 </TouchableOpacity>
-            </View>
+            </ScrollView>
         </KeyboardAvoidingView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content: { flex: 1, paddingHorizontal: spacing.xl, paddingTop: 60 },
-    backButton: { marginBottom: spacing.lg },
-    backArrow: { fontSize: 24, color: colors.textPrimary },
-    header: { alignItems: 'center', marginBottom: spacing['3xl'] },
-    iconCircle: {
-        width: 56, height: 56, borderRadius: 28,
-        backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center',
-        marginBottom: spacing.lg, ...shadows.md,
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
     },
-    title: { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.sm },
-    subtitle: { ...typography.body, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
-    contactText: { color: colors.textPrimary, fontWeight: '600' },
-    otpContainer: {
-        flexDirection: 'row', justifyContent: 'center', gap: 10,
+    content: {
+        paddingHorizontal: spacing.xl,
+        paddingTop: 60,
+        paddingBottom: 40,
     },
-    otpInput: {
-        width: 48, height: 56, borderRadius: radii.md,
-        borderWidth: 2, borderColor: colors.border,
-        backgroundColor: colors.surface,
-        textAlign: 'center', fontSize: 22, fontWeight: '700',
+    backButton: {
+        marginBottom: spacing.lg,
+        padding: spacing.xs,
+        alignSelf: 'flex-start',
+        minWidth: 44,
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    backArrow: {
+        fontSize: 24,
         color: colors.textPrimary,
     },
-    otpInputFilled: {
-        borderColor: colors.primary, backgroundColor: colors.primarySurface,
+    header: {
+        alignItems: 'center',
+        marginBottom: spacing['2xl'],
+    },
+    iconCircle: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: colors.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.lg,
+        ...shadows.md,
+    },
+    title: {
+        ...typography.h2,
+        color: colors.textPrimary,
+        marginBottom: spacing.sm,
+    },
+    subtitle: {
+        ...typography.body,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 24,
+    },
+    contactText: {
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+        fontWeight: '700',
+    },
+    expiryNote: {
+        marginTop: spacing.sm,
+        ...typography.small,
+        color: colors.textDisabled,
+    },
+    otpWrapper: {
+        marginBottom: spacing.xl,
+    },
+    verifyButton: {
+        marginBottom: spacing.xl,
     },
     resendRow: {
-        flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
-        gap: spacing.sm, marginTop: spacing.xl,
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.xl,
     },
-    resendLabel: { ...typography.caption, color: colors.textSecondary },
-    timerText: { ...typography.caption, color: colors.textDisabled, fontWeight: '600' },
-    resendLink: { ...typography.caption, color: colors.primary, fontWeight: '700' },
-    backToLogin: { alignItems: 'center', marginTop: spacing['2xl'] },
-    backToLoginText: { ...typography.bodyMedium, color: colors.primary },
+    resendLabel: {
+        ...typography.caption,
+        color: colors.textSecondary,
+    },
+    timerText: {
+        ...typography.caption,
+        color: colors.textDisabled,
+        fontWeight: '600',
+    },
+    resendTouchable: {
+        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.xs,
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    resendLink: {
+        ...typography.caption,
+        color: colors.primary,
+        fontWeight: '700',
+    },
+    resendLinkDisabled: {
+        color: colors.textDisabled,
+    },
+    lockoutCard: {
+        backgroundColor: colors.errorLight,
+        borderRadius: radii.lg,
+        padding: spacing.xl,
+        marginBottom: spacing.xl,
+        alignItems: 'center',
+        gap: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.error,
+    },
+    lockoutTitle: {
+        ...typography.bodyMedium,
+        color: colors.error,
+        fontWeight: '700',
+    },
+    lockoutBody: {
+        ...typography.caption,
+        color: colors.error,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    resendButton: {
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xl,
+        backgroundColor: colors.error,
+        borderRadius: radii.md,
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    resendButtonText: {
+        ...typography.bodyMedium,
+        color: colors.textInverse,
+        fontWeight: '700',
+    },
+    resendButtonDisabled: {
+        opacity: 0.5,
+    },
+    backToLogin: {
+        alignItems: 'center',
+        paddingVertical: spacing.sm,
+        minHeight: 44,
+        justifyContent: 'center',
+    },
+    backToLoginText: {
+        ...typography.bodyMedium,
+        color: colors.primary,
+    },
 });

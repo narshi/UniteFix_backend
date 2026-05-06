@@ -26,6 +26,17 @@ export class NotificationService {
      * Register for push notifications and get the device token
      */
     static async registerForPushNotifications(): Promise<string | null> {
+        // 1. Check if running in Expo Go (SDK 53+ limitation)
+        try {
+            const Constants = require('expo-constants').default;
+            if (Constants.executionEnvironment === 'storeClient') {
+                console.warn('[Notifications] Skipping push registration: Remote notifications require a Development Build in SDK 53+.');
+                return null;
+            }
+        } catch (e) {
+            // expo-constants might not be available or structured differently
+        }
+
         if (!Device.isDevice) {
             console.log('[Notifications] Must use physical device for push notifications');
             return null;
@@ -76,8 +87,12 @@ export class NotificationService {
             });
             this.expoPushToken = tokenData.data;
             return tokenData.data;
-        } catch (error) {
-            console.error('[Notifications] Failed to get push token:', error);
+        } catch (error: any) {
+            if (error.message?.includes('Expo Go')) {
+                console.warn('[Notifications] Remote notifications are not supported in Expo Go (SDK 53+). Please use a Development Build to test FCM.');
+            } else {
+                console.error('[Notifications] Failed to get push token:', error);
+            }
             return null;
         }
     }

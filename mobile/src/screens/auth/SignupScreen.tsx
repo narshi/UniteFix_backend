@@ -1,5 +1,6 @@
 /**
- * Sign Up Screen — Registration form + Social sign up (Google/Facebook)
+ * Sign Up Screen — Email-first registration with OTP verification
+ * Role selection (User / Employee) happens here.
  */
 
 import React, { useState } from 'react';
@@ -14,12 +15,12 @@ import {
     Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Wrench, User, Mail, Phone, Lock } from 'lucide-react-native';
+import { User, Users, Mail } from 'lucide-react-native';
 import { AuthStackParamList } from '../../types/navigation.types';
-import { useAuthStore } from '../../stores/auth.store';
+import { useAuthStore, UserRole } from '../../stores/auth.store';
 import { authApi } from '../../api/auth.api';
 import { getApiErrorMessage } from '../../api/client';
-import { useSocialAuth } from '../../hooks/useSocialAuth';
+import { useTruecallerAuth } from '../../hooks/useTruecallerAuth';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
@@ -30,59 +31,78 @@ type Props = {
 };
 
 export function SignupScreen({ navigation }: Props) {
-    const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
-    const [password, setPassword] = useState('');
-    const [partnerType, setPartnerType] = useState<'individual' | 'business'>('individual');
     const [agreePrivacy, setAgreePrivacy] = useState(false);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
-    const { selectedRole, login: loginToStore } = useAuthStore();
-    const { loginWithGoogle, loginWithFacebook, socialLoading } = useSocialAuth();
-    const isEmployee = selectedRole === 'serviceman';
+    const { selectedRole, setSelectedRole } = useAuthStore();
+    const { isAvailable: tcAvailable, authenticate: tcAuthenticate, loading: tcLoading } = useTruecallerAuth();
 
     const validate = (): boolean => {
         const newErrors: Record<string, string> = {};
 
-        if (!fullName.trim()) newErrors.fullName = 'Full name is required';
-        if (!phone.trim()) newErrors.phone = 'Phone number is required';
-        if (!password) {
-            newErrors.password = 'Password is required';
-        } else if (password.length < 6) {
-            newErrors.password = 'Password must be at least 6 characters';
+        const trimmed = email.trim();
+        if (!trimmed) {
+            newErrors.email = 'Email is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+            newErrors.email = 'Please enter a valid email';
         }
-        if (!agreePrivacy) newErrors.privacy = 'You must agree to the Privacy Policy';
+        if (!agreePrivacy) {
+            newErrors.privacy = 'You must agree to the Privacy Policy';
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSignup = async () => {
+    const handleSendOtp = async () => {
         if (!validate()) return;
 
+        const normalizedEmail = email.trim().toLowerCase();
         setLoading(true);
         try {
-            const response = await authApi.signup({
-                username: fullName,
-                email: email || undefined,
-                phone,
-                password,
+            await authApi.initiateSignup({
+                email: normalizedEmail,
                 role: selectedRole,
-                partnerType: isEmployee ? partnerType : undefined,
             });
 
-            const { user, accessToken, refreshToken, token } = response.data;
-            await loginToStore(user, accessToken || token, refreshToken || '');
+            navigation.navigate('OTPVerification', {
+                email: normalizedEmail,
+                purpose: 'signup',
+                role: selectedRole,
+            });
         } catch (error) {
-            Alert.alert('Sign Up Failed', getApiErrorMessage(error));
+            Alert.alert('Error', getApiErrorMessage(error));
         } finally {
             setLoading(false);
         }
     };
 
-    const isSubmitting = loading || socialLoading;
+    const handleTruecaller = async () => {
+        const profile = await tcAuthenticate();
+        if (profile) {
+            const tcEmail = profile.email || `${profile.phoneNumber}@unitefix.app`;
+            const normalizedEmail = tcEmail.trim().toLowerCase();
+            try {
+                await authApi.initiateSignup({ email: normalizedEmail, role: selectedRole });
+                Alert.alert(
+                    'Truecaller Verified!',
+                    `Welcome ${profile.firstName}! Please check your email to complete signup.`,
+                    [{
+                        text: 'OK',
+                        onPress: () => navigation.navigate('OTPVerification', {
+                            email: normalizedEmail,
+                            purpose: 'signup',
+                            role: selectedRole,
+                        }),
+                    }]
+                );
+            } catch (error) {
+                Alert.alert('Error', getApiErrorMessage(error));
+            }
+        }
+    };
 
     return (
         <KeyboardAvoidingView
@@ -102,110 +122,118 @@ export function SignupScreen({ navigation }: Props) {
                     >
                         <Text style={styles.backArrow}>←</Text>
                     </TouchableOpacity>
-                    <View style={styles.logoSmall}>
-                        <Wrench size={24} color={colors.textInverse} />
-                    </View>
-                    <Text style={styles.title}>Sign Up</Text>
-                    <Text style={styles.subtitle}>Thank you for joining us!</Text>
+                    <Text style={styles.title}>Create Account</Text>
+                    <Text style={styles.subtitle}>
+                        {selectedRole === 'serviceman'
+                            ? 'Join as a service expert'
+                            : 'Sign up to get started'}
+                    </Text>
                 </View>
 
-                {/* Form */}
+                {/* Role Selection */}
+                <View style={styles.roleSection}>
+                    <Text style={styles.roleLabel}>I am signing up as:</Text>
+                    <View style={styles.radioRow}>
+                        <TouchableOpacity
+                            style={[
+                                styles.roleCard,
+                                selectedRole === 'user' && styles.roleCardSelected,
+                            ]}
+                            onPress={() => setSelectedRole('user')}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[
+                                styles.radioOuter,
+                                selectedRole === 'user' && styles.radioOuterSelected,
+                            ]}>
+                                {selectedRole === 'user' && <View style={styles.radioInner} />}
+                            </View>
+                            <User size={20} color={selectedRole === 'user' ? colors.primary : colors.textSecondary} />
+                            <Text style={[
+                                styles.radioText,
+                                selectedRole === 'user' && styles.radioTextSelected,
+                            ]}>Customer</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.roleCard,
+                                selectedRole === 'serviceman' && styles.roleCardSelected,
+                            ]}
+                            onPress={() => setSelectedRole('serviceman')}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[
+                                styles.radioOuter,
+                                selectedRole === 'serviceman' && styles.radioOuterSelected,
+                            ]}>
+                                {selectedRole === 'serviceman' && <View style={styles.radioInner} />}
+                            </View>
+                            <Users size={20} color={selectedRole === 'serviceman' ? colors.primary : colors.textSecondary} />
+                            <Text style={[
+                                styles.radioText,
+                                selectedRole === 'serviceman' && styles.radioTextSelected,
+                            ]}>Employee</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* Truecaller One-Tap (Android only, if available) */}
+                {tcAvailable && (
+                    <View style={styles.truecallerSection}>
+                        <TouchableOpacity
+                            style={styles.truecallerButton}
+                            onPress={handleTruecaller}
+                            disabled={tcLoading || loading}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.truecallerIcon}>📱</Text>
+                            <Text style={styles.truecallerButtonText}>
+                                {tcLoading ? 'Verifying...' : 'Continue with Truecaller'}
+                            </Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.dividerRow}>
+                            <View style={styles.dividerLine} />
+                            <Text style={styles.orText}>or use email</Text>
+                            <View style={styles.dividerLine} />
+                        </View>
+                    </View>
+                )}
+
+                {/* Email Form */}
                 <View style={styles.form}>
                     <Input
-                        label="Full name"
-                        placeholder="Input your full name here"
-                        value={fullName}
-                        onChangeText={setFullName}
-                        icon={<User size={18} color={colors.textSecondary} />}
-                        error={errors.fullName}
-                    />
-
-                    <Input
-                        label="E-mail"
-                        placeholder="Input your email here"
+                        label="Email address"
+                        placeholder="you@example.com"
                         value={email}
-                        onChangeText={setEmail}
+                        onChangeText={(text) => {
+                            setEmail(text);
+                            if (errors.email) setErrors((e) => ({ ...e, email: '' }));
+                        }}
                         keyboardType="email-address"
                         autoCapitalize="none"
+                        autoCorrect={false}
                         icon={<Mail size={18} color={colors.textSecondary} />}
+                        error={errors.email}
                     />
 
-                    <Input
-                        label="Phone number"
-                        placeholder="Input your phone number here"
-                        value={phone}
-                        onChangeText={setPhone}
-                        keyboardType="phone-pad"
-                        icon={<Phone size={18} color={colors.textSecondary} />}
-                        error={errors.phone}
-                    />
+                    <View style={styles.otpNote}>
+                        <Text style={styles.otpNoteText}>
+                            📧 We'll send a 6-digit verification code to this email
+                        </Text>
+                    </View>
 
-                    {/* Employment type (only for employees) */}
-                    {isEmployee && (
-                        <View style={styles.employmentSection}>
-                            <Text style={styles.fieldLabel}>Employment Type</Text>
-                            <View style={styles.employmentOptions}>
-                                <TouchableOpacity
-                                    style={styles.radioOption}
-                                    onPress={() => setPartnerType('individual')}
-                                >
-                                    <View
-                                        style={[
-                                            styles.radio,
-                                            partnerType === 'individual' && styles.radioSelected,
-                                        ]}
-                                    >
-                                        {partnerType === 'individual' && (
-                                            <View style={styles.radioInner} />
-                                        )}
-                                    </View>
-                                    <Text style={styles.radioLabel}>Individual</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={styles.radioOption}
-                                    onPress={() => setPartnerType('business')}
-                                >
-                                    <View
-                                        style={[
-                                            styles.radio,
-                                            partnerType === 'business' && styles.radioSelected,
-                                        ]}
-                                    >
-                                        {partnerType === 'business' && (
-                                            <View style={styles.radioInner} />
-                                        )}
-                                    </View>
-                                    <Text style={styles.radioLabel}>Business</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    )}
-
-                    <Input
-                        label="Password"
-                        placeholder="Input your password here"
-                        value={password}
-                        onChangeText={setPassword}
-                        isPassword
-                        icon={<Lock size={18} color={colors.textSecondary} />}
-                        error={errors.password}
-                    />
-
-                    {/* Privacy policy */}
+                    {/* Privacy policy checkbox */}
                     <TouchableOpacity
                         style={styles.privacyRow}
                         onPress={() => setAgreePrivacy(!agreePrivacy)}
                     >
-                        <View
-                            style={[
-                                styles.checkbox,
-                                agreePrivacy && styles.checkboxChecked,
-                            ]}
-                        >
+                        <View style={[styles.checkbox, agreePrivacy && styles.checkboxChecked]}>
                             {agreePrivacy && <Text style={styles.checkmark}>✓</Text>}
                         </View>
                         <Text style={styles.privacyText}>
-                            I agree to <Text style={styles.privacyLink}>Privacy Policy</Text>
+                            I agree to the <Text style={styles.privacyLink}>Privacy Policy</Text>
                         </Text>
                     </TouchableOpacity>
                     {errors.privacy && (
@@ -213,43 +241,14 @@ export function SignupScreen({ navigation }: Props) {
                     )}
                 </View>
 
-                {/* Sign up button */}
+                {/* Send OTP button */}
                 <Button
-                    title="Sign Up"
-                    onPress={handleSignup}
+                    title="Send Verification Code"
+                    onPress={handleSendOtp}
                     loading={loading}
-                    disabled={isSubmitting}
+                    disabled={loading}
                     style={styles.signupButton}
                 />
-
-                {/* Social sign up */}
-                <View style={styles.socialContainer}>
-                    <View style={styles.dividerRow}>
-                        <View style={styles.dividerLine} />
-                        <Text style={styles.orText}>or sign up with</Text>
-                        <View style={styles.dividerLine} />
-                    </View>
-                    <View style={styles.socialRow}>
-                        <TouchableOpacity
-                            style={[styles.socialButton, styles.facebookButton]}
-                            onPress={loginWithFacebook}
-                            disabled={isSubmitting}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.socialIcon}>f</Text>
-                            <Text style={styles.socialButtonTextWhite}>Facebook</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.socialButton, styles.googleButton]}
-                            onPress={loginWithGoogle}
-                            disabled={isSubmitting}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.googleIcon}>G</Text>
-                            <Text style={styles.socialButtonTextDark}>Google</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
 
                 {/* Login link */}
                 <View style={styles.loginRow}>
@@ -286,15 +285,6 @@ const styles = StyleSheet.create({
         fontSize: 24,
         color: colors.textPrimary,
     },
-    logoSmall: {
-        width: 48,
-        height: 48,
-        borderRadius: radii.md,
-        backgroundColor: colors.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.md,
-    },
     title: {
         ...typography.h2,
         color: colors.textPrimary,
@@ -304,29 +294,38 @@ const styles = StyleSheet.create({
         ...typography.body,
         color: colors.textSecondary,
     },
-    form: {
-        marginBottom: spacing.lg,
+    roleSection: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.lg,
+        padding: spacing.base,
+        marginBottom: spacing.xl,
     },
-    fieldLabel: {
-        fontSize: 13,
-        fontWeight: '500',
-        color: colors.textPrimary,
+    roleLabel: {
+        ...typography.label,
+        color: colors.textSecondary,
         marginBottom: spacing.sm,
     },
-    employmentSection: {
-        marginBottom: spacing.base,
-    },
-    employmentOptions: {
+    radioRow: {
         flexDirection: 'row',
-        gap: spacing.lg,
-        paddingVertical: spacing.sm,
+        gap: spacing.md,
     },
-    radioOption: {
+    roleCard: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.base,
+        borderRadius: radii.md,
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
     },
-    radio: {
+    roleCardSelected: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
+    radioOuter: {
         width: 20,
         height: 20,
         borderRadius: 10,
@@ -335,7 +334,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    radioSelected: {
+    radioOuterSelected: {
         borderColor: colors.primary,
     },
     radioInner: {
@@ -344,9 +343,66 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         backgroundColor: colors.primary,
     },
-    radioLabel: {
-        ...typography.body,
-        color: colors.textPrimary,
+    radioText: {
+        ...typography.bodyMedium,
+        color: colors.textSecondary,
+        flex: 1,
+    },
+    radioTextSelected: {
+        color: colors.primary,
+        fontWeight: '600',
+    },
+    truecallerSection: {
+        marginBottom: spacing.lg,
+    },
+    truecallerButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#0085FF',
+        paddingVertical: 14,
+        borderRadius: radii.md,
+        gap: spacing.sm,
+        marginBottom: spacing.lg,
+    },
+    truecallerIcon: {
+        fontSize: 18,
+    },
+    truecallerButtonText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#fff',
+    },
+    dividerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: spacing.sm,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: colors.divider,
+    },
+    orText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginHorizontal: spacing.md,
+    },
+    form: {
+        marginBottom: spacing.lg,
+    },
+    otpNote: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        padding: spacing.base,
+        marginTop: spacing.sm,
+        marginBottom: spacing.md,
+    },
+    otpNoteText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 20,
     },
     privacyRow: {
         flexDirection: 'row',
@@ -387,65 +443,6 @@ const styles = StyleSheet.create({
     },
     signupButton: {
         marginBottom: spacing.xl,
-    },
-    socialContainer: {
-        marginBottom: spacing.xl,
-    },
-    dividerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: spacing.lg,
-    },
-    dividerLine: {
-        flex: 1,
-        height: 1,
-        backgroundColor: colors.divider,
-    },
-    orText: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        marginHorizontal: spacing.md,
-    },
-    socialRow: {
-        flexDirection: 'row',
-        gap: spacing.md,
-    },
-    socialButton: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 14,
-        borderRadius: radii.md,
-        gap: spacing.sm,
-    },
-    facebookButton: {
-        backgroundColor: '#1877F2',
-    },
-    googleButton: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    socialIcon: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: '#fff',
-    },
-    googleIcon: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#4285F4',
-    },
-    socialButtonTextWhite: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    socialButtonTextDark: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textPrimary,
     },
     loginRow: {
         flexDirection: 'row',

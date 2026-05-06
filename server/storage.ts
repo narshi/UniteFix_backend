@@ -56,6 +56,13 @@ import {
   type InsertInventoryItem,
   type InventoryTransaction,
   type InsertInventoryTransaction,
+  // PHASE 12: Segregated Tables
+  type Customer,
+  type InsertCustomer,
+  type Employee,
+  type InsertEmployee,
+  customers,
+  employees,
 } from "@shared/schema";
 import {
   InsertServiceOtp,
@@ -104,6 +111,16 @@ export interface IStorage {
   getAdminByEmail(email: string): Promise<AdminUser | undefined>;
   createAdminUser(admin: InsertAdminUser): Promise<AdminUser>;
   updateAdminUser(id: number, updates: Partial<AdminUser>): Promise<AdminUser | undefined>;
+
+  // Customer Management
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  getCustomerByUserId(userId: number): Promise<Customer | undefined>;
+  updateCustomer(userId: number, updates: Partial<Customer>): Promise<Customer | undefined>;
+
+  // Employee Management
+  createEmployee(employee: InsertEmployee): Promise<Employee>;
+  getEmployeeByUserId(userId: number): Promise<Employee | undefined>;
+  updateEmployee(userId: number, updates: Partial<Employee>): Promise<Employee | undefined>;
 
   // Service Providers
   createServiceProvider(provider: InsertServiceProvider): Promise<ServiceProvider>;
@@ -381,6 +398,52 @@ export class DatabaseStorage implements IStorage {
       .where(eq(adminUsers.id, id))
       .returning();
     return admin || undefined;
+  }
+
+  // Customer Management
+  async createCustomer(insertCustomer: InsertCustomer): Promise<Customer> {
+    const [customer] = await db
+      .insert(customers)
+      .values(insertCustomer)
+      .returning();
+    return customer;
+  }
+
+  async getCustomerByUserId(userId: number): Promise<Customer | undefined> {
+    const [customer] = await db.select().from(customers).where(eq(customers.userId, userId));
+    return customer || undefined;
+  }
+
+  async updateCustomer(userId: number, updates: Partial<Customer>): Promise<Customer | undefined> {
+    const [customer] = await db
+      .update(customers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(customers.userId, userId))
+      .returning();
+    return customer || undefined;
+  }
+
+  // Employee Management
+  async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
+    const [employee] = await db
+      .insert(employees)
+      .values(insertEmployee)
+      .returning();
+    return employee;
+  }
+
+  async getEmployeeByUserId(userId: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.userId, userId));
+    return employee || undefined;
+  }
+
+  async updateEmployee(userId: number, updates: Partial<Employee>): Promise<Employee | undefined> {
+    const [employee] = await db
+      .update(employees)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employees.userId, userId))
+      .returning();
+    return employee || undefined;
   }
 
   // Service Providers
@@ -953,27 +1016,51 @@ export class DatabaseStorage implements IStorage {
     otp: string,
     purpose: string
   ): Promise<boolean> {
+    const MAX_OTP_ATTEMPTS = 5;
+
+    // Find the latest unverified, unexpired OTP record for this contact+purpose
     const [verification] = await db
       .select()
       .from(otpVerifications)
       .where(
         and(
           phone ? eq(otpVerifications.phone, phone) : eq(otpVerifications.email, email || ''),
-          eq(otpVerifications.otp, otp),
           eq(otpVerifications.purpose, purpose),
           eq(otpVerifications.isVerified, false),
           gte(otpVerifications.expiresAt, new Date())
         )
-      );
+      )
+      .orderBy(otpVerifications.createdAt) // latest first
+      .limit(1);
 
-    if (verification) {
+    if (!verification) {
+      return false; // no active OTP found (expired or already used)
+    }
+
+    const currentAttempts = (verification.attempts ?? 0);
+
+    // Backend-enforced max-attempts lockout
+    if (currentAttempts >= MAX_OTP_ATTEMPTS) {
+      throw Object.assign(new Error('Too many incorrect attempts. Please request a new code.'), {
+        statusCode: 429,
+      });
+    }
+
+    if (verification.otp !== otp) {
+      // Increment attempt counter on wrong code
       await db
         .update(otpVerifications)
-        .set({ isVerified: true })
+        .set({ attempts: currentAttempts + 1 })
         .where(eq(otpVerifications.id, verification.id));
-      return true;
+      return false;
     }
-    return false;
+
+    // Correct OTP — mark as used
+    await db
+      .update(otpVerifications)
+      .set({ isVerified: true })
+      .where(eq(otpVerifications.id, verification.id));
+    return true;
   }
 
 

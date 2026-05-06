@@ -15,7 +15,7 @@ import { useAuthStore } from '../stores/auth.store';
 // Find it by running `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
 // Expo will also show it in the QR code URL (e.g., exp://192.168.x.x:8081).
 const API_BASE_URL = __DEV__
-    ? 'http://192.168.1.38:3000'  // Your dev machine local IP (from Expo output)
+    ? 'http://192.168.1.8:3000'  // Your dev machine local IP (from ipconfig)
     : 'https://api.unitefix.com';
 
 export const apiClient = axios.create({

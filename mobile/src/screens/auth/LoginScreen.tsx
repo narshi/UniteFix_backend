@@ -1,8 +1,16 @@
 /**
- * Login Screen — Email/Phone + Password + Social login (Google/Facebook)
+ * Login Screen — Production-grade implementation
+ *
+ * Features:
+ * - Single identifier input (auto-detects email vs phone)
+ * - Password login (default)
+ * - OTP login toggle (passwordless)
+ * - Brute-force protection (5 attempts → 60s lockout)
+ * - Structured error messages
+ * - Accessibility labels
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
     View,
     Text,
@@ -11,71 +19,56 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
-    Alert,
+    Image,
+    Dimensions,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Wrench, Mail, Phone, Lock } from 'lucide-react-native';
+import { Mail, Lock, Phone } from 'lucide-react-native';
 import { AuthStackParamList } from '../../types/navigation.types';
-import { useAuthStore } from '../../stores/auth.store';
-import { authApi } from '../../api/auth.api';
-import { getApiErrorMessage } from '../../api/client';
-import { useSocialAuth } from '../../hooks/useSocialAuth';
+import { useAuth } from '../../hooks/useAuth';
+import { detectIdentifierType } from '../../utils/validation';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing, radii } from '../../theme/spacing';
+import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
+
+const { width } = Dimensions.get('window');
 
 type Props = {
     navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 };
 
 export function LoginScreen({ navigation }: Props) {
-    const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [errors, setErrors] = useState<Record<string, string>>({});
+    const {
+        identifier, setIdentifier,
+        password, setPassword,
+        loginMode, setLoginMode,
+        errors, clearError,
+        loginAttempts, lockoutRemaining, isLockedOut,
+        loading,
+        handlePasswordLogin,
+        handleRequestOtpLogin,
+    } = useAuth();
 
-    const { login: loginToStore } = useAuthStore();
-    const { loginWithGoogle, loginWithFacebook, socialLoading } = useSocialAuth();
+    // Detect what type of identifier the user is typing for smart icon/hint
+    const identifierType = detectIdentifierType(identifier);
+    const IdentifierIcon = identifierType === 'phone'
+        ? <Phone size={18} color={colors.textSecondary} />
+        : <Mail size={18} color={colors.textSecondary} />;
 
-    const validate = (): boolean => {
-        const newErrors: Record<string, string> = {};
-
-        if (!email && !phone) {
-            newErrors.email = 'Email or phone number is required';
-        }
-        if (!password) {
-            newErrors.password = 'Password is required';
-        } else if (password.length < 6) {
-            newErrors.password = 'Password must be at least 6 characters';
-        }
-
-        setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
+    const handleOtpLogin = async () => {
+        const contact = await handleRequestOtpLogin();
+        if (!contact) return;
+        navigation.navigate('OTPVerification', {
+            email: contact.email,
+            phone: contact.phone,
+            purpose: 'reset',  // reuses reset OTP flow for passwordless login
+        });
     };
 
-    const handleLogin = async () => {
-        if (!validate()) return;
-
-        setLoading(true);
-        try {
-            const response = await authApi.login({
-                email: email || undefined,
-                phone: phone || undefined,
-                password,
-            });
-
-            const { user, accessToken, refreshToken, token } = response.data;
-            await loginToStore(user, accessToken || token, refreshToken || '');
-        } catch (error) {
-            Alert.alert('Login Failed', getApiErrorMessage(error));
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const isSubmitting = loading || socialLoading;
+    const lockoutLabel = lockoutRemaining > 0
+        ? `Too many attempts. Try again in ${lockoutRemaining}s`
+        : null;
 
     return (
         <KeyboardAvoidingView
@@ -87,106 +80,147 @@ export function LoginScreen({ navigation }: Props) {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                {/* Header */}
+                {/* ── Logo & Header ──────────────────────────────────────── */}
                 <View style={styles.header}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={() => navigation.goBack()}
-                    >
-                        <Text style={styles.backArrow}>←</Text>
-                    </TouchableOpacity>
-                    <View style={styles.logoSmall}>
-                        <Wrench size={24} color={colors.textInverse} />
-                    </View>
-                    <Text style={styles.title}>Login</Text>
-                    <Text style={styles.subtitle}>We are really happy to have you back!</Text>
+                    <Image
+                        source={require('../../../assets/logo.jpg')}
+                        style={styles.logoImage}
+                        resizeMode="contain"
+                        accessibilityLabel="UniteFix logo"
+                    />
+                    <Text style={styles.title} accessibilityRole="header">
+                        Welcome Back
+                    </Text>
+                    <Text style={styles.subtitle}>
+                        Sign in to your UniteFix account
+                    </Text>
                 </View>
 
-                {/* Form */}
+                {/* ── Login Mode Toggle ─────────────────────────────────── */}
+                <View style={styles.modeToggle} accessibilityRole="tablist">
+                    <TouchableOpacity
+                        style={[styles.modeTab, loginMode === 'password' && styles.modeTabActive]}
+                        onPress={() => setLoginMode('password')}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: loginMode === 'password' }}
+                        accessibilityLabel="Password login"
+                    >
+                        <Text style={[styles.modeText, loginMode === 'password' && styles.modeTextActive]}>
+                            Password
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.modeTab, loginMode === 'otp' && styles.modeTabActive]}
+                        onPress={() => setLoginMode('otp')}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: loginMode === 'otp' }}
+                        accessibilityLabel="OTP / passwordless login"
+                    >
+                        <Text style={[styles.modeText, loginMode === 'otp' && styles.modeTextActive]}>
+                            Login with OTP
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* ── Lockout Banner ────────────────────────────────────── */}
+                {isLockedOut && lockoutLabel && (
+                    <View style={styles.lockoutBanner} accessibilityRole="alert">
+                        <Text style={styles.lockoutText}>🔒 {lockoutLabel}</Text>
+                    </View>
+                )}
+
+                {/* ── Form Error ────────────────────────────────────────── */}
+                {errors.form ? (
+                    <View style={styles.formError} accessibilityRole="alert">
+                        <Text style={styles.formErrorText}>{errors.form}</Text>
+                    </View>
+                ) : null}
+
+                {/* ── Fields ───────────────────────────────────────────── */}
                 <View style={styles.form}>
                     <Input
-                        label="E-mail"
-                        placeholder="Input your email here"
-                        value={email}
-                        onChangeText={setEmail}
-                        keyboardType="email-address"
+                        label="Email or Phone"
+                        placeholder={
+                            identifierType === 'phone'
+                                ? 'e.g. +91 98765 43210'
+                                : 'you@example.com'
+                        }
+                        value={identifier}
+                        onChangeText={setIdentifier}
+                        keyboardType={identifierType === 'phone' ? 'phone-pad' : 'email-address'}
                         autoCapitalize="none"
-                        icon={<Mail size={18} color={colors.textSecondary} />}
-                        error={errors.email}
+                        autoCorrect={false}
+                        editable={!isLockedOut}
+                        icon={IdentifierIcon}
+                        error={errors.identifier}
+                        accessibilityLabel="Email address or phone number"
                     />
 
-                    <Input
-                        label="Phone number"
-                        placeholder="Input your phone number here"
-                        value={phone}
-                        onChangeText={setPhone}
-                        keyboardType="phone-pad"
-                        icon={<Phone size={18} color={colors.textSecondary} />}
-                    />
+                    {loginMode === 'password' && (
+                        <>
+                            <Input
+                                label="Password"
+                                placeholder="Enter your password"
+                                value={password}
+                                onChangeText={(v) => { setPassword(v); clearError('password'); }}
+                                isPassword
+                                editable={!isLockedOut}
+                                icon={<Lock size={18} color={colors.textSecondary} />}
+                                error={errors.password}
+                                accessibilityLabel="Password"
+                            />
 
-                    <Input
-                        label="Password"
-                        placeholder="Input your password here"
-                        value={password}
-                        onChangeText={setPassword}
-                        isPassword
-                        icon={<Lock size={18} color={colors.textSecondary} />}
-                        error={errors.password}
-                    />
+                            <TouchableOpacity
+                                style={styles.forgotRow}
+                                onPress={() => navigation.navigate('ForgotPassword')}
+                                accessibilityLabel="Forgot password"
+                                accessibilityRole="link"
+                            >
+                                <Text style={styles.forgotText}>Forgot password?</Text>
+                            </TouchableOpacity>
+                        </>
+                    )}
 
-                    {/* Forgot password */}
-                    <View style={styles.optionsRow}>
-                        <View />
-                        <TouchableOpacity
-                            onPress={() => navigation.navigate('ForgotPassword')}
-                        >
-                            <Text style={styles.forgotText}>Forgotten password?</Text>
-                        </TouchableOpacity>
-                    </View>
+                    {loginMode === 'otp' && (
+                        <View style={styles.otpHint}>
+                            <Text style={styles.otpHintText}>
+                                📧 We'll send a one-time code to your email or phone
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
-                {/* Login button */}
+                {/* ── Action Button ─────────────────────────────────────── */}
                 <Button
-                    title="Login"
-                    onPress={handleLogin}
+                    title={
+                        isLockedOut
+                            ? `Locked (${lockoutRemaining}s)`
+                            : loginMode === 'password'
+                                ? 'Login'
+                                : 'Send OTP'
+                    }
+                    onPress={loginMode === 'password' ? handlePasswordLogin : handleOtpLogin}
                     loading={loading}
-                    disabled={isSubmitting}
-                    style={styles.loginButton}
+                    disabled={isLockedOut || loading}
+                    style={styles.actionButton}
+                    accessibilityLabel={loginMode === 'password' ? 'Login with password' : 'Send one-time password'}
                 />
 
-                {/* Social login */}
-                <View style={styles.socialContainer}>
-                    <View style={styles.dividerRow}>
-                        <View style={styles.dividerLine} />
-                        <Text style={styles.orText}>or login with</Text>
-                        <View style={styles.dividerLine} />
-                    </View>
-                    <View style={styles.socialRow}>
-                        <TouchableOpacity
-                            style={[styles.socialButton, styles.facebookButton]}
-                            onPress={loginWithFacebook}
-                            disabled={isSubmitting}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.socialIcon}>f</Text>
-                            <Text style={styles.socialButtonTextWhite}>Facebook</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.socialButton, styles.googleButton]}
-                            onPress={loginWithGoogle}
-                            disabled={isSubmitting}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.googleIcon}>G</Text>
-                            <Text style={styles.socialButtonTextDark}>Google</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                {/* ── Attempt counter ───────────────────────────────────── */}
+                {loginAttempts > 0 && !isLockedOut && (
+                    <Text style={styles.attemptWarning}>
+                        {MAX_ATTEMPTS - loginAttempts} login attempt{MAX_ATTEMPTS - loginAttempts !== 1 ? 's' : ''} remaining
+                    </Text>
+                )}
 
-                {/* Sign up link */}
+                {/* ── Sign Up Link ──────────────────────────────────────── */}
                 <View style={styles.signupRow}>
                     <Text style={styles.signupText}>Don't have an account? </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('Signup')}
+                        accessibilityLabel="Create a new account"
+                        accessibilityRole="link"
+                    >
                         <Text style={styles.signupLink}>Sign Up</Text>
                     </TouchableOpacity>
                 </View>
@@ -194,6 +228,8 @@ export function LoginScreen({ navigation }: Props) {
         </KeyboardAvoidingView>
     );
 }
+
+const MAX_ATTEMPTS = 5;
 
 const styles = StyleSheet.create({
     container: {
@@ -207,25 +243,14 @@ const styles = StyleSheet.create({
     },
     header: {
         alignItems: 'center',
-        marginBottom: spacing['2xl'],
+        marginBottom: spacing.xl,
     },
-    backButton: {
-        position: 'absolute',
-        left: 0,
-        top: -10,
-    },
-    backArrow: {
-        fontSize: 24,
-        color: colors.textPrimary,
-    },
-    logoSmall: {
-        width: 48,
-        height: 48,
-        borderRadius: radii.md,
-        backgroundColor: colors.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.md,
+    logoImage: {
+        width: width * 0.22,
+        height: width * 0.22,
+        borderRadius: radii.lg,
+        marginBottom: spacing.lg,
+        ...shadows.sm,
     },
     title: {
         ...typography.h2,
@@ -236,85 +261,98 @@ const styles = StyleSheet.create({
         ...typography.body,
         color: colors.textSecondary,
     },
-    form: {
-        marginBottom: spacing.lg,
-    },
-    optionsRow: {
+    modeToggle: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: -spacing.sm,
+        backgroundColor: colors.surface,
+        borderRadius: radii.lg,
+        padding: 4,
+        marginBottom: spacing.xl,
     },
-    forgotText: {
+    modeTab: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: radii.md,
+        alignItems: 'center',
+    },
+    modeTabActive: {
+        backgroundColor: colors.background,
+        ...shadows.sm,
+    },
+    modeText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        fontWeight: '500',
+    },
+    modeTextActive: {
+        color: colors.primary,
+        fontWeight: '700',
+    },
+    lockoutBanner: {
+        backgroundColor: colors.errorLight,
+        borderRadius: radii.md,
+        padding: spacing.base,
+        marginBottom: spacing.base,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.error,
+    },
+    lockoutText: {
+        ...typography.caption,
+        color: colors.error,
+        fontWeight: '600',
+    },
+    formError: {
+        backgroundColor: colors.errorLight,
+        borderRadius: radii.md,
+        padding: spacing.base,
+        marginBottom: spacing.base,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.error,
+    },
+    formErrorText: {
         ...typography.caption,
         color: colors.error,
         fontWeight: '500',
     },
-    loginButton: {
-        marginBottom: spacing.xl,
+    form: {
+        marginBottom: spacing.base,
     },
-    socialContainer: {
-        marginBottom: spacing.xl,
+    forgotRow: {
+        alignSelf: 'flex-end',
+        marginTop: spacing.sm,
+        paddingVertical: spacing.xs,  // minimum 44pt touch target
+        paddingHorizontal: spacing.sm,
     },
-    dividerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: spacing.lg,
-    },
-    dividerLine: {
-        flex: 1,
-        height: 1,
-        backgroundColor: colors.divider,
-    },
-    orText: {
+    forgotText: {
         ...typography.caption,
-        color: colors.textSecondary,
-        marginHorizontal: spacing.md,
+        color: colors.primary,
+        fontWeight: '600',
     },
-    socialRow: {
-        flexDirection: 'row',
-        gap: spacing.md,
-    },
-    socialButton: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 14,
+    otpHint: {
+        backgroundColor: colors.primarySurface,
         borderRadius: radii.md,
-        gap: spacing.sm,
+        padding: spacing.base,
+        marginTop: spacing.sm,
     },
-    facebookButton: {
-        backgroundColor: '#1877F2',
+    otpHintText: {
+        ...typography.caption,
+        color: colors.primary,
+        textAlign: 'center',
+        lineHeight: 20,
     },
-    googleButton: {
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
+    actionButton: {
+        marginBottom: spacing.base,
     },
-    socialIcon: {
-        fontSize: 18,
-        fontWeight: '800',
-        color: '#fff',
-    },
-    googleIcon: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#4285F4',
-    },
-    socialButtonTextWhite: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    socialButtonTextDark: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textPrimary,
+    attemptWarning: {
+        textAlign: 'center',
+        fontSize: 12,
+        color: colors.warning,
+        fontWeight: '500',
+        marginBottom: spacing.base,
     },
     signupRow: {
         flexDirection: 'row',
         justifyContent: 'center',
+        marginTop: spacing.sm,
     },
     signupText: {
         ...typography.body,

@@ -96,8 +96,60 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   phoneIdx: index("users_phone_idx").on(table.phone),
+  emailIdx: uniqueIndex("users_email_idx").on(table.email),
   roleIdx: index("users_role_idx").on(table.role),
   referralCodeIdx: uniqueIndex("users_referral_code_idx").on(table.referralCode),
+}));
+
+// Customers table — role-specific profile for users (role = 'user')
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique().references(() => users.id),
+  fullName: text("full_name"),
+  dateOfBirth: text("date_of_birth"),
+  gender: text("gender"),              // 'male', 'female', 'other'
+  alternatePhone: text("alternate_phone"),
+  preferredLanguage: text("preferred_language").default('en'),
+  loyaltyPoints: integer("loyalty_points").default(0),
+  totalBookings: integer("total_bookings").default(0),
+  totalSpent: decimal("total_spent", { precision: 12, scale: 2 }).default('0.00'),
+  savedAddresses: jsonb("saved_addresses"), // [{ label, address, lat, long, pinCode }]
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: uniqueIndex("customers_user_id_idx").on(table.userId),
+}));
+
+// Employees table — role-specific profile for servicemen (role = 'serviceman')
+export const employees = pgTable("employees", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().unique().references(() => users.id),
+  fullName: text("full_name"),
+  dateOfBirth: text("date_of_birth"),
+  gender: text("gender"),
+  aadhaarNumber: text("aadhaar_number"),         // Masked: last 4 digits stored
+  panNumber: text("pan_number"),
+  aadhaarDocUrl: text("aadhaar_doc_url"),         // Uploaded document URL
+  panDocUrl: text("pan_doc_url"),
+  profilePhotoUrl: text("profile_photo_url"),
+  experienceYears: integer("experience_years").default(0),
+  qualifications: text("qualifications"),
+  emergencyContact: text("emergency_contact"),
+  bankAccountNumber: text("bank_account_number"),
+  bankIfsc: text("bank_ifsc"),
+  bankName: text("bank_name"),
+  upiId: text("upi_id"),
+  documentVerificationStatus: verificationStatusEnum("document_verification_status").notNull().default('pending'),
+  documentVerifiedAt: timestamp("document_verified_at"),
+  documentVerifiedBy: integer("document_verified_by"), // Admin user ID
+  adminRemarks: text("admin_remarks"),
+  totalServicesCompleted: integer("total_services_completed").default(0),
+  averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: uniqueIndex("employees_user_id_idx").on(table.userId),
+  verificationIdx: index("employees_doc_verification_idx").on(table.documentVerificationStatus),
 }));
 
 // Service Providers table - dedicated for service partners
@@ -693,8 +745,30 @@ export const usersRelations = relations(users, ({ many, one }) => ({
     fields: [users.id],
     references: [serviceProviders.userId],
   }),
+  customer: one(customers, {
+    fields: [users.id],
+    references: [customers.userId],
+  }),
+  employee: one(employees, {
+    fields: [users.id],
+    references: [employees.userId],
+  }),
   referredBy: one(users, {
     fields: [users.referredById],
+    references: [users.id],
+  }),
+}));
+
+export const customersRelations = relations(customers, ({ one }) => ({
+  user: one(users, {
+    fields: [customers.userId],
+    references: [users.id],
+  }),
+}));
+
+export const employeesRelations = relations(employees, ({ one }) => ({
+  user: one(users, {
+    fields: [employees.userId],
     references: [users.id],
   }),
 }));
@@ -837,6 +911,18 @@ export const productImagesRelations = relations(productImages, ({ one }) => ({
 
 // Zod schemas
 export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEmployeeSchema = createInsertSchema(employees).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -1011,6 +1097,12 @@ export const insertRefundSchema = createInsertSchema(refunds).omit({
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
+
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+export type Employee = typeof employees.$inferSelect;
 
 export type InsertServiceProvider = z.infer<typeof insertServiceProviderSchema>;
 export type ServiceProvider = typeof serviceProviders.$inferSelect;
