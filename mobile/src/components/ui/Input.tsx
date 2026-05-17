@@ -14,10 +14,10 @@ import {
 } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
-import { typography, fontSizes } from '../../theme/typography';
+import { typography, fontSizes, fontWeights } from '../../theme/typography';
 import { radii, spacing } from '../../theme/spacing';
 
-interface InputProps extends Omit<TextInputProps, 'style'> {
+interface InputProps extends TextInputProps {
     label?: string;
     error?: string;
     icon?: React.ReactNode;
@@ -49,7 +49,7 @@ export function Input({
                 {icon && <View style={styles.iconLeft}>{icon}</View>}
                 <TextInput
                     {...textInputProps}
-                    style={[styles.input, icon ? styles.inputWithIcon : undefined]}
+                    style={[styles.input, icon ? styles.inputWithIcon : undefined, textInputProps.style]}
                     placeholderTextColor={colors.textDisabled}
                     secureTextEntry={isPassword && !showPassword}
                     onFocus={(e) => {
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     },
     label: {
         fontSize: fontSizes.sm,
-        fontWeight: typography.label.fontWeight,
+        fontWeight: fontWeights.medium,
         color: colors.textPrimary,
         marginBottom: spacing.xs,
     },

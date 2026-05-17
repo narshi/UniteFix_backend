@@ -6,34 +6,71 @@ import { apiClient } from './client';
 
 // ==================== TYPES ====================
 
+export interface ApiResponse<T> {
+    success: boolean;
+    data: T;
+    message?: string;
+    pagination?: any;
+}
+
 export interface ServiceCategory {
-    id: string;
+    id: number;
     name: string;
-    icon: string;
-    description?: string;
+    icon?: string;
+    sortOrder: number;
+    isActive: boolean;
+    items?: ServiceItem[];
+}
+
+export interface ServiceItem {
+    id: number;
+    categoryId: number;
+    name: string;
+    subtitle?: string;
+    icon?: string;
+    bannerImage?: string;
+    status: 'ACTIVE' | 'COMING_SOON' | 'DISABLED' | 'MAINTENANCE';
+    isHomeVisible: boolean;
+    sortOrder: number;
+    isActive: boolean;
 }
 
 export interface ServiceRequest {
     id: number;
+    serviceId?: string;
     userId: number;
     serviceType: string;
     description: string;
-    status: string;
+    status: 'created' | 'assigned' | 'accepted' | 'reached' | 'in_progress' | 'pending_payment' | 'completed' | 'cancelled' | 'disputed';
     address?: string;
     pinCode?: string;
     photos?: string[];
     assignedTo?: number;
+    providerId?: number;
     scheduledDate?: string;
+    preferredDate?: string;
+    preferredTimeSlot?: string;
     createdAt: string;
     updatedAt: string;
+    // Billing
+    bookingFee?: number;
     serviceCharge?: number;
     materialCharge?: number;
     totalCharge?: number;
+    totalAmount?: number;
+    // Technician
     servicemanName?: string;
     servicemanPhone?: string;
+    // State
+    handshakeOtp?: string;
+    otp?: string;
+    assignedAt?: string;
+    reachedAt?: string;
+    startedAt?: string;
+    completedAt?: string;
+    // Rating
     rating?: number;
     feedback?: string;
-    otp?: string;
 }
 
 export interface CreateServiceRequest {
@@ -52,7 +89,7 @@ export interface UserProfile {
     email?: string;
     phone: string;
     role: string;
-    address?: string;
+    homeAddress?: string;
     pinCode?: string;
     profilePicture?: string;
     isVerified: boolean;
@@ -76,17 +113,17 @@ export interface Notification {
 export const customerApi = {
     // Profile
     getProfile: () =>
-        apiClient.get<UserProfile>('/api/client/auth/profile'),
+        apiClient.get<ApiResponse<UserProfile>>('/api/client/profile'),
 
-    updateProfile: (data: Partial<{ username: string; email: string; phone: string; address: string; pinCode: string }>) =>
-        apiClient.patch<UserProfile>('/api/client/auth/profile', data),
+    updateProfile: (data: Partial<{ username: string; email: string; homeAddress: string; pinCode: string }>) =>
+        apiClient.patch<ApiResponse<UserProfile>>('/api/client/profile', data),
 
     // Service Requests
     createServiceRequest: (data: CreateServiceRequest) =>
-        apiClient.post<ServiceRequest>('/api/services/create', data),
+        apiClient.post<ApiResponse<ServiceRequest>>('/api/services/create', data),
 
     getMyServiceRequests: () =>
-        apiClient.get<ServiceRequest[]>('/api/services/my-requests'),
+        apiClient.get<ApiResponse<ServiceRequest[]>>('/api/services/my-requests'),
 
     cancelServiceRequest: (id: number) =>
         apiClient.post(`/api/services/${id}/cancel`),
@@ -94,16 +131,37 @@ export const customerApi = {
     rateService: (id: number, data: { rating: number; feedback: string }) =>
         apiClient.post(`/api/ratings/service/${id}`, data),
 
+    // Payment
+    getBillingDetails: (bookingId: number) =>
+        apiClient.get<ApiResponse<any>>(`/api/v1/bookings/${bookingId}/billing`),
+
+    createPaymentOrder: (bookingId: number) =>
+        apiClient.post<ApiResponse<{ paymentLink: string; orderId: string }>>(`/api/v1/bookings/${bookingId}/create-payment-order`),
+
+    getPaymentStatus: (bookingId: number) =>
+        apiClient.get<ApiResponse<{ paid: boolean; status: string }>>(`/api/v1/bookings/${bookingId}/payment-status`),
+
+    // Support
+    getSupportLink: (bookingId: number) =>
+        apiClient.get<ApiResponse<{ whatsappUrl: string }>>(`/api/v1/bookings/${bookingId}/support-link`),
+
     // Notifications
     getNotifications: () =>
-        apiClient.get<Notification[]>('/api/notifications'),
+        apiClient.get<ApiResponse<Notification[]>>('/api/notifications'),
 
     markNotificationRead: (id: number) =>
         apiClient.patch(`/api/notifications/${id}/read`),
 
     // Pincode validation
     validatePincode: (pinCode: string) =>
-        apiClient.post<{ serviceable: boolean; district?: string }>('/api/validate-pincode', { pinCode }),
+        apiClient.get<{ available: boolean; serviceable?: boolean; message?: string }>(`/api/customer/check-serviceability?pincode=${pinCode}`),
+
+    // Service Catalog
+    getHomeServices: () =>
+        apiClient.get<ApiResponse<ServiceItem[]>>('/api/services/home'),
+
+    getAllCategories: () =>
+        apiClient.get<ApiResponse<ServiceCategory[]>>('/api/services/categories'),
 
     // OTP
     generateOTP: (serviceId: number) =>

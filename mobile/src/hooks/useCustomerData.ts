@@ -13,6 +13,8 @@ export const queryKeys = {
     profile: ['profile'] as const,
     serviceRequests: ['serviceRequests'] as const,
     notifications: ['notifications'] as const,
+    homeServices: ['homeServices'] as const,
+    allServices: ['allServices'] as const,
 };
 
 // ==================== PROFILE ====================
@@ -22,7 +24,7 @@ export function useProfile() {
         queryKey: queryKeys.profile,
         queryFn: async () => {
             const response = await customerApi.getProfile();
-            return response.data;
+            return response.data.data;
         },
     });
 }
@@ -40,6 +42,28 @@ export function useUpdateProfile() {
     });
 }
 
+// ==================== SERVICE CATALOG ====================
+
+export function useHomeServices() {
+    return useQuery({
+        queryKey: queryKeys.homeServices,
+        queryFn: async () => {
+            const response = await customerApi.getHomeServices();
+            return response.data.data;
+        },
+    });
+}
+
+export function useAllServices() {
+    return useQuery({
+        queryKey: queryKeys.allServices,
+        queryFn: async () => {
+            const response = await customerApi.getAllCategories();
+            return response.data.data;
+        },
+    });
+}
+
 // ==================== SERVICE REQUESTS ====================
 
 export function useServiceRequests() {
@@ -47,7 +71,7 @@ export function useServiceRequests() {
         queryKey: queryKeys.serviceRequests,
         queryFn: async () => {
             const response = await customerApi.getMyServiceRequests();
-            return response.data;
+            return response.data.data;
         },
     });
 }
@@ -94,7 +118,7 @@ export function useNotifications() {
         queryKey: queryKeys.notifications,
         queryFn: async () => {
             const response = await customerApi.getNotifications();
-            return response.data;
+            return response.data.data;
         },
     });
 }

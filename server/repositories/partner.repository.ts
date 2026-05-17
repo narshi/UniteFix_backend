@@ -1,136 +1,135 @@
 /**
- * Partner (Service Provider) Repository
- * Extracted from storage.ts — partner CRUD + legacy wallet operations
+ * Partner (Employee) Repository
+ * PHASE 1: All methods now use the unified `employees` table.
+ * The `serviceProviders` table has been deleted.
  */
 
 import { db } from "../db";
 import {
-    serviceProviders, walletTransactions,
-    type ServiceProvider, type InsertServiceProvider,
+    employees, walletTransactions,
+    type Employee, type InsertEmployee,
     type WalletTransaction,
 } from "@shared/schema";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, desc, count, and } from "drizzle-orm";
 import { calculateHaversineDistance } from "../lib/geo";
 
-// ==================== SERVICE PROVIDER CRUD ====================
+// ==================== PARTNER CRUD (→ employees table) ====================
 
-export async function createServiceProvider(insertProvider: InsertServiceProvider): Promise<ServiceProvider> {
-    const countResult = await db.select({ count: count() }).from(serviceProviders);
+export async function createServiceProvider(insertProvider: any): Promise<Employee> {
+    const countResult = await db.select({ count: count() }).from(employees);
     const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
 
-    const [provider] = await db
-        .insert(serviceProviders)
+    const [employee] = await db
+        .insert(employees)
         .values({
             ...insertProvider,
             partnerId,
             skills: insertProvider.skills || null
         } as any)
         .returning();
-    return provider;
+    return employee;
 }
 
-export async function getServiceProvider(id: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.id, id));
-    return provider || undefined;
+export async function getServiceProvider(id: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.id, id));
+    return employee || undefined;
 }
 
-export async function getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.userId, userId));
-    return provider || undefined;
+export async function getServiceProviderByUserId(userId: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.userId, userId));
+    return employee || undefined;
 }
 
-export async function getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.partnerId, partnerId));
-    return provider || undefined;
+export async function getServiceProviderByPartnerId(partnerId: string): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.partnerId, partnerId));
+    return employee || undefined;
 }
 
-export async function getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
-    return await db.select().from(serviceProviders).orderBy(desc(serviceProviders.createdAt)).limit(limit).offset(offset);
+export async function getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
+    return await db.select().from(employees).orderBy(desc(employees.createdAt)).limit(limit).offset(offset);
 }
 
-export async function getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
+export async function getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
     return await db
         .select()
-        .from(serviceProviders)
-        .where(eq(serviceProviders.verificationStatus, 'verified'))
-        .orderBy(desc(serviceProviders.createdAt))
+        .from(employees)
+        .where(eq(employees.documentVerificationStatus, 'verified'))
+        .orderBy(desc(employees.createdAt))
         .limit(limit)
         .offset(offset);
 }
 
-export async function getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
+export async function getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
     return await db
         .select()
-        .from(serviceProviders)
-        .where(eq(serviceProviders.verificationStatus, 'pending'))
-        .orderBy(desc(serviceProviders.createdAt))
+        .from(employees)
+        .where(eq(employees.documentVerificationStatus, 'pending'))
+        .orderBy(desc(employees.createdAt))
         .limit(limit)
         .offset(offset);
 }
 
 export async function countServiceProviders(status?: string): Promise<number> {
-    let query = db.select({ count: count() }).from(serviceProviders);
+    let query = db.select({ count: count() }).from(employees);
     if (status) {
-        query = query.where(eq(serviceProviders.verificationStatus, status as any)) as any;
+        query = query.where(eq(employees.documentVerificationStatus, status as any)) as any;
     }
     const [result] = await query;
     return result?.count ?? 0;
 }
 
-export async function updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined> {
-    const [provider] = await db
-        .update(serviceProviders)
+export async function updateServiceProvider(id: number, updates: Partial<Employee>): Promise<Employee | undefined> {
+    const [employee] = await db
+        .update(employees)
         .set({ ...updates, updatedAt: new Date() })
-        .where(eq(serviceProviders.id, id))
+        .where(eq(employees.id, id))
         .returning();
-    return provider || undefined;
+    return employee || undefined;
 }
 
-export async function updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db
-        .update(serviceProviders)
+export async function updateProviderLocation(id: number, lat: number, long: number): Promise<Employee | undefined> {
+    const [employee] = await db
+        .update(employees)
         .set({
-            currentLat: lat,
-            currentLong: long,
-            updatedAt: new Date()
+            currentLocation: `POINT(${long} ${lat})`,
+            lastLocationUpdate: new Date()
         })
-        .where(eq(serviceProviders.id, id))
+        .where(eq(employees.id, id))
         .returning();
-    return provider || undefined;
+    return employee || undefined;
 }
 
 export async function getProvidersSortedByDistance(
     lat: number,
     long: number,
     status?: string
-): Promise<(ServiceProvider & { distance: number })[]> {
-    let providers: ServiceProvider[];
+): Promise<(Employee & { distance: number })[]> {
+    const allEmployees = await db
+        .select()
+        .from(employees)
+        .where(
+            and(
+                eq(employees.isActive, true),
+                status ? eq(employees.documentVerificationStatus, status as any) : undefined
+            )
+        );
 
-    if (status) {
-        providers = await db
-            .select()
-            .from(serviceProviders)
-            .where(eq(serviceProviders.verificationStatus, status as any));
-    } else {
-        providers = await db.select().from(serviceProviders);
-    }
-
-    return providers
-        .filter(p => p.currentLat && p.currentLong)
-        .map(p => ({
-            ...p,
-            distance: calculateHaversineDistance(
-                lat,
-                long,
-                p.currentLat!,
-                p.currentLong!
-            ),
-        }))
-        .sort((a, b) => a.distance - b.distance);
+    return allEmployees
+        .filter(e => e.currentLocation !== null)
+        .map(employee => {
+            const match = employee.currentLocation?.match(/POINT\(([\d.-]+) ([\d.-]+)\)/);
+            if (!match) return null;
+            return {
+                ...employee,
+                distance: calculateHaversineDistance(lat, long, parseFloat(match[2]), parseFloat(match[1]))
+            };
+        })
+        .filter(Boolean) as (Employee & { distance: number })[]
+        ;
 }
 
 export async function deleteServiceProvider(id: number): Promise<boolean> {
-    const result = await db.delete(serviceProviders).where(eq(serviceProviders.id, id));
+    await db.delete(employees).where(eq(employees.id, id));
     return true;
 }
 
@@ -138,32 +137,24 @@ export async function deleteServiceProvider(id: number): Promise<boolean> {
 
 export async function topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
     const result = await db.transaction(async (tx) => {
-        const [provider] = await tx
-            .select()
-            .from(serviceProviders)
-            .where(eq(serviceProviders.id, providerId));
+        const [employee] = await tx.select().from(employees).where(eq(employees.id, providerId));
+        if (!employee) throw new Error('Employee not found');
 
-        if (!provider) throw new Error('Provider not found');
-
-        const currentBalance = parseFloat(provider.walletBalance || '0');
+        const currentBalance = parseFloat(employee.walletBalance || '0');
         const newBalance = currentBalance + amount;
 
-        await tx
-            .update(serviceProviders)
+        await tx.update(employees)
             .set({ walletBalance: newBalance.toFixed(2), updatedAt: new Date() })
-            .where(eq(serviceProviders.id, providerId));
+            .where(eq(employees.id, providerId));
 
-        const [transaction] = await tx
-            .insert(walletTransactions)
-            .values({
-                providerId,
-                amount: amount.toFixed(2),
-                type: 'credit',
-                description,
-                balanceBefore: currentBalance.toFixed(2),
-                balanceAfter: newBalance.toFixed(2)
-            })
-            .returning();
+        const [transaction] = await tx.insert(walletTransactions).values({
+            providerId,
+            amount: amount.toFixed(2),
+            type: 'credit',
+            description,
+            balanceBefore: currentBalance.toFixed(2),
+            balanceAfter: newBalance.toFixed(2)
+        }).returning();
 
         return transaction;
     });
@@ -172,34 +163,25 @@ export async function topUpProviderWallet(providerId: number, amount: number, de
 
 export async function deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
     const result = await db.transaction(async (tx) => {
-        const [provider] = await tx
-            .select()
-            .from(serviceProviders)
-            .where(eq(serviceProviders.id, providerId));
+        const [employee] = await tx.select().from(employees).where(eq(employees.id, providerId));
+        if (!employee) throw new Error('Employee not found');
 
-        if (!provider) throw new Error('Provider not found');
-
-        const currentBalance = parseFloat(provider.walletBalance || '0');
+        const currentBalance = parseFloat(employee.walletBalance || '0');
         if (currentBalance < amount) throw new Error('Insufficient wallet balance');
-
         const newBalance = currentBalance - amount;
 
-        await tx
-            .update(serviceProviders)
+        await tx.update(employees)
             .set({ walletBalance: newBalance.toFixed(2), updatedAt: new Date() })
-            .where(eq(serviceProviders.id, providerId));
+            .where(eq(employees.id, providerId));
 
-        const [transaction] = await tx
-            .insert(walletTransactions)
-            .values({
-                providerId,
-                amount: (-amount).toFixed(2),
-                type: 'debit',
-                description,
-                balanceBefore: currentBalance.toFixed(2),
-                balanceAfter: newBalance.toFixed(2)
-            })
-            .returning();
+        const [transaction] = await tx.insert(walletTransactions).values({
+            providerId,
+            amount: (-amount).toFixed(2),
+            type: 'debit',
+            description,
+            balanceBefore: currentBalance.toFixed(2),
+            balanceAfter: newBalance.toFixed(2)
+        }).returning();
 
         return transaction;
     });

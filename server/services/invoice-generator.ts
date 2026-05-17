@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { db } from "../db";
-import { invoices, serviceRequests, users, serviceCharges, productOrders, serviceProviders } from "@shared/schema";
+import { invoices, serviceRequests, users, serviceCharges, productOrders, employees } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -40,9 +40,9 @@ export class InvoiceGenerator {
             if (service) {
                 // Fetch provider name if assigned
                 if (service.providerId) {
-                    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.id, service.providerId)).limit(1);
+                    const [provider] = await db.select().from(employees).where(eq(employees.id, service.providerId)).limit(1);
                     if (provider) {
-                        providerName = provider.partnerName || "Service Partner";
+                        providerName = provider.fullName || "Service Partner";
                     }
                 }
 

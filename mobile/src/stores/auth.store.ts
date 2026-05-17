@@ -1,174 +1,229 @@
 /**
- * Auth Store — Zustand + SecureStore persistence
+ * Auth Store — Zustand + SecureStore
  *
- * Manages: access token, refresh token, user object, role
- * Persists tokens securely via expo-secure-store
- * 
- * Session policy: Stay signed in. Auto-logout only after 7 days of inactivity.
+ * Manages:
+ * - Authentication state (Truecaller OAuth + JWT tokens)
+ * - Secure token persistence via expo-secure-store
+ * - Session hydration with 7-day inactivity timeout
+ * - Role-based navigation state
  */
 
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { authApi, AuthUser, AuthResponse } from '../api/auth.api';
 
-export type UserRole = 'user' | 'serviceman';
+// ── Storage Keys ──────────────────────────────────────────────────────
+const KEYS = {
+  ACCESS_TOKEN: 'uf_access_token',
+  REFRESH_TOKEN: 'uf_refresh_token',
+  USER: 'uf_user',
+  LAST_ACTIVITY: 'uf_last_activity',
+} as const;
 
-export interface User {
-    id: number;
-    username: string;
-    email?: string;
-    phone: string;
-    role: UserRole;
-    profilePicture?: string;
-    pinCode?: string;
-    address?: string;
-    referralCode?: string;
-}
+const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// ── Store Types ───────────────────────────────────────────────────────
 
 interface AuthState {
-    // State
-    user: User | null;
-    accessToken: string | null;
-    refreshToken: string | null;
-    isAuthenticated: boolean;
-    isLoading: boolean;
-    selectedRole: UserRole;
+  // State
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  user: AuthUser | null;
+  accessToken: string | null;
+  refreshToken: string | null;
 
-    // Actions
-    setTokens: (accessToken: string, refreshToken: string) => void;
-    setUser: (user: User) => void;
-    login: (user: User, accessToken: string, refreshToken: string) => void;
-    logout: () => void;
-    setSelectedRole: (role: UserRole) => void;
-    recordActivity: () => void;
-    hydrate: () => Promise<void>;
+  // Actions
+  hydrate: () => Promise<void>;
+  loginWithTruecaller: (response: AuthResponse) => Promise<void>;
+  refreshTokens: () => Promise<boolean>;
+  logout: () => Promise<void>;
+  recordActivity: () => void;
+  updateUser: (updates: Partial<AuthUser>) => void;
+  setTokens: (accessToken: string, refreshToken: string) => Promise<void>;
 }
 
-const SECURE_KEYS = {
-    ACCESS_TOKEN: 'unitefix_access_token',
-    REFRESH_TOKEN: 'unitefix_refresh_token',
-    USER: 'unitefix_user',
-    ROLE: 'unitefix_selected_role',
-    LAST_ACTIVE: 'unitefix_last_active',
-};
+// ── Secure Storage Helpers ────────────────────────────────────────────
 
-// 7 days in milliseconds
-const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
+async function secureSet(key: string, value: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(key, value);
+  } catch (err) {
+    console.warn(`[AUTH_STORE] Failed to write ${key}:`, err);
+  }
+}
+
+async function secureGet(key: string): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(key);
+  } catch (err) {
+    console.warn(`[AUTH_STORE] Failed to read ${key}:`, err);
+    return null;
+  }
+}
+
+async function secureClear(): Promise<void> {
+  await Promise.all(
+    Object.values(KEYS).map((key) =>
+      SecureStore.deleteItemAsync(key).catch(() => {})
+    )
+  );
+}
+
+// ── Store ─────────────────────────────────────────────────────────────
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-    // Initial state
-    user: null,
-    accessToken: null,
-    refreshToken: null,
-    isAuthenticated: false,
-    isLoading: true,
-    selectedRole: 'user',
+  isAuthenticated: false,
+  isLoading: true,
+  user: null,
+  accessToken: null,
+  refreshToken: null,
 
-    setTokens: async (accessToken: string, refreshToken: string) => {
-        await SecureStore.setItemAsync(SECURE_KEYS.ACCESS_TOKEN, accessToken);
-        await SecureStore.setItemAsync(SECURE_KEYS.REFRESH_TOKEN, refreshToken);
-        set({ accessToken, refreshToken });
-    },
+  /**
+   * Hydrate session from SecureStore on app launch.
+   * Checks for session expiry (7-day inactivity timeout).
+   */
+  hydrate: async () => {
+    try {
+      const [accessToken, refreshToken, userJson, lastActivity] = await Promise.all([
+        secureGet(KEYS.ACCESS_TOKEN),
+        secureGet(KEYS.REFRESH_TOKEN),
+        secureGet(KEYS.USER),
+        secureGet(KEYS.LAST_ACTIVITY),
+      ]);
 
-    setUser: async (user: User) => {
-        await SecureStore.setItemAsync(SECURE_KEYS.USER, JSON.stringify(user));
-        set({ user });
-    },
-
-    login: async (user: User, accessToken: string, refreshToken: string) => {
-        const now = Date.now().toString();
-        await Promise.all([
-            SecureStore.setItemAsync(SECURE_KEYS.ACCESS_TOKEN, accessToken),
-            SecureStore.setItemAsync(SECURE_KEYS.REFRESH_TOKEN, refreshToken),
-            SecureStore.setItemAsync(SECURE_KEYS.USER, JSON.stringify(user)),
-            SecureStore.setItemAsync(SECURE_KEYS.LAST_ACTIVE, now),
-        ]);
-        set({
-            user,
-            accessToken,
-            refreshToken,
-            isAuthenticated: true,
-            selectedRole: user.role as UserRole,
-        });
-    },
-
-    logout: async () => {
-        await Promise.all([
-            SecureStore.deleteItemAsync(SECURE_KEYS.ACCESS_TOKEN),
-            SecureStore.deleteItemAsync(SECURE_KEYS.REFRESH_TOKEN),
-            SecureStore.deleteItemAsync(SECURE_KEYS.USER),
-            SecureStore.deleteItemAsync(SECURE_KEYS.LAST_ACTIVE),
-        ]);
-        set({
-            user: null,
-            accessToken: null,
-            refreshToken: null,
-            isAuthenticated: false,
-        });
-    },
-
-    setSelectedRole: async (role: UserRole) => {
-        await SecureStore.setItemAsync(SECURE_KEYS.ROLE, role);
-        set({ selectedRole: role });
-    },
-
-    // Call this on every app foreground / API call to track activity
-    recordActivity: async () => {
-        await SecureStore.setItemAsync(SECURE_KEYS.LAST_ACTIVE, Date.now().toString());
-    },
-
-    hydrate: async () => {
-        try {
-            const [accessToken, refreshToken, userJson, role, lastActive] = await Promise.all([
-                SecureStore.getItemAsync(SECURE_KEYS.ACCESS_TOKEN),
-                SecureStore.getItemAsync(SECURE_KEYS.REFRESH_TOKEN),
-                SecureStore.getItemAsync(SECURE_KEYS.USER),
-                SecureStore.getItemAsync(SECURE_KEYS.ROLE),
-                SecureStore.getItemAsync(SECURE_KEYS.LAST_ACTIVE),
-            ]);
-
-            const user = userJson ? JSON.parse(userJson) : null;
-            const hasValidToken = !!accessToken && !!user;
-
-            // Check 7-day inactivity timeout
-            let sessionExpired = false;
-            if (hasValidToken && lastActive) {
-                const elapsed = Date.now() - parseInt(lastActive, 10);
-                sessionExpired = elapsed > SESSION_TIMEOUT_MS;
-            }
-
-            if (sessionExpired) {
-                // Auto-logout: session inactive for 7+ days
-                await Promise.all([
-                    SecureStore.deleteItemAsync(SECURE_KEYS.ACCESS_TOKEN),
-                    SecureStore.deleteItemAsync(SECURE_KEYS.REFRESH_TOKEN),
-                    SecureStore.deleteItemAsync(SECURE_KEYS.USER),
-                    SecureStore.deleteItemAsync(SECURE_KEYS.LAST_ACTIVE),
-                ]);
-                set({
-                    user: null,
-                    accessToken: null,
-                    refreshToken: null,
-                    isAuthenticated: false,
-                    isLoading: false,
-                    selectedRole: (role as UserRole) || 'user',
-                });
-            } else {
-                // Session valid — record activity and restore
-                if (hasValidToken) {
-                    await SecureStore.setItemAsync(SECURE_KEYS.LAST_ACTIVE, Date.now().toString());
-                }
-                set({
-                    accessToken,
-                    refreshToken,
-                    user,
-                    isAuthenticated: hasValidToken,
-                    isLoading: false,
-                    selectedRole: (role as UserRole) || 'user',
-                });
-            }
-        } catch (error) {
-            console.error('Failed to hydrate auth state:', error);
-            set({ isLoading: false });
+      // Check session expiry
+      if (lastActivity) {
+        const elapsed = Date.now() - parseInt(lastActivity, 10);
+        if (elapsed > SESSION_TIMEOUT_MS) {
+          console.log('[AUTH_STORE] Session expired (7-day inactivity)');
+          await secureClear();
+          set({ isAuthenticated: false, isLoading: false, user: null, accessToken: null, refreshToken: null });
+          return;
         }
-    },
+      }
+
+      if (accessToken && refreshToken && userJson) {
+        const user = JSON.parse(userJson) as AuthUser;
+        set({
+          isAuthenticated: true,
+          isLoading: false,
+          user,
+          accessToken,
+          refreshToken,
+        });
+        console.log(`[AUTH_STORE] Session restored: ${user.phone} (${user.role})`);
+      } else {
+        set({ isAuthenticated: false, isLoading: false });
+      }
+    } catch (err) {
+      console.error('[AUTH_STORE] Hydration failed:', err);
+      set({ isAuthenticated: false, isLoading: false });
+    }
+  },
+
+  /**
+   * Store auth response from Truecaller verification.
+   * PHASE 3: Merges employee profile data into user for navigation gating.
+   */
+  loginWithTruecaller: async (response: AuthResponse) => {
+    const { user, accessToken, refreshToken, profile } = response;
+
+    // Merge employee verification data into user object for navigation gating
+    const enrichedUser: AuthUser = {
+      ...user,
+      employeeId: profile?.employee?.id ?? null,
+      documentVerificationStatus: profile?.employee?.documentVerificationStatus ?? null,
+      isOnline: profile?.employee?.isOnline ?? null,
+    };
+
+    await Promise.all([
+      secureSet(KEYS.ACCESS_TOKEN, accessToken),
+      secureSet(KEYS.REFRESH_TOKEN, refreshToken),
+      secureSet(KEYS.USER, JSON.stringify(enrichedUser)),
+      secureSet(KEYS.LAST_ACTIVITY, Date.now().toString()),
+    ]);
+
+    set({
+      isAuthenticated: true,
+      isLoading: false,
+      user: enrichedUser,
+      accessToken,
+      refreshToken,
+    });
+
+    console.log(`[AUTH_STORE] Logged in: ${enrichedUser.phone} (${enrichedUser.role}) docStatus=${enrichedUser.documentVerificationStatus}`);
+  },
+
+  /**
+   * Refresh access + refresh tokens (rotation)
+   */
+  refreshTokens: async () => {
+    const { refreshToken } = get();
+    if (!refreshToken) return false;
+
+    try {
+      const { data } = await authApi.refreshToken(refreshToken);
+      if (data.accessToken && data.refreshToken) {
+        await get().setTokens(data.accessToken, data.refreshToken);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[AUTH_STORE] Token refresh failed:', err);
+    }
+
+    return false;
+  },
+
+  /**
+   * Manually update tokens (used by API client interceptor)
+   */
+  setTokens: async (accessToken: string, refreshToken: string) => {
+    await Promise.all([
+      secureSet(KEYS.ACCESS_TOKEN, accessToken),
+      secureSet(KEYS.REFRESH_TOKEN, refreshToken),
+      secureSet(KEYS.LAST_ACTIVITY, Date.now().toString()),
+    ]);
+    set({ accessToken, refreshToken });
+  },
+
+  /**
+   * Clear all auth state and revoke tokens
+   */
+  logout: async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Best effort — still clear local state
+    }
+
+    await secureClear();
+    set({
+      isAuthenticated: false,
+      isLoading: false,
+      user: null,
+      accessToken: null,
+      refreshToken: null,
+    });
+
+    console.log('[AUTH_STORE] Logged out');
+  },
+
+  /**
+   * Record user activity (resets 7-day inactivity timer)
+   */
+  recordActivity: () => {
+    secureSet(KEYS.LAST_ACTIVITY, Date.now().toString());
+  },
+
+  /**
+   * Update user data in store + SecureStore
+   */
+  updateUser: (updates: Partial<AuthUser>) => {
+    const current = get().user;
+    if (!current) return;
+
+    const updated = { ...current, ...updates };
+    set({ user: updated });
+    secureSet(KEYS.USER, JSON.stringify(updated));
+  },
 }));

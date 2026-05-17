@@ -16,6 +16,7 @@ import DistrictsPage from "@/pages/admin/districts";
 import InventoryPage from "@/pages/admin/inventory";
 import DeveloperPage from "@/pages/developer";
 import SettingsPage from "@/pages/settings";
+import ServiceCatalogPage from "@/pages/service-catalog";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 
@@ -110,6 +111,7 @@ function Router() {
         <Route path="/admin/districts" component={DistrictsPage} />
         <Route path="/admin/inventory" component={InventoryPage} />
         <Route path="/admin/developer" component={DeveloperPage} />
+        <Route path="/admin/catalog" component={ServiceCatalogPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>

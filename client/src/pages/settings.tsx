@@ -199,8 +199,8 @@ export default function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label htmlFor="autoAssignPartners">Auto Assign Partners</Label>
-                  <p className="text-sm text-gray-600">Automatically assign available partners</p>
+                  <Label htmlFor="autoAssignPartners">Auto Assign Employees</Label>
+                  <p className="text-sm text-gray-600">Automatically assign available employees</p>
                 </div>
                 <Switch
                   id="autoAssignPartners"
@@ -210,8 +210,8 @@ export default function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <Label htmlFor="partnerVerificationRequired">Partner Verification Required</Label>
-                  <p className="text-sm text-gray-600">Require partner verification before assignment</p>
+                  <Label htmlFor="partnerVerificationRequired">Employee Verification Required</Label>
+                  <p className="text-sm text-gray-600">Require employee verification before assignment</p>
                 </div>
                 <Switch
                   id="partnerVerificationRequired"

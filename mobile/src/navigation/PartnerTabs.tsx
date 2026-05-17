@@ -15,6 +15,9 @@ import { WalletScreen } from '../screens/partner/WalletScreen';
 import { PartnerProfileScreen } from '../screens/partner/PartnerProfileScreen';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 
+import { Platform } from 'react-native';
+import { radii, spacing, shadows } from '../theme/spacing';
+
 const Tab = createBottomTabNavigator<PartnerTabParamList>();
 
 export function PartnerTabs() {
@@ -23,16 +26,29 @@ export function PartnerTabs() {
             screenOptions={{
                 headerShown: false,
                 tabBarActiveTintColor: colors.primary,
-                tabBarInactiveTintColor: colors.textSecondary,
+                tabBarInactiveTintColor: colors.textDisabled,
                 tabBarStyle: {
+                    position: 'absolute',
+                    bottom: Platform.OS === 'ios' ? 24 : 12,
+                    left: spacing.base,
+                    right: spacing.base,
                     backgroundColor: colors.background,
-                    borderTopColor: colors.divider,
-                    paddingBottom: 4,
-                    height: 56,
+                    borderRadius: radii['2xl'],
+                    height: 64,
+                    paddingBottom: 0,
+                    borderTopWidth: 0,
+                    ...shadows.lg,
+                    borderWidth: 1,
+                    borderColor: colors.divider,
                 },
                 tabBarLabelStyle: {
-                    fontSize: 11,
-                    fontWeight: '500',
+                    fontSize: 10,
+                    fontWeight: '600',
+                    letterSpacing: 0.3,
+                    marginBottom: Platform.OS === 'ios' ? 0 : 8,
+                },
+                tabBarItemStyle: {
+                    paddingTop: 6,
                 },
             }}
         >

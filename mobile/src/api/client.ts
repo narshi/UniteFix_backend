@@ -11,12 +11,28 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../stores/auth.store';
 
-// IMPORTANT: Change this IP to your machine's current local IP address.
-// Find it by running `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
-// Expo will also show it in the QR code URL (e.g., exp://192.168.x.x:8081).
-const API_BASE_URL = __DEV__
-    ? 'http://192.168.1.8:3000'  // Your dev machine local IP (from ipconfig)
-    : 'https://api.unitefix.com';
+import Constants from 'expo-constants';
+
+// Dynamically resolve dev server IP from Expo manifest.
+// This prevents "Network Error" caused by hardcoded IPs going stale after DHCP changes.
+// hostUri looks like "192.168.1.x:8081" — we extract just the IP part.
+function getApiBaseUrl(): string {
+    if (!__DEV__) return 'https://api.unitefix.com';
+
+    // Try to extract IP from expo-constants (works in Expo Go and dev builds)
+    const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost ?? '';
+    const hostIp = hostUri.split(':')[0];
+
+    if (hostIp && hostIp !== 'localhost') {
+        return `http://${hostIp}:3000`;
+    }
+
+    // Fallback to last known IP
+    return 'http://192.168.1.9:3000';
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
 
 export const apiClient = axios.create({
     baseURL: API_BASE_URL,

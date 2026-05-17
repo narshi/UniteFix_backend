@@ -129,6 +129,11 @@ app.use((req, res, next) => {
     });
   });
 
+  // Catch-all for undefined API routes to return 404 JSON instead of HTML
+  app.use("/api/*", (req: Request, res: Response) => {
+    res.status(404).json({ success: false, message: "API endpoint not found" });
+  });
+
   // Setup Vite in development, static serving in production
   if (app.get("env") === "development") {
     await setupVite(app, server);

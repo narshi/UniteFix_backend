@@ -102,7 +102,7 @@ export class NotificationService {
      */
     static async registerTokenWithBackend(token: string): Promise<void> {
         try {
-            await apiClient.post('/api/notifications/register-token', {
+            await apiClient.post('/api/notifications/register', {
                 token,
                 platform: Platform.OS,
             });
@@ -118,7 +118,7 @@ export class NotificationService {
     static async unregisterToken(): Promise<void> {
         if (!this.expoPushToken) return;
         try {
-            await apiClient.delete('/api/notifications/unregister-token', {
+            await apiClient.delete('/api/notifications/unregister', {
                 data: { token: this.expoPushToken },
             });
             this.expoPushToken = null;

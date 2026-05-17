@@ -7,7 +7,7 @@ import {
   insertServiceRequestSchema,
   insertProductOrderSchema,
   insertProductSchema,
-  insertServiceProviderSchema,
+  // insertServiceProviderSchema, // PHASE 1: serviceProviders table deleted
   insertServiceablePincodeSchema,
   insertDistrictSchema,
   otpVerifications,
@@ -23,22 +23,27 @@ import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pa
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
-import { registerOtpRoutes } from "./routes/otp.routes";
+// PHASE 0: OTP routes removed — auth OTP replaced by Truecaller SDK v3
+// import { registerOtpRoutes } from "./routes/otp.routes";
 import { registerClientFeatureRoutes } from "./routes/client-features.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
-import { registerSocialAuthRoutes } from "./routes/auth-social.routes";
+
 import { NotificationService } from "./services/notification.service";
 import { registerNotificationRoutes } from "./routes/notification.routes";
 import { registerReturnRoutes } from "./routes/return.routes";
 import { registerCatalogRoutes } from "./routes/catalog.routes";
+import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
+import { registerGeofenceRoutes } from "./routes/geofence.routes";
+import { registerBillingRoutes } from "./routes/billing.routes";
+import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET environment variable is required");
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
-const COMMISSION_RATE = 0.10; // 10% commission
-const MAX_SERVICE_START_DISTANCE = 500; // meters (per business requirement)
+// PHASE 5: COMMISSION_RATE removed — billing now uses 15% UniteFix fee from config
+const MAX_SERVICE_START_DISTANCE = 200; // PHASE 4: Updated to 200m (was 500m)
 
 // Geo-fencing: use shared utility
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
@@ -137,11 +142,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   registerInventoryRoutes(app);
+  
+  // Register Truecaller Auth Routes (SDK 3.x)
+  registerTruecallerAuthRoutes(app);
 
   // ==================== 3-STEP SIGNUP FLOW (Email OTP) ====================
 
   // Step 1: Initiate signup — sends OTP to email
-  app.post("/api/auth/signup/initiate", async (req, res, next) => {
+  app.post("/api/auth/signup/initiate", authLimiter, async (req, res, next) => {
     try {
       const { email, role } = req.body;
       const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -198,7 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Step 2: Verify signup OTP — returns a short-lived signupToken with role embedded
-  app.post("/api/auth/signup/verify", async (req, res, next) => {
+  app.post("/api/auth/signup/verify", authLimiter, async (req, res, next) => {
     try {
       const { email, otp, role } = req.body;
       const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -281,10 +289,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create role-specific profile record (DB segregation)
       if (userRole === 'serviceman') {
+        // PHASE 1: All partner data now on employees table (serviceProviders deleted)
         await storage.createEmployee({
           userId: user.id,
           fullName: username || email.split('@')[0],
+          partnerType: 'Individual',
+          services: [],
+          isActive: false,  // Admin must verify
+          isOnline: false,
         });
+
         logger.info(`[SIGNUP] Employee profile created for user ${user.id}`);
       } else {
         await storage.createCustomer({
@@ -345,7 +359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash password
-      const hashedPassword = await bcrypt.hash(userData.password, 10);
+      const hashedPassword = await bcrypt.hash(userData.password || '', 10);
 
       const user = await storage.createUser({
         ...userData,
@@ -371,7 +385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Login
-  app.post("/api/auth/login", async (req, res, next) => {
+  app.post("/api/auth/login", authLimiter, async (req, res, next) => {
     try {
       const { phone, email, password } = req.body;
 
@@ -392,6 +406,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!user) {
         return res.status(401).json({ success: false, message: "Invalid credentials" });
+      }
+
+      if (!user.password) {
+        return res.status(401).json({ success: false, message: "This account uses Truecaller login. Please use the Truecaller option." });
       }
 
       const validPassword = await bcrypt.compare(password, user.password);
@@ -453,8 +471,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin Login
-  app.post("/api/admin/auth/login", async (req, res, next) => {
+  // Admin Login — rate-limited: 5 attempts per 15 min
+  app.post("/api/admin/auth/login", authLimiter, async (req, res, next) => {
     try {
       const { username, password } = req.body;
 
@@ -496,13 +514,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin Registration (for initial setup)
-  app.post("/api/admin/auth/register", async (req, res, next) => {
+  // Admin Registration — PROTECTED: requires super_admin JWT
+  // 401 if no/invalid token, 403 if role !== 'super_admin'
+  app.post("/api/admin/auth/register", authenticateAdmin, async (req, res, next) => {
     try {
+      // Only super_admin may create new admin accounts
+      const requestingAdmin = (req as any).admin as { userId: number; role: string; username: string } | undefined;
+      if (!requestingAdmin) {
+        return res.status(401).json({ success: false, message: "Authentication required" });
+      }
+      if (requestingAdmin.role !== "super_admin") {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden: only super_admin accounts may create new administrators",
+        });
+      }
+
       const adminData = insertAdminUserSchema.parse(req.body);
 
-      const existingAdmin = await storage.getAdminByEmail(adminData.email) ||
-        await storage.getAdminByUsername(adminData.username);
+      const existingAdmin =
+        (await storage.getAdminByEmail(adminData.email)) ||
+        (await storage.getAdminByUsername(adminData.username));
 
       if (existingAdmin) {
         return res.status(400).json({ success: false, message: "Admin already exists" });
@@ -515,20 +547,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword,
       });
 
+      logger.info(`[ADMIN_REG] New admin '${admin.username}' created by super_admin '${requestingAdmin.username}'`);
+
       res.status(201).json({
         success: true,
         message: "Admin created successfully",
-        admin: { ...admin, password: undefined }
+        admin: { ...admin, password: undefined },
       });
     } catch (error) {
       next(error);
     }
   });
 
+
   // ==================== PASSWORD RESET FLOW ====================
 
   // Step 1: Request password reset — sends OTP to phone/email
-  app.post("/api/auth/forgot-password", async (req, res, next) => {
+  app.post("/api/auth/forgot-password", authLimiter, async (req, res, next) => {
     try {
       const { phone, email } = req.body;
       if (!phone && !email) {
@@ -580,7 +615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Step 2: Verify reset OTP — returns a short-lived reset token
-  app.post("/api/auth/verify-reset-otp", async (req, res, next) => {
+  app.post("/api/auth/verify-reset-otp", authLimiter, async (req, res, next) => {
     try {
       const { phone, email, otp } = req.body;
       if (!otp || (!phone && !email)) {
@@ -674,15 +709,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all users with DB-level pagination
+  // Get all CUSTOMER users (role='user' only — servicemen are in Partners section)
   app.get("/api/admin/users", async (req, res, next) => {
     try {
       const { page, limit } = parsePaginationParams(req.query);
       const offset = getOffset({ page, limit });
 
-      // DB-level pagination — count + limited fetch
-      const total = await storage.countUsers();
-      const pageData = await storage.getAllUsers(limit, offset);
+      // Only show customers (role='user') — servicemen are managed in /api/admin/servicemen
+      const total = await storage.countUsers({ role: 'user' });
+      const pageData = await storage.getAllUsers(limit, offset, 'user');
 
       const result = buildPaginatedResult(
         pageData.map(u => ({ ...u, password: undefined })),
@@ -714,6 +749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== SERVICE PROVIDER MANAGEMENT ====================
 
   // Get all service providers with filtering and DB-level pagination
+  // Get all service providers with filtering and DB-level pagination
   app.get("/api/admin/servicemen/list", async (req, res, next) => {
     try {
       const { status } = req.query;
@@ -729,7 +765,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providers = await storage.getVerifiedServiceProviders(limit, offset);
         total = await storage.countServiceProviders('verified');
       } else if (status === 'suspended') {
-        // Suspended doesn't have a dedicated method, use general with filter
         providers = await storage.getAllServiceProviders(limit, offset);
         providers = providers.filter(p => p.verificationStatus === 'suspended');
         total = await storage.countServiceProviders('suspended');
@@ -738,7 +773,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         total = await storage.countServiceProviders();
       }
 
-      const result = buildPaginatedResult(providers, total, { page, limit });
+      // Enrich with user contact info (email, phone) for admin display
+      // PHASE 1: Map unified employees columns → admin dashboard field names
+      const enriched = await Promise.all(
+        providers.map(async (p) => {
+          const user = await storage.getUser(p.userId);
+          return {
+            ...p,
+            // Field aliases for admin dashboard backward compat
+            partnerName: p.fullName || user?.username || 'Unknown',
+            verificationStatus: p.documentVerificationStatus || 'pending',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            location: '', // No longer stored as simple text
+            services: p.services || [],
+          };
+        })
+      );
+
+      const result = buildPaginatedResult(enriched, total, { page, limit });
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
       next(error);
@@ -794,12 +847,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 2. Create the provider profile
       const provider = await storage.createServiceProvider({
         userId: user.id,
-        partnerName,
+        fullName: partnerName,
         partnerType: partnerType || 'Individual',
         services: services || [],
-        location,
-        address,
-        verificationStatus: 'verified',
+        documentVerificationStatus: 'verified',
         isActive: true,
         walletBalance: '0.00'
       });
@@ -810,12 +861,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update service provider details
+  app.patch("/api/admin/servicemen/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      
+      const provider = await storage.updateServiceProvider(id, updates);
+
+      if (!provider) {
+        return res.status(404).json({ success: false, message: "Provider not found" });
+      }
+
+      res.json({ success: true, message: "Provider updated", data: provider });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Approve/Verify service provider
   app.post("/api/admin/servicemen/:id/approve", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
       const provider = await storage.updateServiceProvider(id, {
-        verificationStatus: 'verified',
+        documentVerificationStatus: 'verified',
         isActive: true
       });
 
@@ -836,7 +905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { reason } = req.body;
 
       const provider = await storage.updateServiceProvider(id, {
-        verificationStatus: 'suspended',
+        documentVerificationStatus: 'suspended',
         isActive: false
       });
 
@@ -856,7 +925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
 
       const provider = await storage.updateServiceProvider(id, {
-        verificationStatus: 'verified', // Restore to verified
+        documentVerificationStatus: 'verified', // Restore to verified
         isActive: true
       });
 
@@ -955,7 +1024,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/business/partners", async (req, res, next) => {
     try {
       const providers = await storage.getAllServiceProviders();
-      res.json(providers);
+      // PHASE 1: Map employees columns → legacy partner field names
+      const mapped = await Promise.all(
+        providers.map(async (p) => {
+          const user = await storage.getUser(p.userId);
+          return {
+            ...p,
+            partnerName: p.fullName || user?.username || 'Unknown',
+            verificationStatus: p.documentVerificationStatus || 'pending',
+            email: user?.email || '',
+            phone: user?.phone || '',
+            services: p.services || [],
+          };
+        })
+      );
+      res.json(mapped);
     } catch (error) {
       next(error);
     }
@@ -966,7 +1049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const providerData = insertServiceProviderSchema.parse(req.body);
       const provider = await storage.createServiceProvider({
         ...providerData,
-        verificationStatus: 'verified'
+        documentVerificationStatus: 'verified'
       });
       res.status(201).json(provider);
     } catch (error) {
@@ -1019,7 +1102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/partners/:id/verify", async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
-        verificationStatus: 'verified'
+        documentVerificationStatus: 'verified'
       });
       res.json(provider);
     } catch (error) {
@@ -1030,7 +1113,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/business/partners/:id/suspend", async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
-        verificationStatus: 'suspended',
+        documentVerificationStatus: 'suspended',
         isActive: false
       });
       res.json(provider);
@@ -1052,25 +1135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== SERVICE REQUEST MANAGEMENT ====================
 
-  // Get all service requests (admin) with pagination
-  app.get("/api/admin/services", async (req, res, next) => {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const status = req.query.status as string;
 
-      let services = await storage.getAllServiceRequests();
-
-      if (status) {
-        services = services.filter(s => s.status === status);
-      }
-
-      const result = paginate(services, page, limit);
-      res.json({ success: true, data: result.data, pagination: result.pagination });
-    } catch (error) {
-      next(error);
-    }
-  });
 
   // Get recent services
   app.get("/api/admin/services/recent", async (req, res, next) => {
@@ -1285,7 +1350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await storage.completeServiceWithTransaction(
         parseInt(serviceId),
         totalAmount,
-        COMMISSION_RATE
+        0.15 // PHASE 5: 15% UniteFix fee (was COMMISSION_RATE=0.10)
       );
 
       res.json({
@@ -1552,7 +1617,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Validate pincode
+  // Get serviceability status (for PincodeChecker component)
+  app.get("/api/customer/check-serviceability", async (req, res, next) => {
+    try {
+      const pincode = req.query.pincode as string;
+      if (!pincode) {
+        return res.status(400).json({ success: false, message: "Pincode is required" });
+      }
+      
+      const isServiceable = await storage.isPincodeServiceable(pincode);
+      
+      console.log(`[check-serviceability] Checked pincode: '${pincode}', result: ${isServiceable}`);
+
+      res.json({
+        success: true,
+        available: isServiceable,
+        serviceable: isServiceable, // For compatibility
+        pincode,
+        message: isServiceable ? "Service available" : "Service not available in your area"
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Validate pincode (POST version for other flows)
   app.post("/api/validate-pincode", async (req, res, next) => {
     try {
       const { pinCode } = req.body;
@@ -1560,7 +1649,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         success: true,
-        valid: isServiceable,
+        serviceable: isServiceable, // Match mobile app expectation
+        valid: isServiceable,       // Keep for backward compatibility
         message: isServiceable ? "Valid pin code" : "Service not available in your area"
       });
     } catch (error) {
@@ -1752,6 +1842,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Critical: These are the #1 missing feature from Figma designs
 
   // Partner accepts an assigned service request
+  app.post("/api/notifications/register", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { token, platform } = req.body;
+      if (!token) {
+        return res.status(400).json({ success: false, message: "Device token is required" });
+      }
+
+      await storage.addDeviceToken(req.user!.userId, token, platform || 'unknown');
+      res.json({ success: true, message: "Device registered for notifications" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/notifications/unregister", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { token } = req.body;
+      if (!token) {
+        return res.status(400).json({ success: false, message: "Token required" });
+      }
+
+      await storage.removeDeviceToken(req.user!.userId, token);
+      res.json({ success: true, message: "Device unregistered" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/serviceman/requests/:id/accept", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const serviceId = parseInt(req.params.id);
@@ -1854,13 +1972,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   registerAdminRoutes(app);
   registerPaymentRoutes(app);
-  registerProductRoutes(app);
-  registerOtpRoutes(app);
+  // PHASE 0: Product ordering halted — Coming Soon (AI_CONTEXT §3.K)
+  // registerProductRoutes(app);
+  // PHASE 0: Auth OTP removed — Truecaller handles phone auth (AI_CONTEXT §1.3)
+  // registerOtpRoutes(app);
   registerClientFeatureRoutes(app);
-  // registerSocialAuthRoutes(app);
+  // registerSocialAuthRoutes(app); // REMOVED: Social auth deprecated
   registerNotificationRoutes(app);
   registerReturnRoutes(app);
   registerCatalogRoutes(app);
+  registerTruecallerAuthRoutes(app);
+  registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
+  registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
+  registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
 
   // ==================== API VERSIONING ====================
   // Forward /api/v1/* requests to /api/* handlers

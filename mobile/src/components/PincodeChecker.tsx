@@ -43,7 +43,9 @@ export function PincodeChecker({ onVerified, initialPincode = '', showTitle = tr
         try {
             // Check if service is available in this pincode
             const res = await apiClient.get(`/api/customer/check-serviceability?pincode=${pincode}`);
-            const isAvailable = res.data?.available;
+            
+            // Check both properties for compatibility
+            const isAvailable = res.data?.available || res.data?.serviceable;
 
             if (isAvailable) {
                 setStatus('available');
@@ -51,19 +53,12 @@ export function PincodeChecker({ onVerified, initialPincode = '', showTitle = tr
                 onVerified?.(pincode);
             } else {
                 setStatus('unavailable');
-                setMessage('Sorry, we don\'t provide service here yet.');
+                setMessage(res.data?.message || 'Sorry, we don\'t provide service here yet.');
             }
         } catch (error) {
-            // Fallback for demo if API endpoint doesn't exist yet
-            // In a real app, we'd handle the 404 or error properly
-            if (pincode.startsWith('11') || pincode.startsWith('56')) {
-                setStatus('available');
-                setMessage('Great! We provide service in your area.');
-                onVerified?.(pincode);
-            } else {
-                setStatus('unavailable');
-                setMessage('Sorry, we don\'t provide service here yet.');
-            }
+            setStatus('unavailable');
+            setMessage('Could not verify serviceability. Please try again later.');
+            console.error('[PincodeChecker] Error:', error);
         } finally {
             setLoading(false);
         }

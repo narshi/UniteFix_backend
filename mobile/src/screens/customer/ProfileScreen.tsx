@@ -11,6 +11,7 @@ import {
     TouchableOpacity,
     Alert,
     ActivityIndicator,
+    Linking,
 } from 'react-native';
 import {
     User,
@@ -22,7 +23,10 @@ import {
     Shield,
     Edit3,
     Save,
+    Navigation,
+    MessageCircle,
 } from 'lucide-react-native';
+import * as Location from 'expo-location';
 import { useProfile, useUpdateProfile } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
@@ -39,22 +43,33 @@ export function ProfileScreen() {
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [address, setAddress] = useState('');
+    const [homeAddress, setHomeAddress] = useState('');
     const [pinCode, setPinCode] = useState('');
+    const [fetchingLocation, setFetchingLocation] = useState(false);
 
     useEffect(() => {
         if (profile) {
             setUsername(profile.username || '');
             setEmail(profile.email || '');
             setPhone(profile.phone || '');
-            setAddress(profile.address || '');
+            setHomeAddress(profile.homeAddress || '');
             setPinCode(profile.pinCode || '');
         }
     }, [profile]);
 
     const handleSave = () => {
+        // Basic validation
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            Alert.alert('Validation Error', 'Please enter a valid email address.');
+            return;
+        }
+        if (pinCode && !/^\d{6}$/.test(pinCode)) {
+            Alert.alert('Validation Error', 'Pin code must be exactly 6 digits.');
+            return;
+        }
+
         updateProfile(
-            { username, email, phone, address, pinCode },
+            { username, email, homeAddress, pinCode },
             {
                 onSuccess: () => {
                     setEditing(false);
@@ -62,6 +77,37 @@ export function ProfileScreen() {
                 },
             }
         );
+    };
+
+    const handleFetchLocation = async () => {
+        try {
+            setFetchingLocation(true);
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Permission to access location was denied');
+                return;
+            }
+
+            const location = await Location.getCurrentPositionAsync({});
+            const geocode = await Location.reverseGeocodeAsync({
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+            });
+
+            if (geocode && geocode.length > 0) {
+                const addr = geocode[0];
+                const addressString = `${addr.name ? addr.name + ', ' : ''}${addr.street ? addr.street + ', ' : ''}${addr.city ? addr.city + ', ' : ''}${addr.region || ''}`.replace(/,\s*$/, "");
+                setHomeAddress(addressString);
+                if (addr.postalCode) {
+                    setPinCode(addr.postalCode);
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching location:', error);
+            Alert.alert('Error', 'Could not fetch your current location.');
+        } finally {
+            setFetchingLocation(false);
+        }
     };
 
     const handleLogout = () => {
@@ -131,18 +177,31 @@ export function ProfileScreen() {
                             icon={<Mail size={18} color={colors.textSecondary} />}
                         />
                         <Input
-                            label="Phone"
+                            label="Phone (Read-only)"
                             value={phone}
-                            onChangeText={setPhone}
-                            keyboardType="phone-pad"
+                            editable={false}
+                            style={{ color: colors.textSecondary }}
                             icon={<Phone size={18} color={colors.textSecondary} />}
                         />
-                        <Input
-                            label="Address"
-                            value={address}
-                            onChangeText={setAddress}
-                            icon={<MapPin size={18} color={colors.textSecondary} />}
-                        />
+                        <View style={{ position: 'relative' }}>
+                            <Input
+                                label="Address"
+                                value={homeAddress}
+                                onChangeText={setHomeAddress}
+                                icon={<MapPin size={18} color={colors.textSecondary} />}
+                            />
+                            <TouchableOpacity 
+                                style={{ position: 'absolute', right: 10, top: 38, padding: 5 }} 
+                                onPress={handleFetchLocation}
+                                disabled={fetchingLocation}
+                            >
+                                {fetchingLocation ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <Navigation size={20} color={colors.primary} />
+                                )}
+                            </TouchableOpacity>
+                        </View>
                         <Input
                             label="Pin Code"
                             value={pinCode}
@@ -162,7 +221,7 @@ export function ProfileScreen() {
                         <InfoRow icon={User} label="Name" value={displayName} />
                         <InfoRow icon={Mail} label="Email" value={profile?.email || 'Not set'} />
                         <InfoRow icon={Phone} label="Phone" value={profile?.phone || 'Not set'} />
-                        <InfoRow icon={MapPin} label="Address" value={profile?.address || 'Not set'} />
+                        <InfoRow icon={MapPin} label="Address" value={profile?.homeAddress || 'Not set'} />
                         <InfoRow icon={Shield} label="Pin Code" value={profile?.pinCode || 'Not set'} />
                     </View>
                 )}
@@ -171,6 +230,19 @@ export function ProfileScreen() {
             {/* Account section */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Account</Text>
+                
+                <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => {
+                    Linking.openURL('whatsapp://send?phone=+910000000000&text=Hello UniteFix Support, I need help.').catch(() => {
+                        Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
+                    });
+                }}>
+                    <View style={styles.menuLeft}>
+                        <MessageCircle size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Help & Support (WhatsApp)</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />

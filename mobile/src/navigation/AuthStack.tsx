@@ -1,5 +1,8 @@
 /**
- * Auth Stack — Login, Signup, Forgot Password, OTP, Reset Password, Set Password flows
+ * Auth Stack — Truecaller OAuth Authentication Flow
+ *
+ * Flow: Splash → RoleSelection → TruecallerAuth → (auto-navigate via auth gate)
+ *       For employees: → EmployeePending (if admin approval needed)
  */
 
 import React from 'react';
@@ -7,12 +10,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../types/navigation.types';
 
 import { SplashScreen } from '../screens/auth/SplashScreen';
-import { LoginScreen } from '../screens/auth/LoginScreen';
-import { SignupScreen } from '../screens/auth/SignupScreen';
-import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
-import { OtpVerificationScreen } from '../screens/auth/OtpVerificationScreen';
-import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
-import { SetPasswordScreen } from '../screens/auth/SetPasswordScreen';
+import { RoleSelectionScreen } from '../screens/auth/RoleSelectionScreen';
+import { TruecallerAuthScreen } from '../screens/auth/TruecallerAuthScreen';
+import { EmployeePendingScreen } from '../screens/auth/EmployeePendingScreen';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
@@ -25,13 +25,9 @@ export function AuthStack() {
             }}
         >
             <Stack.Screen name="Splash" component={SplashScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-            <Stack.Screen name="OTPVerification" component={OtpVerificationScreen} />
-            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-            <Stack.Screen name="SetPassword" component={SetPasswordScreen} />
+            <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
+            <Stack.Screen name="TruecallerAuth" component={TruecallerAuthScreen} />
+            <Stack.Screen name="EmployeePending" component={EmployeePendingScreen} />
         </Stack.Navigator>
     );
 }
-

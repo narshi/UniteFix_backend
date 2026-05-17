@@ -129,8 +129,5 @@ export async function isPincodeServiceable(pincode: string): Promise<boolean> {
 
     if (result.count > 0) return true;
 
-    // Fallback: Accept all 581xxx pincodes (Uttara Kannada region)
-    if (pincode.startsWith('581')) return true;
-
     return false;
 }

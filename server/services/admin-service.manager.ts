@@ -13,7 +13,7 @@
 
 import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray } from "drizzle-orm";
-import { serviceRequests, serviceProviders, users, auditLogs } from "@shared/schema";
+import { serviceRequests, employees, users, auditLogs } from "@shared/schema";
 
 interface ServiceFilters {
     status?: string;
@@ -79,7 +79,7 @@ export class AdminServiceManager {
                 serviceId: serviceRequests.serviceId,
                 customerName: users.username,
                 customerPhone: users.phone,
-                technicianName: sql`sp.user_id`, // Will join to get technician name
+                technicianName: employees.fullName,
                 serviceType: serviceRequests.serviceType,
                 status: serviceRequests.status,
                 address: serviceRequests.address,
@@ -89,7 +89,7 @@ export class AdminServiceManager {
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
-            .leftJoin(serviceProviders, eq(serviceRequests.providerId, serviceProviders.id))
+            .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
             .where(conditions.length > 0 ? and(...conditions) : undefined)
             .orderBy(desc(serviceRequests.createdAt))
             .limit(limit)
@@ -136,8 +136,8 @@ export class AdminServiceManager {
         if (service.providerId) {
             const [tech] = await db
                 .select()
-                .from(serviceProviders)
-                .where(eq(serviceProviders.id, service.providerId));
+                .from(employees)
+                .where(eq(employees.id, service.providerId));
             technician = tech;
         }
 
@@ -170,8 +170,8 @@ export class AdminServiceManager {
         // Validate technician exists and is active
         const [technician] = await db
             .select()
-            .from(serviceProviders)
-            .where(eq(serviceProviders.id, technicianId));
+            .from(employees)
+            .where(eq(employees.id, technicianId));
 
         if (!technician || !technician.isActive) {
             throw new Error("Technician not found or inactive");
@@ -199,7 +199,7 @@ export class AdminServiceManager {
             changedBy: adminId,
             metadata: {
                 technicianId,
-                technicianName: technician.userId, // Would need to join to get name
+                technicianName: technician.fullName,
                 assignedBy: "admin",
             },
         });
@@ -230,8 +230,8 @@ export class AdminServiceManager {
         // Validate new technician
         const [newTech] = await db
             .select()
-            .from(serviceProviders)
-            .where(eq(serviceProviders.id, newTechnicianId));
+            .from(employees)
+            .where(eq(employees.id, newTechnicianId));
 
         if (!newTech || !newTech.isActive) {
             throw new Error("New technician not found or inactive");

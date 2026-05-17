@@ -1,42 +1,142 @@
 /**
- * UniteFix Design System — Typography
+ * UniteFix Design System — Typography Tokens
+ * 
+ * Uses Inter font family for premium feel.
+ * Falls back to system font if Inter is not loaded.
  */
 
-import { TextStyle } from 'react-native';
+import { TextStyle, Platform } from 'react-native';
 
+const fontFamily = Platform.select({
+    ios: 'Inter',
+    android: 'Inter',
+    default: 'System',
+});
+
+export const typography: Record<string, TextStyle> = {
+    // Display — Hero sections
+    display: {
+        fontSize: 32,
+        fontWeight: '800',
+        lineHeight: 40,
+        letterSpacing: -0.5,
+    },
+
+    // Headings
+    h1: {
+        fontSize: 28,
+        fontWeight: '700',
+        lineHeight: 36,
+        letterSpacing: -0.3,
+    },
+
+    h2: {
+        fontSize: 22,
+        fontWeight: '700',
+        lineHeight: 30,
+        letterSpacing: -0.2,
+    },
+
+    h3: {
+        fontSize: 18,
+        fontWeight: '600',
+        lineHeight: 26,
+    },
+
+    h4: {
+        fontSize: 16,
+        fontWeight: '600',
+        lineHeight: 24,
+    },
+
+    // Body
+    body: {
+        fontSize: 15,
+        fontWeight: '400',
+        lineHeight: 22,
+    },
+
+    bodyMedium: {
+        fontSize: 15,
+        fontWeight: '500',
+        lineHeight: 22,
+    },
+
+    bodySemibold: {
+        fontSize: 15,
+        fontWeight: '600',
+        lineHeight: 22,
+    },
+
+    // Small / Caption
+    caption: {
+        fontSize: 13,
+        fontWeight: '400',
+        lineHeight: 18,
+    },
+
+    captionMedium: {
+        fontSize: 13,
+        fontWeight: '500',
+        lineHeight: 18,
+    },
+
+    small: {
+        fontSize: 11,
+        fontWeight: '500',
+        lineHeight: 16,
+        letterSpacing: 0.3,
+    },
+
+    // Button
+    button: {
+        fontSize: 16,
+        fontWeight: '600',
+        lineHeight: 22,
+        letterSpacing: 0.2,
+    },
+
+    buttonSmall: {
+        fontSize: 14,
+        fontWeight: '600',
+        lineHeight: 20,
+    },
+
+    // Mono (for prices, codes, OTP)
+    mono: {
+        fontSize: 16,
+        fontWeight: '600',
+        lineHeight: 22,
+        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+    },
+
+    monoLarge: {
+        fontSize: 28,
+        fontWeight: '700',
+        lineHeight: 36,
+        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+    },
+};
+
+/**
+ * Backward-compatible size/weight scales
+ * Used by auth screens — do not remove.
+ */
 export const fontSizes = {
     xs: 11,
     sm: 13,
     base: 15,
-    md: 17,
-    lg: 20,
-    xl: 24,
+    md: 16,
+    lg: 18,
+    xl: 22,
     '2xl': 28,
-    '3xl': 34,
+    '3xl': 32,
 } as const;
 
 export const fontWeights = {
-    regular: '400' as TextStyle['fontWeight'],
-    medium: '500' as TextStyle['fontWeight'],
-    semibold: '600' as TextStyle['fontWeight'],
-    bold: '700' as TextStyle['fontWeight'],
+    regular: '400' as const,
+    medium: '500' as const,
+    semibold: '600' as const,
+    bold: '700' as const,
+    extrabold: '800' as const,
 };
-
-export const lineHeights = {
-    tight: 1.2,
-    normal: 1.4,
-    relaxed: 1.6,
-};
-
-export const typography = {
-    h1: { fontSize: fontSizes['3xl'], fontWeight: fontWeights.bold, lineHeight: fontSizes['3xl'] * lineHeights.tight },
-    h2: { fontSize: fontSizes['2xl'], fontWeight: fontWeights.bold, lineHeight: fontSizes['2xl'] * lineHeights.tight },
-    h3: { fontSize: fontSizes.xl, fontWeight: fontWeights.semibold, lineHeight: fontSizes.xl * lineHeights.tight },
-    h4: { fontSize: fontSizes.lg, fontWeight: fontWeights.semibold, lineHeight: fontSizes.lg * lineHeights.normal },
-    body: { fontSize: fontSizes.base, fontWeight: fontWeights.regular, lineHeight: fontSizes.base * lineHeights.relaxed },
-    bodyMedium: { fontSize: fontSizes.base, fontWeight: fontWeights.medium, lineHeight: fontSizes.base * lineHeights.relaxed },
-    caption: { fontSize: fontSizes.sm, fontWeight: fontWeights.regular, lineHeight: fontSizes.sm * lineHeights.normal },
-    small: { fontSize: fontSizes.xs, fontWeight: fontWeights.regular, lineHeight: fontSizes.xs * lineHeights.normal },
-    button: { fontSize: fontSizes.md, fontWeight: fontWeights.semibold, lineHeight: fontSizes.md * lineHeights.tight },
-    label: { fontSize: fontSizes.sm, fontWeight: fontWeights.medium, lineHeight: fontSizes.sm * lineHeights.tight },
-} as const;

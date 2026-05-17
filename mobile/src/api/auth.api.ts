@@ -1,101 +1,138 @@
 /**
- * Auth API endpoints
+ * Auth API — Truecaller OAuth + Email Verification
+ *
+ * PRIMARY: Truecaller OAuth (phone verification via SDK 3.x)
+ * SECONDARY: Email verification via Nodemailer (post-auth)
  */
 
 import { apiClient } from './client';
 
-export interface LoginRequest {
-    phone?: string;
-    email?: string;
-    password: string;
+// ── Request Types ─────────────────────────────────────────────────────
+
+export interface TruecallerVerifyRequest {
+  authorizationCode: string;
+  codeVerifier: string;
+  role: 'user' | 'serviceman';
 }
 
-export interface SignupRequest {
-    username: string;
-    email?: string;
-    phone: string;
-    password: string;
-    pinCode?: string;
-    referralCode?: string;
-    role?: string;
-    partnerType?: string;
+export interface EmailVerifyRequest {
+  email: string;
+}
+
+export interface EmailConfirmRequest {
+  email: string;
+  code: string;
+}
+
+// ── Response Types ────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number;
+  phone: string | null;
+  email: string | null;
+  username: string | null;
+  role: string;
+  phoneVerified: boolean;
+  emailVerified: boolean;
+  isVerified: boolean;
+  isActive: boolean;
+  profilePicture: string | null;
+  // PHASE 3: Employee verification gate fields
+  employeeId: number | null;
+  documentVerificationStatus: 'pending' | 'verified' | 'rejected' | 'suspended' | null;
+  isOnline: boolean | null;
 }
 
 export interface AuthResponse {
-    success: boolean;
-    message: string;
-    user: any;
-    token: string;
-    accessToken: string;
-    refreshToken: string;
-    expiresIn: number;
+  success: boolean;
+  message: string;
+  isNewUser: boolean;
+  user: AuthUser;
+  profile: any;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 export interface TokenRefreshResponse {
-    accessToken: string;
-    refreshToken: string;
-    expiresIn: number;
+  success: boolean;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
+// ── API Endpoints ─────────────────────────────────────────────────────
+
 export const authApi = {
-    login: (data: LoginRequest) =>
-        apiClient.post<AuthResponse>('/api/auth/login', data),
+  /**
+   * PRIMARY AUTH: Exchange Truecaller authorization code for JWT tokens
+   * Backend verifies the code server-to-server with Truecaller
+   */
+  truecallerVerify: (data: TruecallerVerifyRequest) =>
+    apiClient.post<AuthResponse>('/api/auth/truecaller/verify', data),
 
-    signup: (data: SignupRequest) =>
-        apiClient.post<AuthResponse>('/api/auth/signup', data),
+  /**
+   * TOKEN REFRESH: Rotate access + refresh tokens
+   */
+  refreshToken: (refreshToken: string) =>
+    apiClient.post<TokenRefreshResponse>('/api/auth/refresh', { refreshToken }),
 
-    // 3-Step Signup Flow
-    initiateSignup: (data: { email: string; role: 'user' | 'serviceman' }) =>
-        apiClient.post<{ success: boolean; message: string }>('/api/auth/signup/initiate', data),
+  /**
+   * LOGOUT: Revoke refresh tokens
+   */
+  logout: () =>
+    apiClient.post('/api/auth/logout'),
 
-    verifySignupOtp: (data: { email: string; otp: string; role: 'user' | 'serviceman' }) =>
-        apiClient.post<{ success: boolean; message: string; signupToken: string }>('/api/auth/signup/verify', data),
+  /**
+   * FALLBACK AUTH: Request OTP via email for non-Truecaller users
+   */
+  requestFallbackOtp: (data: { phone: string; email: string }) =>
+    apiClient.post('/api/auth/fallback/request-otp', data),
 
-    completeSignup: (data: {
-        signupToken: string;
-        password: string;
-        username?: string;
-        phone?: string;
-        partnerType?: string;
-    }) => apiClient.post<AuthResponse>('/api/auth/signup/complete', data),
+  /**
+   * FALLBACK AUTH: Verify OTP for non-Truecaller users
+   */
+  verifyFallbackOtp: (data: { phone: string; email: string; code: string; role: 'user' | 'serviceman' }) =>
+    apiClient.post<AuthResponse>('/api/auth/fallback/verify-otp', data),
 
-    refreshToken: (refreshToken: string) =>
-        apiClient.post<TokenRefreshResponse>('/api/auth/refresh', { refreshToken }),
+  /**
+   * DROP CALL AUTH: Validate missed call accessToken for non-TC users
+   */
+  verifyDropCall: (data: { accessToken: string; role: 'user' | 'serviceman' }) =>
+    apiClient.post<AuthResponse>('/api/auth/truecaller/verify-dropcall', data),
 
-    forgotPassword: (data: { phone?: string; email?: string }) =>
-        apiClient.post('/api/auth/forgot-password', data),
+  /**
+   * EMAIL VERIFICATION: Request verification code (authenticated)
+   */
+  requestEmailVerification: (data: EmailVerifyRequest) =>
+    apiClient.post('/api/auth/email/verify-request', data),
 
-    verifyOtp: (data: { phone?: string; email?: string; otp: string }) =>
-        apiClient.post<{ success: boolean; token: string }>('/api/otp/verify', data),
+  /**
+   * EMAIL VERIFICATION: Confirm code (authenticated)
+   */
+  confirmEmailVerification: (data: EmailConfirmRequest) =>
+    apiClient.post('/api/auth/email/confirm', data),
 
-    verifyResetOtp: (data: { phone?: string; email?: string; otp: string }) =>
-        apiClient.post<{ success: boolean; resetToken: string }>('/api/auth/verify-reset-otp', data),
+  /**
+   * PROFILE: Get authenticated user's profile
+   */
+  getProfile: () =>
+    apiClient.get('/api/client/auth/profile'),
 
-    resendOtp: (data: { phone?: string; email?: string; purpose?: string }) =>
-        apiClient.post('/api/auth/forgot-password', data),
+  /**
+   * PROFILE: Update user profile
+   */
+  updateProfile: (data: Partial<{
+    username: string;
+    email: string;
+    address: string;
+    pinCode: string;
+  }>) =>
+    apiClient.patch('/api/client/auth/profile', data),
 
-    resendSignupOtp: (data: { email: string }) =>
-        apiClient.post('/api/auth/signup/initiate', data),
-
-    resetPassword: (data: { token: string; password: string }) =>
-        apiClient.post('/api/auth/reset-password', {
-            resetToken: data.token,
-            newPassword: data.password,
-        }),
-
-    getProfile: () =>
-        apiClient.get('/api/client/auth/profile'),
-
-    updateProfile: (data: Partial<{ username: string; email: string; phone: string; address: string; pinCode: string }>) =>
-        apiClient.patch('/api/client/auth/profile', data),
-
-    logout: () =>
-        apiClient.post('/api/auth/logout'),
-
-    deleteAccount: () =>
-        apiClient.delete('/api/client/account'),
-
-    socialLogin: (data: { provider: 'google' | 'facebook'; idToken?: string; accessToken?: string }) =>
-        apiClient.post<AuthResponse>('/api/auth/social/token', data),
+  /**
+   * ACCOUNT: Delete account
+   */
+  deleteAccount: () =>
+    apiClient.delete('/api/client/account'),
 };
-

@@ -54,7 +54,7 @@ export function OrderConfirmationScreen({ navigation, route }: Props) {
                 <Animated.View style={[styles.textContent, { opacity: fadeAnim }]}>
                     <Text style={styles.title}>Order Placed! 🎉</Text>
                     <Text style={styles.subtitle}>
-                        Your order has been placed successfully. You'll receive updates on your order status.
+                        Your order has been placed successfully. You will receive updates on your order status.
                     </Text>
 
                     {total > 0 && (

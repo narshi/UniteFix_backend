@@ -38,13 +38,18 @@ export default function PartnerAssignmentModal({
   const { data: partnersData, isLoading } = useQuery({
     queryKey: ["/api/admin/servicemen/nearby", service?.locationLat, service?.locationLong],
     queryFn: async () => {
+      const adminToken = localStorage.getItem("adminToken");
+      const headers: Record<string, string> = {};
+      if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+
       if (service?.locationLat && service?.locationLong) {
         const response = await fetch(
-          `/api/admin/servicemen/nearby?lat=${service.locationLat}&long=${service.locationLong}&status=verified`
+          `/api/admin/servicemen/nearby?lat=${service.locationLat}&long=${service.locationLong}&status=verified`,
+          { headers }
         );
         return response.json();
       }
-      const response = await fetch("/api/business/partners");
+      const response = await fetch("/api/business/partners", { headers });
       const data = await response.json();
       return { success: true, data: Array.isArray(data) ? data : [] };
     },
@@ -55,23 +60,16 @@ export default function PartnerAssignmentModal({
 
   const assignPartnerMutation = useMutation({
     mutationFn: async (partnerId: number) => {
-      const response = await fetch(`/api/admin/requests/assign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ request_id: service.id, provider_id: partnerId }),
+      const { apiRequest } = await import("@/lib/queryClient");
+      return await apiRequest("POST", `/api/admin/requests/assign`, {
+        request_id: service.id,
+        provider_id: partnerId,
       });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to assign partner");
-      }
-      return response.json();
     },
     onSuccess: () => {
       toast({
         title: "Success",
-        description: "Partner assigned successfully!",
+        description: "Employee assigned successfully!",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/services/pending"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
@@ -81,7 +79,7 @@ export default function PartnerAssignmentModal({
     onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to assign partner",
+        description: error.message || "Failed to assign employee",
         variant: "destructive",
       });
     },
@@ -91,7 +89,7 @@ export default function PartnerAssignmentModal({
     if (!selectedPartnerId) {
       toast({
         title: "Error",
-        description: "Please select a partner",
+        description: "Please select an employee",
         variant: "destructive",
       });
       return;
@@ -107,7 +105,7 @@ export default function PartnerAssignmentModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <User className="w-5 h-5" />
-            Assign Service Partner
+            Assign Employee
           </DialogTitle>
         </DialogHeader>
         
@@ -219,8 +217,8 @@ export default function PartnerAssignmentModal({
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <User className="w-8 h-8 text-gray-400" />
               </div>
-              <p className="text-gray-500 font-medium">No verified partners available</p>
-              <p className="text-sm text-gray-400 mt-1">Add partners in Partner Management</p>
+              <p className="text-gray-500 font-medium">No verified employees available</p>
+              <p className="text-sm text-gray-400 mt-1">Add employees in Employee Management</p>
             </div>
           )}
         </div>
@@ -246,7 +244,7 @@ export default function PartnerAssignmentModal({
                 Assigning...
               </>
             ) : (
-              "Assign Partner"
+              "Assign Employee"
             )}
           </Button>
         </div>

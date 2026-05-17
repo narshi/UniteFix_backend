@@ -386,4 +386,64 @@ export class PaymentService {
 
         return { invoiceId };
     }
+
+    /**
+     * PHASE 5: Refund booking charge (₹99) on cancellation from CREATED state
+     * AI_CONTEXT §5.G: Only from CREATED state
+     */
+    static async refundBookingCharge(serviceRequestId: number): Promise<{ refundId: string } | null> {
+        const razorpay = await this.getRazorpayInstance();
+
+        // Find the booking charge payment
+        const paymentResult = await db.execute(sql`
+            SELECT razorpay_payment_id, amount FROM payment_transactions
+            WHERE service_request_id = ${serviceRequestId}
+              AND payment_type = 'booking_charge'
+              AND payment_status = 'captured'
+            LIMIT 1
+        `) as any;
+        const payment = paymentResult?.[0];
+
+        if (!payment?.razorpay_payment_id) {
+            logger.warn(`[REFUND] No captured booking payment found for SR ${serviceRequestId}`);
+            return null;
+        }
+
+        try {
+            const refund = await razorpay.payments.refund(payment.razorpay_payment_id, {
+                amount: Math.round(payment.amount * 100), // Convert to paise
+                notes: {
+                    service_request_id: serviceRequestId.toString(),
+                    reason: 'Customer cancelled from CREATED state',
+                },
+            });
+
+            // Update payment record
+            await db.execute(sql`
+                UPDATE payment_transactions
+                SET payment_status = 'refunded',
+                    refund_id = ${refund.id},
+                    updated_at = NOW()
+                WHERE service_request_id = ${serviceRequestId}
+                  AND payment_type = 'booking_charge'
+            `);
+
+            // PHASE 10: Record refund to audit trail
+            await PaymentTrackingService.recordPaymentEvent({
+                serviceRequestId,
+                razorpayPaymentId: payment.razorpay_payment_id,
+                amount: Math.round(payment.amount * 100),
+                currency: 'INR',
+                eventType: 'refund_initiated',
+                status: 'initiated',
+                metadata: { refundId: refund.id, reason: 'cancellation' },
+            });
+
+            logger.info(`[REFUND] Booking refund initiated: SR ${serviceRequestId}, refund ${refund.id}`);
+            return { refundId: refund.id };
+        } catch (err: any) {
+            logger.error(`[REFUND] Razorpay refund failed for SR ${serviceRequestId}:`, err.message);
+            throw err;
+        }
+    }
 }

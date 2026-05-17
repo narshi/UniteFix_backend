@@ -60,6 +60,9 @@ export default function PartnersPage() {
 
   const addPartnerMutation = useMutation({
     mutationFn: async (partnerData: any) => {
+      if (selectedPartner) {
+        return await apiRequest("PATCH", `/api/admin/servicemen/${selectedPartner.id}`, partnerData);
+      }
       return await apiRequest("POST", "/api/admin/servicemen/create", partnerData);
     },
     onSuccess: () => {
@@ -76,7 +79,7 @@ export default function PartnersPage() {
         businessName: '',
         address: ''
       });
-      toast({ title: "Service Partner added successfully" });
+      toast({ title: "Employee added successfully" });
     },
     onError: (error: any) => {
       toast({ title: "Error adding partner", description: error.message, variant: "destructive" });
@@ -89,7 +92,7 @@ export default function PartnersPage() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
-      toast({ title: `Partner ${variables.action} successful` });
+      toast({ title: `Employee ${variables.action} successful` });
     },
     onError: (error: any) => {
       toast({ title: "Action failed", description: error.message, variant: "destructive" });
@@ -146,7 +149,7 @@ export default function PartnersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
-      toast({ title: "Partner deleted successfully" });
+      toast({ title: "Employee deleted successfully" });
     },
     onError: (error: any) => {
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
@@ -170,26 +173,26 @@ export default function PartnersPage() {
     <div className="flex-1 p-8">
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Service Partners</h2>
-          <p className="text-gray-600">Manage business partners, verification, and wallets</p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Employees</h2>
+          <p className="text-gray-600">Manage employees, verification, and wallets</p>
         </div>
         <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Partner
+              <Plus className="w-4 h-4" /> Add Employee
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Register New Partner</DialogTitle>
+              <DialogTitle>Register New Employee</DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
-                <Label>Partner Name *</Label>
+                <Label>Employee Name *</Label>
                 <Input value={newPartner.partnerName} onChange={e => setNewPartner({ ...newPartner, partnerName: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Partner Type</Label>
+                <Label>Employee Type</Label>
                 <Select value={newPartner.partnerType} onValueChange={v => setNewPartner({ ...newPartner, partnerType: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -243,7 +246,7 @@ export default function PartnersPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={handleAddPartner}>Register Partner</Button>
+              <Button onClick={handleAddPartner}>Register Employee</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -252,7 +255,7 @@ export default function PartnersPage() {
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>Partner Directory</CardTitle>
+            <CardTitle>Employee Directory</CardTitle>
             <div className="flex gap-2">
               <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
                 <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
@@ -280,7 +283,7 @@ export default function PartnersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">
-                    <th className="text-left py-4 px-4">Partner Info</th>
+                    <th className="text-left py-4 px-4">Employee Info</th>
                     <th className="text-left py-4 px-4">Services</th>
                     <th className="text-left py-4 px-4">Wallet</th>
                     <th className="text-left py-4 px-4">Status</th>
@@ -298,7 +301,7 @@ export default function PartnersPage() {
                           <div>
                             <p className="font-bold">{partner.partnerName}</p>
                             <p className="text-xs text-gray-500">{partner.partnerId} • {partner.partnerType}</p>
-                            <p className="text-xs text-gray-400">{partner.phone}</p>
+                            <p className="text-xs text-gray-400">{partner.phone || 'No phone'} • {partner.email || 'No email'}</p>
                           </div>
                         </div>
                       </td>
@@ -363,20 +366,100 @@ export default function PartnersPage() {
                       <td className="py-4 px-4 text-right">
                         <div className="flex justify-end gap-1">
                           {partner.verificationStatus === 'pending' && (
-                            <Button size="sm" variant="outline" className="h-8 text-green-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'approve' })}>
-                              <ShieldCheck className="w-4 h-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-8 text-green-600 gap-1" title="Verify this employee">
+                                  <ShieldCheck className="w-4 h-4" />
+                                  <span className="text-xs">Verify</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Verify Employee?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will approve <strong>{partner.partnerName}</strong> ({partner.email || partner.phone}) as a verified employee. They will be able to receive job assignments.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-green-600 hover:bg-green-700"
+                                    onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'approve' })}
+                                  >
+                                    Approve & Verify
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                           {partner.verificationStatus === 'verified' && (
-                            <Button size="sm" variant="outline" className="h-8 text-orange-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'suspend' })}>
-                              <Ban className="w-4 h-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-8 text-orange-600 gap-1" title="Suspend this employee">
+                                  <Ban className="w-4 h-4" />
+                                  <span className="text-xs">Suspend</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Suspend Employee?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will suspend <strong>{partner.partnerName}</strong>. They will not be able to receive new jobs until reactivated.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-orange-600 hover:bg-orange-700"
+                                    onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'suspend' })}
+                                  >
+                                    Suspend
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                           {partner.verificationStatus === 'suspended' && (
-                            <Button size="sm" variant="outline" className="h-8 text-blue-600" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'activate' })}>
+                            <Button size="sm" variant="outline" className="h-8 text-blue-600 gap-1" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'activate' })}>
                               <ShieldCheck className="w-4 h-4" />
+                              <span className="text-xs">Reactivate</span>
                             </Button>
                           )}
+                          <Dialog open={selectedPartner?.id === partner.id && isAddModalOpen} onOpenChange={(open) => {
+                            if (!open) {
+                              setSelectedPartner(null);
+                              setIsAddModalOpen(false);
+                            }
+                          }}>
+                            <DialogTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 text-blue-600 hover:bg-blue-50"
+                                onClick={() => {
+                                  setSelectedPartner(partner);
+                                  setNewPartner({
+                                    partnerName: partner.partnerName,
+                                    email: partner.email,
+                                    phone: partner.phone,
+                                    password: '', // Don't show password
+                                    partnerType: partner.partnerType || 'Individual',
+                                    services: partner.services || [],
+                                    location: partner.location || '',
+                                    businessName: partner.businessName || '',
+                                    address: partner.address || ''
+                                  });
+                                  setIsAddModalOpen(true);
+                                }}
+                              >
+                                <Plus className="w-4 h-4 rotate-45 hidden" /> {/* Hidden trigger hack */}
+                                <span className="text-xs font-medium">Edit</span>
+                              </Button>
+                            </DialogTrigger>
+                            {/* The DialogContent is already defined outside the loop using state, 
+                                but since we need the Edit button in the loop, we use this trigger pattern. */}
+                          </Dialog>
+
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button size="sm" variant="ghost" className="h-8 text-red-500 hover:bg-red-50">
@@ -385,8 +468,8 @@ export default function PartnersPage() {
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Partner?</AlertDialogTitle>
-                                <AlertDialogDescription>This will permanently remove the partner profile and wallet history.</AlertDialogDescription>
+                                <AlertDialogTitle>Delete Employee?</AlertDialogTitle>
+                                <AlertDialogDescription>This will permanently remove the employee profile and wallet history.</AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>

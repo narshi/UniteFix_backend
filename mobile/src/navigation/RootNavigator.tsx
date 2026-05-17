@@ -1,5 +1,12 @@
 /**
- * Root Navigator — Auth gate → Role-based navigation
+ * PHASE 3: Root Navigator — Auth gate → Verification gate → Role-based navigation
+ *
+ * 3-branch routing:
+ * 1. NOT authenticated → AuthStack (login/signup)
+ * 2. Authenticated + role='serviceman' + NOT verified → EmployeePendingScreen
+ * 3. Authenticated + role='serviceman' + verified → PartnerStack (full employee app)
+ * 4. Authenticated + role='user' → CustomerStack (customer app)
+ *
  * Includes: ErrorBoundary, deep linking, push notification initialization
  */
 
@@ -11,6 +18,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { AuthStack } from './AuthStack';
 import { CustomerStack } from './CustomerStack';
 import { PartnerStack } from './PartnerStack';
+import { EmployeePendingScreen } from '../screens/partner/EmployeePendingScreen';
 import { linkingConfig } from './linking';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import {
@@ -28,6 +36,24 @@ function LoadingScreen() {
             <ActivityIndicator size="large" color={colors.primary} />
         </View>
     );
+}
+
+/**
+ * Determines which screen/stack to show based on auth + verification state.
+ * This is the single source of truth for navigation branching.
+ */
+function getNavigationBranch(user: any): 'auth' | 'customer' | 'employee_verified' | 'employee_pending' {
+    if (!user) return 'auth';
+
+    if (user.role === 'serviceman') {
+        // PHASE 3: Verification gate — only 'verified' employees get full access
+        if (user.documentVerificationStatus === 'verified') {
+            return 'employee_verified';
+        }
+        return 'employee_pending';
+    }
+
+    return 'customer';
 }
 
 export function RootNavigator() {
@@ -76,15 +102,22 @@ export function RootNavigator() {
         return <LoadingScreen />;
     }
 
+    const branch = isAuthenticated ? getNavigationBranch(user) : 'auth';
+
     return (
         <ErrorBoundary>
             <NavigationContainer ref={navigationRef} linking={linkingConfig}>
                 <RootStack.Navigator screenOptions={{ headerShown: false }}>
-                    {!isAuthenticated ? (
+                    {branch === 'auth' && (
                         <RootStack.Screen name="Auth" component={AuthStack} />
-                    ) : user?.role === 'serviceman' ? (
+                    )}
+                    {branch === 'employee_verified' && (
                         <RootStack.Screen name="EmployeeMain" component={PartnerStack} />
-                    ) : (
+                    )}
+                    {branch === 'employee_pending' && (
+                        <RootStack.Screen name="EmployeePending" component={EmployeePendingScreen} />
+                    )}
+                    {branch === 'customer' && (
                         <RootStack.Screen name="CustomerMain" component={CustomerStack} />
                     )}
                 </RootStack.Navigator>

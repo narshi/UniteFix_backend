@@ -2,11 +2,10 @@ import { db } from "./db";
 import { 
   users, 
   adminUsers, 
-  serviceProviders, 
+  employees,
   products, 
   serviceablePincodes,
   serviceRequests,
-  productOrders
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 
@@ -68,58 +67,25 @@ async function seed() {
     }
     console.log("Sample users created");
 
-    // Create service providers
-    const providerInserts = [
+    // Create employees (PHASE 1: replaces serviceProviders)
+    const employeeInserts = [
       {
         userId: 3,
+        fullName: "Rajesh Kumar",
         partnerId: "SP00001",
-        partnerName: "Rajesh Kumar",
         partnerType: "Individual",
         walletBalance: "5000.00",
-        verificationStatus: "verified" as const,
-        currentLat: 14.5892,
-        currentLong: 74.6783,
+        documentVerificationStatus: "verified" as const,
         services: ["AC Repair", "Refrigerator"],
-        location: "581301",
-        address: "MG Road, Sirsi, Karnataka",
         isActive: true,
-      },
-      {
-        userId: 3,
-        partnerId: "SP00002",
-        partnerName: "ServicePro Solutions",
-        businessName: "ServicePro Solutions Pvt Ltd",
-        partnerType: "Business",
-        walletBalance: "15000.00",
-        verificationStatus: "verified" as const,
-        currentLat: 14.4264,
-        currentLong: 74.4131,
-        services: ["Laptop Repair", "Mobile Phone", "TV Repair"],
-        location: "581343",
-        address: "Market Road, Kumta, Karnataka",
-        isActive: true,
-      },
-      {
-        userId: 3,
-        partnerId: "SP00003",
-        partnerName: "TechFix Services",
-        businessName: "TechFix Services",
-        partnerType: "Business",
-        walletBalance: "0.00",
-        verificationStatus: "pending" as const,
-        currentLat: 14.8015,
-        currentLong: 74.1296,
-        services: ["AC Repair", "Laptop Repair", "Washing Machine"],
-        location: "581320",
-        address: "Station Road, Karwar, Karnataka",
-        isActive: true,
+        isOnline: true,
       },
     ];
 
-    for (const provider of providerInserts) {
-      await db.insert(serviceProviders).values(provider as any).onConflictDoNothing();
+    for (const emp of employeeInserts) {
+      await db.insert(employees).values(emp as any).onConflictDoNothing();
     }
-    console.log("Service providers created");
+    console.log("Employees created");
 
     // Create products
     const productInserts = [
@@ -155,7 +121,7 @@ async function seed() {
     }
     console.log("Serviceable pincodes created");
 
-    // Create sample service requests
+    // Create sample service requests (PHASE 1: using canonical states, ₹99 fee, no lat/long)
     const serviceInserts = [
       {
         serviceId: "SR000001",
@@ -165,28 +131,22 @@ async function seed() {
         brand: "LG",
         model: "LSA3AU3D",
         description: "AC not cooling properly",
-        status: "service_completed" as const,
+        status: "completed" as const,
         handshakeOtp: "1234",
-        bookingFee: 250,
+        bookingFee: 99,
         totalAmount: 2500,
-        commissionAmount: 250,
-        locationLat: 14.5892,
-        locationLong: 74.6783,
+        commissionAmount: 375,
         address: "123 Main St, Sirsi, Karnataka",
       },
       {
         serviceId: "SR000002",
         userId: 1,
-        providerId: 2,
         serviceType: "Laptop Repair",
         brand: "Dell",
         model: "Inspiron 15",
         description: "Screen flickering issue",
-        status: "partner_assigned" as const,
-        handshakeOtp: "5678",
-        bookingFee: 250,
-        locationLat: 14.5892,
-        locationLong: 74.6783,
+        status: "created" as const,
+        bookingFee: 99,
         address: "123 Main St, Sirsi, Karnataka",
       },
       {
@@ -196,11 +156,8 @@ async function seed() {
         brand: "Samsung",
         model: "WA70H4200SW",
         description: "Not draining water properly",
-        status: "placed" as const,
-        handshakeOtp: "9012",
-        bookingFee: 250,
-        locationLat: 14.4264,
-        locationLong: 74.4131,
+        status: "created" as const,
+        bookingFee: 99,
         address: "456 Market Rd, Kumta, Karnataka",
       },
     ];
@@ -210,35 +167,7 @@ async function seed() {
     }
     console.log("Service requests created");
 
-    // Create sample product orders
-    const orderInserts = [
-      {
-        orderId: "ORD000001",
-        userId: 1,
-        products: [
-          { productId: 1, name: "Universal AC Remote", quantity: 2, price: 299 },
-          { productId: 6, name: "Thermostat Digital", quantity: 1, price: 850 }
-        ],
-        status: "delivered" as const,
-        totalAmount: 1448,
-        address: "123 Main St, Sirsi, Karnataka",
-      },
-      {
-        orderId: "ORD000002",
-        userId: 2,
-        products: [
-          { productId: 3, name: "Laptop SSD 256GB", quantity: 1, price: 3500 }
-        ],
-        status: "in_transit" as const,
-        totalAmount: 3500,
-        address: "456 Market Rd, Kumta, Karnataka",
-      },
-    ];
-
-    for (const order of orderInserts) {
-      await db.insert(productOrders).values(order as any).onConflictDoNothing();
-    }
-    console.log("Product orders created");
+    // Product orders removed — product ordering halted (AI_CONTEXT §3.K)
 
     console.log("Database seeding completed!");
   } catch (error) {

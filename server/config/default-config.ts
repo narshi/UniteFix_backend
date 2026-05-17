@@ -20,18 +20,18 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
     // Financial rules, commissions, fees
     {
         key: 'BUSINESS_CONFIG.BASE_SERVICE_FEE',
-        value: '250',
+        value: '99',
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
-        description: 'Base booking fee in INR',
+        description: 'Base booking fee in INR (AI_CONTEXT §3.B.1)',
         isEditable: true,
     },
     {
-        key: 'BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE',
-        value: '50',
+        key: 'BUSINESS_CONFIG.PLATFORM_COMMISSION_PERCENTAGE',
+        value: '15',
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
-        description: 'Partner share of service fee (%)',
+        description: 'Platform commission as percentage of subtotal (AI_CONTEXT §3.C)',
         isEditable: true,
     },
     {
@@ -51,11 +51,19 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         isEditable: true,
     },
     {
-        key: 'BUSINESS_CONFIG.CANCELLATION_FEE_PERCENTAGE',
-        value: '20',
+        key: 'BUSINESS_CONFIG.GST_PERCENTAGE',
+        value: '18',
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
-        description: 'Cancellation fee as percentage of booking fee',
+        description: 'GST percentage on taxable amount (AI_CONTEXT §3.C)',
+        isEditable: false,
+    },
+    {
+        key: 'BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT',
+        value: '15',
+        valueType: 'number',
+        category: 'BUSINESS_CONFIG',
+        description: 'UniteFix platform fee percentage on (parts + labor) subtotal (AI_CONTEXT §5.B)',
         isEditable: true,
     },
 
@@ -63,18 +71,18 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
     // System limits, distances, feature flags
     {
         key: 'OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE',
-        value: '500',
+        value: '200',
         valueType: 'number',
         category: 'OPERATIONAL_CONFIG',
-        description: 'Maximum distance in meters for service start geo-fence',
+        description: 'Maximum distance in meters for REACHED geo-fence (AI_CONTEXT §4.4)',
         isEditable: true,
     },
     {
         key: 'OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS',
-        value: '24',
+        value: '4',
         valueType: 'number',
         category: 'OPERATIONAL_CONFIG',
-        description: 'Hours before unaccepted assignment expires',
+        description: 'Hours before unaccepted assignment auto-reverts to CREATED (AI_CONTEXT §3.F)',
         isEditable: true,
     },
     {

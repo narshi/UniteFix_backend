@@ -33,7 +33,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="p-6 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">Pending Partner Assignments</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Pending Employee Assignments</h3>
         </div>
         <div className="p-6">
           <div className="animate-pulse space-y-4">
@@ -50,7 +50,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
     <div className="bg-white rounded-xl shadow-sm border border-gray-100">
       <div className="p-6 border-b border-gray-100">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-gray-900">Pending Partner Assignments</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Pending Employee Assignments</h3>
           <span className="px-3 py-1 bg-red-100 text-red-800 text-xs font-medium rounded-full">
             {pendingServices?.length || 0} Pending
           </span>
@@ -104,7 +104,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                         onClick={() => onAssignPartner(service)}
                         className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors"
                       >
-                        Assign Partner
+                        Assign Employee
                       </button>
                     </td>
                   </tr>

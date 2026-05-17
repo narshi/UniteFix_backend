@@ -76,8 +76,8 @@ export function SplashScreen({ navigation }: Props) {
                 // is false. We don't need to navigate anywhere.
                 console.log('[Splash] Authenticated — RootNavigator will switch stacks');
             } else {
-                console.log('[Splash] Not authenticated — navigating to Login');
-                navigation.replace('Login');
+                console.log('[Splash] Not authenticated — navigating to RoleSelection');
+                navigation.replace('RoleSelection');
             }
         }, MIN_SPLASH_MS);
 

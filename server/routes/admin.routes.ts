@@ -11,8 +11,6 @@
 import type { Express, Request, Response } from "express";
 import { AdminServiceManager } from "../services/admin-service.manager";
 import { AdminOrderManager, DelhiveryService } from "../services/admin-order.manager";
-import { SupportTicketService } from "../services/support.service";
-import { PaymentService } from "../services/payment.service";
 import { storage } from "../storage";
 
 export function registerAdminRoutes(app: Express) {
@@ -183,6 +181,92 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
+    // ==================== SERVICE CATALOG MANAGEMENT ====================
+    
+    /**
+     * GET /api/admin/catalog/categories
+     * Returns all categories with their services
+     */
+    app.get("/api/admin/catalog/categories", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const categories = await storage.getAdminServiceCatalog();
+            res.json({ success: true, data: categories });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/admin/catalog/categories
+     * Create a new service category
+     */
+    app.post("/api/admin/catalog/categories", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const category = await storage.createServiceCategory(req.body);
+            res.json({ success: true, data: category });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
+     * PATCH /api/admin/catalog/categories/:id
+     * Update/Archive service category
+     */
+    app.patch("/api/admin/catalog/categories/:id", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const id = parseInt(req.params.id);
+            const updated = await storage.updateServiceCategory(id, req.body);
+            if (!updated) return res.status(404).json({ error: "Category not found" });
+            res.json({ success: true, data: updated });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/admin/catalog/services
+     * Create a new service item
+     */
+    app.post("/api/admin/catalog/services", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const service = await storage.createService(req.body);
+            res.json({ success: true, data: service });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
+     * PATCH /api/admin/catalog/services/:id
+     * Update/Archive service item
+     */
+    app.patch("/api/admin/catalog/services/:id", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const id = parseInt(req.params.id);
+            const updated = await storage.updateService(id, req.body);
+            if (!updated) return res.status(404).json({ error: "Service not found" });
+            res.json({ success: true, data: updated });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
     // ==================== ORDER MANAGEMENT ====================
 
     /**
@@ -350,61 +434,11 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
-    // ==================== CUSTOMER SUPPORT ROUTES ====================
-
-    /**
-     * POST /api/customer/tickets
-     * Customer creates support ticket
-     */
-    app.post("/api/customer/tickets", async (req: Request, res: Response) => {
-        try {
-            const userId = (req as any).user?.id;
-
-            if (!userId) {
-                return res.status(401).json({ error: "Unauthorized" });
-            }
-
-            const { subject, description, category, serviceRequestId, productOrderId } = req.body;
-
-            const ticket = await SupportTicketService.createTicket({
-                userId,
-                subject,
-                description,
-                category,
-                serviceRequestId,
-                productOrderId,
-            });
-
-            res.json({ message: "Ticket created successfully", ticket });
-        } catch (error: any) {
-            res.status(400).json({ error: error.message });
-        }
-    });
-
-    /**
-     * GET /api/customer/orders/:orderId/tracking
-     * Customer views shipment tracking
-     */
-    app.get("/api/customer/orders/:orderId/tracking", async (req: Request, res: Response) => {
-        try {
-            const userId = (req as any).user?.id;
-
-            if (!userId) {
-                return res.status(401).json({ error: "Unauthorized" });
-            }
-
-            const tracking = await DelhiveryService.getShipmentByOrder(req.params.orderId);
-
-            if (!tracking) {
-                return res.status(404).json({ error: "No shipment found for this order" });
-            }
-
-            res.json({ tracking });
-        } catch (error: any) {
-            res.status(500).json({ error: error.message });
-        }
-    });
     // ==================== USER MANAGEMENT ====================
+    // NOTE: Customer support ticket and shipment tracking routes were removed from here.
+    // They were dead, unprotected duplicates. The correct, auth-gated versions live in:
+    //   POST /api/client/tickets          → client-features.routes.ts (authenticateToken)
+    //   GET  /api/client/invoices/:id     → client-features.routes.ts (authenticateToken)
 
     /**
      * GET /api/admin/users

@@ -8,3 +8,4 @@ export { MyRequestsScreen } from './MyRequestsScreen';
 export { RequestDetailScreen } from './RequestDetailScreen';
 export { NotificationsScreen } from './NotificationsScreen';
 export { ProfileScreen } from './ProfileScreen';
+export { FinalPaymentScreen } from './FinalPaymentScreen';

@@ -204,12 +204,50 @@ async function cleanupExpiredRefreshTokens(): Promise<void> {
     }
 }
 
+// ==================== JOB 7: ASSIGNMENT TIMEOUT ====================
+/**
+ * PHASE 6: Auto-revert stale ASSIGNED bookings to CREATED.
+ * If an employee doesn't accept within PARTNER_ACCEPT_TIMEOUT_HOURS (default: 4h),
+ * the assignment is reverted so admin can reassign.
+ * Runs every 15 minutes.
+ */
+async function revertStaleAssignments(): Promise<void> {
+    try {
+        // Get timeout from config (default 4 hours)
+        const { configService } = await import("./config.service");
+        const timeoutHoursStr = await configService.get<string>('OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS');
+        const timeoutHours = parseInt(timeoutHoursStr || '4');
+        const cutoffMs = timeoutHours * 60 * 60 * 1000;
+        const cutoff = new Date(Date.now() - cutoffMs);
+
+        const result = await db.execute(sql`
+            UPDATE service_requests
+            SET status = 'created',
+                provider_id = NULL,
+                assigned_at = NULL,
+                admin_notes = COALESCE(admin_notes, '') || ${`\n[AUTO_REVERT ${new Date().toISOString()}] Assignment expired after ${timeoutHours}h — reverted to CREATED`},
+                updated_at = NOW()
+            WHERE status = 'assigned'
+              AND assigned_at IS NOT NULL
+              AND assigned_at <= ${cutoff}
+        `);
+
+        const count = (result as any).rowCount || 0;
+        if (count > 0) {
+            logger.warn(`[CRON] Auto-reverted ${count} stale ASSIGNED booking(s) (>${timeoutHours}h)`);
+        }
+    } catch (err: any) {
+        logger.error('[CRON] Assignment timeout job failed', { error: err.message });
+    }
+}
+
 // ==================== SCHEDULER ====================
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
 const SIX_HOURS = 6 * HOUR;
+const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
 let intervals: NodeJS.Timeout[] = [];
 
@@ -245,7 +283,11 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(cleanupExpiredRefreshTokens, DAY));
     setTimeout(cleanupExpiredRefreshTokens, 55000);
 
-    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h)');
+    // PHASE 6: Revert stale assignments every 15 minutes
+    intervals.push(setInterval(revertStaleAssignments, FIFTEEN_MINUTES));
+    setTimeout(revertStaleAssignments, 60000);
+
+    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m)');
 }
 
 /**

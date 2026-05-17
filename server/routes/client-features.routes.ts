@@ -14,7 +14,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { db } from "../db";
 import { eq, and, desc, sql, avg, count } from "drizzle-orm";
 import {
-    ratings, serviceRequests, serviceProviders, users,
+    ratings, serviceRequests, employees, users,
     partnerWallets, walletTransactionsV2, invoices,
     supportTickets, ticketMessages,
 } from "@shared/schema";
@@ -22,6 +22,7 @@ import { authenticateToken, authenticatePartner } from "../middleware/auth.middl
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
+import { storage } from "../storage";
 
 // Auth middleware aliases — import from canonical auth.middleware.ts
 // authenticateToken protects customer routes
@@ -34,6 +35,34 @@ interface AuthenticatedRequest extends Request {
 }
 
 export function registerClientFeatureRoutes(app: Express) {
+
+    // ==================== SERVICE CATALOG ====================
+    
+    /**
+     * GET /api/services/home
+     * Returns active services that should be displayed on the home page
+     */
+    app.get('/api/services/home', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const services = await storage.getHomeVisibleServices();
+            res.json({ success: true, data: services });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * GET /api/services/categories
+     * Returns all active categories with their active services
+     */
+    app.get('/api/services/categories', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const categories = await storage.getAllServiceCategoriesWithServices();
+            res.json({ success: true, data: categories });
+        } catch (error) {
+            next(error);
+        }
+    });
 
     // ==================== MY ORDERS ====================
 
@@ -152,8 +181,8 @@ export function registerClientFeatureRoutes(app: Express) {
             const offset = (page - 1) * limit;
 
             // Verify provider exists
-            const [provider] = await db.select().from(serviceProviders)
-                .where(eq(serviceProviders.id, providerId)).limit(1);
+            const [provider] = await db.select().from(employees)
+                .where(eq(employees.id, providerId)).limit(1);
 
             if (!provider) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
@@ -272,6 +301,14 @@ export function registerClientFeatureRoutes(app: Express) {
         }
     });
 
+    // Alias for backward compatibility with mobile app
+    app.get("/api/client/auth/profile", authenticateToken, (req, res) => {
+        res.redirect(301, "/api/client/profile");
+    });
+    app.patch("/api/client/auth/profile", authenticateToken, (req, res) => {
+        res.redirect(307, "/api/client/profile");
+    });
+
     /**
      * PATCH /api/client/profile
      * Update user profile (name, email, address, pinCode)
@@ -283,7 +320,15 @@ export function registerClientFeatureRoutes(app: Express) {
 
             const updates: any = { updatedAt: new Date() };
             if (username !== undefined) updates.username = username;
-            if (email !== undefined) updates.email = email;
+            if (email !== undefined) {
+                if (email.trim() !== '') {
+                    const [existingUser] = await db.select().from(users).where(eq(users.email, email.trim())).limit(1);
+                    if (existingUser && existingUser.id !== userId) {
+                        return res.status(400).json({ success: false, message: "Email is already registered to another user" });
+                    }
+                }
+                updates.email = email;
+            }
             if (homeAddress !== undefined) updates.homeAddress = homeAddress;
             if (pinCode !== undefined) updates.pinCode = pinCode;
 
@@ -356,24 +401,37 @@ export function registerClientFeatureRoutes(app: Express) {
     /**
      * DELETE /api/client/account
      * Soft delete account (30-day recovery window)
+     *
+     * - Password users: must send { password: "..." } in body
+     * - Truecaller-only users: must send { confirmDelete: true } (phone already verified via TC)
      */
     app.delete("/api/client/account", authenticateToken, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
-            const { password } = req.body;
+            const { password, confirmDelete } = req.body;
 
-            if (!password) {
-                return res.status(400).json({ success: false, message: "Password required to delete account" });
-            }
-
-            // Verify password
             const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
             if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-            const bcrypt = await import('bcrypt');
-            const valid = await bcrypt.compare(password, user.password);
-            if (!valid) {
-                return res.status(401).json({ success: false, message: "Incorrect password" });
+            if (user.password) {
+                // Password-based account: require password confirmation
+                if (!password) {
+                    return res.status(400).json({ success: false, message: "Password required to delete account" });
+                }
+                const bcrypt = await import('bcrypt');
+                const valid = await bcrypt.compare(password, user.password);
+                if (!valid) {
+                    return res.status(401).json({ success: false, message: "Incorrect password" });
+                }
+            } else {
+                // Truecaller-only account: require explicit confirmation flag
+                // (Phone identity was verified by Truecaller at login — no password exists)
+                if (!confirmDelete) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Please confirm deletion by sending { confirmDelete: true }",
+                    });
+                }
             }
 
             // Soft delete — set deletedAt, deactivate
@@ -394,6 +452,7 @@ export function registerClientFeatureRoutes(app: Express) {
         }
     });
 
+
     // ==================== WALLET V2 APIs (Partner) ====================
 
     /**
@@ -405,8 +464,8 @@ export function registerClientFeatureRoutes(app: Express) {
             const userId = (req as any).user!.userId;
 
             // Find the provider record
-            const [provider] = await db.select().from(serviceProviders)
-                .where(eq(serviceProviders.userId, userId)).limit(1);
+            const [provider] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
 
             if (!provider) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
@@ -427,7 +486,7 @@ export function registerClientFeatureRoutes(app: Express) {
                 success: true,
                 data: {
                     partnerId: provider.partnerId,
-                    partnerName: provider.partnerName,
+                    partnerName: provider.fullName,
                     balanceHold: wallet.balanceHold,
                     balanceAvailable: wallet.balanceAvailable,
                     totalEarned: wallet.totalEarned,
@@ -450,8 +509,8 @@ export function registerClientFeatureRoutes(app: Express) {
             const offset = (page - 1) * limit;
             const type = req.query.type as string; // Optional filter
 
-            const [provider] = await db.select().from(serviceProviders)
-                .where(eq(serviceProviders.userId, userId)).limit(1);
+            const [provider] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
 
             if (!provider) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
@@ -502,8 +561,8 @@ export function registerClientFeatureRoutes(app: Express) {
                 return res.status(400).json({ success: false, message: "Method must be 'bank' or 'upi'" });
             }
 
-            const [provider] = await db.select().from(serviceProviders)
-                .where(eq(serviceProviders.userId, userId)).limit(1);
+            const [provider] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
 
             if (!provider) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
@@ -745,8 +804,8 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const userId = (req as any).user!.userId;
 
-            const [provider] = await db.select().from(serviceProviders)
-                .where(eq(serviceProviders.userId, userId)).limit(1);
+            const [provider] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
 
             if (!provider) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
@@ -825,6 +884,83 @@ export function registerClientFeatureRoutes(app: Express) {
                         count: Number(ratingResult?.count || 0),
                     },
                 },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    // ==================== PHASE 3: VERIFICATION GATE ====================
+
+    /**
+     * GET /api/partner/verification-status
+     * Returns employee's current verification + online status.
+     * Used by EmployeePendingScreen pull-to-refresh (Task 3.5).
+     */
+    app.get("/api/partner/verification-status", authenticateServiceman, async (req: Request, res, next) => {
+        try {
+            const userId = (req as any).user!.userId;
+
+            const [employee] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
+
+            if (!employee) {
+                return res.status(404).json({ success: false, message: "Employee record not found" });
+            }
+
+            res.json({
+                success: true,
+                data: {
+                    employeeId: employee.id,
+                    documentVerificationStatus: employee.documentVerificationStatus,
+                    isActive: employee.isActive,
+                    isOnline: employee.isOnline,
+                    partnerId: employee.partnerId,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * PATCH /api/partner/availability
+     * Toggle employee online/offline status (Task 3.4).
+     * Only verified employees can go online.
+     */
+    app.patch("/api/partner/availability", authenticateServiceman, async (req: Request, res, next) => {
+        try {
+            const userId = (req as any).user!.userId;
+            const { isOnline } = req.body;
+
+            if (typeof isOnline !== 'boolean') {
+                return res.status(400).json({ success: false, message: "isOnline must be a boolean" });
+            }
+
+            const [employee] = await db.select().from(employees)
+                .where(eq(employees.userId, userId)).limit(1);
+
+            if (!employee) {
+                return res.status(404).json({ success: false, message: "Employee record not found" });
+            }
+
+            // Only verified employees can go online
+            if (isOnline && employee.documentVerificationStatus !== 'verified') {
+                return res.status(403).json({
+                    success: false,
+                    message: "You must be verified before going online",
+                });
+            }
+
+            const [updated] = await db.update(employees)
+                .set({ isOnline, updatedAt: new Date() })
+                .where(eq(employees.id, employee.id))
+                .returning();
+
+            res.json({
+                success: true,
+                message: isOnline ? "You are now online and available for assignments" : "You are now offline",
+                data: { isOnline: updated.isOnline },
             });
         } catch (error) {
             next(error);

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "937290256643",
+    "project_id": "unitefix-e7ae3",
+    "storage_bucket": "unitefix-e7ae3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:937290256643:android:cf9cab074b7255a216d936",
+        "android_client_info": {
+          "package_name": "com.unitefix.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCXWIj-VU4Zt-3YKtoNTUJm3K3-bK5Txhg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -7,7 +7,7 @@ import {
   cartItems,
   invoices,
   otpVerifications,
-  serviceProviders,
+  // serviceProviders, // PHASE 1: DELETED — merged into employees
   walletTransactions,
   serviceablePincodes,
   districts,
@@ -35,8 +35,8 @@ import {
   type InsertInvoice,
   type OtpVerification,
   type InsertOtpVerification,
-  type ServiceProvider,
-  type InsertServiceProvider,
+  // type ServiceProvider, // PHASE 1: DELETED
+  // type InsertServiceProvider, // PHASE 1: DELETED
   type WalletTransaction,
   type InsertWalletTransaction,
   type ServiceablePincode,
@@ -63,6 +63,10 @@ import {
   type InsertEmployee,
   customers,
   employees,
+  serviceCategories,
+  services,
+  type ServiceCategory,
+  type ServiceItem,
 } from "@shared/schema";
 import {
   InsertServiceOtp,
@@ -81,7 +85,7 @@ import {
   Notification
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, sum, gte, lte, or, ilike, gt } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt } from "drizzle-orm";
 import crypto from "crypto";
 // PHASE 2: State machine imports
 import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
@@ -100,7 +104,7 @@ export interface IStorage {
   getUserByReferralCode(code: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
-  getAllUsers(limit?: number, offset?: number): Promise<User[]>;
+  getAllUsers(limit?: number, offset?: number, roleFilter?: string): Promise<User[]>;
   countUsers(filters?: { role?: string; search?: string }): Promise<number>;
   getUsers(filters?: { role?: string; search?: string }, limit?: number, offset?: number): Promise<User[]>;
   updateUser(id: number, updates: Partial<User>): Promise<User | undefined>;
@@ -122,18 +126,18 @@ export interface IStorage {
   getEmployeeByUserId(userId: number): Promise<Employee | undefined>;
   updateEmployee(userId: number, updates: Partial<Employee>): Promise<Employee | undefined>;
 
-  // Service Providers
-  createServiceProvider(provider: InsertServiceProvider): Promise<ServiceProvider>;
-  getServiceProvider(id: number): Promise<ServiceProvider | undefined>;
-  getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined>;
-  getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined>;
-  getAllServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
-  getVerifiedServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
-  getPendingServiceProviders(limit?: number, offset?: number): Promise<ServiceProvider[]>;
+  // Service Providers → PHASE 1: All methods now delegate to employees table
+  createServiceProvider(provider: any): Promise<Employee>;
+  getServiceProvider(id: number): Promise<Employee | undefined>;
+  getServiceProviderByUserId(userId: number): Promise<Employee | undefined>;
+  getServiceProviderByPartnerId(partnerId: string): Promise<Employee | undefined>;
+  getAllServiceProviders(limit?: number, offset?: number): Promise<Employee[]>;
+  getVerifiedServiceProviders(limit?: number, offset?: number): Promise<Employee[]>;
+  getPendingServiceProviders(limit?: number, offset?: number): Promise<Employee[]>;
   countServiceProviders(status?: string): Promise<number>;
-  updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined>;
-  updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined>;
-  getProvidersSortedByDistance(lat: number, long: number, status?: string): Promise<(ServiceProvider & { distance: number })[]>;
+  updateServiceProvider(id: number, updates: Partial<Employee>): Promise<Employee | undefined>;
+  updateProviderLocation(id: number, lat: number, long: number): Promise<Employee | undefined>;
+  getProvidersSortedByDistance(lat: number, long: number, status?: string): Promise<(Employee & { distance: number })[]>;
   deleteServiceProvider(id: number): Promise<boolean>;
 
   // Service requests
@@ -147,6 +151,15 @@ export interface IStorage {
   assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined>;
   getPendingAssignments(): Promise<ServiceRequest[]>;
   getAllServiceRequests(): Promise<ServiceRequest[]>;
+
+  // Service Catalog
+  getHomeVisibleServices(): Promise<ServiceItem[]>;
+  getAllServiceCategoriesWithServices(): Promise<(ServiceCategory & { items: ServiceItem[] })[]>;
+  getAdminServiceCatalog(): Promise<(ServiceCategory & { items: ServiceItem[] })[]>;
+  createServiceCategory(category: InsertServiceCategory): Promise<ServiceCategory>;
+  updateServiceCategory(id: number, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined>;
+  createService(service: InsertServiceItem): Promise<ServiceItem>;
+  updateService(id: number, updates: Partial<ServiceItem>): Promise<ServiceItem | undefined>;
 
   // Wallet Transactions (ACID)
   completeServiceWithTransaction(
@@ -314,8 +327,12 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async getAllUsers(limit: number = 100, offset: number = 0): Promise<User[]> {
-    return await db.select().from(users).orderBy(desc(users.createdAt)).limit(limit).offset(offset);
+  async getAllUsers(limit: number = 100, offset: number = 0, roleFilter?: string): Promise<User[]> {
+    let query = db.select().from(users).orderBy(desc(users.createdAt)).limit(limit).offset(offset);
+    if (roleFilter) {
+      query = query.where(eq(users.role, roleFilter as any)) as any;
+    }
+    return await query;
   }
 
   async countUsers(filters?: { role?: string; search?: string }): Promise<number> {
@@ -446,127 +463,129 @@ export class DatabaseStorage implements IStorage {
     return employee || undefined;
   }
 
-  // Service Providers
-  async createServiceProvider(insertProvider: InsertServiceProvider): Promise<ServiceProvider> {
-    const countResult = await db.select({ count: count() }).from(serviceProviders);
+  // Service Providers → PHASE 1: All methods now use employees table
+  async createServiceProvider(insertProvider: any): Promise<Employee> {
+    const countResult = await db.select({ count: count() }).from(employees);
     const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
 
-    const [provider] = await db
-      .insert(serviceProviders)
+    const [employee] = await db
+      .insert(employees)
       .values({
         ...insertProvider,
         partnerId,
         skills: insertProvider.skills || null
       } as any)
       .returning();
-    return provider;
+    return employee;
   }
 
-  async getServiceProvider(id: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.id, id));
-    return provider || undefined;
+  async getServiceProvider(id: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.id, id));
+    return employee || undefined;
   }
 
-  async getServiceProviderByUserId(userId: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.userId, userId));
-    return provider || undefined;
+  async getServiceProviderByUserId(userId: number): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.userId, userId));
+    return employee || undefined;
   }
 
-  async getServiceProviderByPartnerId(partnerId: string): Promise<ServiceProvider | undefined> {
-    const [provider] = await db.select().from(serviceProviders).where(eq(serviceProviders.partnerId, partnerId));
-    return provider || undefined;
+  async getServiceProviderByPartnerId(partnerId: string): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.partnerId, partnerId));
+    return employee || undefined;
   }
 
-  async getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
-    return await db.select().from(serviceProviders).orderBy(desc(serviceProviders.createdAt)).limit(limit).offset(offset);
+  async getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
+    return await db.select().from(employees).orderBy(desc(employees.createdAt)).limit(limit).offset(offset);
   }
 
-  async getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
+  async getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
     return await db
       .select()
-      .from(serviceProviders)
-      .where(eq(serviceProviders.verificationStatus, 'verified'))
-      .orderBy(desc(serviceProviders.createdAt))
+      .from(employees)
+      .where(eq(employees.documentVerificationStatus, 'verified'))
+      .orderBy(desc(employees.createdAt))
       .limit(limit)
       .offset(offset);
   }
 
-  async getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<ServiceProvider[]> {
+  async getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
     return await db
       .select()
-      .from(serviceProviders)
-      .where(eq(serviceProviders.verificationStatus, 'pending'))
-      .orderBy(desc(serviceProviders.createdAt))
+      .from(employees)
+      .where(eq(employees.documentVerificationStatus, 'pending'))
+      .orderBy(desc(employees.createdAt))
       .limit(limit)
       .offset(offset);
   }
 
   async countServiceProviders(status?: string): Promise<number> {
-    let query = db.select({ count: count() }).from(serviceProviders);
+    let query = db.select({ count: count() }).from(employees);
     if (status) {
-      query = query.where(eq(serviceProviders.verificationStatus, status as any)) as any;
+      query = query.where(eq(employees.documentVerificationStatus, status as any)) as any;
     }
     const [result] = await query;
     return result?.count ?? 0;
   }
 
-  async updateServiceProvider(id: number, updates: Partial<ServiceProvider>): Promise<ServiceProvider | undefined> {
-    const [provider] = await db
-      .update(serviceProviders)
+  async updateServiceProvider(id: number, updates: Partial<Employee>): Promise<Employee | undefined> {
+    const [employee] = await db
+      .update(employees)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(serviceProviders.id, id))
+      .where(eq(employees.id, id))
       .returning();
-    return provider || undefined;
+    return employee || undefined;
   }
 
-  async updateProviderLocation(id: number, lat: number, long: number): Promise<ServiceProvider | undefined> {
-    const [provider] = await db
-      .update(serviceProviders)
+  async updateProviderLocation(id: number, lat: number, long: number): Promise<Employee | undefined> {
+    // PHASE 1: Store as WKT text for now. PostGIS raw SQL in Phase 4.
+    const [employee] = await db
+      .update(employees)
       .set({
-        currentLat: lat,
-        currentLong: long,
+        currentLocation: `POINT(${long} ${lat})`,
         lastLocationUpdate: new Date()
       })
-      .where(eq(serviceProviders.id, id))
+      .where(eq(employees.id, id))
       .returning();
-    return provider || undefined;
+    return employee || undefined;
   }
 
-  // Geo-spatial sorting using Haversine formula
+  // Geo-spatial sorting — PHASE 1: Uses WKT text parsing. PostGIS ST_DistanceSphere in Phase 4.
   async getProvidersSortedByDistance(
     lat: number,
     long: number,
     status?: string
-  ): Promise<(ServiceProvider & { distance: number })[]> {
-    const providers = await db
+  ): Promise<(Employee & { distance: number })[]> {
+    const allEmployees = await db
       .select()
-      .from(serviceProviders)
+      .from(employees)
       .where(
         and(
-          eq(serviceProviders.isActive, true),
-          status ? eq(serviceProviders.verificationStatus, status as any) : undefined
+          eq(employees.isActive, true),
+          status ? eq(employees.documentVerificationStatus, status as any) : undefined
         )
       );
 
-    // Calculate distance for each provider and sort
-    const providersWithDistance = providers
-      .filter(p => p.currentLat !== null && p.currentLong !== null)
-      .map(provider => ({
-        ...provider,
-        distance: calculateHaversineDistance(
-          lat,
-          long,
-          provider.currentLat!,
-          provider.currentLong!
-        )
-      }))
-      .sort((a, b) => a.distance - b.distance);
+    // Parse WKT POINT and calculate distance
+    const employeesWithDistance = allEmployees
+      .filter(e => e.currentLocation !== null)
+      .map(employee => {
+        // Parse WKT: "POINT(lng lat)"
+        const match = employee.currentLocation?.match(/POINT\(([\d.-]+) ([\d.-]+)\)/);
+        if (!match) return null;
+        const eLng = parseFloat(match[1]);
+        const eLat = parseFloat(match[2]);
+        return {
+          ...employee,
+          distance: calculateHaversineDistance(lat, long, eLat, eLng)
+        };
+      })
+      .filter(Boolean) as (Employee & { distance: number })[];
 
-    return providersWithDistance;
+    return employeesWithDistance.sort((a, b) => a.distance - b.distance);
   }
 
   async deleteServiceProvider(id: number): Promise<boolean> {
-    const result = await db.delete(serviceProviders).where(eq(serviceProviders.id, id));
+    await db.delete(employees).where(eq(employees.id, id));
     return true;
   }
 
@@ -657,6 +676,79 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(serviceRequests).orderBy(desc(serviceRequests.createdAt));
   }
 
+  // Service Catalog
+  async getHomeVisibleServices(): Promise<ServiceItem[]> {
+    return await db
+      .select()
+      .from(services)
+      .where(and(eq(services.isActive, true), eq(services.isHomeVisible, true)))
+      .orderBy(asc(services.sortOrder));
+  }
+
+  async getAllServiceCategoriesWithServices(): Promise<(ServiceCategory & { items: ServiceItem[] })[]> {
+    const cats = await db
+      .select()
+      .from(serviceCategories)
+      .where(eq(serviceCategories.isActive, true))
+      .orderBy(asc(serviceCategories.sortOrder));
+      
+    const allItems = await db
+      .select()
+      .from(services)
+      .where(eq(services.isActive, true))
+      .orderBy(asc(services.sortOrder));
+      
+    return cats.map(cat => ({
+      ...cat,
+      items: allItems.filter(item => item.categoryId === cat.id)
+    }));
+  }
+
+  async getAdminServiceCatalog(): Promise<(ServiceCategory & { items: ServiceItem[] })[]> {
+    const cats = await db
+      .select()
+      .from(serviceCategories)
+      .orderBy(asc(serviceCategories.sortOrder));
+      
+    const allItems = await db
+      .select()
+      .from(services)
+      .orderBy(asc(services.sortOrder));
+      
+    return cats.map(cat => ({
+      ...cat,
+      items: allItems.filter(item => item.categoryId === cat.id)
+    }));
+  }
+
+  async createServiceCategory(category: InsertServiceCategory): Promise<ServiceCategory> {
+    const [result] = await db.insert(serviceCategories).values(category).returning();
+    return result;
+  }
+
+  async updateServiceCategory(id: number, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined> {
+    const [result] = await db
+      .update(serviceCategories)
+      .set(updates)
+      .where(eq(serviceCategories.id, id))
+      .returning();
+    return result || undefined;
+  }
+
+  async createService(service: InsertServiceItem): Promise<ServiceItem> {
+    const [result] = await db.insert(services).values(service).returning();
+    return result;
+  }
+
+  async updateService(id: number, updates: Partial<ServiceItem>): Promise<ServiceItem | undefined> {
+    const [result] = await db
+      .update(services)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(services.id, id))
+      .returning();
+    return result || undefined;
+  }
+
   // Wallet Transactions with ACID compliance
   async completeServiceWithTransaction(
     serviceRequestId: number,
@@ -677,17 +769,17 @@ export class DatabaseStorage implements IStorage {
         throw new Error('Service request or provider not found');
       }
 
-      // 2. Get the provider
-      const [provider] = await tx
+      // 2. Get the employee (was provider)
+      const [employee] = await tx
         .select()
-        .from(serviceProviders)
-        .where(eq(serviceProviders.id, service.providerId));
+        .from(employees)
+        .where(eq(employees.id, service.providerId));
 
-      if (!provider) {
-        throw new Error('Provider not found');
+      if (!employee) {
+        throw new Error('Employee not found');
       }
 
-      const currentBalance = parseFloat(provider.walletBalance || '0');
+      const currentBalance = parseFloat(employee.walletBalance || '0');
       const newBalance = currentBalance - commissionAmount;
 
       // 3. Update service request status
@@ -703,14 +795,14 @@ export class DatabaseStorage implements IStorage {
         .where(eq(serviceRequests.id, serviceRequestId))
         .returning();
 
-      // 4. Deduct commission from provider wallet
+      // 4. Deduct commission from employee wallet
       await tx
-        .update(serviceProviders)
+        .update(employees)
         .set({
           walletBalance: newBalance.toFixed(2),
           updatedAt: new Date()
         })
-        .where(eq(serviceProviders.id, service.providerId));
+        .where(eq(employees.id, service.providerId));
 
       // 5. Create wallet transaction record
       const [transaction] = await tx
@@ -734,25 +826,25 @@ export class DatabaseStorage implements IStorage {
 
   async topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
     const result = await db.transaction(async (tx) => {
-      const [provider] = await tx
+      const [employee] = await tx
         .select()
-        .from(serviceProviders)
-        .where(eq(serviceProviders.id, providerId));
+        .from(employees)
+        .where(eq(employees.id, providerId));
 
-      if (!provider) {
-        throw new Error('Provider not found');
+      if (!employee) {
+        throw new Error('Employee not found');
       }
 
-      const currentBalance = parseFloat(provider.walletBalance || '0');
+      const currentBalance = parseFloat(employee.walletBalance || '0');
       const newBalance = currentBalance + amount;
 
       await tx
-        .update(serviceProviders)
+        .update(employees)
         .set({
           walletBalance: newBalance.toFixed(2),
           updatedAt: new Date()
         })
-        .where(eq(serviceProviders.id, providerId));
+        .where(eq(employees.id, providerId));
 
       const [transaction] = await tx
         .insert(walletTransactions)
@@ -774,16 +866,16 @@ export class DatabaseStorage implements IStorage {
 
   async deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
     const result = await db.transaction(async (tx) => {
-      const [provider] = await tx
+      const [employee] = await tx
         .select()
-        .from(serviceProviders)
-        .where(eq(serviceProviders.id, providerId));
+        .from(employees)
+        .where(eq(employees.id, providerId));
 
-      if (!provider) {
-        throw new Error('Provider not found');
+      if (!employee) {
+        throw new Error('Employee not found');
       }
 
-      const currentBalance = parseFloat(provider.walletBalance || '0');
+      const currentBalance = parseFloat(employee.walletBalance || '0');
 
       // Prevent negative balance
       if (currentBalance < amount) {
@@ -793,12 +885,12 @@ export class DatabaseStorage implements IStorage {
       const newBalance = currentBalance - amount;
 
       await tx
-        .update(serviceProviders)
+        .update(employees)
         .set({
           walletBalance: newBalance.toFixed(2),
           updatedAt: new Date()
         })
-        .where(eq(serviceProviders.id, providerId));
+        .where(eq(employees.id, providerId));
 
       const [transaction] = await tx
         .insert(walletTransactions)
@@ -1158,13 +1250,6 @@ export class DatabaseStorage implements IStorage {
 
     if (result.count > 0) return true;
 
-    // 2. Fallback: Check if it's a valid Uttara Kannada pincode (starts with 581)
-    // This ensures specific rural areas not manually seeded are still accepted if valid
-    // Per user request: ALL 581xxx pincodes must be accepted unconditionally as they belong to the target region.
-    if (pincode.startsWith('581')) {
-      return true;
-    }
-
     return false;
   }
 
@@ -1179,7 +1264,7 @@ export class DatabaseStorage implements IStorage {
     pendingApprovals: number;
   }> {
     const [userCount] = await db.select({ count: count() }).from(users).where(eq(users.role, 'user'));
-    const [providerCount] = await db.select({ count: count() }).from(serviceProviders);
+    const [providerCount] = await db.select({ count: count() }).from(employees);
 
     const [activeServiceCount] = await db
       .select({ count: count() })
@@ -1206,8 +1291,8 @@ export class DatabaseStorage implements IStorage {
 
     const [pendingCount] = await db
       .select({ count: count() })
-      .from(serviceProviders)
-      .where(eq(serviceProviders.verificationStatus, 'pending'));
+      .from(employees)
+      .where(eq(employees.documentVerificationStatus, 'pending'));
 
     return {
       totalUsers: userCount?.count || 0,

@@ -40,3 +40,14 @@ Secure Keys*
 
 # Attached assets
 attached_assets/
+
+# Design & Raw Files
+Figma/
+logo.jpg
+
+# Testing Artifacts
+playwright-report/
+test-results/
+
+# Sensitive Information
+private keys/

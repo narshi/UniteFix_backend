@@ -34,35 +34,80 @@ import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { PincodeChecker } from '../../components/PincodeChecker';
 import { Skeleton, CardSkeleton } from '../../components/Skeleton';
+import * as Location from 'expo-location';
+import { customerApi } from '../../api/customer.api';
 
-const SERVICE_CATEGORIES = [
-    { id: 'plumbing', name: 'Plumbing', icon: Droplets, color: '#2196F3' },
-    { id: 'electrical', name: 'Electrical', icon: Zap, color: '#FF9800' },
-    { id: 'painting', name: 'Painting', icon: PaintBucket, color: '#9C27B0' },
-    { id: 'ac_repair', name: 'AC Repair', icon: Thermometer, color: '#00BCD4' },
-    { id: 'carpentry', name: 'Carpentry', icon: Hammer, color: '#795548' },
-    { id: 'appliance', name: 'Appliance', icon: Cpu, color: '#607D8B' },
-    { id: 'security', name: 'Security', icon: Shield, color: '#4CAF50' },
-    { id: 'general', name: 'General', icon: Wrench, color: '#F44336' },
-];
+import { ServiceCard } from '../../components/services/ServiceCard';
+import { useHomeServices } from '../../hooks/useCustomerData';
+import { ServiceItem } from '../../api/customer.api';
 
 export function HomeScreen() {
     const { user } = useAuthStore();
-    const { data: profile, isLoading, refetch } = useProfile();
+    const { data: profile, isLoading: isProfileLoading, refetch: refetchProfile } = useProfile();
+    const { data: homeServices, isLoading: isServicesLoading, refetch: refetchServices } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
+
+    const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
+    const [isServiceable, setIsServiceable] = React.useState<boolean | null>(null);
+
+    const isLoading = isProfileLoading || isServicesLoading;
+
+    const onRefresh = React.useCallback(() => {
+        refetchProfile();
+        refetchServices();
+    }, [refetchProfile, refetchServices]);
 
     const displayName = profile?.username || user?.username || 'User';
     const firstName = displayName.split(' ')[0];
 
-    const handleCategoryPress = (category: typeof SERVICE_CATEGORIES[0]) => {
-        navigation.navigate('ServiceRequest', { serviceType: category.id, serviceName: category.name });
-    };
+    React.useEffect(() => {
+        const autoFetchLocation = async () => {
+            if (profile && !profile.homeAddress && !isFetchingLocation) {
+                try {
+                    setIsFetchingLocation(true);
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status === 'granted') {
+                        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                        const [geo] = await Location.reverseGeocodeAsync(loc.coords);
+                        if (geo) {
+                            const address = [geo.name, geo.street, geo.district, geo.city, geo.region].filter(Boolean).join(', ');
+                            const pin = geo.postalCode || '';
+                            if (address && pin) {
+                                await customerApi.updateProfile({ homeAddress: address, pinCode: pin });
+                                refetchProfile();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('Auto location fetch error', e);
+                } finally {
+                    setIsFetchingLocation(false);
+                }
+            }
+        };
+        autoFetchLocation();
+    }, [profile?.homeAddress]);
+
+    React.useEffect(() => {
+        if (profile?.pinCode) {
+            const cleanPin = profile.pinCode.replace(/\s+/g, '');
+            customerApi.validatePincode(cleanPin).then(res => {
+                const isAvail = res.data?.available || res.data?.serviceable;
+                setIsServiceable(isAvail ?? true);
+            }).catch(err => {
+                console.error('Pincode validation error', err);
+                setIsServiceable(true); // Default to true on error so we don't block by mistake
+            });
+        } else {
+            setIsServiceable(null);
+        }
+    }, [profile?.pinCode]);
+
 
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+            <StatusBar barStyle="light-content" backgroundColor={colors.backgroundDark} />
 
             {/* Header */}
             <View style={styles.header}>
@@ -93,16 +138,29 @@ export function HomeScreen() {
                         <Bell size={22} color={colors.textInverse} />
                     </TouchableOpacity>
                 </View>
+            </View>
 
-                {/* Location pill */}
-                {profile?.pinCode && (
-                    <View style={styles.locationPill}>
-                        <MapPin size={14} color={colors.primary} />
-                        <Text style={styles.locationText}>
-                            {profile.address || `Pin: ${profile.pinCode}`}
-                        </Text>
+            {/* Location Banner */}
+            <View style={styles.locationBanner}>
+                <View style={styles.locationInfo}>
+                    <MapPin size={20} color={colors.primary} />
+                    <View style={styles.locationTextContainer}>
+                        <Text style={styles.locationLabel}>Your Location</Text>
+                        {isFetchingLocation ? (
+                            <Text style={styles.locationValue}>Fetching location...</Text>
+                        ) : (
+                            <Text style={styles.locationValue} numberOfLines={2}>
+                                {profile?.homeAddress || 'Location not set'}
+                            </Text>
+                        )}
                     </View>
-                )}
+                </View>
+                <TouchableOpacity 
+                    style={styles.changeButton}
+                    onPress={() => navigation.navigate('LocationSelection')}
+                >
+                    <Text style={styles.changeButtonText}>Change</Text>
+                </TouchableOpacity>
             </View>
 
             <ScrollView
@@ -112,7 +170,7 @@ export function HomeScreen() {
                 refreshControl={
                     <RefreshControl
                         refreshing={isLoading}
-                        onRefresh={refetch}
+                        onRefresh={onRefresh}
                         colors={[colors.primary]}
                     />
                 }
@@ -130,36 +188,69 @@ export function HomeScreen() {
                     </View>
                 </View>
 
-                {/* Pincode Check */}
-                <PincodeChecker
-                    initialPincode={profile?.pinCode}
-                    onVerified={(pc) => console.log('Pincode verified:', pc)}
-                />
+                {/* Serviceability Check */}
+                {isServiceable === false ? (
+                    <View style={styles.unserviceableContainer}>
+                        <Text style={styles.unserviceableTitle}>We are coming to your area shortly</Text>
+                        <Text style={styles.unserviceableSubtitle}>
+                            Currently, we do not operate in your area. We will notify you once we expand our services here.
+                        </Text>
+                    </View>
+                ) : (
+                    <>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Our Services</Text>
+                            <Text style={styles.sectionSubtitle}>What do you need help with?</Text>
+                        </View>
 
-                {/* Category grid */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Our Services</Text>
-                    <Text style={styles.sectionSubtitle}>What do you need help with?</Text>
-                </View>
-
-                <View style={styles.categoryGrid}>
-                    {SERVICE_CATEGORIES.map((category) => {
-                        const Icon = category.icon;
-                        return (
-                            <TouchableOpacity
-                                key={category.id}
-                                style={styles.categoryCard}
-                                onPress={() => handleCategoryPress(category)}
-                                activeOpacity={0.7}
-                            >
-                                <View style={[styles.categoryIconWrap, { backgroundColor: category.color + '15' }]}>
-                                    <Icon size={28} color={category.color} />
-                                </View>
-                                <Text style={styles.categoryName}>{category.name}</Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
+                        <View style={styles.categoryGrid}>
+                            {isServicesLoading ? (
+                                Array.from({ length: 4 }).map((_, idx) => (
+                                    <View key={idx} style={styles.serviceCardWrapper}>
+                                        <CardSkeleton />
+                                    </View>
+                                ))
+                            ) : (
+                                <>
+                                    {homeServices?.map((service: ServiceItem) => (
+                                        <View key={service.id} style={styles.serviceCardWrapper}>
+                                            <ServiceCard
+                                                service={service}
+                                                onPress={() => {
+                                                    if (service.status === 'COMING_SOON') {
+                                                        import('react-native').then(({ Alert }) => {
+                                                            Alert.alert(
+                                                                "Coming Soon",
+                                                                "🚀 This service is launching soon in your area.",
+                                                                [{ text: "OK" }]
+                                                            );
+                                                        });
+                                                    } else if (service.status === 'MAINTENANCE') {
+                                                        import('react-native').then(({ Alert }) => {
+                                                            Alert.alert(
+                                                                "Under Maintenance",
+                                                                "This service is temporarily under maintenance.",
+                                                                [{ text: "OK" }]
+                                                            );
+                                                        });
+                                                    } else {
+                                                        navigation.navigate('ServiceRequest', { serviceType: service.name });
+                                                    }
+                                                }}
+                                            />
+                                        </View>
+                                    ))}
+                                    <View style={styles.serviceCardWrapper}>
+                                        <ServiceCard
+                                            isMoreCard
+                                            onPress={() => navigation.navigate('AllServices')}
+                                        />
+                                    </View>
+                                </>
+                            )}
+                        </View>
+                    </>
+                )}
 
                 {/* Recent requests teaser */}
                 <TouchableOpacity
@@ -184,7 +275,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
     },
     header: {
-        backgroundColor: colors.primary,
+        backgroundColor: colors.backgroundDark,
         paddingTop: 50,
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.xl,
@@ -230,21 +321,46 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    locationPill: {
+    locationBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.xs,
-        backgroundColor: 'rgba(255,255,255,0.9)',
-        paddingVertical: spacing.xs + 2,
+        justifyContent: 'space-between',
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.xl,
+        paddingVertical: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        ...shadows.sm,
+    },
+    locationInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+        marginRight: spacing.md,
+    },
+    locationTextContainer: {
+        marginLeft: spacing.md,
+        flex: 1,
+    },
+    locationLabel: {
+        ...typography.caption,
+        color: colors.textSecondary,
+    },
+    locationValue: {
+        ...typography.body,
+        color: colors.textPrimary,
+        fontWeight: '600',
+    },
+    changeButton: {
+        paddingVertical: spacing.xs,
         paddingHorizontal: spacing.md,
         borderRadius: radii.full,
-        alignSelf: 'flex-start',
-        marginTop: spacing.md,
+        backgroundColor: colors.primarySurface,
     },
-    locationText: {
+    changeButtonText: {
         ...typography.small,
-        color: colors.textPrimary,
-        fontWeight: '500',
+        color: colors.primary,
+        fontWeight: '600',
     },
     scrollView: {
         flex: 1,
@@ -252,7 +368,7 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: spacing.xl,
         paddingTop: spacing.xl,
-        paddingBottom: spacing['3xl'],
+        paddingBottom: 100, // Extra space for floating tab bar
     },
     welcomeCard: {
         flexDirection: 'row',
@@ -279,7 +395,7 @@ const styles = StyleSheet.create({
         width: 64,
         height: 64,
         borderRadius: 32,
-        backgroundColor: 'rgba(33, 150, 243, 0.1)',
+        backgroundColor: colors.primarySurface,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -298,32 +414,13 @@ const styles = StyleSheet.create({
     categoryGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: spacing.md,
+        justifyContent: 'space-between',
+        marginTop: spacing.md,
         marginBottom: spacing.xl,
     },
-    categoryCard: {
-        width: '22%',
-        flexBasis: '22%',
-        flexGrow: 1,
-        alignItems: 'center',
-        backgroundColor: colors.background,
-        borderRadius: radii.lg,
-        padding: spacing.md,
-        ...shadows.sm,
-    },
-    categoryIconWrap: {
-        width: 52,
-        height: 52,
-        borderRadius: radii.lg,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.sm,
-    },
-    categoryName: {
-        ...typography.small,
-        fontWeight: '500',
-        color: colors.textPrimary,
-        textAlign: 'center',
+    serviceCardWrapper: {
+        width: '48%',
+        marginBottom: spacing.md,
     },
     recentCard: {
         flexDirection: 'row',
@@ -342,5 +439,24 @@ const styles = StyleSheet.create({
         ...typography.caption,
         color: colors.textSecondary,
         marginTop: spacing.xs,
+    },
+    unserviceableContainer: {
+        backgroundColor: colors.error + '10',
+        padding: spacing.xl,
+        borderRadius: radii.lg,
+        alignItems: 'center',
+        marginBottom: spacing.xl,
+    },
+    unserviceableTitle: {
+        ...typography.h4,
+        color: colors.error,
+        marginBottom: spacing.sm,
+        textAlign: 'center',
+    },
+    unserviceableSubtitle: {
+        ...typography.body,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 22,
     },
 });

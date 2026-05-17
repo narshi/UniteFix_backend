@@ -11,4 +11,6 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL,
   },
+  // Ignore PostGIS system tables so drizzle-kit doesn't try to drop them
+  extensionsFilters: ["postgis"],
 });

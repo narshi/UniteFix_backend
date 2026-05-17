@@ -169,15 +169,24 @@ export class NotificationService {
 
     try {
       const nodemailer = await import("nodemailer");
+      const smtpPort = parseInt(process.env.SMTP_PORT || '587');
+      
+      // Port 465 is always secure (SSL/TLS) for Zoho India
+      const isSecure = smtpPort === 465;
+
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_PORT === '465',
+        port: smtpPort,
+        secure: isSecure,
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
         },
+        // Add timeout to prevent hanging connections
+        connectionTimeout: 10000,
       });
+
+      logger.info(`[EMAIL] Attempting to send to ${to} via ${process.env.SMTP_HOST}:${smtpPort}`);
 
       const info = await transporter.sendMail({
         from: process.env.ADMIN_EMAIL || '"UniteFix Support" <support@unitefix.com>',
@@ -189,7 +198,7 @@ export class NotificationService {
       logger.info(`[EMAIL] Message sent`, { messageId: info.messageId, to });
     } catch (error: any) {
       logger.error("[EMAIL] Error sending email", { error: error.message, to });
-      logger.info(`[EMAIL FAILED] To: ${to}, Subject: ${subject}`);
+      throw new Error(`Email delivery failed: ${error.message}`);
     }
   }
 

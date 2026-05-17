@@ -4,12 +4,9 @@
 
 export type AuthStackParamList = {
     Splash: undefined;
-    Login: undefined;
-    Signup: undefined;
-    ForgotPassword: undefined;
-    OTPVerification: { phone?: string; email?: string; purpose: 'reset' | 'verify' | 'signup'; role?: 'user' | 'serviceman' };
-    ResetPassword: { token: string };
-    SetPassword: { signupToken: string; email: string };
+    RoleSelection: undefined;
+    TruecallerAuth: { role: 'user' | 'serviceman' };
+    EmployeePending: undefined;
 };
 
 
@@ -32,7 +29,8 @@ export type PartnerTabParamList = {
 // Stack params for nested navigators
 export type HomeStackParamList = {
     Home: undefined;
-    ServiceForm: { serviceType?: string };
+    AllServices: undefined;
+    ServiceRequest: { serviceType?: string };
     Notifications: undefined;
 };
 

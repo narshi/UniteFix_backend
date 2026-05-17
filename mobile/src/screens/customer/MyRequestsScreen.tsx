@@ -1,8 +1,15 @@
 /**
- * My Service Requests — List of user's service bookings with status badges
+ * My Bookings — Premium booking history with status chips and sections
+ * 
+ * Features:
+ * - Active vs Past section split
+ * - Animated card entrance
+ * - Premium status chips with icons
+ * - Pull-to-refresh
+ * - Empty state illustration
  */
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
     View,
     Text,
@@ -10,59 +17,228 @@ import {
     FlatList,
     TouchableOpacity,
     RefreshControl,
-    ActivityIndicator,
+    Animated,
+    Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronRight, Calendar, AlertCircle } from 'lucide-react-native';
+import {
+    ChevronRight,
+    Calendar,
+    ClipboardList,
+    Clock,
+    CheckCircle,
+    User,
+    Navigation,
+    Wrench,
+    XCircle,
+    CreditCard,
+    IndianRupee,
+    AlertTriangle,
+    Shield,
+} from 'lucide-react-native';
 import { useServiceRequests } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { ListItemSkeleton } from '../../components/Skeleton';
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-    pending: { bg: colors.warningLight, text: colors.warning, label: 'Pending' },
-    assigned: { bg: colors.infoLight, text: colors.info, label: 'Assigned' },
-    in_progress: { bg: colors.primarySurface, text: colors.primary, label: 'In Progress' },
-    completed: { bg: colors.successLight, text: colors.success, label: 'Completed' },
-    cancelled: { bg: colors.errorLight, text: colors.error, label: 'Cancelled' },
+const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string; icon: any }> = {
+    created: { bg: colors.warningLight, text: colors.warningDark, label: 'Created', icon: Clock },
+    assigned: { bg: colors.infoLight, text: colors.info, label: 'Assigned', icon: User },
+    accepted: { bg: colors.infoLight, text: colors.info, label: 'Accepted', icon: Shield },
+    reached: { bg: colors.primarySurface, text: colors.primary, label: 'Arrived', icon: Navigation },
+    in_progress: { bg: colors.primarySurface, text: colors.primary, label: 'In Progress', icon: Wrench },
+    pending_payment: { bg: colors.warningLight, text: colors.warningDark, label: 'Pay Now', icon: IndianRupee },
+    completed: { bg: colors.successLight, text: colors.successDark, label: 'Completed', icon: CheckCircle },
+    cancelled: { bg: colors.errorLight, text: colors.errorDark, label: 'Cancelled', icon: XCircle },
+    disputed: { bg: colors.errorLight, text: colors.errorDark, label: 'Disputed', icon: AlertTriangle },
 };
 
-function StatusBadge({ status }: { status: string }) {
-    const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+function StatusChip({ status }: { status: string }) {
+    const config = STATUS_CONFIG[status] || STATUS_CONFIG.created;
+    const Icon = config.icon;
     return (
-        <View style={[styles.badge, { backgroundColor: config.bg }]}>
-            <Text style={[styles.badgeText, { color: config.text }]}>{config.label}</Text>
+        <View style={[chipStyles.chip, { backgroundColor: config.bg }]}>
+            <Icon size={12} color={config.text} />
+            <Text style={[chipStyles.text, { color: config.text }]}>{config.label}</Text>
         </View>
     );
 }
 
-function RequestCard({ item, onPress }: { item: ServiceRequest; onPress: () => void }) {
+const chipStyles = StyleSheet.create({
+    chip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingVertical: 4,
+        paddingHorizontal: spacing.sm + 2,
+        borderRadius: radii.full,
+    },
+    text: {
+        fontSize: 11,
+        fontWeight: '600',
+        letterSpacing: 0.3,
+    },
+});
+
+function BookingCard({ item, onPress, index }: { item: ServiceRequest; onPress: () => void; index: number }) {
+    const slideAnim = useRef(new Animated.Value(30)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 1,
+                duration: 400,
+                delay: index * 80,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+                toValue: 0,
+                duration: 400,
+                delay: index * 80,
+                useNativeDriver: true,
+            }),
+        ]).start();
+    }, []);
+
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
+        day: 'numeric', month: 'short', year: 'numeric',
     });
 
+    const needsPayment = item.status === 'pending_payment';
+    const isActive = !['completed', 'cancelled'].includes(item.status);
+
     return (
-        <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
-            <View style={styles.cardHeader}>
-                <Text style={styles.serviceType}>{item.serviceType.replace(/_/g, ' ')}</Text>
-                <StatusBadge status={item.status} />
-            </View>
-            <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
-            <View style={styles.cardFooter}>
-                <View style={styles.dateRow}>
-                    <Calendar size={14} color={colors.textSecondary} />
-                    <Text style={styles.dateText}>{date}</Text>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+            <TouchableOpacity
+                style={[
+                    cardStyles.card,
+                    needsPayment && cardStyles.paymentCard,
+                    isActive && cardStyles.activeCard,
+                ]}
+                onPress={onPress}
+                activeOpacity={0.7}
+            >
+                <View style={cardStyles.header}>
+                    <View style={cardStyles.serviceInfo}>
+                        <Text style={cardStyles.serviceType}>
+                            {item.serviceType.replace(/_/g, ' ')}
+                        </Text>
+                        {item.servicemanName && (
+                            <Text style={cardStyles.techName}>
+                                <User size={11} color={colors.textSecondary} /> {item.servicemanName}
+                            </Text>
+                        )}
+                    </View>
+                    <StatusChip status={item.status} />
                 </View>
-                <ChevronRight size={18} color={colors.textSecondary} />
-            </View>
-        </TouchableOpacity>
+
+                <Text style={cardStyles.description} numberOfLines={1}>{item.description}</Text>
+
+                <View style={cardStyles.footer}>
+                    <View style={cardStyles.dateRow}>
+                        <Calendar size={13} color={colors.textSecondary} />
+                        <Text style={cardStyles.dateText}>{date}</Text>
+                    </View>
+                    {item.totalCharge ? (
+                        <Text style={cardStyles.amount}>₹{item.totalCharge}</Text>
+                    ) : (
+                        <Text style={cardStyles.bookingFee}>₹99 paid</Text>
+                    )}
+                    <ChevronRight size={16} color={colors.textDisabled} />
+                </View>
+
+                {needsPayment && (
+                    <View style={cardStyles.paymentBanner}>
+                        <CreditCard size={14} color={colors.textInverse} />
+                        <Text style={cardStyles.paymentBannerText}>Tap to complete payment</Text>
+                    </View>
+                )}
+            </TouchableOpacity>
+        </Animated.View>
     );
 }
+
+const cardStyles = StyleSheet.create({
+    card: {
+        backgroundColor: colors.background,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
+        marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        ...shadows.sm,
+    },
+    activeCard: {
+        borderColor: colors.primaryLight,
+        borderWidth: 1,
+    },
+    paymentCard: {
+        borderColor: colors.warning,
+        borderWidth: 1.5,
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: spacing.sm,
+    },
+    serviceInfo: { flex: 1, marginRight: spacing.sm },
+    serviceType: {
+        ...typography.bodySemibold,
+        color: colors.textPrimary,
+        textTransform: 'capitalize',
+    },
+    techName: {
+        ...typography.small,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    description: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginBottom: spacing.md,
+    },
+    footer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    dateRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.xs,
+    },
+    dateText: {
+        ...typography.small,
+        color: colors.textSecondary,
+    },
+    amount: {
+        ...typography.mono,
+        color: colors.primary,
+        fontSize: 14,
+    },
+    bookingFee: {
+        ...typography.small,
+        color: colors.textDisabled,
+    },
+    paymentBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.primary,
+        paddingVertical: spacing.sm,
+        borderRadius: radii.md,
+        marginTop: spacing.md,
+    },
+    paymentBannerText: {
+        ...typography.buttonSmall,
+        color: colors.textInverse,
+    },
+});
 
 export function MyRequestsScreen() {
     const { data: requests, isLoading, refetch, isRefetching } = useServiceRequests();
@@ -72,18 +248,35 @@ export function MyRequestsScreen() {
         navigation.navigate('RequestDetail', { request: item });
     };
 
+    // Split into active and past
+    const activeRequests = (requests || []).filter(
+        (r: ServiceRequest) => !['completed', 'cancelled'].includes(r.status)
+    );
+    const pastRequests = (requests || []).filter(
+        (r: ServiceRequest) => ['completed', 'cancelled'].includes(r.status)
+    );
+
+    const allData = [
+        ...(activeRequests.length > 0 ? [{ type: 'header', title: `Active (${activeRequests.length})` }] : []),
+        ...activeRequests.map((r: ServiceRequest) => ({ type: 'item', data: r })),
+        ...(pastRequests.length > 0 ? [{ type: 'header', title: `Past (${pastRequests.length})` }] : []),
+        ...pastRequests.map((r: ServiceRequest) => ({ type: 'item', data: r })),
+    ];
 
     if (isLoading) {
         return (
             <View style={styles.container}>
                 <View style={styles.header}>
                     <Text style={styles.headerTitle}>My Bookings</Text>
-                    <ListItemSkeleton />
                 </View>
                 <View style={{ padding: spacing.xl }}>
-                    <ListItemSkeleton />
-                    <ListItemSkeleton />
-                    <ListItemSkeleton />
+                    {[1, 2, 3].map(i => (
+                        <View key={i} style={[cardStyles.card, { opacity: 0.3 }]}>
+                            <View style={{ height: 16, width: '60%', backgroundColor: colors.border, borderRadius: 4, marginBottom: 8 }} />
+                            <View style={{ height: 12, width: '80%', backgroundColor: colors.border, borderRadius: 4, marginBottom: 12 }} />
+                            <View style={{ height: 12, width: '40%', backgroundColor: colors.border, borderRadius: 4 }} />
+                        </View>
+                    ))}
                 </View>
             </View>
         );
@@ -95,14 +288,27 @@ export function MyRequestsScreen() {
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>My Bookings</Text>
                 <Text style={styles.headerSub}>
-                    {requests?.length || 0} request{(requests?.length || 0) !== 1 ? 's' : ''}
+                    {requests?.length || 0} total booking{(requests?.length || 0) !== 1 ? 's' : ''}
                 </Text>
             </View>
 
             <FlatList
-                data={requests || []}
-                renderItem={({ item }) => <RequestCard item={item} onPress={() => handlePress(item)} />}
-                keyExtractor={(item) => item.id.toString()}
+                data={allData}
+                renderItem={({ item, index }: any) => {
+                    if (item.type === 'header') {
+                        return (
+                            <Text style={styles.sectionHeader}>{item.title}</Text>
+                        );
+                    }
+                    return (
+                        <BookingCard
+                            item={item.data}
+                            onPress={() => handlePress(item.data)}
+                            index={index}
+                        />
+                    );
+                }}
+                keyExtractor={(item: any, index) => item.type === 'header' ? `header-${index}` : `item-${item.data.id}`}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
@@ -110,14 +316,17 @@ export function MyRequestsScreen() {
                         refreshing={isRefetching}
                         onRefresh={refetch}
                         colors={[colors.primary]}
+                        tintColor={colors.primary}
                     />
                 }
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <AlertCircle size={48} color={colors.textDisabled} />
+                        <View style={styles.emptyIconWrap}>
+                            <ClipboardList size={40} color={colors.textDisabled} />
+                        </View>
                         <Text style={styles.emptyTitle}>No bookings yet</Text>
                         <Text style={styles.emptySubtitle}>
-                            Book your first service from the Home screen
+                            Book your first service from the Home screen and track it here
                         </Text>
                     </View>
                 }
@@ -131,14 +340,8 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.surface,
     },
-    center: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: colors.surface,
-    },
     header: {
-        paddingTop: 54,
+        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.lg,
         paddingHorizontal: spacing.xl,
         backgroundColor: colors.background,
@@ -154,69 +357,40 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         marginTop: spacing.xs,
     },
+    sectionHeader: {
+        ...typography.captionMedium,
+        color: colors.textSecondary,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginTop: spacing.xl,
+        marginBottom: spacing.md,
+    },
     listContent: {
         padding: spacing.xl,
-        paddingBottom: spacing['3xl'],
-    },
-    card: {
-        backgroundColor: colors.background,
-        borderRadius: radii.lg,
-        padding: spacing.lg,
-        marginBottom: spacing.md,
-        ...shadows.sm,
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: spacing.sm,
-    },
-    serviceType: {
-        ...typography.bodyMedium,
-        color: colors.textPrimary,
-        textTransform: 'capitalize',
-    },
-    badge: {
-        paddingVertical: 3,
-        paddingHorizontal: spacing.sm,
-        borderRadius: radii.full,
-    },
-    badgeText: {
-        fontSize: 11,
-        fontWeight: '600',
-    },
-    description: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        marginBottom: spacing.md,
-    },
-    cardFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    dateRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.xs,
-    },
-    dateText: {
-        ...typography.small,
-        color: colors.textSecondary,
+        paddingBottom: spacing['5xl'],
     },
     emptyContainer: {
         alignItems: 'center',
-        paddingTop: spacing['4xl'],
+        paddingTop: spacing['5xl'],
+    },
+    emptyIconWrap: {
+        width: 80,
+        height: 80,
+        borderRadius: radii['2xl'],
+        backgroundColor: colors.primarySurface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.xl,
     },
     emptyTitle: {
-        ...typography.h4,
-        color: colors.textSecondary,
-        marginTop: spacing.lg,
+        ...typography.h3,
+        color: colors.textPrimary,
     },
     emptySubtitle: {
-        ...typography.caption,
-        color: colors.textDisabled,
+        ...typography.body,
+        color: colors.textSecondary,
         marginTop: spacing.sm,
         textAlign: 'center',
+        paddingHorizontal: spacing['2xl'],
     },
 });

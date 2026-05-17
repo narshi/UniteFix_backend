@@ -54,8 +54,8 @@ export default function UsersPage() {
   return (
     <div className="flex-1 p-8">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">User Management</h2>
-        <p className="text-gray-600">Manage all users in the UniteFix platform</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Customer Management</h2>
+        <p className="text-gray-600">Manage all registered customers. Employees are managed in the Employees section.</p>
       </div>
 
       <Card>
@@ -114,8 +114,8 @@ export default function UsersPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <Badge variant={user.role === 'admin' ? 'default' : user.role === 'serviceman' ? 'outline' : 'secondary'}>
-                          {user.role === 'serviceman' ? 'Service Partner' : user.role === 'admin' ? 'Admin' : 'Normal User'}
+                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                          {user.role === 'admin' ? 'Admin' : 'Customer'}
                         </Badge>
                       </td>
                       <td className="py-3 px-4">

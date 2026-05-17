@@ -19,6 +19,11 @@
     "android": {
       "package": "com.unitefix.app",
       "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -30,10 +35,22 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ],
       "expo-secure-store",
       "expo-font",
-      "expo-web-browser",
-      "./plugins/withTruecaller"
+      [
+        "./plugins/withTruecaller",
+        {
+          "clientId": "4gniidv8yotvmqym7nwgcfven6mk36mqep70ikeq8qs"
+        }
+      ]
     ]
 
   }

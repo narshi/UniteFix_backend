@@ -1,21 +1,52 @@
 /**
- * Customer Tab Navigator — 5-tab bottom navigation
- * All tabs use real screen implementations.
+ * Customer Tab Navigator — Premium floating tab bar
+ * 
+ * Features:
+ * - Floating pill-style tab bar with shadow
+ * - Active indicator dot
+ * - Animated icon scaling
+ * - Coming Soon badge on Shop
  */
 
 import React from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, ClipboardList, ShoppingBag, Package, User } from 'lucide-react-native';
+import { Home, ClipboardList, ShoppingBag, User } from 'lucide-react-native';
 import { CustomerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
+import { radii, spacing, shadows } from '../theme/spacing';
 
 import { HomeScreen } from '../screens/customer/HomeScreen';
 import { MyRequestsScreen } from '../screens/customer/MyRequestsScreen';
 import { ProfileScreen } from '../screens/customer/ProfileScreen';
 import { ShopScreen } from '../screens/shop/ShopScreen';
-import { OrdersScreen } from '../screens/shop/OrdersScreen';
 
 const Tab = createBottomTabNavigator<CustomerTabParamList>();
+
+function TabIcon({ icon: Icon, color, focused }: { icon: any; color: string; focused: boolean }) {
+    return (
+        <View style={[tabIconStyles.wrap, focused && tabIconStyles.active]}>
+            <Icon size={focused ? 22 : 20} color={color} strokeWidth={focused ? 2.5 : 2} />
+            {focused && <View style={tabIconStyles.dot} />}
+        </View>
+    );
+}
+
+const tabIconStyles = StyleSheet.create({
+    wrap: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 4,
+    },
+    active: {},
+    dot: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.primary,
+        marginTop: 3,
+    },
+});
 
 export function CustomerTabs() {
     return (
@@ -23,16 +54,29 @@ export function CustomerTabs() {
             screenOptions={{
                 headerShown: false,
                 tabBarActiveTintColor: colors.primary,
-                tabBarInactiveTintColor: colors.textSecondary,
+                tabBarInactiveTintColor: colors.textDisabled,
                 tabBarStyle: {
+                    position: 'absolute',
+                    bottom: Platform.OS === 'ios' ? 24 : 12,
+                    left: spacing.xl,
+                    right: spacing.xl,
                     backgroundColor: colors.background,
-                    borderTopColor: colors.divider,
-                    paddingBottom: 4,
-                    height: 56,
+                    borderRadius: radii['2xl'],
+                    height: 64,
+                    paddingBottom: 0,
+                    borderTopWidth: 0,
+                    ...shadows.lg,
+                    borderWidth: 1,
+                    borderColor: colors.divider,
                 },
                 tabBarLabelStyle: {
-                    fontSize: 11,
-                    fontWeight: '500',
+                    fontSize: 10,
+                    fontWeight: '600',
+                    letterSpacing: 0.3,
+                    marginBottom: Platform.OS === 'ios' ? 0 : 8,
+                },
+                tabBarItemStyle: {
+                    paddingTop: 6,
                 },
             }}
         >
@@ -41,7 +85,9 @@ export function CustomerTabs() {
                 component={HomeScreen}
                 options={{
                     tabBarLabel: 'Home',
-                    tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
+                    tabBarIcon: ({ color, focused }) => (
+                        <TabIcon icon={Home} color={color} focused={focused} />
+                    ),
                 }}
             />
             <Tab.Screen
@@ -49,7 +95,9 @@ export function CustomerTabs() {
                 component={MyRequestsScreen}
                 options={{
                     tabBarLabel: 'Bookings',
-                    tabBarIcon: ({ color, size }) => <ClipboardList size={size} color={color} />,
+                    tabBarIcon: ({ color, focused }) => (
+                        <TabIcon icon={ClipboardList} color={color} focused={focused} />
+                    ),
                 }}
             />
             <Tab.Screen
@@ -57,15 +105,19 @@ export function CustomerTabs() {
                 component={ShopScreen}
                 options={{
                     tabBarLabel: 'Shop',
-                    tabBarIcon: ({ color, size }) => <ShoppingBag size={size} color={color} />,
-                }}
-            />
-            <Tab.Screen
-                name="OrdersTab"
-                component={OrdersScreen}
-                options={{
-                    tabBarLabel: 'Orders',
-                    tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+                    tabBarIcon: ({ color, focused }) => (
+                        <TabIcon icon={ShoppingBag} color={color} focused={focused} />
+                    ),
+                    tabBarBadge: '✦',
+                    tabBarBadgeStyle: {
+                        backgroundColor: colors.warning,
+                        color: colors.textInverse,
+                        fontSize: 8,
+                        minWidth: 16,
+                        height: 16,
+                        lineHeight: 14,
+                        borderRadius: 8,
+                    },
                 }}
             />
             <Tab.Screen
@@ -73,7 +125,9 @@ export function CustomerTabs() {
                 component={ProfileScreen}
                 options={{
                     tabBarLabel: 'Profile',
-                    tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+                    tabBarIcon: ({ color, focused }) => (
+                        <TabIcon icon={User} color={color} focused={focused} />
+                    ),
                 }}
             />
         </Tab.Navigator>

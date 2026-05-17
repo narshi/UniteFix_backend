@@ -11,17 +11,21 @@ import {
     TouchableOpacity,
     Alert,
     ActivityIndicator,
+    Linking,
+    Switch,
 } from 'react-native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle,
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle
 } from 'lucide-react-native';
+import * as Location from 'expo-location';
 import { useProfile, useUpdateProfile } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
+import { apiClient } from '../../api/client';
 
 export function PartnerProfileScreen() {
     const { data: profile, isLoading } = useProfile();
@@ -32,22 +36,60 @@ export function PartnerProfileScreen() {
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
-    const [address, setAddress] = useState('');
+    const [homeAddress, setHomeAddress] = useState('');
+    const [fetchingLocation, setFetchingLocation] = useState(false);
+    // PHASE 3: Online/offline toggle (Task 3.4)
+    const [isOnline, setIsOnline] = useState(user?.isOnline ?? false);
+    const [togglingOnline, setTogglingOnline] = useState(false);
 
     useEffect(() => {
         if (profile) {
             setUsername(profile.username || '');
             setEmail(profile.email || '');
             setPhone(profile.phone || '');
-            setAddress(profile.address || '');
+            setHomeAddress(profile.homeAddress || '');
         }
     }, [profile]);
 
     const handleSave = () => {
+        // Basic validation
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            Alert.alert('Validation Error', 'Please enter a valid email address.');
+            return;
+        }
+
         updateProfile(
-            { username, email, phone, address },
+            { username, email, homeAddress },
             { onSuccess: () => { setEditing(false); Alert.alert('Saved', 'Profile updated.'); } },
         );
+    };
+
+    const handleFetchLocation = async () => {
+        try {
+            setFetchingLocation(true);
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Permission to access location was denied');
+                return;
+            }
+
+            const location = await Location.getCurrentPositionAsync({});
+            const geocode = await Location.reverseGeocodeAsync({
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+            });
+
+            if (geocode && geocode.length > 0) {
+                const addr = geocode[0];
+                const addressString = `${addr.name ? addr.name + ', ' : ''}${addr.street ? addr.street + ', ' : ''}${addr.city ? addr.city + ', ' : ''}${addr.region || ''}`.replace(/,\s*$/, "");
+                setHomeAddress(addressString);
+            }
+        } catch (error) {
+            console.error('Error fetching location:', error);
+            Alert.alert('Error', 'Could not fetch your current location.');
+        } finally {
+            setFetchingLocation(false);
+        }
     };
 
     const handleLogout = () => {
@@ -55,6 +97,22 @@ export function PartnerProfileScreen() {
             { text: 'Cancel' },
             { text: 'Log Out', style: 'destructive', onPress: () => logout() },
         ]);
+    };
+
+    // PHASE 3: Online/offline toggle handler (Task 3.4)
+    const handleToggleOnline = async (value: boolean) => {
+        setTogglingOnline(true);
+        try {
+            const { data } = await apiClient.patch('/api/partner/availability', { isOnline: value });
+            if (data?.success) {
+                setIsOnline(data.data.isOnline);
+            }
+        } catch (err: any) {
+            const msg = err?.response?.data?.message || 'Failed to update availability';
+            Alert.alert('Error', msg);
+        } finally {
+            setTogglingOnline(false);
+        }
     };
 
     if (isLoading) {
@@ -90,6 +148,19 @@ export function PartnerProfileScreen() {
                     )}
                 </View>
 
+                {/* PHASE 3: Online/Offline Toggle (Task 3.4) */}
+                <View style={styles.onlineToggle}>
+                    <View style={[styles.onlineDot, { backgroundColor: isOnline ? colors.success : colors.textDisabled }]} />
+                    <Text style={styles.onlineLabel}>{isOnline ? 'Online' : 'Offline'}</Text>
+                    <Switch
+                        value={isOnline}
+                        onValueChange={handleToggleOnline}
+                        disabled={togglingOnline}
+                        trackColor={{ false: colors.border, true: colors.successLight }}
+                        thumbColor={isOnline ? colors.success : colors.textSecondary}
+                    />
+                </View>
+
                 {!editing && (
                     <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
                         <Edit3 size={16} color={colors.primary} />
@@ -106,8 +177,21 @@ export function PartnerProfileScreen() {
                     <View>
                         <Input label="Full Name" value={username} onChangeText={setUsername} icon={<User size={18} color={colors.textSecondary} />} />
                         <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" icon={<Mail size={18} color={colors.textSecondary} />} />
-                        <Input label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" icon={<Phone size={18} color={colors.textSecondary} />} />
-                        <Input label="Address" value={address} onChangeText={setAddress} icon={<MapPin size={18} color={colors.textSecondary} />} />
+                        <Input label="Phone (Read-only)" value={phone} editable={false} style={{ color: colors.textSecondary }} icon={<Phone size={18} color={colors.textSecondary} />} />
+                        <View style={{ position: 'relative' }}>
+                            <Input label="Address" value={homeAddress} onChangeText={setHomeAddress} icon={<MapPin size={18} color={colors.textSecondary} />} />
+                            <TouchableOpacity 
+                                style={{ position: 'absolute', right: 10, top: 38, padding: 5 }} 
+                                onPress={handleFetchLocation}
+                                disabled={fetchingLocation}
+                            >
+                                {fetchingLocation ? (
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                ) : (
+                                    <Navigation size={20} color={colors.primary} />
+                                )}
+                            </TouchableOpacity>
+                        </View>
                         <View style={styles.editActions}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)}>
                                 <Text style={styles.cancelText}>Cancel</Text>
@@ -120,13 +204,28 @@ export function PartnerProfileScreen() {
                         <InfoRow icon={User} label="Name" value={displayName} />
                         <InfoRow icon={Mail} label="Email" value={profile?.email || 'Not set'} />
                         <InfoRow icon={Phone} label="Phone" value={profile?.phone || 'Not set'} />
-                        <InfoRow icon={MapPin} label="Address" value={profile?.address || 'Not set'} />
+                        <InfoRow icon={MapPin} label="Address" value={profile?.homeAddress || 'Not set'} />
                     </View>
                 )}
             </View>
 
-            {/* Logout */}
+            {/* Help & Support */}
             <View style={styles.section}>
+                <TouchableOpacity style={styles.menuItem} onPress={() => {
+                    Linking.openURL('whatsapp://send?phone=+910000000000&text=Hello UniteFix Support, I need help.').catch(() => {
+                        Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
+                    });
+                }}>
+                    <View style={styles.menuLeft}>
+                        <MessageCircle size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Help (WhatsApp)</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+            </View>
+
+            {/* Logout */}
+            <View style={[styles.section, { marginTop: spacing.md }]}>
                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />
@@ -182,6 +281,16 @@ const styles = StyleSheet.create({
     unverifiedBg: { backgroundColor: colors.warningLight },
     verifiedText: { ...typography.small, color: colors.success, fontWeight: '600' },
     unverifiedText: { ...typography.small, color: colors.warning, fontWeight: '600' },
+    onlineToggle: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        marginTop: spacing.md, paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.md, backgroundColor: colors.surface,
+        borderRadius: radii.full,
+    },
+    onlineDot: {
+        width: 10, height: 10, borderRadius: 5,
+    },
+    onlineLabel: { ...typography.bodyMedium, flex: 1 },
     editBtn: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
         marginTop: spacing.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.base,

@@ -1,7 +1,13 @@
 /**
- * Start Service Screen — Geo-fenced service start for partner
- * Role: 🟧 Serviceman only
- * Checks 500m proximity before allowing service to start
+ * PHASE 4: Start Service Screen — Two-phase geofenced service start
+ *
+ * Phase A: "I've Arrived" — Captures GPS, sends to geofence endpoint
+ *   → ACCEPTED → REACHED (server validates ≤ 200m via PostGIS)
+ *
+ * Phase B: OTP Verification — Employee enters 6-digit OTP from customer
+ *   → REACHED → IN_PROGRESS (server validates handshakeOtp)
+ *
+ * Role: 🟧 Employee/Serviceman only
  */
 
 import React, { useState, useEffect } from 'react';
@@ -12,10 +18,14 @@ import {
     Alert,
     ActivityIndicator,
     TouchableOpacity,
+    TextInput,
+    KeyboardAvoidingView,
+    Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-    ArrowLeft, MapPin, Navigation, AlertCircle, CheckCircle, Loader,
+    ArrowLeft, MapPin, Navigation, AlertCircle, CheckCircle,
+    Loader, ShieldCheck, Lock,
 } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { apiClient, getApiErrorMessage } from '../../api/client';
@@ -26,37 +36,26 @@ import { Button } from '../../components/ui';
 
 type Props = NativeStackScreenProps<any, 'StartService'>;
 
-const PROXIMITY_THRESHOLD_METERS = 500;
+const PROXIMITY_THRESHOLD_METERS = 200; // Matches backend MAX_SERVICE_START_DISTANCE
 
-function getDistanceFromLatLonInMeters(
-    lat1: number, lon1: number, lat2: number, lon2: number
-): number {
-    const R = 6371000; // Earth radius in meters
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}
-
+type Phase = 'arrive' | 'otp';
 type LocationStatus = 'checking' | 'granted' | 'denied' | 'error';
-type ProximityStatus = 'checking' | 'within_range' | 'too_far' | 'unknown';
+type ArrivalStatus = 'idle' | 'checking' | 'arrived' | 'too_far' | 'error';
 
 export function StartServiceScreen({ navigation, route }: Props) {
-    const serviceId = route.params?.serviceId;
-    const customerLat = route.params?.customerLat;
-    const customerLong = route.params?.customerLong;
+    const bookingId = route.params?.serviceId || route.params?.bookingId;
 
+    // ── Phase state ──────────────────────────────────────────
+    const [phase, setPhase] = useState<Phase>('arrive');
     const [locationStatus, setLocationStatus] = useState<LocationStatus>('checking');
-    const [proximityStatus, setProximityStatus] = useState<ProximityStatus>('checking');
-    const [currentLocation, setCurrentLocation] = useState<{ lat: number; long: number } | null>(null);
+    const [arrivalStatus, setArrivalStatus] = useState<ArrivalStatus>('idle');
     const [distance, setDistance] = useState<number | null>(null);
-    const [starting, setStarting] = useState(false);
+    const [loading, setLoading] = useState(false);
+
+    // ── OTP state ────────────────────────────────────────────
+    const [otp, setOtp] = useState('');
+    const [otpError, setOtpError] = useState('');
+    const [verifying, setVerifying] = useState(false);
 
     useEffect(() => {
         checkLocationPermission();
@@ -65,168 +64,218 @@ export function StartServiceScreen({ navigation, route }: Props) {
     const checkLocationPermission = async () => {
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                setLocationStatus('denied');
-                setProximityStatus('unknown');
-                return;
-            }
-            setLocationStatus('granted');
-            await checkProximity();
-        } catch (err) {
+            setLocationStatus(status === 'granted' ? 'granted' : 'denied');
+        } catch {
             setLocationStatus('error');
-            setProximityStatus('unknown');
         }
     };
 
-    const checkProximity = async () => {
-        setProximityStatus('checking');
+    // ── Phase A: "I've Arrived" ──────────────────────────────
+    const handleArrival = async () => {
+        setArrivalStatus('checking');
+        setLoading(true);
         try {
             const location = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.High,
             });
             const { latitude, longitude } = location.coords;
-            setCurrentLocation({ lat: latitude, long: longitude });
 
-            if (customerLat && customerLong) {
-                const dist = getDistanceFromLatLonInMeters(
-                    latitude, longitude,
-                    parseFloat(customerLat), parseFloat(customerLong),
-                );
-                setDistance(Math.round(dist));
-                setProximityStatus(dist <= PROXIMITY_THRESHOLD_METERS ? 'within_range' : 'too_far');
-            } else {
-                // No customer location — allow start (backend will validate if needed)
-                setProximityStatus('within_range');
-                setDistance(null);
+            const { data } = await apiClient.patch(`/api/v1/bookings/${bookingId}/arrive`, {
+                latitude,
+                longitude,
+            });
+
+            if (data?.success) {
+                setDistance(data.data?.distanceMeters ?? null);
+                setArrivalStatus('arrived');
+                // Auto-advance to OTP phase
+                setPhase('otp');
             }
-        } catch (err) {
-            setProximityStatus('unknown');
-            Alert.alert('Location Error', 'Could not get your location. Please try again.');
+        } catch (err: any) {
+            const errData = err?.response?.data;
+            if (errData?.data?.distanceMeters) {
+                setDistance(errData.data.distanceMeters);
+                setArrivalStatus('too_far');
+            } else {
+                setArrivalStatus('error');
+            }
+            Alert.alert('Cannot Confirm Arrival', getApiErrorMessage(err));
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleStartService = async () => {
-        setStarting(true);
+    // ── Phase B: OTP Verification ────────────────────────────
+    const handleVerifyOtp = async () => {
+        if (otp.length !== 6) {
+            setOtpError('Please enter the 6-digit code');
+            return;
+        }
+        setOtpError('');
+        setVerifying(true);
         try {
-            await apiClient.post(`/api/service/start`, {
-                serviceId,
-                latitude: currentLocation?.lat,
-                longitude: currentLocation?.long,
+            const { data } = await apiClient.patch(`/api/v1/bookings/${bookingId}/start`, {
+                otp: otp.trim(),
             });
-            Alert.alert('Service Started!', 'You can now proceed with the service.', [
-                { text: 'OK', onPress: () => navigation.goBack() },
-            ]);
+
+            if (data?.success) {
+                Alert.alert(
+                    '🔧 Service Started!',
+                    'You can now proceed with the service work.',
+                    [{ text: 'OK', onPress: () => navigation.goBack() }],
+                );
+            }
         } catch (err) {
-            Alert.alert('Error', getApiErrorMessage(err));
+            const msg = getApiErrorMessage(err);
+            setOtpError(msg);
+            Alert.alert('Invalid OTP', msg);
         } finally {
-            setStarting(false);
+            setVerifying(false);
         }
     };
 
     return (
-        <View style={styles.container}>
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Start Service</Text>
+                <Text style={styles.headerTitle}>
+                    {phase === 'arrive' ? 'Confirm Arrival' : 'Enter Service Code'}
+                </Text>
                 <View style={{ width: 36 }} />
             </View>
 
             <View style={styles.content}>
-                {/* Location Permission Status */}
-                <StatusCard
-                    icon={<MapPin size={20} color={locationStatus === 'granted' ? colors.success : colors.warning} />}
-                    title="Location Permission"
-                    status={
-                        locationStatus === 'checking' ? 'Checking...' :
-                            locationStatus === 'granted' ? 'Permission granted' :
-                                locationStatus === 'denied' ? 'Permission denied — tap to enable' :
-                                    'Error checking permission'
-                    }
-                    statusColor={locationStatus === 'granted' ? colors.success : colors.warning}
-                    onPress={locationStatus === 'denied' ? checkLocationPermission : undefined}
-                />
+                {/* ── PHASE A: Arrival ──────────────────────────────── */}
+                {phase === 'arrive' && (
+                    <>
+                        {/* Step indicator */}
+                        <View style={styles.stepIndicator}>
+                            <View style={[styles.stepDot, styles.stepActive]} />
+                            <View style={styles.stepLine} />
+                            <View style={styles.stepDot} />
+                        </View>
 
-                {/* Proximity Status */}
-                <StatusCard
-                    icon={
-                        proximityStatus === 'checking' ? <Loader size={20} color={colors.info} /> :
-                            proximityStatus === 'within_range' ? <CheckCircle size={20} color={colors.success} /> :
-                                proximityStatus === 'too_far' ? <AlertCircle size={20} color={colors.error} /> :
-                                    <Navigation size={20} color={colors.textSecondary} />
-                    }
-                    title="Proximity Check"
-                    status={
-                        proximityStatus === 'checking' ? 'Checking your location...' :
-                            proximityStatus === 'within_range'
-                                ? distance != null
-                                    ? `Within range (${distance}m away)`
-                                    : 'Location verified'
-                                :
-                                proximityStatus === 'too_far'
-                                    ? `Too far (${distance}m away). Must be within ${PROXIMITY_THRESHOLD_METERS}m.`
-                                    :
-                                    'Unable to verify proximity'
-                    }
-                    statusColor={
-                        proximityStatus === 'within_range' ? colors.success :
-                            proximityStatus === 'too_far' ? colors.error :
-                                colors.textSecondary
-                    }
-                />
+                        {/* Location status */}
+                        <StatusCard
+                            icon={<MapPin size={20} color={locationStatus === 'granted' ? colors.success : colors.warning} />}
+                            title="Location Permission"
+                            status={
+                                locationStatus === 'checking' ? 'Checking...' :
+                                    locationStatus === 'granted' ? 'Permission granted' :
+                                        locationStatus === 'denied' ? 'Permission denied — tap to enable' :
+                                            'Error checking permission'
+                            }
+                            statusColor={locationStatus === 'granted' ? colors.success : colors.warning}
+                            onPress={locationStatus === 'denied' ? checkLocationPermission : undefined}
+                        />
 
-                {/* Distance indicator */}
-                {distance !== null && proximityStatus !== 'checking' && (
-                    <View style={styles.distanceCard}>
-                        <View style={styles.distanceBar}>
-                            <View
-                                style={[
-                                    styles.distanceFill,
-                                    {
-                                        width: `${Math.min(100, (distance / PROXIMITY_THRESHOLD_METERS) * 100)}%`,
-                                        backgroundColor: proximityStatus === 'within_range' ? colors.success : colors.error,
-                                    },
-                                ]}
+                        {/* Distance feedback */}
+                        {arrivalStatus === 'too_far' && distance !== null && (
+                            <View style={styles.distanceCard}>
+                                <AlertCircle size={20} color={colors.error} />
+                                <Text style={styles.distanceText}>
+                                    You are {distance}m away. Move within {PROXIMITY_THRESHOLD_METERS}m of the customer.
+                                </Text>
+                            </View>
+                        )}
+
+                        {/* Info */}
+                        <View style={styles.infoCard}>
+                            <Text style={styles.infoTitle}>How it works</Text>
+                            <Text style={styles.infoText}>
+                                • Tap "I've Arrived" when you reach the customer{'\n'}
+                                • GPS will verify you are within {PROXIMITY_THRESHOLD_METERS}m{'\n'}
+                                • After arrival, enter the 6-digit code shown on customer's phone
+                            </Text>
+                        </View>
+                    </>
+                )}
+
+                {/* ── PHASE B: OTP ─────────────────────────────────── */}
+                {phase === 'otp' && (
+                    <>
+                        {/* Step indicator */}
+                        <View style={styles.stepIndicator}>
+                            <View style={[styles.stepDot, styles.stepComplete]}>
+                                <CheckCircle size={12} color="#fff" />
+                            </View>
+                            <View style={[styles.stepLine, styles.stepLineActive]} />
+                            <View style={[styles.stepDot, styles.stepActive]} />
+                        </View>
+
+                        {/* Arrival confirmed */}
+                        <View style={styles.arrivedBanner}>
+                            <CheckCircle size={24} color={colors.success} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.arrivedTitle}>Arrival Confirmed</Text>
+                                {distance !== null && (
+                                    <Text style={styles.arrivedSubtitle}>
+                                        Verified at {distance}m from customer
+                                    </Text>
+                                )}
+                            </View>
+                        </View>
+
+                        {/* OTP Input */}
+                        <View style={styles.otpSection}>
+                            <Lock size={28} color={colors.primary} />
+                            <Text style={styles.otpTitle}>Enter Service Code</Text>
+                            <Text style={styles.otpSubtitle}>
+                                Ask the customer for the 6-digit code shown on their phone
+                            </Text>
+
+                            <TextInput
+                                style={[styles.otpInput, otpError ? styles.otpInputError : null]}
+                                value={otp}
+                                onChangeText={(text) => {
+                                    setOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
+                                    setOtpError('');
+                                }}
+                                keyboardType="number-pad"
+                                maxLength={6}
+                                placeholder="● ● ● ● ● ●"
+                                placeholderTextColor={colors.textDisabled}
+                                textAlign="center"
+                                autoFocus
                             />
-                        </View>
-                        <View style={styles.distanceLabels}>
-                            <Text style={styles.distanceLabelText}>0m</Text>
-                            <Text style={styles.distanceLabelText}>{PROXIMITY_THRESHOLD_METERS}m</Text>
-                        </View>
-                    </View>
-                )}
 
-                {/* Retry proximity */}
-                {(proximityStatus === 'too_far' || proximityStatus === 'unknown') && (
-                    <TouchableOpacity style={styles.retryBtn} onPress={checkProximity}>
-                        <Navigation size={16} color={colors.primary} />
-                        <Text style={styles.retryText}>Recheck Location</Text>
-                    </TouchableOpacity>
+                            {otpError ? (
+                                <Text style={styles.otpErrorText}>{otpError}</Text>
+                            ) : null}
+                        </View>
+                    </>
                 )}
-
-                {/* Info */}
-                <View style={styles.infoCard}>
-                    <Text style={styles.infoTitle}>Important</Text>
-                    <Text style={styles.infoText}>
-                        • You must be within {PROXIMITY_THRESHOLD_METERS}m of the customer location{'\n'}
-                        • Ensure OTP has been verified before starting{'\n'}
-                        • Service timer starts once you tap "Start Service"
-                    </Text>
-                </View>
             </View>
 
-            {/* Start button */}
+            {/* Bottom action button */}
             <View style={styles.bottomBar}>
-                <Button
-                    title="Start Service"
-                    onPress={handleStartService}
-                    loading={starting}
-                    disabled={proximityStatus !== 'within_range'}
-                />
+                {phase === 'arrive' ? (
+                    <Button
+                        title={
+                            arrivalStatus === 'checking' ? 'Verifying Location...' :
+                                arrivalStatus === 'too_far' ? 'Retry — I\'ve Arrived' :
+                                    'I\'ve Arrived'
+                        }
+                        onPress={handleArrival}
+                        loading={loading}
+                        disabled={locationStatus !== 'granted' || loading}
+                    />
+                ) : (
+                    <Button
+                        title="Verify & Start Service"
+                        onPress={handleVerifyOtp}
+                        loading={verifying}
+                        disabled={otp.length !== 6 || verifying}
+                    />
+                )}
             </View>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 
@@ -255,9 +304,30 @@ const styles = StyleSheet.create({
         paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
-    backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
+    backBtn: {
+        width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface,
+        justifyContent: 'center', alignItems: 'center',
+    },
     headerTitle: { ...typography.h4, color: colors.textPrimary },
     content: { flex: 1, padding: spacing.xl },
+
+    // Step indicator
+    stepIndicator: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        marginBottom: spacing.xl, gap: 0,
+    },
+    stepDot: {
+        width: 24, height: 24, borderRadius: 12,
+        backgroundColor: colors.border, justifyContent: 'center', alignItems: 'center',
+    },
+    stepActive: { backgroundColor: colors.primary },
+    stepComplete: { backgroundColor: colors.success },
+    stepLine: {
+        width: 60, height: 3, backgroundColor: colors.border, marginHorizontal: 4,
+    },
+    stepLineActive: { backgroundColor: colors.success },
+
+    // Status cards
     statusCard: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.md,
         backgroundColor: colors.background, borderRadius: radii.lg,
@@ -265,15 +335,58 @@ const styles = StyleSheet.create({
     },
     statusTitle: { ...typography.bodyMedium, color: colors.textPrimary },
     statusText: { ...typography.caption, marginTop: 2 },
-    distanceCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm },
-    distanceBar: { height: 8, backgroundColor: colors.border, borderRadius: 4, overflow: 'hidden' },
-    distanceFill: { height: '100%', borderRadius: 4 },
-    distanceLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-    distanceLabelText: { ...typography.small, color: colors.textDisabled },
-    retryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md },
-    retryText: { ...typography.bodyMedium, color: colors.primary },
-    infoCard: { backgroundColor: colors.warningLight, borderRadius: radii.lg, padding: spacing.lg, marginTop: spacing.lg },
-    infoTitle: { ...typography.bodyMedium, color: colors.warning, marginBottom: spacing.sm },
+
+    // Distance feedback
+    distanceCard: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        backgroundColor: colors.errorLight, borderRadius: radii.lg,
+        padding: spacing.lg, marginBottom: spacing.md,
+    },
+    distanceText: { ...typography.caption, color: colors.error, flex: 1 },
+
+    // Info card
+    infoCard: {
+        backgroundColor: colors.primarySurface, borderRadius: radii.lg,
+        padding: spacing.lg, marginTop: spacing.lg,
+    },
+    infoTitle: { ...typography.bodyMedium, color: colors.primary, marginBottom: spacing.sm },
     infoText: { ...typography.caption, color: colors.textSecondary, lineHeight: 20 },
-    bottomBar: { padding: spacing.xl, paddingBottom: spacing['2xl'], backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.divider },
+
+    // Arrived banner
+    arrivedBanner: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+        backgroundColor: colors.successLight, borderRadius: radii.lg,
+        padding: spacing.lg, marginBottom: spacing.xl,
+    },
+    arrivedTitle: { ...typography.bodyMedium, color: colors.success, fontWeight: '600' },
+    arrivedSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+
+    // OTP section
+    otpSection: {
+        alignItems: 'center', paddingVertical: spacing.xl,
+    },
+    otpTitle: {
+        ...typography.h3, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.xs,
+    },
+    otpSubtitle: {
+        ...typography.caption, color: colors.textSecondary, textAlign: 'center',
+        marginBottom: spacing.xl, paddingHorizontal: spacing.xl,
+    },
+    otpInput: {
+        width: 200, height: 56, borderWidth: 2, borderColor: colors.border,
+        borderRadius: radii.lg, fontSize: 28, fontWeight: '700',
+        color: colors.textPrimary, backgroundColor: colors.background,
+        letterSpacing: 8, textAlign: 'center',
+    },
+    otpInputError: { borderColor: colors.error },
+    otpErrorText: {
+        ...typography.caption, color: colors.error, marginTop: spacing.sm,
+    },
+
+    // Bottom bar
+    bottomBar: {
+        padding: spacing.xl, paddingBottom: spacing['2xl'],
+        backgroundColor: colors.background,
+        borderTopWidth: 1, borderTopColor: colors.divider,
+    },
 });

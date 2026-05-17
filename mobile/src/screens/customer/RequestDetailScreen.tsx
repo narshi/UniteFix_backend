@@ -1,15 +1,25 @@
 /**
- * Service Request Detail — Full view with status timeline
+ * Service Request Detail — Premium UI with full state machine timeline
+ * 
+ * Features:
+ * - Correct 7-step state machine timeline (CREATED → COMPLETED)
+ * - Cancel flow (CREATED state only with ₹99 refund)
+ * - Payment CTA for PENDING_PAYMENT state
+ * - WhatsApp support for ASSIGNED+ states
+ * - Premium glassmorphism cards
+ * - Star rating with animation
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    Alert,
+    Animated,
+    Linking,
+    Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -23,6 +33,13 @@ import {
     XCircle,
     Truck,
     Star,
+    CreditCard,
+    MessageCircle,
+    Navigation,
+    Shield,
+    Wrench,
+    IndianRupee,
+    AlertTriangle,
 } from 'lucide-react-native';
 import { useCancelServiceRequest, useRateService } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
@@ -33,21 +50,95 @@ import { Button } from '../../components/ui';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
 
+// Full state machine timeline matching AI_CONTEXT.md §3.B
 const TIMELINE_STEPS = [
-    { key: 'pending', label: 'Request Created', icon: Clock },
-    { key: 'assigned', label: 'Technician Assigned', icon: User },
-    { key: 'in_progress', label: 'Service In Progress', icon: Truck },
-    { key: 'completed', label: 'Service Completed', icon: CheckCircle },
+    { key: 'created', label: 'Booking Created', sublabel: 'Paid ₹99 booking fee', icon: CreditCard },
+    { key: 'assigned', label: 'Technician Assigned', sublabel: 'On the way to your location', icon: User },
+    { key: 'accepted', label: 'Technician Accepted', sublabel: 'OTP generated for verification', icon: Shield },
+    { key: 'reached', label: 'Technician Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
+    { key: 'in_progress', label: 'Service In Progress', sublabel: 'OTP verified, work started', icon: Wrench },
+    { key: 'pending_payment', label: 'Payment Due', sublabel: 'Final bill ready for payment', icon: IndianRupee },
+    { key: 'completed', label: 'Completed', sublabel: 'Service successfully finished', icon: CheckCircle },
 ];
 
+const STATUS_ORDER = ['created', 'assigned', 'accepted', 'reached', 'in_progress', 'pending_payment', 'completed'];
+
 function getStepStatus(currentStatus: string, stepKey: string) {
-    const order = ['pending', 'assigned', 'in_progress', 'completed'];
-    const currentIndex = order.indexOf(currentStatus);
-    const stepIndex = order.indexOf(stepKey);
-    if (currentStatus === 'cancelled') return stepKey === 'pending' ? 'done' : 'cancelled';
+    if (currentStatus === 'cancelled') return stepKey === 'created' ? 'done' : 'cancelled';
+    if (currentStatus === 'disputed') {
+        const ci = STATUS_ORDER.indexOf('in_progress');
+        const si = STATUS_ORDER.indexOf(stepKey);
+        return si <= ci ? 'done' : 'disputed';
+    }
+    const currentIndex = STATUS_ORDER.indexOf(currentStatus);
+    const stepIndex = STATUS_ORDER.indexOf(stepKey);
     if (stepIndex < currentIndex) return 'done';
     if (stepIndex === currentIndex) return 'current';
     return 'upcoming';
+}
+
+// Custom confirmation modal
+function ConfirmModal({
+    visible,
+    title,
+    message,
+    confirmText,
+    cancelText = 'Cancel',
+    confirmVariant = 'danger' as 'danger' | 'primary',
+    onConfirm,
+    onCancel,
+    loading = false,
+}: {
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText?: string;
+    confirmVariant?: 'danger' | 'primary';
+    onConfirm: () => void;
+    onCancel: () => void;
+    loading?: boolean;
+}) {
+    const slideAnim = useRef(new Animated.Value(300)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (visible) {
+            Animated.parallel([
+                Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }),
+                Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+            ]).start();
+        } else {
+            Animated.parallel([
+                Animated.timing(slideAnim, { toValue: 300, duration: 200, useNativeDriver: true }),
+                Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+            ]).start();
+        }
+    }, [visible]);
+
+    if (!visible) return null;
+
+    return (
+        <Animated.View style={[modalStyles.overlay, { opacity: fadeAnim }]}>
+            <Animated.View style={[modalStyles.sheet, { transform: [{ translateY: slideAnim }] }]}>
+                <View style={modalStyles.handle} />
+                <AlertTriangle size={40} color={confirmVariant === 'danger' ? colors.error : colors.primary} />
+                <Text style={modalStyles.title}>{title}</Text>
+                <Text style={modalStyles.message}>{message}</Text>
+                <View style={modalStyles.actions}>
+                    <Button title={cancelText} variant="secondary" onPress={onCancel} style={{ flex: 1 }} />
+                    <View style={{ width: spacing.md }} />
+                    <Button
+                        title={confirmText}
+                        variant={confirmVariant}
+                        onPress={onConfirm}
+                        loading={loading}
+                        style={{ flex: 1 }}
+                    />
+                </View>
+            </Animated.View>
+        </Animated.View>
+    );
 }
 
 export function RequestDetailScreen({ navigation, route }: Props) {
@@ -55,79 +146,128 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const [showRating, setShowRating] = useState(false);
     const [rating, setRating] = useState(0);
     const [feedback, setFeedback] = useState('');
+    const [showCancelModal, setShowCancelModal] = useState(false);
 
     const { mutate: cancelRequest, isPending: cancelling } = useCancelServiceRequest();
     const { mutate: rateService, isPending: submittingRating } = useRateService();
+
+    // Animations
+    const headerAnim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        Animated.timing(headerAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+    }, []);
 
     if (!request) {
         navigation.goBack();
         return null;
     }
 
-    const canCancel = request.status === 'pending';
+    // Cancel only from CREATED state (AI_CONTEXT §3.D)
+    const canCancel = request.status === 'created';
     const canRate = request.status === 'completed' && !request.rating;
+    const needsPayment = request.status === 'pending_payment';
+    const showSupport = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(request.status);
 
     const handleCancel = () => {
-        Alert.alert('Cancel Request', 'Are you sure you want to cancel this request?', [
-            { text: 'No' },
-            {
-                text: 'Yes, Cancel',
-                style: 'destructive',
-                onPress: () => {
-                    cancelRequest(request.id, {
-                        onSuccess: () => navigation.goBack(),
-                    });
-                },
+        cancelRequest(request.id, {
+            onSuccess: () => {
+                setShowCancelModal(false);
+                navigation.goBack();
             },
-        ]);
+        });
     };
 
     const handleRate = () => {
-        if (rating === 0) {
-            Alert.alert('Select Rating', 'Please select a star rating.');
-            return;
-        }
+        if (rating === 0) return;
         rateService(
             { id: request.id, data: { rating, feedback } },
-            { onSuccess: () => { setShowRating(false); Alert.alert('Thank you!', 'Your feedback has been submitted.'); } }
+            { onSuccess: () => setShowRating(false) }
         );
     };
 
+    const openWhatsApp = () => {
+        const msg = encodeURIComponent(`Hi, I need help with booking #${request.id}. Service: ${request.serviceType}`);
+        Linking.openURL(`https://wa.me/919999999999?text=${msg}`);
+    };
+
+    const openPayment = () => {
+        // Navigate to payment screen
+        navigation.navigate('FinalPayment', { request });
+    };
+
     const createdDate = new Date(request.createdAt).toLocaleDateString('en-IN', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
+            {/* Premium Header */}
+            <Animated.View style={[styles.header, { opacity: headerAnim }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={22} color={colors.textPrimary} />
+                    <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Request #{request.id}</Text>
-                <View style={{ width: 36 }} />
-            </View>
+                <View style={styles.headerCenter}>
+                    <Text style={styles.headerTitle}>Booking Details</Text>
+                    <Text style={styles.headerSub}>#{request.id}</Text>
+                </View>
+                <View style={{ width: 40 }} />
+            </Animated.View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                {/* Service type card */}
+                {/* Service Info Card */}
                 <View style={styles.serviceCard}>
-                    <Text style={styles.serviceType}>{request.serviceType.replace(/_/g, ' ')}</Text>
-                    <Text style={styles.serviceDesc}>{request.description}</Text>
-                    <View style={styles.metaRow}>
-                        <Calendar size={14} color={colors.textSecondary} />
-                        <Text style={styles.metaText}>{createdDate}</Text>
-                    </View>
-                    {request.address && (
-                        <View style={styles.metaRow}>
-                            <MapPin size={14} color={colors.textSecondary} />
-                            <Text style={styles.metaText}>{request.address}</Text>
+                    <View style={styles.serviceCardHeader}>
+                        <View style={styles.serviceIconWrap}>
+                            <Wrench size={20} color={colors.primary} />
                         </View>
-                    )}
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.serviceType}>{request.serviceType.replace(/_/g, ' ')}</Text>
+                            <Text style={styles.serviceDesc} numberOfLines={2}>{request.description}</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.metaGrid}>
+                        <View style={styles.metaItem}>
+                            <Calendar size={14} color={colors.textSecondary} />
+                            <Text style={styles.metaText}>{createdDate}</Text>
+                        </View>
+                        {request.address && (
+                            <View style={styles.metaItem}>
+                                <MapPin size={14} color={colors.textSecondary} />
+                                <Text style={styles.metaText} numberOfLines={1}>{request.address}</Text>
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Booking Fee Badge */}
+                    <View style={styles.bookingFeeBadge}>
+                        <CreditCard size={14} color={colors.accent} />
+                        <Text style={styles.bookingFeeText}>₹99 Booking Fee Paid</Text>
+                        <CheckCircle size={14} color={colors.accent} />
+                    </View>
                 </View>
+
+                {/* Payment CTA for PENDING_PAYMENT */}
+                {needsPayment && (
+                    <View style={styles.paymentCard}>
+                        <View style={styles.paymentHeader}>
+                            <IndianRupee size={24} color={colors.textInverse} />
+                            <View style={{ marginLeft: spacing.md }}>
+                                <Text style={styles.paymentTitle}>Payment Required</Text>
+                                <Text style={styles.paymentAmount}>
+                                    ₹{request.totalCharge || 0}
+                                </Text>
+                            </View>
+                        </View>
+                        <Button
+                            title="Pay Now"
+                            variant="success"
+                            onPress={openPayment}
+                            icon={<CreditCard size={18} color="#fff" />}
+                            style={{ marginTop: spacing.base }}
+                        />
+                    </View>
+                )}
 
                 {/* Timeline */}
                 <Text style={styles.sectionTitle}>Status Timeline</Text>
@@ -160,7 +300,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                                         <View
                                             style={[
                                                 styles.timelineLine,
-                                                (status === 'done') && styles.lineDone,
+                                                status === 'done' && styles.lineDone,
                                             ]}
                                         />
                                     )}
@@ -170,19 +310,25 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                                         style={[
                                             styles.timelineLabel,
                                             status === 'current' && styles.labelCurrent,
-                                            status === 'cancelled' && styles.labelCancelled,
+                                            status === 'done' && styles.labelDone,
                                         ]}
                                     >
                                         {step.label}
                                     </Text>
+                                    {(status === 'current' || status === 'done') && (
+                                        <Text style={styles.timelineSublabel}>{step.sublabel}</Text>
+                                    )}
                                 </View>
                             </View>
                         );
                     })}
+
                     {request.status === 'cancelled' && (
                         <View style={styles.cancelledNote}>
                             <XCircle size={16} color={colors.error} />
-                            <Text style={styles.cancelledText}>This request was cancelled</Text>
+                            <Text style={styles.cancelledText}>
+                                This booking was cancelled. Your ₹99 booking fee has been refunded.
+                            </Text>
                         </View>
                     )}
                 </View>
@@ -193,37 +339,54 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         <Text style={styles.sectionTitle}>Assigned Technician</Text>
                         <View style={styles.techRow}>
                             <View style={styles.techAvatar}>
-                                <User size={20} color={colors.primary} />
+                                <Text style={styles.techInitial}>
+                                    {request.servicemanName.charAt(0).toUpperCase()}
+                                </Text>
                             </View>
                             <View style={styles.techInfo}>
                                 <Text style={styles.techName}>{request.servicemanName}</Text>
                                 {request.servicemanPhone && (
-                                    <View style={styles.techPhoneRow}>
-                                        <Phone size={12} color={colors.textSecondary} />
+                                    <TouchableOpacity
+                                        style={styles.techPhoneRow}
+                                        onPress={() => Linking.openURL(`tel:${request.servicemanPhone}`)}
+                                    >
+                                        <Phone size={12} color={colors.primary} />
                                         <Text style={styles.techPhone}>{request.servicemanPhone}</Text>
-                                    </View>
+                                    </TouchableOpacity>
                                 )}
                             </View>
+                            {request.servicemanPhone && (
+                                <TouchableOpacity
+                                    style={styles.callBtn}
+                                    onPress={() => Linking.openURL(`tel:${request.servicemanPhone}`)}
+                                >
+                                    <Phone size={18} color={colors.primary} />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 )}
 
-                {/* Charges */}
+                {/* Charges Breakdown */}
                 {request.totalCharge && request.totalCharge > 0 && (
                     <View style={styles.chargesCard}>
-                        <Text style={styles.sectionTitle}>Charges</Text>
+                        <Text style={styles.sectionTitle}>Bill Summary</Text>
                         {request.serviceCharge != null && (
                             <View style={styles.chargeRow}>
-                                <Text style={styles.chargeLabel}>Service charge</Text>
+                                <Text style={styles.chargeLabel}>Service Labour</Text>
                                 <Text style={styles.chargeValue}>₹{request.serviceCharge}</Text>
                             </View>
                         )}
                         {request.materialCharge != null && request.materialCharge > 0 && (
                             <View style={styles.chargeRow}>
-                                <Text style={styles.chargeLabel}>Material charge</Text>
+                                <Text style={styles.chargeLabel}>Spare Parts</Text>
                                 <Text style={styles.chargeValue}>₹{request.materialCharge}</Text>
                             </View>
                         )}
+                        <View style={styles.chargeRow}>
+                            <Text style={styles.chargeLabel}>Booking Fee (Credited)</Text>
+                            <Text style={[styles.chargeValue, { color: colors.success }]}>-₹99</Text>
+                        </View>
                         <View style={[styles.chargeRow, styles.chargeTotal]}>
                             <Text style={styles.totalLabel}>Total</Text>
                             <Text style={styles.totalValue}>₹{request.totalCharge}</Text>
@@ -231,26 +394,44 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
+                {/* OTP Display */}
+                {request.otp && ['accepted', 'reached'].includes(request.status) && (
+                    <View style={styles.otpCard}>
+                        <Shield size={20} color={colors.primary} />
+                        <View style={{ marginLeft: spacing.md }}>
+                            <Text style={styles.otpLabel}>Handshake OTP</Text>
+                            <Text style={styles.otpValue}>{request.otp}</Text>
+                        </View>
+                        <Text style={styles.otpHint}>Share with technician</Text>
+                    </View>
+                )}
+
                 {/* Rating */}
                 {canRate && !showRating && (
-                    <Button title="⭐ Rate This Service" onPress={() => setShowRating(true)} style={styles.actionBtn} />
+                    <Button
+                        title="Rate This Service"
+                        variant="outline"
+                        onPress={() => setShowRating(true)}
+                        icon={<Star size={18} color={colors.primary} />}
+                        style={{ marginBottom: spacing.lg }}
+                    />
                 )}
 
                 {showRating && (
                     <View style={styles.ratingCard}>
-                        <Text style={styles.sectionTitle}>Rate Service</Text>
+                        <Text style={styles.sectionTitle}>How was the service?</Text>
                         <View style={styles.starRow}>
                             {[1, 2, 3, 4, 5].map((s) => (
-                                <TouchableOpacity key={s} onPress={() => setRating(s)}>
+                                <TouchableOpacity key={s} onPress={() => setRating(s)} style={styles.starBtn}>
                                     <Star
-                                        size={32}
-                                        color={s <= rating ? '#FFD700' : colors.border}
-                                        fill={s <= rating ? '#FFD700' : 'none'}
+                                        size={36}
+                                        color={s <= rating ? '#F59E0B' : colors.border}
+                                        fill={s <= rating ? '#F59E0B' : 'none'}
                                     />
                                 </TouchableOpacity>
                             ))}
                         </View>
-                        <Button title="Submit Rating" onPress={handleRate} loading={submittingRating} style={styles.actionBtn} />
+                        <Button title="Submit Rating" onPress={handleRate} loading={submittingRating} />
                     </View>
                 )}
 
@@ -261,26 +442,49 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                             {[1, 2, 3, 4, 5].map((s) => (
                                 <Star
                                     key={s}
-                                    size={20}
-                                    color={s <= request.rating! ? '#FFD700' : colors.border}
-                                    fill={s <= request.rating! ? '#FFD700' : 'none'}
+                                    size={22}
+                                    color={s <= request.rating! ? '#F59E0B' : colors.border}
+                                    fill={s <= request.rating! ? '#F59E0B' : 'none'}
                                 />
                             ))}
                         </View>
                     </View>
                 )}
 
-                {/* Cancel button */}
+                {/* WhatsApp Support */}
+                {showSupport && (
+                    <Button
+                        title="Contact Support"
+                        variant="secondary"
+                        onPress={openWhatsApp}
+                        icon={<MessageCircle size={18} color={colors.whatsapp} />}
+                        style={{ marginBottom: spacing.md }}
+                    />
+                )}
+
+                {/* Cancel — CREATED state only */}
                 {canCancel && (
                     <Button
-                        title="Cancel Request"
-                        onPress={handleCancel}
-                        loading={cancelling}
-                        variant="outline"
-                        style={styles.cancelBtn}
+                        title="Cancel Booking"
+                        variant="ghost"
+                        onPress={() => setShowCancelModal(true)}
+                        style={{ marginTop: spacing.sm }}
                     />
                 )}
             </ScrollView>
+
+            {/* Custom Cancel Confirmation Modal */}
+            <ConfirmModal
+                visible={showCancelModal}
+                title="Cancel Booking?"
+                message="Your ₹99 booking fee will be fully refunded to your original payment method within 3-5 business days."
+                confirmText="Yes, Cancel"
+                cancelText="Keep Booking"
+                confirmVariant="danger"
+                onConfirm={handleCancel}
+                onCancel={() => setShowCancelModal(false)}
+                loading={cancelling}
+            />
         </View>
     );
 }
@@ -290,36 +494,70 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingTop: 50,
-        paddingBottom: spacing.md,
+        paddingTop: Platform.OS === 'ios' ? 56 : 44,
+        paddingBottom: spacing.base,
         paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
         borderBottomWidth: 1,
         borderBottomColor: colors.divider,
+        ...shadows.xs,
     },
     backBtn: {
-        width: 36, height: 36, borderRadius: 18,
+        width: 40, height: 40, borderRadius: radii.lg,
         backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
     },
+    headerCenter: { flex: 1, alignItems: 'center' },
     headerTitle: { ...typography.h4, color: colors.textPrimary },
-    scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
+    headerSub: { ...typography.caption, color: colors.textSecondary },
+    scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['5xl'] },
+
+    // Service card
     serviceCard: {
         backgroundColor: colors.background,
-        borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm,
+        borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg,
+        borderWidth: 1, borderColor: colors.border, ...shadows.sm,
+    },
+    serviceCardHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.base },
+    serviceIconWrap: {
+        width: 44, height: 44, borderRadius: radii.lg,
+        backgroundColor: colors.primarySurface, justifyContent: 'center', alignItems: 'center',
+        marginRight: spacing.md,
     },
     serviceType: {
-        ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.sm,
+        ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize',
     },
-    serviceDesc: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },
-    metaText: { ...typography.caption, color: colors.textSecondary },
+    serviceDesc: { ...typography.body, color: colors.textSecondary, marginTop: 2 },
+    metaGrid: { gap: spacing.sm },
+    metaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    metaText: { ...typography.caption, color: colors.textSecondary, flex: 1 },
+
+    // Booking fee badge
+    bookingFeeBadge: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        backgroundColor: colors.accentLight, paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+        borderRadius: radii.full, marginTop: spacing.md, alignSelf: 'flex-start',
+    },
+    bookingFeeText: { ...typography.captionMedium, color: colors.accentDark },
+
+    // Payment card
+    paymentCard: {
+        backgroundColor: colors.primary,
+        borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg,
+        ...shadows.glow,
+    },
+    paymentHeader: { flexDirection: 'row', alignItems: 'center' },
+    paymentTitle: { ...typography.captionMedium, color: 'rgba(255,255,255,0.8)' },
+    paymentAmount: { ...typography.monoLarge, color: colors.textInverse },
+
+    // Section title
     sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.md },
+
+    // Timeline
     timeline: { marginBottom: spacing.xl },
-    timelineItem: { flexDirection: 'row', minHeight: 50 },
+    timelineItem: { flexDirection: 'row', minHeight: 56 },
     timelineDotCol: { alignItems: 'center', width: 32 },
     timelineDot: {
-        width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surface,
+        width: 30, height: 30, borderRadius: 15, backgroundColor: colors.surface,
         justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: colors.border,
     },
     dotDone: { backgroundColor: colors.success, borderColor: colors.success },
@@ -328,48 +566,97 @@ const styles = StyleSheet.create({
     timelineLine: { width: 2, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
     lineDone: { backgroundColor: colors.success },
     timelineContent: { flex: 1, paddingLeft: spacing.md, paddingBottom: spacing.lg },
-    timelineLabel: { ...typography.body, color: colors.textSecondary },
-    labelCurrent: { color: colors.primary, fontWeight: '600' },
-    labelCancelled: { color: colors.error },
+    timelineLabel: { ...typography.bodyMedium, color: colors.textDisabled },
+    labelCurrent: { color: colors.primary, fontWeight: '700' },
+    labelDone: { color: colors.textPrimary },
+    timelineSublabel: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     cancelledNote: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-        backgroundColor: colors.errorLight, padding: spacing.md, borderRadius: radii.md, marginTop: spacing.sm,
+        backgroundColor: colors.errorLight, padding: spacing.md, borderRadius: radii.lg, marginTop: spacing.sm,
     },
-    cancelledText: { ...typography.caption, color: colors.error },
+    cancelledText: { ...typography.caption, color: colors.errorDark, flex: 1 },
+
+    // Technician
     techCard: {
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.lg,
+        borderWidth: 1, borderColor: colors.border, ...shadows.sm,
     },
-    techRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    techRow: { flexDirection: 'row', alignItems: 'center' },
     techAvatar: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySurface,
-        justifyContent: 'center', alignItems: 'center',
+        width: 48, height: 48, borderRadius: radii['2xl'],
+        backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center',
     },
-    techInfo: { flex: 1 },
-    techName: { ...typography.bodyMedium, color: colors.textPrimary },
-    techPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
-    techPhone: { ...typography.caption, color: colors.textSecondary },
+    techInitial: { ...typography.h3, color: colors.textInverse },
+    techInfo: { flex: 1, marginLeft: spacing.md },
+    techName: { ...typography.bodySemibold, color: colors.textPrimary },
+    techPhoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 4 },
+    techPhone: { ...typography.caption, color: colors.primary },
+    callBtn: {
+        width: 44, height: 44, borderRadius: radii.lg,
+        backgroundColor: colors.primarySurface, justifyContent: 'center', alignItems: 'center',
+    },
+
+    // Charges
     chargesCard: {
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.lg,
+        borderWidth: 1, borderColor: colors.border, ...shadows.sm,
     },
-    chargeRow: {
-        flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm,
-    },
+    chargeRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
     chargeLabel: { ...typography.body, color: colors.textSecondary },
-    chargeValue: { ...typography.bodyMedium, color: colors.textPrimary },
+    chargeValue: { ...typography.mono, color: colors.textPrimary },
     chargeTotal: { borderTopWidth: 1, borderTopColor: colors.divider, marginTop: spacing.sm, paddingTop: spacing.md },
     totalLabel: { ...typography.h4, color: colors.textPrimary },
-    totalValue: { ...typography.h4, color: colors.primary },
-    starRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+    totalValue: { ...typography.monoLarge, fontSize: 22, color: colors.primary },
+
+    // OTP Card
+    otpCard: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: colors.primarySurface, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.lg,
+        borderWidth: 1, borderColor: colors.primaryLight,
+    },
+    otpLabel: { ...typography.caption, color: colors.textSecondary },
+    otpValue: { ...typography.monoLarge, color: colors.primary, fontSize: 24 },
+    otpHint: { ...typography.small, color: colors.textSecondary, marginLeft: 'auto' },
+
+    // Rating
+    starRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.lg },
+    starBtn: { padding: spacing.xs },
     ratingCard: {
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.lg, alignItems: 'center',
+        borderWidth: 1, borderColor: colors.border,
     },
     ratingDisplay: {
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.lg,
+        borderWidth: 1, borderColor: colors.border,
     },
-    actionBtn: { marginBottom: spacing.md },
-    cancelBtn: { marginTop: spacing.sm },
+});
+
+// Modal styles
+const modalStyles = StyleSheet.create({
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.overlay,
+        justifyContent: 'flex-end',
+        zIndex: 100,
+    },
+    sheet: {
+        backgroundColor: colors.background,
+        borderTopLeftRadius: radii['3xl'],
+        borderTopRightRadius: radii['3xl'],
+        padding: spacing['2xl'],
+        paddingBottom: spacing['4xl'],
+        alignItems: 'center',
+    },
+    handle: {
+        width: 40, height: 4, borderRadius: 2,
+        backgroundColor: colors.border, marginBottom: spacing.xl,
+    },
+    title: { ...typography.h3, color: colors.textPrimary, marginTop: spacing.lg, textAlign: 'center' },
+    message: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, marginBottom: spacing.xl },
+    actions: { flexDirection: 'row', width: '100%' },
 });

@@ -8,13 +8,21 @@ export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'serviceman'])
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected', 'suspended']);
 // PHASE 2: Updated booking state machine - normalized states
 export const serviceStatusEnum = pgEnum('service_status', [
-  'created',      // User creates service request
-  'assigned',     // Admin assigns partner  
-  'accepted',     // Partner accepts the job
-  'in_progress',  // Service work started
-  'completed',    // Service finished (triggers wallet credit & inventory deduction)
-  'cancelled',    // User/admin cancelled
-  'disputed'      // Reserved for future dispute handling
+  'created',          // User creates service request, pays ₹99
+  'assigned',         // Admin assigns employee
+  'accepted',         // Employee accepts, backend generates 6-digit handshakeOtp
+  'reached',          // Employee marked arrived, PostGIS validates < 200m
+  'in_progress',      // Employee verified handshakeOtp from customer
+  'pending_payment',  // Employee submitted bill, waiting on customer to pay
+  'completed',        // Final Razorpay transaction successful
+  'cancelled',        // Customer cancelled (only from CREATED)
+  'disputed'          // Dispute raised (from IN_PROGRESS, PENDING_PAYMENT, or COMPLETED)
+]);
+export const serviceItemStatusEnum = pgEnum('service_item_status', [
+  'ACTIVE',
+  'COMING_SOON',
+  'DISABLED',
+  'MAINTENANCE'
 ]);
 export const orderStatusEnum = pgEnum('order_status', [
   'placed',              // Customer placed order
@@ -81,7 +89,7 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   phone: text("phone").unique(),
   email: text("email"),
-  password: text("password").notNull(),
+  password: text("password"),              // Nullable: Truecaller users authenticate via phone
   username: text("username"),
   profilePicture: text("profile_picture"), // CDN URL for avatar
   role: userRoleEnum("role").notNull().default('user'),
@@ -89,6 +97,10 @@ export const users = pgTable("users", {
   referredById: integer("referred_by_id"),
   homeAddress: text("home_address"),
   pinCode: text("pin_code"),
+  // Auth verification fields
+  truecallerId: text("truecaller_id").unique(),  // Truecaller OAuth identity
+  phoneVerified: boolean("phone_verified").default(false),
+  emailVerified: boolean("email_verified").default(false),
   isVerified: boolean("is_verified").default(false),
   isActive: boolean("is_active").default(true),
   deletedAt: timestamp("deleted_at"), // Soft delete
@@ -99,6 +111,7 @@ export const users = pgTable("users", {
   emailIdx: uniqueIndex("users_email_idx").on(table.email),
   roleIdx: index("users_role_idx").on(table.role),
   referralCodeIdx: uniqueIndex("users_referral_code_idx").on(table.referralCode),
+  truecallerIdx: uniqueIndex("users_truecaller_id_idx").on(table.truecallerId),
 }));
 
 // Customers table — role-specific profile for users (role = 'user')
@@ -120,100 +133,109 @@ export const customers = pgTable("customers", {
   userIdx: uniqueIndex("customers_user_id_idx").on(table.userId),
 }));
 
-// Employees table — role-specific profile for servicemen (role = 'serviceman')
+// Employees table — UNIFIED partner profile (role = 'serviceman')
+// PHASE 1: Consolidated from employees + serviceProviders (AI_CONTEXT §1.1)
 export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().unique().references(() => users.id),
   fullName: text("full_name"),
   dateOfBirth: text("date_of_birth"),
   gender: text("gender"),
-  aadhaarNumber: text("aadhaar_number"),         // Masked: last 4 digits stored
+  // KYC Documents
+  aadhaarNumber: text("aadhaar_number"),
   panNumber: text("pan_number"),
-  aadhaarDocUrl: text("aadhaar_doc_url"),         // Uploaded document URL
+  aadhaarDocUrl: text("aadhaar_doc_url"),
   panDocUrl: text("pan_doc_url"),
   profilePhotoUrl: text("profile_photo_url"),
+  // Professional Info
   experienceYears: integer("experience_years").default(0),
   qualifications: text("qualifications"),
   emergencyContact: text("emergency_contact"),
+  // Banking
   bankAccountNumber: text("bank_account_number"),
   bankIfsc: text("bank_ifsc"),
   bankName: text("bank_name"),
   upiId: text("upi_id"),
+  // Verification
   documentVerificationStatus: verificationStatusEnum("document_verification_status").notNull().default('pending'),
   documentVerifiedAt: timestamp("document_verified_at"),
-  documentVerifiedBy: integer("document_verified_by"), // Admin user ID
+  documentVerifiedBy: integer("document_verified_by"),
   adminRemarks: text("admin_remarks"),
+  // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
+  // === MERGED FROM serviceProviders (Phase 1) ===
+  partnerId: text("partner_id").unique(),
+  partnerType: text("partner_type").default('Individual'),
+  businessName: text("business_name"),
+  walletBalance: decimal("wallet_balance", { precision: 10, scale: 2 }).default('0'),
+  skills: json("skills").$type<string[]>(),
+  services: text("services").array(),
+  // Location — stored as text for Drizzle compat; raw SQL uses geometry(Point, 4326)
+  currentLocation: text("current_location"), // PostGIS geometry stored as WKT
+  lastLocationUpdate: timestamp("last_location_update"),
+  // Availability
+  isActive: boolean("is_active").default(false),    // Admin-controlled
+  isOnline: boolean("is_online").default(false),     // Employee self-toggle
+  // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   userIdx: uniqueIndex("employees_user_id_idx").on(table.userId),
   verificationIdx: index("employees_doc_verification_idx").on(table.documentVerificationStatus),
+  partnerIdx: uniqueIndex("employees_partner_id_idx").on(table.partnerId),
+  activeOnlineIdx: index("employees_active_online_idx").on(table.isActive, table.isOnline),
 }));
 
-// Service Providers table - dedicated for service partners
-export const serviceProviders = pgTable("service_providers", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  partnerId: text("partner_id").notNull().unique(),
-  partnerName: text("partner_name").notNull(),
-  businessName: text("business_name"),
-  partnerType: text("partner_type").notNull().default('Individual'),
-  walletBalance: decimal("wallet_balance", { precision: 10, scale: 2 }).notNull().default('0'),
-  verificationStatus: verificationStatusEnum("verification_status").notNull().default('pending'),
-  currentLat: doublePrecision("current_lat"),
-  currentLong: doublePrecision("current_long"),
-  skills: json("skills").$type<string[]>(),
-  services: text("services").array(),
-  location: text("location"),
-  address: text("address"),
-  isActive: boolean("is_active").default(true),
-  lastLocationUpdate: timestamp("last_location_update"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => ({
-  userIdIdx: index("service_providers_user_id_idx").on(table.userId),
-  verificationIdx: index("service_providers_verification_idx").on(table.verificationStatus),
-  locationIdx: index("service_providers_location_idx").on(table.currentLat, table.currentLong),
-}));
+// ========================================================================
+// serviceProviders TABLE DELETED — AI_CONTEXT §1.1: "serviceProviders is dead"
+// All partner data now lives in the `employees` table above.
+// ========================================================================
 
-// Service Requests table
+// Service Requests table — PHASE 1 updated
 export const serviceRequests = pgTable("service_requests", {
   id: serial("id").primaryKey(),
   serviceId: text("service_id").notNull().unique(),
   userId: integer("user_id").notNull().references(() => users.id),
-  providerId: integer("provider_id").references(() => serviceProviders.id),
+  providerId: integer("provider_id").references(() => employees.id), // PHASE 1: FK → employees (was serviceProviders)
   serviceType: text("service_type").notNull(),
   brand: text("brand"),
   model: text("model"),
   description: text("description").notNull(),
   photos: text("photos").array(),
   status: serviceStatusEnum("status").notNull().default('created'),
-  handshakeOtp: text("handshake_otp"),
-  bookingFee: integer("booking_fee").default(250),
+  handshakeOtp: text("handshake_otp"),          // 6-digit, generated on ACCEPTED
+  bookingFee: integer("booking_fee").default(99), // PHASE 1: ₹99 (was ₹250)
   bookingFeeStatus: bookingFeeStatusEnum("booking_fee_status").default('pending'),
   totalAmount: integer("total_amount"),
   commissionAmount: integer("commission_amount"),
-  locationLat: doublePrecision("location_lat"),
-  locationLong: doublePrecision("location_long"),
+  // Location — stored as text for Drizzle compat; raw SQL uses geometry(Point, 4326)
+  customerLocation: text("customer_location"), // PostGIS geometry as WKT
   address: text("address").notNull(),
+  // Scheduling (AI_CONTEXT §3.I)
+  preferredDate: text("preferred_date"),          // ISO date string
+  preferredTimeSlot: text("preferred_time_slot"), // 'morning' | 'afternoon' | 'evening'
+  // State timestamps
   assignedAt: timestamp("assigned_at"),
+  reachedAt: timestamp("reached_at"),             // PHASE 1: When employee marked arrived
+  reachedLat: doublePrecision("reached_lat"),     // GPS proof of arrival
+  reachedLong: doublePrecision("reached_long"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
+  // PHASE 6: Admin audit trail
+  adminNotes: text("admin_notes"),  // Override/dispute resolution log
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   userIdIdx: index("service_requests_user_id_idx").on(table.userId),
   providerIdIdx: index("service_requests_provider_id_idx").on(table.providerId),
   statusIdx: index("service_requests_status_idx").on(table.status),
-  locationIdx: index("service_requests_location_idx").on(table.locationLat, table.locationLong),
 }));
 
 // Wallet Transactions table - for audit trails
 export const walletTransactions = pgTable("wallet_transactions", {
   id: serial("id").primaryKey(),
-  providerId: integer("provider_id").notNull().references(() => serviceProviders.id),
+  providerId: integer("provider_id").notNull().references(() => employees.id), // PHASE 1: FK → employees
   serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   type: transactionTypeEnum("type").notNull(),
@@ -253,6 +275,34 @@ export const serviceablePincodes = pgTable("serviceable_pincodes", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// PHASE 12: Service Catalog
+export const serviceCategories = pgTable("service_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  icon: text("icon"),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const services = pgTable("services", {
+  id: serial("id").primaryKey(),
+  categoryId: integer("category_id").references(() => serviceCategories.id),
+  name: text("name").notNull(),
+  subtitle: text("subtitle"),
+  icon: text("icon"),
+  bannerImage: text("banner_image"),
+  status: serviceItemStatusEnum("status").default('ACTIVE'),
+  isHomeVisible: boolean("is_home_visible").default(true),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  categoryIdx: index("services_category_idx").on(table.categoryId),
+  homeVisibleIdx: index("services_home_visible_idx").on(table.isHomeVisible),
+}));
 
 // PHASE 11: Product Catalog — Category → Brand → Product → Variant hierarchy
 export const productCategories = pgTable("product_categories", {
@@ -374,7 +424,7 @@ export const invoices = pgTable("invoices", {
   serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
   productOrderId: integer("product_order_id").references(() => productOrders.id),
   userId: integer("user_id").notNull().references(() => users.id),
-  providerId: integer("provider_id").references(() => serviceProviders.id),
+  providerId: integer("provider_id").references(() => employees.id), // PHASE 1: FK → employees
   baseAmount: integer("base_amount").notNull(),
   cgst: integer("cgst").notNull(),
   sgst: integer("sgst").notNull(),
@@ -393,6 +443,7 @@ export const otpVerifications = pgTable("otp_verifications", {
   otp: text("otp").notNull(),
   purpose: text("purpose").notNull(),
   isVerified: boolean("is_verified").default(false),
+  attempts: integer("attempts").default(0),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -430,7 +481,7 @@ export const auditLogs = pgTable("audit_logs", {
 // PHASE 3: Partner Wallets (Ledger-Based)
 export const partnerWallets = pgTable("partner_wallets", {
   id: serial("id").primaryKey(),
-  partnerId: integer("partner_id").notNull().unique().references(() => serviceProviders.id),
+  partnerId: integer("partner_id").notNull().unique().references(() => employees.id), // PHASE 1: FK → employees
   balanceHold: decimal("balance_hold", { precision: 10, scale: 2 }).notNull().default('0.00'),
   balanceAvailable: decimal("balance_available", { precision: 10, scale: 2 }).notNull().default('0.00'),
   totalEarned: decimal("total_earned", { precision: 10, scale: 2 }).notNull().default('0.00'),
@@ -444,7 +495,7 @@ export const partnerWallets = pgTable("partner_wallets", {
 export const walletTransactionsV2 = pgTable("wallet_transactions_v2", {
   id: serial("id").primaryKey(),
   transactionId: text("transaction_id").notNull().unique(),
-  partnerId: integer("partner_id").notNull().references(() => serviceProviders.id),
+  partnerId: integer("partner_id").notNull().references(() => employees.id), // PHASE 1: FK → employees
   serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
   transactionType: walletTransactionTypeEnum("transaction_type").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
@@ -546,14 +597,17 @@ export const ticketMessages = pgTable("ticket_messages", {
   ticketIdIdx: index("ticket_messages_ticket_id_idx").on(table.ticketId),
 }));
 
-// PHASE 5: Service Charges table (technician enters after service)
+// PHASE 5: Service Charges table (employee enters after service)
+// PHASE 1: Updated with sparePartsCost + serviceLaborCost per AI_CONTEXT §3.C
 export const serviceCharges = pgTable("service_charges", {
   id: serial("id").primaryKey(),
   serviceRequestId: integer("service_request_id").notNull().unique().references(() => serviceRequests.id),
-  serviceAmount: decimal("service_amount", { precision: 10, scale: 2 }).notNull(),
+  sparePartsCost: decimal("spare_parts_cost", { precision: 10, scale: 2 }).notNull().default('0'),
+  serviceLaborCost: decimal("service_labor_cost", { precision: 10, scale: 2 }).notNull().default('0'),
+  serviceAmount: decimal("service_amount", { precision: 10, scale: 2 }), // Legacy — computed: parts + labor
   partsUsed: text("parts_used"),
   technicianNotes: text("technician_notes"),
-  enteredBy: integer("entered_by").notNull(), // Provider ID
+  enteredBy: integer("entered_by").notNull(), // Employee ID
   enteredAt: timestamp("entered_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -598,7 +652,7 @@ export const ratings = pgTable("ratings", {
   id: serial("id").primaryKey(),
   serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
   fromUserId: integer("from_user_id").notNull().references(() => users.id),
-  toProviderId: integer("to_provider_id").notNull().references(() => serviceProviders.id),
+  toProviderId: integer("to_provider_id").notNull().references(() => employees.id), // PHASE 1: FK → employees
   rating: integer("rating").notNull(), // 1-5 stars
   review: text("review"),
   isVisible: boolean("is_visible").default(true),
@@ -737,14 +791,11 @@ export const adminUsers = pgTable("admin_users", {
 });
 
 // Relations
+// Relations — PHASE 1: All serviceProviders references replaced with employees
 export const usersRelations = relations(users, ({ many, one }) => ({
   serviceRequests: many(serviceRequests),
   productOrders: many(productOrders),
   cartItems: many(cartItems),
-  serviceProvider: one(serviceProviders, {
-    fields: [users.id],
-    references: [serviceProviders.userId],
-  }),
   customer: one(customers, {
     fields: [users.id],
     references: [customers.userId],
@@ -766,37 +817,32 @@ export const customersRelations = relations(customers, ({ one }) => ({
   }),
 }));
 
-export const employeesRelations = relations(employees, ({ one }) => ({
+export const employeesRelations = relations(employees, ({ one, many }) => ({
   user: one(users, {
     fields: [employees.userId],
-    references: [users.id],
-  }),
-}));
-
-export const serviceProvidersRelations = relations(serviceProviders, ({ one, many }) => ({
-  user: one(users, {
-    fields: [serviceProviders.userId],
     references: [users.id],
   }),
   serviceRequests: many(serviceRequests),
   walletTransactions: many(walletTransactions),
 }));
 
+// serviceProvidersRelations DELETED — table no longer exists
+
 export const serviceRequestsRelations = relations(serviceRequests, ({ one }) => ({
   user: one(users, {
     fields: [serviceRequests.userId],
     references: [users.id],
   }),
-  provider: one(serviceProviders, {
+  employee: one(employees, {
     fields: [serviceRequests.providerId],
-    references: [serviceProviders.id],
+    references: [employees.id],
   }),
 }));
 
 export const walletTransactionsRelations = relations(walletTransactions, ({ one }) => ({
-  provider: one(serviceProviders, {
+  employee: one(employees, {
     fields: [walletTransactions.providerId],
-    references: [serviceProviders.id],
+    references: [employees.id],
   }),
   serviceRequest: one(serviceRequests, {
     fields: [walletTransactions.serviceRequestId],
@@ -811,6 +857,24 @@ export const productOrdersRelations = relations(productOrders, ({ one, many }) =
   }),
   returnRequests: many(returnRequests),
   paymentTransactions: many(paymentTransactions),
+}));
+
+export const invoiceRelations = relations(invoices, ({ one }) => ({
+  user: one(users, {
+    fields: [invoices.userId],
+    references: [users.id],
+  }),
+}));
+
+export const serviceCategoriesRelations = relations(serviceCategories, ({ many }) => ({
+  services: many(services),
+}));
+
+export const servicesRelations = relations(services, ({ one }) => ({
+  category: one(serviceCategories, {
+    fields: [services.categoryId],
+    references: [serviceCategories.id],
+  }),
 }));
 
 // PHASE 10: Payment transaction relations
@@ -887,7 +951,6 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   variants: many(productVariants),
   productImages: many(productImages),
   cartItems: many(cartItems),
-  productOrders: many(productOrders),
 }));
 
 export const productVariantsRelations = relations(productVariants, ({ one, many }) => ({
@@ -928,12 +991,7 @@ export const insertEmployeeSchema = createInsertSchema(employees).omit({
   updatedAt: true,
 });
 
-export const insertServiceProviderSchema = createInsertSchema(serviceProviders).omit({
-  id: true,
-  partnerId: true,
-  createdAt: true,
-  updatedAt: true,
-});
+// insertServiceProviderSchema DELETED — serviceProviders table removed (Phase 1)
 
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({
   id: true,
@@ -1094,6 +1152,17 @@ export const insertRefundSchema = createInsertSchema(refunds).omit({
   updatedAt: true,
 });
 
+export const insertServiceCategorySchema = createInsertSchema(serviceCategories).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertServiceSchema = createInsertSchema(services).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -1104,8 +1173,7 @@ export type Customer = typeof customers.$inferSelect;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type Employee = typeof employees.$inferSelect;
 
-export type InsertServiceProvider = z.infer<typeof insertServiceProviderSchema>;
-export type ServiceProvider = typeof serviceProviders.$inferSelect;
+// InsertServiceProvider and ServiceProvider types DELETED — serviceProviders table removed (Phase 1)
 
 export type InsertServiceRequest = z.infer<typeof insertServiceRequestSchema>;
 export type ServiceRequest = typeof serviceRequests.$inferSelect;
@@ -1253,6 +1321,12 @@ export const insertRefreshTokenSchema = createInsertSchema(refreshTokens).omit({
   id: true,
   createdAt: true,
 });
+
+export type ServiceCategory = typeof serviceCategories.$inferSelect;
+export type InsertServiceCategory = z.infer<typeof insertServiceCategorySchema>;
+
+export type ServiceItem = typeof services.$inferSelect;
+export type InsertServiceItem = z.infer<typeof insertServiceSchema>;
 
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type InsertRefreshToken = z.infer<typeof insertRefreshTokenSchema>;

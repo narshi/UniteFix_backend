@@ -15,6 +15,9 @@ import { CartScreen } from '../screens/shop/CartScreen';
 import { CheckoutScreen } from '../screens/shop/CheckoutScreen';
 import { OrderConfirmationScreen } from '../screens/shop/OrderConfirmationScreen';
 import { OrderDetailScreen } from '../screens/shop/OrderDetailScreen';
+import { LocationSelectionScreen } from '../screens/customer/LocationSelectionScreen';
+import { AllServicesScreen } from '../screens/customer/AllServicesScreen';
+import { FinalPaymentScreen } from '../screens/customer/FinalPaymentScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -32,6 +35,9 @@ export function CustomerStack() {
             <Stack.Screen name="Checkout" component={CheckoutScreen} />
             <Stack.Screen name="OrderConfirmation" component={OrderConfirmationScreen} />
             <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+            <Stack.Screen name="LocationSelection" component={LocationSelectionScreen} />
+            <Stack.Screen name="AllServices" component={AllServicesScreen} />
+            <Stack.Screen name="FinalPayment" component={FinalPaymentScreen} />
         </Stack.Navigator>
     );
 }

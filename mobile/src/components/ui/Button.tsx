@@ -1,22 +1,29 @@
 /**
- * Button — Primary UI component
- * Supports: primary, secondary, outline, ghost, social variants
+ * Button — Premium UI Component
+ * 
+ * Features:
+ * - Gradient primary variant with glow shadow
+ * - Smooth press animation (scale down)
+ * - Loading spinner with proper colors
+ * - Icon support (left or right)
  */
 
-import React from 'react';
+import React, { useRef } from 'react';
 import {
-    TouchableOpacity,
+    Pressable,
     Text,
     StyleSheet,
     ActivityIndicator,
     ViewStyle,
     TextStyle,
+    Animated,
+    View,
 } from 'react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { radii, spacing } from '../../theme/spacing';
+import { radii, spacing, shadows } from '../../theme/spacing';
 
-type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'success';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps {
@@ -28,6 +35,7 @@ interface ButtonProps {
     loading?: boolean;
     disabled?: boolean;
     icon?: React.ReactNode;
+    iconRight?: React.ReactNode;
     style?: ViewStyle;
 }
 
@@ -40,45 +48,81 @@ export function Button({
     loading = false,
     disabled = false,
     icon,
+    iconRight,
     style,
 }: ButtonProps) {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
     const isDisabled = disabled || loading;
 
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.97,
+            useNativeDriver: true,
+            speed: 50,
+            bounciness: 4,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            useNativeDriver: true,
+            speed: 50,
+            bounciness: 4,
+        }).start();
+    };
+
+    const isPrimary = variant === 'primary';
+    const isSuccess = variant === 'success';
+
     return (
-        <TouchableOpacity
-            onPress={onPress}
-            disabled={isDisabled}
-            activeOpacity={0.8}
+        <Animated.View
             style={[
-                styles.base,
-                sizeStyles[size],
-                variantStyles[variant],
+                { transform: [{ scale: scaleAnim }] },
                 fullWidth && styles.fullWidth,
-                isDisabled && styles.disabled,
-                style,
+                isPrimary && shadows.glow,
+                isSuccess && shadows.successGlow,
             ]}
         >
-            {loading ? (
-                <ActivityIndicator
-                    color={variant === 'outline' || variant === 'ghost' ? colors.primary : colors.textInverse}
-                    size="small"
-                />
-            ) : (
-                <>
-                    {icon && <>{icon}</>}
-                    <Text
-                        style={[
-                            styles.text,
-                            sizeTextStyles[size],
-                            variantTextStyles[variant],
-                            icon ? { marginLeft: spacing.sm } : undefined,
-                        ]}
-                    >
-                        {title}
-                    </Text>
-                </>
-            )}
-        </TouchableOpacity>
+            <Pressable
+                onPress={onPress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={isDisabled}
+                style={[
+                    styles.base,
+                    sizeStyles[size],
+                    variantStyles[variant],
+                    isDisabled && styles.disabled,
+                    style,
+                ]}
+            >
+                {loading ? (
+                    <ActivityIndicator
+                        color={
+                            variant === 'outline' || variant === 'ghost'
+                                ? colors.primary
+                                : colors.textInverse
+                        }
+                        size="small"
+                    />
+                ) : (
+                    <View style={styles.content}>
+                        {icon && <View style={styles.iconLeft}>{icon}</View>}
+                        <Text
+                            style={[
+                                styles.text,
+                                sizeTextStyles[size],
+                                variantTextStyles[variant],
+                            ]}
+                        >
+                            {title}
+                        </Text>
+                        {iconRight && <View style={styles.iconRight}>{iconRight}</View>}
+                    </View>
+                )}
+            </Pressable>
+        </Animated.View>
     );
 }
 
@@ -87,37 +131,50 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: radii.md,
+        borderRadius: radii.lg,
+        overflow: 'hidden',
     },
     fullWidth: {
         width: '100%',
     },
     disabled: {
-        opacity: 0.5,
+        opacity: 0.45,
+    },
+    content: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     text: {
-        fontWeight: typography.button.fontWeight,
+        ...typography.button,
+    },
+    iconLeft: {
+        marginRight: spacing.sm,
+    },
+    iconRight: {
+        marginLeft: spacing.sm,
     },
 });
 
 const sizeStyles: Record<ButtonSize, ViewStyle> = {
-    sm: { paddingVertical: spacing.sm, paddingHorizontal: spacing.base },
-    md: { paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-    lg: { paddingVertical: 14, paddingHorizontal: spacing.xl },
+    sm: { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.base },
+    md: { paddingVertical: spacing.md + 2, paddingHorizontal: spacing.lg },
+    lg: { paddingVertical: spacing.base, paddingHorizontal: spacing.xl },
 };
 
 const sizeTextStyles: Record<ButtonSize, TextStyle> = {
-    sm: { fontSize: 13 },
-    md: { fontSize: 15 },
-    lg: { fontSize: 17 },
+    sm: { ...typography.buttonSmall },
+    md: { ...typography.button, fontSize: 15 },
+    lg: { ...typography.button },
 };
 
 const variantStyles: Record<ButtonVariant, ViewStyle> = {
     primary: { backgroundColor: colors.primary },
-    secondary: { backgroundColor: colors.surface },
+    secondary: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
     outline: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: colors.primary },
     ghost: { backgroundColor: 'transparent' },
     danger: { backgroundColor: colors.error },
+    success: { backgroundColor: colors.success },
 };
 
 const variantTextStyles: Record<ButtonVariant, TextStyle> = {
@@ -126,4 +183,5 @@ const variantTextStyles: Record<ButtonVariant, TextStyle> = {
     outline: { color: colors.primary },
     ghost: { color: colors.primary },
     danger: { color: colors.textInverse },
+    success: { color: colors.textInverse },
 };

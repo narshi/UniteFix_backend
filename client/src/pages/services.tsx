@@ -15,7 +15,11 @@ export default function ServicesPage() {
   
   const { data: services = [], isLoading } = useQuery({
     queryKey: ["/api/admin/services"],
-    select: (data) => Array.isArray(data) ? data : []
+    select: (data: any) => {
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.services)) return data.services;
+      return [];
+    }
   });
 
   // Filter services based on search term and status
@@ -74,7 +78,7 @@ export default function ServicesPage() {
     const statusConfig = {
       'placed': { color: 'bg-gray-100 text-gray-800', text: 'Placed' },
       'confirmed': { color: 'bg-blue-100 text-blue-800', text: 'Confirmed' },
-      'partner_assigned': { color: 'bg-yellow-100 text-yellow-800', text: 'Partner Assigned' },
+      'partner_assigned': { color: 'bg-yellow-100 text-yellow-800', text: 'Employee Assigned' },
       'service_started': { color: 'bg-green-100 text-green-800', text: 'Service Started' },
       'service_completed': { color: 'bg-green-100 text-green-800', text: 'Completed' },
     };
@@ -121,7 +125,7 @@ export default function ServicesPage() {
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="placed">Placed</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="partner_assigned">Partner Assigned</SelectItem>
+                    <SelectItem value="partner_assigned">Employee Assigned</SelectItem>
                     <SelectItem value="service_started">Service Started</SelectItem>
                     <SelectItem value="service_completed">Completed</SelectItem>
                   </SelectContent>
@@ -153,7 +157,7 @@ export default function ServicesPage() {
                       <th className="text-left py-3 px-4">Service Type</th>
                       <th className="text-left py-3 px-4">Customer</th>
                       <th className="text-left py-3 px-4">Brand/Model</th>
-                      <th className="text-left py-3 px-4">Assigned Partner</th>
+                      <th className="text-left py-3 px-4">Assigned Employee</th>
                       <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Amount</th>
                       <th className="text-left py-3 px-4">Download Invoice</th>
@@ -173,20 +177,20 @@ export default function ServicesPage() {
                           <p className="text-sm text-gray-600">{service.description}</p>
                         </td>
                         <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.user?.username}</p>
-                          <p className="text-sm text-gray-600">{service.user?.phone}</p>
+                          <p className="font-medium text-gray-900">{service.user?.username || service.customerName}</p>
+                          <p className="text-sm text-gray-600">{service.user?.phone || service.customerPhone}</p>
                         </td>
                         <td className="py-3 px-4">
                           <p className="text-sm text-gray-900">{service.brand}</p>
                           <p className="text-sm text-gray-600">{service.model}</p>
                         </td>
                         <td className="py-3 px-4">
-                          {service.partner ? (
+                          {service.partner || service.technicianName ? (
                             <div>
-                              <p className="font-medium text-gray-900">{service.partner.username}</p>
-                              <p className="text-sm text-gray-600">{service.partner.phone}</p>
+                              <p className="font-medium text-gray-900">{service.partner?.username || service.technicianName}</p>
+                              <p className="text-sm text-gray-600">{service.partner?.phone}</p>
                               <Badge variant="secondary" className="text-xs mt-1">
-                                BU{String(service.partner.id).padStart(5, '0')}
+                                BU{String(service.partner?.id || service.providerId || '').padStart(5, '0')}
                               </Badge>
                             </div>
                           ) : (
@@ -279,11 +283,11 @@ export default function ServicesPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm font-medium text-gray-600">Name</p>
-                      <p className="text-base">{selectedService.user?.username}</p>
+                      <p className="text-base">{selectedService.user?.username || selectedService.customerName}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-600">Phone</p>
-                      <p className="text-base">{selectedService.user?.phone}</p>
+                      <p className="text-base">{selectedService.user?.phone || selectedService.customerPhone}</p>
                     </div>
                     <div className="col-span-2">
                       <p className="text-sm font-medium text-gray-600">Address</p>
@@ -310,25 +314,25 @@ export default function ServicesPage() {
                   </div>
                 </div>
 
-                {selectedService.partner && (
+                {(selectedService.partner || selectedService.technicianName) && (
                   <div className="border-t pt-4">
-                    <h4 className="font-medium text-gray-900 mb-3">Assigned Partner</h4>
+                    <h4 className="font-medium text-gray-900 mb-3">Assigned Employee</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Partner Name</p>
-                        <p className="text-base">{selectedService.partner.username}</p>
+                        <p className="text-sm font-medium text-gray-600">Employee Name</p>
+                        <p className="text-base">{selectedService.partner?.username || selectedService.technicianName}</p>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-600">Partner ID</p>
-                        <p className="text-base">BU{String(selectedService.partner.id).padStart(5, '0')}</p>
+                        <p className="text-sm font-medium text-gray-600">Employee ID</p>
+                        <p className="text-base">BU{String(selectedService.partner?.id || selectedService.providerId || '').padStart(5, '0')}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-600">Contact</p>
-                        <p className="text-base">{selectedService.partner.phone}</p>
+                        <p className="text-base">{selectedService.partner?.phone || 'N/A'}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-600">Email</p>
-                        <p className="text-base">{selectedService.partner.email}</p>
+                        <p className="text-base">{selectedService.partner?.email || 'N/A'}</p>
                       </div>
                     </div>
                   </div>

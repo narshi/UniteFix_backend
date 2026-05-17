@@ -1,32 +1,37 @@
 /**
- * PHASE 2: Booking State Machine
+ * PHASE 1: Booking State Machine (Updated per AI_CONTEXT.md §3.B)
  * 
- * Defines the normalized booking states and valid transitions.
- * Wallet credit & inventory deduction triggers ONLY on COMPLETED state.
+ * 9-state machine: CREATED → ASSIGNED → ACCEPTED → REACHED → IN_PROGRESS → PENDING_PAYMENT → COMPLETED
+ * Cancellation ONLY from CREATED state (AI_CONTEXT §3.D).
+ * Disputes from IN_PROGRESS, PENDING_PAYMENT, or COMPLETED.
  */
 
 export enum BookingState {
-    CREATED = 'created',           // User creates service request
-    ASSIGNED = 'assigned',         // Admin assigns partner
-    ACCEPTED = 'accepted',         // Partner accepts the job
-    IN_PROGRESS = 'in_progress',   // Service work started
-    COMPLETED = 'completed',       // Service finished (triggers wallet credit & inventory deduction)
-    CANCELLED = 'cancelled',       // User/admin cancelled
-    DISPUTED = 'disputed',         // Reserved for future dispute handling
+    CREATED = 'created',               // User creates service request, pays ₹99
+    ASSIGNED = 'assigned',             // Admin assigns employee
+    ACCEPTED = 'accepted',             // Employee accepts, backend generates 6-digit handshakeOtp
+    REACHED = 'reached',               // Employee arrived, PostGIS validates < 200m
+    IN_PROGRESS = 'in_progress',       // Employee verified handshakeOtp from customer
+    PENDING_PAYMENT = 'pending_payment', // Employee submitted bill, waiting on customer to pay
+    COMPLETED = 'completed',           // Final Razorpay transaction successful
+    CANCELLED = 'cancelled',           // Customer cancelled (only from CREATED)
+    DISPUTED = 'disputed',             // Dispute raised (requires admin resolution)
 }
 
 /**
- * Allowed state transitions mapping
- * Each state can only transition to specific next states
+ * Allowed state transitions mapping.
+ * Each state can only transition to specific next states.
  */
 export const ALLOWED_TRANSITIONS: Record<BookingState, BookingState[]> = {
     [BookingState.CREATED]: [BookingState.ASSIGNED, BookingState.CANCELLED],
-    [BookingState.ASSIGNED]: [BookingState.ACCEPTED, BookingState.CANCELLED],
-    [BookingState.ACCEPTED]: [BookingState.IN_PROGRESS, BookingState.CANCELLED],
-    [BookingState.IN_PROGRESS]: [BookingState.COMPLETED, BookingState.DISPUTED],
-    [BookingState.COMPLETED]: [BookingState.DISPUTED], // Can dispute after completion
-    [BookingState.CANCELLED]: [], // Terminal state
-    [BookingState.DISPUTED]: [], // Terminal state (requires admin intervention)
+    [BookingState.ASSIGNED]: [BookingState.ACCEPTED],
+    [BookingState.ACCEPTED]: [BookingState.REACHED],
+    [BookingState.REACHED]: [BookingState.IN_PROGRESS],
+    [BookingState.IN_PROGRESS]: [BookingState.PENDING_PAYMENT, BookingState.DISPUTED],
+    [BookingState.PENDING_PAYMENT]: [BookingState.COMPLETED, BookingState.DISPUTED],
+    [BookingState.COMPLETED]: [BookingState.DISPUTED],
+    [BookingState.CANCELLED]: [],       // Terminal state
+    [BookingState.DISPUTED]: [],        // Terminal state (admin resolves externally)
 };
 
 /**
@@ -38,59 +43,72 @@ export function validateStateTransition(from: BookingState, to: BookingState): b
 }
 
 /**
- * Checks if a booking can be cancelled in its current state
- * Business rule: Can only cancel before IN_PROGRESS
+ * Checks if a booking can be cancelled in its current state.
+ * AI_CONTEXT §3.D: Cancellation ONLY from CREATED state.
+ * ASSIGNED and beyond → show WhatsApp Support button instead.
  */
 export function canCancelBooking(currentState: BookingState): boolean {
-    return [
-        BookingState.CREATED,
-        BookingState.ASSIGNED,
-        BookingState.ACCEPTED
-    ].includes(currentState);
+    return currentState === BookingState.CREATED;
 }
 
 /**
- * Determines if wallet credit and inventory deduction should be triggered
- * CRITICAL: This ONLY happens when state transitions to COMPLETED
- * Phase 3 will implement the actual wallet/inventory logic
+ * Determines if wallet credit and inventory deduction should be triggered.
+ * CRITICAL: This ONLY happens when state transitions to COMPLETED.
  */
 export function shouldTriggerWalletCredit(newState: BookingState): boolean {
     return newState === BookingState.COMPLETED;
 }
 
 /**
- * PHASE 4: OTP Requirement Check
- * Determines if OTP validation is required for a state transition
- * LOCKED: Only required for ACCEPTED → IN_PROGRESS
+ * PHASE 1: Geofence Requirement Check
+ * PostGIS ST_DistanceSphere validation required for ACCEPTED → REACHED.
+ * Employee must be within 200m of customer location.
  */
-export function requiresOtpValidation(from: BookingState, to: BookingState): boolean {
-    return from === BookingState.ACCEPTED && to === BookingState.IN_PROGRESS;
+export function requiresGeofenceValidation(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.ACCEPTED && to === BookingState.REACHED;
 }
 
 /**
- * PHASE 5: Payment Verification Requirement
- * Determines if payment verification is required for a state transition
- * LOCKED: Only required for IN_PROGRESS → COMPLETED
- * Final payment must be verified via Razorpay webhook
+ * OTP Requirement Check
+ * UPDATED: OTP required for REACHED → IN_PROGRESS (was ACCEPTED → IN_PROGRESS)
+ * Employee verifies the 6-digit handshakeOtp shown to the customer.
  */
-export function requiresPaymentVerification(from: BookingState, to: BookingState): boolean {
-    return from === BookingState.IN_PROGRESS && to === BookingState.COMPLETED;
+export function requiresOtpValidation(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.REACHED && to === BookingState.IN_PROGRESS;
 }
 
+/**
+ * Payment Verification Requirement
+ * UPDATED: Required for PENDING_PAYMENT → COMPLETED (was IN_PROGRESS → COMPLETED)
+ * Final payment must be verified via Razorpay webhook.
+ */
+export function requiresPaymentVerification(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.PENDING_PAYMENT && to === BookingState.COMPLETED;
+}
 
+/**
+ * Bill Submission Requirement
+ * NEW: Employee must submit spare_parts_cost + service_labor_cost
+ * for IN_PROGRESS → PENDING_PAYMENT transition.
+ */
+export function requiresBillSubmission(from: BookingState, to: BookingState): boolean {
+    return from === BookingState.IN_PROGRESS && to === BookingState.PENDING_PAYMENT;
+}
 
 /**
  * Get human-readable state description
  */
 export function getStateDescription(state: BookingState): string {
     const descriptions: Record<BookingState, string> = {
-        [BookingState.CREATED]: 'Service request created',
-        [BookingState.ASSIGNED]: 'Partner assigned to service',
-        [BookingState.ACCEPTED]: 'Partner accepted the service',
+        [BookingState.CREATED]: 'Service request created, booking fee paid',
+        [BookingState.ASSIGNED]: 'Employee assigned to service',
+        [BookingState.ACCEPTED]: 'Employee accepted the service',
+        [BookingState.REACHED]: 'Employee has arrived at location',
         [BookingState.IN_PROGRESS]: 'Service work in progress',
+        [BookingState.PENDING_PAYMENT]: 'Awaiting final payment from customer',
         [BookingState.COMPLETED]: 'Service completed successfully',
-        [BookingState.CANCELLED]: 'Service cancelled',
-        [BookingState.DISPUTED]: 'Service under dispute',
+        [BookingState.CANCELLED]: 'Service cancelled, booking fee refunded',
+        [BookingState.DISPUTED]: 'Service under dispute — admin review required',
     };
     return descriptions[state];
 }

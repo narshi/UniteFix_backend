@@ -22,7 +22,7 @@ export default function RecentActivity() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      'partner_assigned': { color: 'bg-yellow-100 text-yellow-800', text: 'Partner Assigned' },
+      'partner_assigned': { color: 'bg-yellow-100 text-yellow-800', text: 'Employee Assigned' },
       'service_started': { color: 'bg-green-100 text-green-800', text: 'Service Started' },
       'pending': { color: 'bg-red-100 text-red-800', text: 'Pending Assignment' },
       'delivered': { color: 'bg-green-100 text-green-800', text: 'Delivered' },
