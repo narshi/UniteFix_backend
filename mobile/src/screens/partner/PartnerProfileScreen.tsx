@@ -19,7 +19,7 @@ import {
     Shield, Edit3, CheckCircle, Navigation, MessageCircle
 } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import { useProfile, useUpdateProfile } from '../../hooks/useCustomerData';
+import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -31,6 +31,9 @@ export function PartnerProfileScreen() {
     const { data: profile, isLoading } = useProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
     const { logout, user } = useAuthStore();
+    const { data: publicConfig } = usePublicConfig();
+    
+    const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
 
     const [editing, setEditing] = useState(false);
     const [username, setUsername] = useState('');
@@ -180,8 +183,8 @@ export function PartnerProfileScreen() {
                         <Input label="Phone (Read-only)" value={phone} editable={false} style={{ color: colors.textSecondary }} icon={<Phone size={18} color={colors.textSecondary} />} />
                         <View style={{ position: 'relative' }}>
                             <Input label="Address" value={homeAddress} onChangeText={setHomeAddress} icon={<MapPin size={18} color={colors.textSecondary} />} />
-                            <TouchableOpacity 
-                                style={{ position: 'absolute', right: 10, top: 38, padding: 5 }} 
+                            <TouchableOpacity
+                                style={{ position: 'absolute', right: 10, top: 38, padding: 5 }}
                                 onPress={handleFetchLocation}
                                 disabled={fetchingLocation}
                             >
@@ -212,7 +215,7 @@ export function PartnerProfileScreen() {
             {/* Help & Support */}
             <View style={styles.section}>
                 <TouchableOpacity style={styles.menuItem} onPress={() => {
-                    Linking.openURL('whatsapp://send?phone=+910000000000&text=Hello UniteFix Support, I need help.').catch(() => {
+                    Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
                         Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
                     });
                 }}>

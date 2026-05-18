@@ -212,4 +212,114 @@ export function registerPaymentRoutes(app: Express) {
             res.status(500).json({ error: error.message });
         }
     });
+
+    // ==================== RAZORPAY NATIVE SDK VERIFICATION ====================
+
+    /**
+     * POST /api/payments/verify
+     * Mobile SDK sends razorpay_payment_id, razorpay_order_id, razorpay_signature
+     * Backend verifies HMAC signature and marks payment as captured
+     */
+    app.post("/api/payments/verify", authenticateToken as any, async (req: Request, res: Response) => {
+        try {
+            const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
+
+            if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Missing required fields: razorpay_payment_id, razorpay_order_id, razorpay_signature",
+                });
+            }
+
+            // Verify signature using HMAC SHA256
+            const secret = process.env.RAZORPAY_KEY_SECRET;
+            if (!secret) {
+                return res.status(500).json({ success: false, message: "Payment verification not configured" });
+            }
+
+            const expectedSignature = crypto
+                .createHmac("sha256", secret)
+                .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+                .digest("hex");
+
+            if (expectedSignature !== razorpay_signature) {
+                console.error(`[PAYMENT] Signature mismatch for order ${razorpay_order_id}`);
+                return res.status(400).json({ success: false, message: "Invalid payment signature" });
+            }
+
+            // Update payment_transactions table if it exists
+            try {
+                await db.execute(sql`
+                    UPDATE payment_transactions
+                    SET payment_status = 'captured',
+                        razorpay_payment_id = ${razorpay_payment_id},
+                        razorpay_signature = ${razorpay_signature},
+                        updated_at = NOW()
+                    WHERE razorpay_order_id = ${razorpay_order_id}
+                `);
+            } catch (dbErr: any) {
+                // Table may not exist yet — log but don't fail
+                console.warn(`[PAYMENT] DB update skipped: ${dbErr.message}`);
+            }
+
+            console.log(`[PAYMENT] ✅ Verified payment ${razorpay_payment_id} for order ${razorpay_order_id}`);
+            res.json({ success: true, message: "Payment verified successfully" });
+        } catch (error: any) {
+            console.error('[PAYMENT] Verification error:', error.message);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    // ==================== SHOP PRODUCT PAYMENT ====================
+
+    /**
+     * POST /api/shop/create-order
+     * Creates Razorpay order for product checkout
+     * Body: { amount: number, address: string }
+     */
+    app.post("/api/shop/create-order", authenticateToken as any, async (req: Request, res: Response) => {
+        try {
+            const { amount, address } = req.body;
+            const customerId = (req as any).user?.userId;
+
+            if (!amount || amount <= 0) {
+                return res.status(400).json({ success: false, message: "Valid amount is required" });
+            }
+
+            const keyId = process.env.RAZORPAY_KEY_ID;
+            const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+            if (!keyId || !keySecret) {
+                return res.status(500).json({ success: false, message: "Payment gateway not configured" });
+            }
+
+            const Razorpay = (await import('razorpay')).default;
+            const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+
+            const order = await razorpay.orders.create({
+                amount: Math.round(amount * 100), // Rupees → Paise
+                currency: 'INR',
+                receipt: `shop_${customerId}_${Date.now()}`,
+                notes: {
+                    customer_id: customerId?.toString() || '',
+                    payment_type: 'product_order',
+                    address: (address || '').substring(0, 200),
+                },
+            });
+
+            console.log(`[SHOP] Razorpay order ${order.id} created for customer ${customerId}, amount: ₹${amount}`);
+
+            res.json({
+                success: true,
+                data: {
+                    razorpayOrderId: order.id,
+                    razorpayKeyId: keyId,
+                    amount,
+                },
+            });
+        } catch (error: any) {
+            console.error('[SHOP] Order creation failed:', error.message);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
 }

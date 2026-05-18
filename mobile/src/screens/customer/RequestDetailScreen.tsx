@@ -41,7 +41,7 @@ import {
     IndianRupee,
     AlertTriangle,
 } from 'lucide-react-native';
-import { useCancelServiceRequest, useRateService } from '../../hooks/useCustomerData';
+import { useCancelServiceRequest, useRateService, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -51,8 +51,8 @@ import { Button } from '../../components/ui';
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
 
 // Full state machine timeline matching AI_CONTEXT.md §3.B
-const TIMELINE_STEPS = [
-    { key: 'created', label: 'Booking Created', sublabel: 'Paid ₹99 booking fee', icon: CreditCard },
+const getTimelineSteps = (bookingFee: number) => [
+    { key: 'created', label: 'Booking Created', sublabel: `Paid ₹${bookingFee} booking fee`, icon: CreditCard },
     { key: 'assigned', label: 'Technician Assigned', sublabel: 'On the way to your location', icon: User },
     { key: 'accepted', label: 'Technician Accepted', sublabel: 'OTP generated for verification', icon: Shield },
     { key: 'reached', label: 'Technician Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
@@ -126,14 +126,18 @@ function ConfirmModal({
                 <Text style={modalStyles.title}>{title}</Text>
                 <Text style={modalStyles.message}>{message}</Text>
                 <View style={modalStyles.actions}>
-                    <Button title={cancelText} variant="secondary" onPress={onCancel} style={{ flex: 1 }} />
-                    <View style={{ width: spacing.md }} />
                     <Button
                         title={confirmText}
                         variant={confirmVariant}
                         onPress={onConfirm}
                         loading={loading}
-                        style={{ flex: 1 }}
+                        style={{ width: '100%', marginBottom: spacing.md }}
+                    />
+                    <Button 
+                        title={cancelText} 
+                        variant="secondary" 
+                        onPress={onCancel} 
+                        style={{ width: '100%' }} 
                     />
                 </View>
             </Animated.View>
@@ -150,6 +154,11 @@ export function RequestDetailScreen({ navigation, route }: Props) {
 
     const { mutate: cancelRequest, isPending: cancelling } = useCancelServiceRequest();
     const { mutate: rateService, isPending: submittingRating } = useRateService();
+    const { data: publicConfig } = usePublicConfig();
+    
+    const bookingFee = publicConfig?.bookingFee ?? 99;
+    const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
+    const timelineSteps = getTimelineSteps(bookingFee);
 
     // Animations
     const headerAnim = useRef(new Animated.Value(0)).current;
@@ -162,8 +171,8 @@ export function RequestDetailScreen({ navigation, route }: Props) {
         return null;
     }
 
-    // Cancel only from CREATED state (AI_CONTEXT §3.D)
-    const canCancel = request.status === 'created';
+    // Cancel from early states (before work starts)
+    const canCancel = ['created', 'placed', 'confirmed', 'assigned'].includes(request.status);
     const canRate = request.status === 'completed' && !request.rating;
     const needsPayment = request.status === 'pending_payment';
     const showSupport = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(request.status);
@@ -187,7 +196,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
 
     const openWhatsApp = () => {
         const msg = encodeURIComponent(`Hi, I need help with booking #${request.id}. Service: ${request.serviceType}`);
-        Linking.openURL(`https://wa.me/919999999999?text=${msg}`);
+        Linking.openURL(`https://wa.me/${whatsappNumber}?text=${msg}`);
     };
 
     const openPayment = () => {
@@ -242,7 +251,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     {/* Booking Fee Badge */}
                     <View style={styles.bookingFeeBadge}>
                         <CreditCard size={14} color={colors.accent} />
-                        <Text style={styles.bookingFeeText}>₹99 Booking Fee Paid</Text>
+                        <Text style={styles.bookingFeeText}>₹{bookingFee} Booking Fee Paid</Text>
                         <CheckCircle size={14} color={colors.accent} />
                     </View>
                 </View>
@@ -272,10 +281,10 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 {/* Timeline */}
                 <Text style={styles.sectionTitle}>Status Timeline</Text>
                 <View style={styles.timeline}>
-                    {TIMELINE_STEPS.map((step, index) => {
+                    {timelineSteps.map((step, index) => {
                         const status = getStepStatus(request.status, step.key);
                         const Icon = step.icon;
-                        const isLast = index === TIMELINE_STEPS.length - 1;
+                        const isLast = index === timelineSteps.length - 1;
 
                         return (
                             <View key={step.key} style={styles.timelineItem}>
@@ -385,7 +394,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         )}
                         <View style={styles.chargeRow}>
                             <Text style={styles.chargeLabel}>Booking Fee (Credited)</Text>
-                            <Text style={[styles.chargeValue, { color: colors.success }]}>-₹99</Text>
+                            <Text style={[styles.chargeValue, { color: colors.success }]}>-₹{bookingFee}</Text>
                         </View>
                         <View style={[styles.chargeRow, styles.chargeTotal]}>
                             <Text style={styles.totalLabel}>Total</Text>
@@ -477,7 +486,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
             <ConfirmModal
                 visible={showCancelModal}
                 title="Cancel Booking?"
-                message="Your ₹99 booking fee will be fully refunded to your original payment method within 3-5 business days."
+                message={`Your ₹${bookingFee} booking fee will be fully refunded to your original payment method within 3-5 business days.`}
                 confirmText="Yes, Cancel"
                 cancelText="Keep Booking"
                 confirmVariant="danger"
@@ -658,5 +667,5 @@ const modalStyles = StyleSheet.create({
     },
     title: { ...typography.h3, color: colors.textPrimary, marginTop: spacing.lg, textAlign: 'center' },
     message: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, marginBottom: spacing.xl },
-    actions: { flexDirection: 'row', width: '100%' },
+    actions: { width: '100%', flexDirection: 'column' },
 });

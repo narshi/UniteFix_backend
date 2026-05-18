@@ -20,6 +20,7 @@ import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) {
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
@@ -85,11 +86,11 @@ export function PastServicesScreen() {
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />}
                 ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Clock size={48} color={colors.textDisabled} />
-                        <Text style={styles.emptyTitle}>No past services</Text>
-                        <Text style={styles.emptySubtitle}>Completed jobs will appear here</Text>
-                    </View>
+                    <EmptyState
+                        icon={<Clock size={36} color={colors.textDisabled} />}
+                        title="No past services"
+                        description="Completed and cancelled jobs will appear here."
+                    />
                 }
             />
         </View>
@@ -105,11 +106,12 @@ const styles = StyleSheet.create({
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
+    listContent: { padding: spacing.xl, paddingBottom: 100 },
     card: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.sm, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.sm,
+        borderWidth: 1, borderColor: colors.border,
     },
     cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: spacing.md },
     statusDot: { width: 10, height: 10, borderRadius: 5 },
@@ -121,7 +123,4 @@ const styles = StyleSheet.create({
     charge: { ...typography.bodyMedium, color: colors.success },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     ratingText: { ...typography.small, color: colors.textSecondary },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['4xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm },
 });

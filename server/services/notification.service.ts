@@ -171,7 +171,7 @@ export class NotificationService {
       const nodemailer = await import("nodemailer");
       const smtpPort = parseInt(process.env.SMTP_PORT || '587');
       
-      // Port 465 is always secure (SSL/TLS) for Zoho India
+      // Port 465 = implicit TLS (Zoho India), 587 = STARTTLS (Gmail)
       const isSecure = smtpPort === 465;
 
       const transporter = nodemailer.createTransport({
@@ -182,14 +182,37 @@ export class NotificationService {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
         },
-        // Add timeout to prevent hanging connections
-        connectionTimeout: 10000,
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+        // Zoho may need this for TLS negotiation
+        tls: {
+          rejectUnauthorized: false,
+        },
       });
 
-      logger.info(`[EMAIL] Attempting to send to ${to} via ${process.env.SMTP_HOST}:${smtpPort}`);
+      logger.info(`[EMAIL] Connecting to ${process.env.SMTP_HOST}:${smtpPort} (secure: ${isSecure})`);
+
+      // Verify SMTP connection is valid before sending
+      try {
+        await transporter.verify();
+        logger.info(`[EMAIL] SMTP connection verified successfully`);
+      } catch (verifyErr: any) {
+        logger.error(`[EMAIL] SMTP connection FAILED`, {
+          error: verifyErr.message,
+          code: verifyErr.code,
+          host: process.env.SMTP_HOST,
+          port: smtpPort,
+          user: process.env.SMTP_USER,
+        });
+        throw verifyErr;
+      }
+
+      // IMPORTANT: Zoho requires the `from` address to EXACTLY match SMTP_USER
+      const fromAddress = `"UniteFix" <${process.env.SMTP_USER}>`;
 
       const info = await transporter.sendMail({
-        from: process.env.ADMIN_EMAIL || '"UniteFix Support" <support@unitefix.com>',
+        from: fromAddress,
         to,
         subject,
         html,
@@ -197,7 +220,14 @@ export class NotificationService {
 
       logger.info(`[EMAIL] Message sent`, { messageId: info.messageId, to });
     } catch (error: any) {
-      logger.error("[EMAIL] Error sending email", { error: error.message, to });
+      logger.error("[EMAIL] Error sending email", {
+        error: error.message,
+        code: error.code,
+        command: error.command,
+        responseCode: error.responseCode,
+        response: error.response,
+        to,
+      });
       throw new Error(`Email delivery failed: ${error.message}`);
     }
   }

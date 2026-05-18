@@ -26,7 +26,7 @@ export default function ServicesPage() {
   const filteredServices = Array.isArray(services) ? services.filter((service: any) => {
     const matchesSearch = searchTerm === '' || (
       service.serviceType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.serviceId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.id?.toString().includes(searchTerm) ||
       service.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       service.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       service.status?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -44,7 +44,7 @@ export default function ServicesPage() {
       UniteFix Service Invoice
       =====================
       
-      Service ID: ${service.serviceId}
+      Service ID: ${service.id}
       Service Type: ${service.serviceType}
       Brand: ${service.brand}
       Model: ${service.model}
@@ -67,7 +67,7 @@ export default function ServicesPage() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `service-invoice-${service.serviceId}.txt`;
+    link.download = `service-invoice-${service.id}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -76,11 +76,15 @@ export default function ServicesPage() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      'placed': { color: 'bg-gray-100 text-gray-800', text: 'Placed' },
-      'confirmed': { color: 'bg-blue-100 text-blue-800', text: 'Confirmed' },
-      'partner_assigned': { color: 'bg-yellow-100 text-yellow-800', text: 'Employee Assigned' },
-      'service_started': { color: 'bg-green-100 text-green-800', text: 'Service Started' },
-      'service_completed': { color: 'bg-green-100 text-green-800', text: 'Completed' },
+      'created': { color: 'bg-gray-100 text-gray-800', text: 'Created' },
+      'assigned': { color: 'bg-blue-100 text-blue-800', text: 'Assigned' },
+      'accepted': { color: 'bg-purple-100 text-purple-800', text: 'Accepted' },
+      'reached': { color: 'bg-yellow-100 text-yellow-800', text: 'Reached' },
+      'in_progress': { color: 'bg-orange-100 text-orange-800', text: 'In Progress' },
+      'pending_payment': { color: 'bg-pink-100 text-pink-800', text: 'Payment Due' },
+      'completed': { color: 'bg-green-100 text-green-800', text: 'Completed' },
+      'cancelled': { color: 'bg-red-100 text-red-800', text: 'Cancelled' },
+      'disputed': { color: 'bg-red-800 text-white', text: 'Disputed' },
     };
     
     const config = statusConfig[status as keyof typeof statusConfig] || { 
@@ -123,11 +127,15 @@ export default function ServicesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="placed">Placed</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="partner_assigned">Employee Assigned</SelectItem>
-                    <SelectItem value="service_started">Service Started</SelectItem>
-                    <SelectItem value="service_completed">Completed</SelectItem>
+                    <SelectItem value="created">Created</SelectItem>
+                    <SelectItem value="assigned">Assigned</SelectItem>
+                    <SelectItem value="accepted">Accepted</SelectItem>
+                    <SelectItem value="reached">Reached</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="pending_payment">Payment Due</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="disputed">Disputed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -169,7 +177,7 @@ export default function ServicesPage() {
                     {filteredServices.map((service: any) => (
                       <tr key={service.id} className="border-b border-gray-100">
                         <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.serviceId}</p>
+                          <p className="font-medium text-gray-900">{service.id}</p>
                           <p className="text-sm text-gray-600">{service.verificationCode}</p>
                         </td>
                         <td className="py-3 px-4">
@@ -231,11 +239,11 @@ export default function ServicesPage() {
                             >
                               View Details
                             </Button>
-                            {service.status === 'service_completed' && (
+                              {service.status === 'completed' && (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => window.open(`/api/invoices/generate/${service.serviceId}`, '_blank')}
+                                onClick={() => window.open(`/api/invoices/generate/${service.id}`, '_blank')}
                               >
                                 Invoice
                               </Button>
@@ -262,7 +270,7 @@ export default function ServicesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Service ID</p>
-                    <p className="text-lg font-semibold">{selectedService.serviceId}</p>
+                    <p className="text-lg font-semibold">{selectedService.id}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-600">Status</p>

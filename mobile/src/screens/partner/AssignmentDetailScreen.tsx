@@ -2,7 +2,7 @@
  * Assignment Detail — Accept/Deny + Customer info + Service flow actions
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -11,10 +11,14 @@ import {
     TouchableOpacity,
     Alert,
     TextInput,
+    Linking,
+    Platform,
 } from 'react-native';
+import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import * as ExpoLocation from 'expo-location';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-    ArrowLeft, User, Phone, MapPin, Calendar,
+    ArrowLeft, User, Phone, MapPin, Calendar, Navigation2,
     CheckCircle, XCircle, Play, DollarSign, KeyRound,
 } from 'lucide-react-native';
 import {
@@ -29,7 +33,7 @@ import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { Button } from '../../components/ui';
+import { Button, ScreenHeader } from '../../components/ui';
 
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 
@@ -39,6 +43,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
+    const [customerCoords, setCustomerCoords] = useState<{ latitude: number; longitude: number } | null>(null);
 
     const { mutate: accept, isPending: accepting } = useAcceptAssignment();
     const { mutate: deny, isPending: denying } = useDenyAssignment();
@@ -47,7 +52,37 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: complete, isPending: completing } = useCompleteService();
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
 
+    // Geocode customer address for mini-map
+    useEffect(() => {
+        if (assignment?.address) {
+            ExpoLocation.geocodeAsync(assignment.address)
+                .then((results) => {
+                    if (results.length > 0) {
+                        setCustomerCoords({
+                            latitude: results[0].latitude,
+                            longitude: results[0].longitude,
+                        });
+                    }
+                })
+                .catch((err) => console.log('[MAP] Geocode failed:', err.message));
+        }
+    }, [assignment?.address]);
+
+    // Early return AFTER all hooks (React Rules of Hooks)
     if (!assignment) { navigation.goBack(); return null; }
+
+    const openDirections = () => {
+        if (!customerCoords) return;
+        const { latitude, longitude } = customerCoords;
+        const url = Platform.select({
+            ios: `maps://app?daddr=${latitude},${longitude}`,
+            android: `google.navigation:q=${latitude},${longitude}`,
+        });
+        if (url) Linking.openURL(url).catch(() => {
+            // Fallback to Google Maps web
+            Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`);
+        });
+    };
 
     const handleAccept = () => {
         Alert.alert('Accept Assignment', 'Take this job?', [
@@ -97,14 +132,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={22} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Assignment</Text>
-                <View style={{ width: 36 }} />
-            </View>
+            <ScreenHeader title="Assignment" onBack={() => navigation.goBack()} />
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Service info card */}
@@ -120,6 +148,38 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                         <Text style={styles.metaText}>{assignment.address}</Text>
                     </View>
                 </View>
+
+                {/* Mini Map */}
+                {customerCoords && (
+                    <View style={styles.card}>
+                        <Text style={styles.sectionTitle}>Location</Text>
+                        <View style={styles.mapContainer}>
+                            <MapView
+                                style={styles.miniMap}
+                                provider={PROVIDER_DEFAULT}
+                                initialRegion={{
+                                    ...customerCoords,
+                                    latitudeDelta: 0.008,
+                                    longitudeDelta: 0.008,
+                                }}
+                                scrollEnabled={false}
+                                zoomEnabled={false}
+                                pitchEnabled={false}
+                                rotateEnabled={false}
+                            >
+                                <Marker coordinate={customerCoords} />
+                            </MapView>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.directionsBtn}
+                            onPress={openDirections}
+                            activeOpacity={0.7}
+                        >
+                            <Navigation2 size={16} color={colors.textInverse} />
+                            <Text style={styles.directionsBtnText}>Get Directions</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
 
                 {/* Customer info */}
                 <View style={styles.card}>
@@ -243,7 +303,7 @@ const styles = StyleSheet.create({
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
     headerTitle: { ...typography.h4, color: colors.textPrimary },
     scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
-    card: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.lg, ...shadows.sm },
+    card: { backgroundColor: colors.background, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
     serviceType: { ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.sm },
     desc: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },
@@ -274,4 +334,26 @@ const styles = StyleSheet.create({
     totalRow: { borderTopWidth: 1, borderTopColor: colors.divider, marginTop: spacing.sm, paddingTop: spacing.md },
     totalLabel: { ...typography.h4, color: colors.textPrimary },
     totalValue: { ...typography.h4, color: colors.primary },
+    mapContainer: {
+        borderRadius: radii.lg,
+        overflow: 'hidden',
+        marginBottom: spacing.md,
+    },
+    miniMap: {
+        width: '100%',
+        height: 160,
+    },
+    directionsBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.primary,
+        borderRadius: radii.lg,
+        paddingVertical: spacing.md,
+    },
+    directionsBtnText: {
+        ...typography.button,
+        color: colors.textInverse,
+    },
 });

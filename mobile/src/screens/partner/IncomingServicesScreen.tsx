@@ -20,6 +20,7 @@ import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
     pending: { bg: colors.warningLight, text: colors.warning, label: 'Pending' },
@@ -104,11 +105,11 @@ export function IncomingServicesScreen() {
                     <RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />
                 }
                 ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Inbox size={48} color={colors.textDisabled} />
-                        <Text style={styles.emptyTitle}>No incoming services</Text>
-                        <Text style={styles.emptySubtitle}>New assignments will appear here</Text>
-                    </View>
+                    <EmptyState
+                        icon={<Inbox size={36} color={colors.textDisabled} />}
+                        title="No incoming jobs"
+                        description="New service assignments will appear here. Stay ready!"
+                    />
                 }
             />
         </View>
@@ -124,10 +125,11 @@ const styles = StyleSheet.create({
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
+    listContent: { padding: spacing.xl, paddingBottom: 100 },
     card: {
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.md,
+        borderWidth: 1, borderColor: colors.border,
     },
     cardHeader: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm,
@@ -139,7 +141,4 @@ const styles = StyleSheet.create({
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
     infoText: { ...typography.small, color: colors.textSecondary, flex: 1 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['4xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm },
 });

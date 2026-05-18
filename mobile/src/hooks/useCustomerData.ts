@@ -15,6 +15,8 @@ export const queryKeys = {
     notifications: ['notifications'] as const,
     homeServices: ['homeServices'] as const,
     allServices: ['allServices'] as const,
+    categories: ['categories'] as const,
+    publicConfig: ['publicConfig'] as const,
 };
 
 // ==================== PROFILE ====================

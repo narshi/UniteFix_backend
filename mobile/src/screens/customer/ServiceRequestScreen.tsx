@@ -17,7 +17,9 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle } from 'lucide-react-native';
-import { useCreateServiceRequest } from '../../hooks/useCustomerData';
+import { useCreateServiceRequest, usePublicConfig } from '../../hooks/useCustomerData';
+import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
+import { customerApi } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -37,6 +39,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
+    const { data: publicConfig } = usePublicConfig();
+
+    const bookingFee = publicConfig?.bookingFee ?? 99;
 
     const validate = (): boolean => {
         const newErrors: Record<string, string> = {};
@@ -51,23 +56,68 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const handleSubmit = () => {
         if (!validate()) return;
 
-        createRequest(
-            {
-                serviceType,
-                description,
-                address,
-                pinCode,
-                urgency,
-            },
-            {
-                onSuccess: () => {
-                    Alert.alert(
-                        'Request Submitted! ✅',
-                        'Your service request has been created. We will assign a technician soon.',
-                        [{ text: 'OK', onPress: () => navigation.goBack() }]
-                    );
+        // Confirm booking fee before proceeding
+        Alert.alert(
+            'Confirm Booking',
+            `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: `Pay ₹${bookingFee} & Book`,
+                    onPress: () => {
+                        createRequest(
+                            {
+                                serviceType,
+                                description,
+                                address,
+                                pinCode,
+                                urgency,
+                            },
+                            {
+                                onSuccess: async (response: any) => {
+                                    const paymentData = response?.data?.payment;
+
+                                    if (paymentData?.razorpayOrderId && paymentData?.razorpayKeyId) {
+                                        // Open Razorpay native checkout
+                                        try {
+                                            const paymentResponse = await openRazorpayCheckout({
+                                                razorpayOrderId: paymentData.razorpayOrderId,
+                                                razorpayKeyId: paymentData.razorpayKeyId,
+                                                amount: paymentData.amount,
+                                                description: `₹${paymentData.amount} Booking Fee — ${serviceName}`,
+                                            });
+
+                                            // Verify payment on backend
+                                            await customerApi.verifyPayment(paymentResponse);
+
+                                            Alert.alert(
+                                                'Booking Confirmed! ✅',
+                                                `Your ₹${bookingFee} booking fee has been paid. We will assign a technician soon.`,
+                                                [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                            );
+                                        } catch (err: any) {
+                                            handleRazorpayError(err);
+                                            // Booking is created but unpaid — user can retry
+                                            Alert.alert(
+                                                'Booking Created',
+                                                'Your request is saved. Complete payment from My Requests to confirm.',
+                                                [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                            );
+                                        }
+                                    } else {
+                                        // No payment required (Razorpay not configured / dev mode)
+                                        Alert.alert(
+                                            'Request Submitted! ✅',
+                                            'Your service request has been created. We will assign a technician soon.',
+                                            [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                        );
+                                    }
+                                },
+                            }
+                        );
+                    },
                 },
-            }
+            ]
         );
     };
 

@@ -22,6 +22,8 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { apiClient } from '../../api/client';
 
 type Props = NativeStackScreenProps<any, 'Checkout'>;
 
@@ -50,24 +52,38 @@ export function CheckoutScreen({ navigation }: Props) {
         const fullAddress = `${address}, ${city} - ${pincode}`;
 
         if (paymentMethod === 'online') {
-            // Razorpay integration placeholder
-            // In production, call backend to create Razorpay order, then open Razorpay SDK
-            Alert.alert(
-                'Payment',
-                `Pay ₹${total} via Razorpay?`,
-                [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                        text: 'Pay Now',
-                        onPress: () => {
-                            checkout(
-                                { address: fullAddress },
-                                { onSuccess: () => navigation.replace('OrderConfirmation', { total }) },
-                            );
-                        },
-                    },
-                ]
-            );
+            const processOnlinePayment = async () => {
+                try {
+                    // Create order on backend
+                    const { data } = await apiClient.post('/api/shop/create-order', {
+                        amount: total,
+                        address: fullAddress,
+                    });
+
+                    if (data?.data?.razorpayOrderId) {
+                        const paymentResponse = await openRazorpayCheckout({
+                            razorpayOrderId: data.data.razorpayOrderId,
+                            razorpayKeyId: data.data.razorpayKeyId,
+                            amount: total,
+                            description: `Product Order — ₹${total}`,
+                        });
+
+                        // Verify payment
+                        await apiClient.post('/api/payments/verify', paymentResponse);
+
+                        // Now place the order
+                        checkout(
+                            { address: fullAddress, paymentMethod: 'online', paymentId: paymentResponse.razorpay_payment_id },
+                            { onSuccess: () => { Alert.alert('Order Placed! ✅', 'Payment successful.'); navigation.replace('OrderConfirmation', { total }); } }
+                        );
+                    }
+                } catch (err: any) {
+                    if (err?.code !== 2) {
+                        Alert.alert('Payment Failed', err?.description || 'Please try again.');
+                    }
+                }
+            };
+            processOnlinePayment();
         } else {
             checkout(
                 { address: fullAddress },

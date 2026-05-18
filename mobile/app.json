@@ -11,10 +11,17 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0F172A"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "UniteFix needs your location to show nearby services and set your address.",
+        "NSLocationAlwaysUsageDescription": "UniteFix uses your location in the background to help partners reach your address."
+      }
     },
     "android": {
       "package": "com.unitefix.app",
@@ -24,9 +31,16 @@
           "apiKey": "AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU"
         }
       },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0F172A"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -40,18 +54,29 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#ffffff"
+          "color": "#4F46E5",
+          "defaultChannel": "default"
         }
       ],
       "expo-secure-store",
       "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "UniteFix needs your location to show nearby services."
+        }
+      ],
       [
         "./plugins/withTruecaller",
         {
           "clientId": "4gniidv8yotvmqym7nwgcfven6mk36mqep70ikeq8qs"
         }
       ]
-    ]
-
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "gmp-demo-project-687518846"
+      }
+    }
   }
 }

@@ -28,9 +28,8 @@ import { Clock, ShieldCheck, ShieldX, MessageCircle, LogOut, RefreshCw } from 'l
 import { useAuthStore } from '../../stores/auth.store';
 import { authApi } from '../../api/auth.api';
 import { apiClient } from '../../api/client';
+import { usePublicConfig } from '../../hooks/useCustomerData';
 import { colors } from '../../theme/colors';
-
-const WHATSAPP_NUMBER = '919999999999'; // Fallback — should come from env/config
 
 interface StatusConfig {
   icon: React.ReactNode;
@@ -72,6 +71,9 @@ export function EmployeePendingScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
+  const { data: publicConfig } = usePublicConfig();
+  const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
+
   const status = user?.documentVerificationStatus || 'pending';
   const config = STATUS_MAP[status] || STATUS_MAP.pending;
 
@@ -101,7 +103,7 @@ export function EmployeePendingScreen() {
     const message = encodeURIComponent(
       `Hi, I need help with my UniteFix partner verification. My phone: ${user?.phone || 'N/A'}`
     );
-    Linking.openURL(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`);
+    Linking.openURL(`https://wa.me/${whatsappNumber}?text=${message}`);
   };
 
   const handleLogout = async () => {

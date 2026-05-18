@@ -19,6 +19,8 @@ import { Notification } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { ScreenHeader } from '../../components/ui/ScreenHeader';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 type Props = NativeStackScreenProps<any, 'Notifications'>;
 
@@ -79,14 +81,7 @@ export function NotificationsScreen({ navigation }: Props) {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={22} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Notifications</Text>
-                <View style={{ width: 36 }} />
-            </View>
+            <ScreenHeader title="Notifications" onBack={() => navigation.goBack()} />
 
             <FlatList
                 data={notifications || []}
@@ -102,13 +97,11 @@ export function NotificationsScreen({ navigation }: Props) {
                     />
                 }
                 ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <BellOff size={48} color={colors.textDisabled} />
-                        <Text style={styles.emptyTitle}>No notifications</Text>
-                        <Text style={styles.emptySubtitle}>
-                            We'll notify you about service updates and offers
-                        </Text>
-                    </View>
+                    <EmptyState
+                        icon={<BellOff size={36} color={colors.textDisabled} />}
+                        title="No notifications yet"
+                        description="We'll notify you about service updates, offers, and important alerts."
+                    />
                 }
             />
         </View>
@@ -118,28 +111,22 @@ export function NotificationsScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
-    },
-    backBtn: {
-        width: 36, height: 36, borderRadius: 18,
-        backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
-    },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
     listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
     notifItem: {
         flexDirection: 'row', alignItems: 'flex-start',
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.sm, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.lg, marginBottom: spacing.sm,
+        borderWidth: 1, borderColor: colors.border,
     },
-    notifUnread: { backgroundColor: colors.primarySurface },
+    notifUnread: {
+        backgroundColor: colors.primarySurface,
+        borderColor: colors.primary + '20',
+    },
     notifIcon: {
-        width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface,
+        width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface,
         justifyContent: 'center', alignItems: 'center', marginRight: spacing.md,
     },
-    notifIconUnread: { backgroundColor: 'rgba(33,150,243,0.15)' },
+    notifIconUnread: { backgroundColor: colors.primarySurface },
     notifContent: { flex: 1 },
     notifTitle: { ...typography.bodyMedium, color: colors.textPrimary, marginBottom: 2 },
     notifTitleUnread: { fontWeight: '700' },
@@ -149,7 +136,5 @@ const styles = StyleSheet.create({
         width: 8, height: 8, borderRadius: 4,
         backgroundColor: colors.primary, marginTop: spacing.sm,
     },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['4xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm, textAlign: 'center' },
 });
+

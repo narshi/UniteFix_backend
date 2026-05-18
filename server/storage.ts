@@ -1110,24 +1110,39 @@ export class DatabaseStorage implements IStorage {
   ): Promise<boolean> {
     const MAX_OTP_ATTEMPTS = 5;
 
-    // Find the latest unverified, unexpired OTP record for this contact+purpose
+    // Build the contact filter — if both are provided, match on BOTH
+    const conditions = [
+      eq(otpVerifications.purpose, purpose),
+      eq(otpVerifications.isVerified, false),
+      gte(otpVerifications.expiresAt, new Date()),
+    ];
+
+    if (phone && email) {
+      // Fallback login stores both — match on both for precision
+      conditions.push(eq(otpVerifications.phone, phone));
+      conditions.push(eq(otpVerifications.email, email));
+    } else if (phone) {
+      conditions.push(eq(otpVerifications.phone, phone));
+    } else if (email) {
+      conditions.push(eq(otpVerifications.email, email));
+    } else {
+      return false; // No contact info
+    }
+
+    // Find the LATEST unverified, unexpired OTP record
     const [verification] = await db
       .select()
       .from(otpVerifications)
-      .where(
-        and(
-          phone ? eq(otpVerifications.phone, phone) : eq(otpVerifications.email, email || ''),
-          eq(otpVerifications.purpose, purpose),
-          eq(otpVerifications.isVerified, false),
-          gte(otpVerifications.expiresAt, new Date())
-        )
-      )
-      .orderBy(otpVerifications.createdAt) // latest first
+      .where(and(...conditions))
+      .orderBy(desc(otpVerifications.createdAt)) // newest first (was incorrectly ASC!)
       .limit(1);
 
     if (!verification) {
-      return false; // no active OTP found (expired or already used)
+      console.log(`[OTP_DEBUG] No matching OTP found for phone=${phone}, email=${email}, purpose=${purpose}`);
+      return false;
     }
+
+    console.log(`[OTP_DEBUG] Found OTP record id=${verification.id}, stored=${verification.otp}, received=${otp}, attempts=${verification.attempts}, expires=${verification.expiresAt}`);
 
     const currentAttempts = (verification.attempts ?? 0);
 

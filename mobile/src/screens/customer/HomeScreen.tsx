@@ -1,6 +1,13 @@
 /**
- * Home Screen — Welcome banner + Service category grid
- * Customer's main landing screen after login
+ * Home Screen — Premium customer landing page
+ *
+ * Features:
+ * - Dark hero header with avatar + greeting
+ * - Location pill with change action
+ * - Service category grid from API
+ * - "My Bookings" quick access card
+ * - Trust indicators section
+ * - Floating tab bar padding
  */
 
 import React from 'react';
@@ -12,20 +19,18 @@ import {
     TouchableOpacity,
     RefreshControl,
     StatusBar,
+    Platform,
+    Animated,
 } from 'react-native';
 import {
     Wrench,
-    Zap,
-    Droplets,
-    PaintBucket,
-    Thermometer,
-    Shield,
-    Hammer,
-    Cpu,
     Bell,
     ChevronRight,
     MapPin,
-    Search,
+    Star,
+    Shield,
+    Clock,
+    Headphones,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,10 +42,19 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Skeleton, CardSkeleton } from '../../components/Skeleton';
 import * as Location from 'expo-location';
 import { customerApi } from '../../api/customer.api';
+import { SectionHeader } from '../../components/ui/SectionHeader';
 
 import { ServiceCard } from '../../components/services/ServiceCard';
 import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
+
+// Trust indicators data
+const TRUST_ITEMS = [
+    { icon: Shield, label: 'Verified Experts', color: colors.primary },
+    { icon: Star, label: '4.8★ Rated', color: colors.warning },
+    { icon: Clock, label: '60-min Response', color: colors.success },
+    { icon: Headphones, label: '24/7 Support', color: colors.info },
+];
 
 export function HomeScreen() {
     const { user } = useAuthStore();
@@ -97,24 +111,31 @@ export function HomeScreen() {
                 setIsServiceable(isAvail ?? true);
             }).catch(err => {
                 console.error('Pincode validation error', err);
-                setIsServiceable(true); // Default to true on error so we don't block by mistake
+                setIsServiceable(true);
             });
         } else {
             setIsServiceable(null);
         }
     }, [profile?.pinCode]);
 
+    // Get time-based greeting
+    const getGreeting = () => {
+        const hour = new Date().getHours();
+        if (hour < 12) return 'Good morning';
+        if (hour < 17) return 'Good afternoon';
+        return 'Good evening';
+    };
 
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={colors.backgroundDark} />
 
-            {/* Header */}
+            {/* Hero Header */}
             <View style={styles.header}>
-                <View style={styles.headerContent}>
+                <View style={styles.headerTop}>
                     <View style={styles.headerLeft}>
                         {isLoading ? (
-                            <Skeleton width={44} height={44} borderRadius={22} />
+                            <Skeleton width={48} height={48} borderRadius={24} />
                         ) : (
                             <View style={styles.avatar}>
                                 <Text style={styles.avatarText}>
@@ -123,43 +144,34 @@ export function HomeScreen() {
                             </View>
                         )}
                         <View>
-                            <Text style={styles.greeting}>Hello,</Text>
+                            <Text style={styles.greeting}>{getGreeting()},</Text>
                             {isLoading ? (
                                 <Skeleton width={100} height={20} style={{ marginTop: 4 }} />
                             ) : (
-                                <Text style={styles.userName}>{firstName} 👋</Text>
+                                <Text style={styles.userName}>{firstName}</Text>
                             )}
                         </View>
                     </View>
                     <TouchableOpacity
                         style={styles.bellButton}
                         onPress={() => navigation.navigate('Notifications')}
+                        activeOpacity={0.7}
                     >
-                        <Bell size={22} color={colors.textInverse} />
+                        <Bell size={20} color={colors.textInverse} strokeWidth={2} />
                     </TouchableOpacity>
                 </View>
-            </View>
 
-            {/* Location Banner */}
-            <View style={styles.locationBanner}>
-                <View style={styles.locationInfo}>
-                    <MapPin size={20} color={colors.primary} />
-                    <View style={styles.locationTextContainer}>
-                        <Text style={styles.locationLabel}>Your Location</Text>
-                        {isFetchingLocation ? (
-                            <Text style={styles.locationValue}>Fetching location...</Text>
-                        ) : (
-                            <Text style={styles.locationValue} numberOfLines={2}>
-                                {profile?.homeAddress || 'Location not set'}
-                            </Text>
-                        )}
-                    </View>
-                </View>
-                <TouchableOpacity 
-                    style={styles.changeButton}
+                {/* Location Pill */}
+                <TouchableOpacity
+                    style={styles.locationPill}
                     onPress={() => navigation.navigate('LocationSelection')}
+                    activeOpacity={0.8}
                 >
-                    <Text style={styles.changeButtonText}>Change</Text>
+                    <MapPin size={14} color={colors.primary} strokeWidth={2.5} />
+                    <Text style={styles.locationText} numberOfLines={1}>
+                        {isFetchingLocation ? 'Detecting...' : (profile?.homeAddress || 'Set your location')}
+                    </Text>
+                    <ChevronRight size={14} color="rgba(255,255,255,0.4)" />
                 </TouchableOpacity>
             </View>
 
@@ -172,36 +184,42 @@ export function HomeScreen() {
                         refreshing={isLoading}
                         onRefresh={onRefresh}
                         colors={[colors.primary]}
+                        tintColor={colors.primary}
                     />
                 }
             >
-                {/* Welcome card */}
-                <View style={styles.welcomeCard}>
-                    <View style={styles.welcomeLeft}>
-                        <Text style={styles.welcomeTitle}>Need a repair?</Text>
-                        <Text style={styles.welcomeSubtitle}>
-                            Choose a category below to book a service at your doorstep.
-                        </Text>
-                    </View>
-                    <View style={styles.welcomeIcon}>
-                        <Wrench size={40} color={colors.primary} />
-                    </View>
+                {/* Trust Indicators */}
+                <View style={styles.trustRow}>
+                    {TRUST_ITEMS.map((item, i) => (
+                        <View key={i} style={styles.trustItem}>
+                            <View style={[styles.trustIcon, { backgroundColor: item.color + '15' }]}>
+                                <item.icon size={16} color={item.color} strokeWidth={2.2} />
+                            </View>
+                            <Text style={styles.trustLabel}>{item.label}</Text>
+                        </View>
+                    ))}
                 </View>
 
                 {/* Serviceability Check */}
                 {isServiceable === false ? (
-                    <View style={styles.unserviceableContainer}>
-                        <Text style={styles.unserviceableTitle}>We are coming to your area shortly</Text>
-                        <Text style={styles.unserviceableSubtitle}>
-                            Currently, we do not operate in your area. We will notify you once we expand our services here.
-                        </Text>
+                    <View style={styles.unserviceableCard}>
+                        <MapPin size={24} color={colors.warning} />
+                        <View style={styles.unserviceableContent}>
+                            <Text style={styles.unserviceableTitle}>Expanding to your area soon</Text>
+                            <Text style={styles.unserviceableSubtitle}>
+                                We'll notify you when services are available in your pincode.
+                            </Text>
+                        </View>
                     </View>
                 ) : (
                     <>
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>Our Services</Text>
-                            <Text style={styles.sectionSubtitle}>What do you need help with?</Text>
-                        </View>
+                        {/* Services Section */}
+                        <SectionHeader
+                            title="Our Services"
+                            subtitle="What do you need help with?"
+                            actionLabel="View all"
+                            onAction={() => navigation.navigate('AllServices')}
+                        />
 
                         <View style={styles.categoryGrid}>
                             {isServicesLoading ? (
@@ -221,7 +239,7 @@ export function HomeScreen() {
                                                         import('react-native').then(({ Alert }) => {
                                                             Alert.alert(
                                                                 "Coming Soon",
-                                                                "🚀 This service is launching soon in your area.",
+                                                                "This service is launching soon in your area.",
                                                                 [{ text: "OK" }]
                                                             );
                                                         });
@@ -252,17 +270,22 @@ export function HomeScreen() {
                     </>
                 )}
 
-                {/* Recent requests teaser */}
+                {/* Quick Access — My Bookings */}
                 <TouchableOpacity
-                    style={styles.recentCard}
+                    style={styles.bookingsCard}
                     onPress={() => navigation.navigate('BookingsTab')}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
                 >
-                    <View>
-                        <Text style={styles.recentTitle}>My Service Requests</Text>
-                        <Text style={styles.recentSubtitle}>View and track your bookings</Text>
+                    <View style={styles.bookingsLeft}>
+                        <View style={styles.bookingsIconWrap}>
+                            <Wrench size={18} color={colors.primary} />
+                        </View>
+                        <View>
+                            <Text style={styles.bookingsTitle}>My Service Requests</Text>
+                            <Text style={styles.bookingsSubtitle}>View and track your bookings</Text>
+                        </View>
                     </View>
-                    <ChevronRight size={20} color={colors.textSecondary} />
+                    <ChevronRight size={18} color={colors.textDisabled} />
                 </TouchableOpacity>
             </ScrollView>
         </View>
@@ -274,15 +297,17 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.surface,
     },
+
+    // Hero Header
     header: {
         backgroundColor: colors.backgroundDark,
-        paddingTop: 50,
+        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.xl,
         borderBottomLeftRadius: radii['2xl'],
         borderBottomRightRadius: radii['2xl'],
     },
-    headerContent: {
+    headerTop: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -293,170 +318,156 @@ const styles = StyleSheet.create({
         gap: spacing.md,
     },
     avatar: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.25)',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: colors.primary,
         justifyContent: 'center',
         alignItems: 'center',
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.2)',
     },
     avatarText: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: '700',
         color: colors.textInverse,
     },
     greeting: {
         ...typography.caption,
-        color: 'rgba(255,255,255,0.8)',
+        color: 'rgba(255,255,255,0.6)',
     },
     userName: {
         ...typography.h4,
         color: colors.textInverse,
     },
     bellButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.15)',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(255,255,255,0.1)',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    locationBanner: {
+
+    // Location Pill
+    locationPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: colors.surface,
-        paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        ...shadows.sm,
-    },
-    locationInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-        marginRight: spacing.md,
-    },
-    locationTextContainer: {
-        marginLeft: spacing.md,
-        flex: 1,
-    },
-    locationLabel: {
-        ...typography.caption,
-        color: colors.textSecondary,
-    },
-    locationValue: {
-        ...typography.body,
-        color: colors.textPrimary,
-        fontWeight: '600',
-    },
-    changeButton: {
-        paddingVertical: spacing.xs,
-        paddingHorizontal: spacing.md,
+        gap: spacing.xs,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.base,
         borderRadius: radii.full,
-        backgroundColor: colors.primarySurface,
+        marginTop: spacing.lg,
     },
-    changeButtonText: {
+    locationText: {
         ...typography.small,
-        color: colors.primary,
-        fontWeight: '600',
+        color: 'rgba(255,255,255,0.7)',
+        flex: 1,
     },
+
+    // Scroll
     scrollView: {
         flex: 1,
     },
     scrollContent: {
         paddingHorizontal: spacing.xl,
         paddingTop: spacing.xl,
-        paddingBottom: 100, // Extra space for floating tab bar
+        paddingBottom: 100, // Floating tab bar
     },
-    welcomeCard: {
+
+    // Trust Row
+    trustRow: {
         flexDirection: 'row',
-        backgroundColor: colors.primarySurface,
-        borderRadius: radii.xl,
-        padding: spacing.xl,
-        marginBottom: spacing.xl,
+        justifyContent: 'space-between',
+        marginBottom: spacing['2xl'],
+    },
+    trustItem: {
         alignItems: 'center',
-    },
-    welcomeLeft: {
         flex: 1,
-        marginRight: spacing.md,
     },
-    welcomeTitle: {
-        ...typography.h4,
-        color: colors.primaryDark,
-        marginBottom: spacing.xs,
-    },
-    welcomeSubtitle: {
-        ...typography.caption,
-        color: colors.textSecondary,
-    },
-    welcomeIcon: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: colors.primarySurface,
+    trustIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         justifyContent: 'center',
         alignItems: 'center',
+        marginBottom: spacing.xs,
     },
-    sectionHeader: {
-        marginBottom: spacing.lg,
-    },
-    sectionTitle: {
-        ...typography.h3,
-        color: colors.textPrimary,
-    },
-    sectionSubtitle: {
-        ...typography.caption,
+    trustLabel: {
+        ...typography.small,
         color: colors.textSecondary,
-        marginTop: spacing.xs,
+        textAlign: 'center',
     },
+
+    // Services
     categoryGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
-        marginTop: spacing.md,
         marginBottom: spacing.xl,
     },
     serviceCardWrapper: {
         width: '48%',
         marginBottom: spacing.md,
     },
-    recentCard: {
+
+    // Bookings Card
+    bookingsCard: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         backgroundColor: colors.background,
-        borderRadius: radii.lg,
+        borderRadius: radii.xl,
         padding: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
         ...shadows.sm,
     },
-    recentTitle: {
+    bookingsLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+    },
+    bookingsIconWrap: {
+        width: 40,
+        height: 40,
+        borderRadius: radii.lg,
+        backgroundColor: colors.primarySurface,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    bookingsTitle: {
         ...typography.bodyMedium,
         color: colors.textPrimary,
     },
-    recentSubtitle: {
-        ...typography.caption,
+    bookingsSubtitle: {
+        ...typography.small,
         color: colors.textSecondary,
-        marginTop: spacing.xs,
+        marginTop: 1,
     },
-    unserviceableContainer: {
-        backgroundColor: colors.error + '10',
-        padding: spacing.xl,
-        borderRadius: radii.lg,
-        alignItems: 'center',
+
+    // Unserviceable
+    unserviceableCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: colors.warningLight,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
+        gap: spacing.md,
         marginBottom: spacing.xl,
     },
+    unserviceableContent: {
+        flex: 1,
+    },
     unserviceableTitle: {
-        ...typography.h4,
-        color: colors.error,
-        marginBottom: spacing.sm,
-        textAlign: 'center',
+        ...typography.bodyMedium,
+        color: colors.warningDark,
+        marginBottom: 2,
     },
     unserviceableSubtitle: {
-        ...typography.body,
+        ...typography.caption,
         color: colors.textSecondary,
-        textAlign: 'center',
-        lineHeight: 22,
+        lineHeight: 20,
     },
 });

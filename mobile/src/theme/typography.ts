@@ -116,6 +116,14 @@ export const typography: Record<string, TextStyle> = {
         lineHeight: 36,
         fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
     },
+
+    // Label — form field labels
+    label: {
+        fontSize: 13,
+        fontWeight: '600',
+        lineHeight: 18,
+        letterSpacing: 0.2,
+    },
 };
 
 /**

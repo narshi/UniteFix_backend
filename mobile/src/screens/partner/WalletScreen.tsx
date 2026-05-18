@@ -17,6 +17,7 @@ import { WalletTransaction } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { EmptyState } from '../../components/ui/EmptyState';
 
 function TransactionItem({ item }: { item: WalletTransaction }) {
     const isCredit = item.type === 'credit';
@@ -93,17 +94,17 @@ export function WalletScreen() {
                 }
                 ListEmptyComponent={
                     isError ? (
-                        <View style={styles.emptyContainer}>
-                            <Wallet size={48} color={colors.textDisabled} />
-                            <Text style={styles.emptyTitle}>Wallet unavailable</Text>
-                            <Text style={styles.emptySubtitle}>Pull to refresh</Text>
-                        </View>
+                        <EmptyState
+                            icon={<Wallet size={36} color={colors.textDisabled} />}
+                            title="Wallet unavailable"
+                            description="Pull down to refresh and try again."
+                        />
                     ) : (
-                        <View style={styles.emptyContainer}>
-                            <Wallet size={48} color={colors.textDisabled} />
-                            <Text style={styles.emptyTitle}>No transactions yet</Text>
-                            <Text style={styles.emptySubtitle}>Complete services to see your earnings</Text>
-                        </View>
+                        <EmptyState
+                            icon={<Wallet size={36} color={colors.textDisabled} />}
+                            title="No transactions yet"
+                            description="Complete services to start earning. Your transaction history will appear here."
+                        />
                     )
                 }
             />
@@ -119,10 +120,10 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
-    listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
+    listContent: { padding: spacing.xl, paddingBottom: 100 },
     summaryRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
     summaryCard: {
-        flex: 1, borderRadius: radii.lg, padding: spacing.lg,
+        flex: 1, borderRadius: radii.xl, padding: spacing.lg,
         alignItems: 'flex-start', gap: spacing.sm,
     },
     summaryAmount: { ...typography.h3, color: '#fff' },
@@ -130,21 +131,19 @@ const styles = StyleSheet.create({
     completedCard: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
         backgroundColor: colors.successLight, padding: spacing.md,
-        borderRadius: radii.md, marginBottom: spacing.xl,
+        borderRadius: radii.lg, marginBottom: spacing.xl,
     },
-    completedText: { ...typography.bodyMedium, color: colors.success },
+    completedText: { ...typography.bodyMedium, color: colors.successDark },
     sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.md },
     txnItem: {
         flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.md, marginBottom: spacing.sm, ...shadows.sm,
+        backgroundColor: colors.background, borderRadius: radii.xl,
+        padding: spacing.md, marginBottom: spacing.sm,
+        borderWidth: 1, borderColor: colors.border,
     },
     txnIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginRight: spacing.md },
     txnContent: { flex: 1 },
     txnDesc: { ...typography.bodyMedium, color: colors.textPrimary },
     txnDate: { ...typography.small, color: colors.textDisabled, marginTop: 1 },
     txnAmount: { ...typography.bodyMedium, fontWeight: '700' },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['2xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm },
 });

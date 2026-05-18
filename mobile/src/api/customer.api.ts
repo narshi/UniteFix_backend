@@ -163,7 +163,26 @@ export const customerApi = {
     getAllCategories: () =>
         apiClient.get<ApiResponse<ServiceCategory[]>>('/api/services/categories'),
 
+    // Platform Config
+    getPublicConfig: () =>
+        apiClient.get<ApiResponse<{ bookingFee: number; gstRate: number; cancelFee: number; whatsappNumber: string }>>('/api/config/public'),
+
     // OTP
     generateOTP: (serviceId: number) =>
         apiClient.post(`/api/otp/generate`, { serviceId }),
+
+    // Razorpay Payment Verification
+    verifyPayment: (data: {
+        razorpay_payment_id: string;
+        razorpay_order_id: string;
+        razorpay_signature: string;
+    }) => apiClient.post('/api/payments/verify', data),
+
+    // Final payment order creation (after service completion)
+    createFinalPaymentOrder: (serviceId: number) =>
+        apiClient.post<ApiResponse<{ razorpayOrderId: string; amount: number }>>(`/api/customer/services/${serviceId}/create-final-payment`),
+
+    // Shop payment order
+    createShopOrder: (data: { amount: number; address: string }) =>
+        apiClient.post<ApiResponse<{ razorpayOrderId: string; razorpayKeyId: string; amount: number }>>('/api/shop/create-order', data),
 };

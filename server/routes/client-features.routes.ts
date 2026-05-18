@@ -23,6 +23,10 @@ import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 import { storage } from "../storage";
+import { ConfigService } from "../services/config.service";
+
+// Config service instance
+const configService = new ConfigService();
 
 // Auth middleware aliases — import from canonical auth.middleware.ts
 // authenticateToken protects customer routes
@@ -59,6 +63,33 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const categories = await storage.getAllServiceCategoriesWithServices();
             res.json({ success: true, data: categories });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    // ==================== CONFIG ====================
+
+    /**
+     * GET /api/config/public
+     * Returns public configuration values needed by the mobile app (e.g., booking fee)
+     */
+    app.get('/api/config/public', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const bookingFee = await configService.get('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
+            const gstRate = await configService.get('BUSINESS_CONFIG.GST_PERCENTAGE', 18);
+            const cancelFee = await configService.get('BUSINESS_CONFIG.CANCELLATION_FEE', 150);
+            const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
+
+            res.json({
+                success: true,
+                data: {
+                    bookingFee: Number(bookingFee),
+                    gstRate: Number(gstRate),
+                    cancelFee: Number(cancelFee),
+                    whatsappNumber: whatsappNumber,
+                }
+            });
         } catch (error) {
             next(error);
         }

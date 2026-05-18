@@ -27,6 +27,9 @@ import { registerProductRoutes } from "./routes/product.routes";
 // import { registerOtpRoutes } from "./routes/otp.routes";
 import { registerClientFeatureRoutes } from "./routes/client-features.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
+import { ConfigService } from "./services/config.service";
+
+const configService = new ConfigService();
 
 import { NotificationService } from "./services/notification.service";
 import { registerNotificationRoutes } from "./routes/notification.routes";
@@ -1368,7 +1371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== USER APP ROUTES ====================
 
-  // Create service request
+  // Create service request with ₹99 booking charge
   app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
       const serviceData = insertServiceRequestSchema.parse({
@@ -1377,7 +1380,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const service = await storage.createServiceRequest(serviceData);
-      res.status(201).json({ success: true, data: service });
+
+      // Attempt to create Razorpay booking charge order
+      let paymentInfo = null;
+      try {
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+        if (keyId && keySecret) {
+          const Razorpay = (await import('razorpay')).default;
+          const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+
+          const bookingFeeConfig = await configService.get('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
+          const bookingFee = Number(bookingFeeConfig);
+          const amountInPaise = bookingFee * 100;
+
+          const order = await razorpay.orders.create({
+            amount: amountInPaise,
+            currency: 'INR',
+            receipt: `booking_${service.id}_${Date.now()}`,
+            notes: {
+              service_request_id: service.id.toString(),
+              customer_id: req.user!.userId.toString(),
+              payment_type: 'booking_charge',
+            },
+          });
+
+          paymentInfo = {
+            razorpayOrderId: order.id,
+            razorpayKeyId: keyId,
+            amount: bookingFee,
+            currency: 'INR',
+          };
+
+          logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${bookingFee}`);
+        }
+      } catch (payError: any) {
+        logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
+        // Don't block booking — proceed without payment for dev/testing
+      }
+
+      res.status(201).json({
+        success: true,
+        data: service,
+        payment: paymentInfo,
+      });
     } catch (error) {
       next(error);
     }
@@ -1402,15 +1449,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
 
-      if (!['placed', 'confirmed'].includes(service.status)) {
+      // Allow cancellation from early booking states (before work starts)
+      const cancellableStates = ['placed', 'confirmed', 'created', 'assigned'];
+      if (!cancellableStates.includes(service.status)) {
         return res.status(400).json({
           success: false,
-          message: "Cannot cancel after partner assignment. Please contact support."
+          message: "Cannot cancel after service has started. Please contact support.",
+          data: {
+            whatsappLink: `https://wa.me/${process.env.WHATSAPP_BUSINESS_NUMBER || '919999999999'}?text=${encodeURIComponent(`Booking #${service.id}: I need to cancel`)}`,
+          },
         });
       }
 
       const updated = await storage.updateServiceRequestStatus(service.id, 'cancelled');
-      res.json({ success: true, message: "Service cancelled", data: updated });
+      res.json({ success: true, message: "Service cancelled successfully", data: updated });
     } catch (error) {
       next(error);
     }

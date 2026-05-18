@@ -20,9 +20,15 @@ export function useAssignments() {
         queryKey: partnerQueryKeys.assignments,
         queryFn: async () => {
             const response = await partnerApi.getAssignments();
-            return response.data;
+            // Backend returns { success, data: Assignment[] }
+            // Axios wraps in response.data → { success, data }
+            // We need the inner data array
+            const payload = response.data;
+            if (Array.isArray(payload)) return payload; // Direct array response
+            if (payload && Array.isArray((payload as any).data)) return (payload as any).data;
+            return []; // Fallback to empty array
         },
-        refetchInterval: 30_000, // poll every 30s for new jobs
+        refetchInterval: 30_000,
     });
 }
 

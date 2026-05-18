@@ -16,11 +16,11 @@ import {
     ScrollView,
     TouchableOpacity,
     Animated,
-    Linking,
     Platform,
     ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { openRazorpayCheckout } from '../../services/razorpay';
 import {
     ArrowLeft,
     CreditCard,
@@ -73,32 +73,33 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const handlePayment = async () => {
         setPaymentState('loading');
         try {
-            // Create Razorpay order
-            const { data } = await apiClient.post(`/api/v1/bookings/${request.id}/create-payment-order`);
+            // Create Razorpay order on backend
+            const { data } = await apiClient.post(
+                `/api/customer/services/${request.id}/create-final-payment`
+            );
 
-            if (data?.success && data.data?.paymentLink) {
-                // Open Razorpay payment link in browser
-                await Linking.openURL(data.data.paymentLink);
-                // After returning, check payment status
-                setTimeout(async () => {
-                    try {
-                        const status = await apiClient.get(`/api/v1/bookings/${request.id}/payment-status`);
-                        if (status.data?.data?.paid) {
-                            setPaymentState('success');
-                        } else {
-                            setPaymentState('idle');
-                        }
-                    } catch {
-                        setPaymentState('idle');
-                    }
-                }, 3000);
+            if (data?.razorpayOrder?.orderId) {
+                const paymentResponse = await openRazorpayCheckout({
+                    razorpayOrderId: data.razorpayOrder.orderId,
+                    amount: data.razorpayOrder.amount,
+                    description: `Final Payment — Booking #${request.id}`,
+                });
+
+                // Verify on backend
+                await apiClient.post('/api/payments/verify', paymentResponse);
+                setPaymentState('success');
             } else {
-                // Simulate for dev — mark as payment attempted
+                // Dev fallback
                 setPaymentState('success');
             }
-        } catch (err) {
-            setPaymentState('failed');
-            setTimeout(() => setPaymentState('idle'), 3000);
+        } catch (err: any) {
+            if (err?.code === 2) {
+                // User cancelled
+                setPaymentState('idle');
+            } else {
+                setPaymentState('failed');
+                setTimeout(() => setPaymentState('idle'), 3000);
+            }
         }
     };
 

@@ -62,7 +62,7 @@ export class NotificationService {
                 name: 'Default',
                 importance: Notifications.AndroidImportance.HIGH,
                 vibrationPattern: [0, 250, 250, 250],
-                lightColor: '#2196F3',
+                lightColor: '#4F46E5',
             });
 
             await Notifications.setNotificationChannelAsync('service-updates', {
@@ -70,7 +70,7 @@ export class NotificationService {
                 description: 'Updates about your service requests',
                 importance: Notifications.AndroidImportance.HIGH,
                 vibrationPattern: [0, 250, 250, 250],
-                lightColor: '#4CAF50',
+                lightColor: '#10B981',
             });
 
             await Notifications.setNotificationChannelAsync('orders', {
@@ -83,7 +83,7 @@ export class NotificationService {
         // Get Expo push token
         try {
             const tokenData = await Notifications.getExpoPushTokenAsync({
-                projectId: undefined, // Will use project ID from app.json
+                projectId: 'gmp-demo-project-687518846',
             });
             this.expoPushToken = tokenData.data;
             return tokenData.data;

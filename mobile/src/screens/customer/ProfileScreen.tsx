@@ -27,7 +27,7 @@ import {
     MessageCircle,
 } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import { useProfile, useUpdateProfile } from '../../hooks/useCustomerData';
+import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -38,6 +38,9 @@ export function ProfileScreen() {
     const { data: profile, isLoading } = useProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
     const { logout, user } = useAuthStore();
+    const { data: publicConfig } = usePublicConfig();
+    
+    const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
 
     const [editing, setEditing] = useState(false);
     const [username, setUsername] = useState('');
@@ -232,7 +235,7 @@ export function ProfileScreen() {
                 <Text style={styles.sectionTitle}>Account</Text>
                 
                 <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => {
-                    Linking.openURL('whatsapp://send?phone=+910000000000&text=Hello UniteFix Support, I need help.').catch(() => {
+                    Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
                         Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
                     });
                 }}>
@@ -272,7 +275,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    scrollContent: { paddingBottom: spacing['3xl'] },
+    scrollContent: { paddingBottom: 100 },
     profileHeader: {
         alignItems: 'center',
         paddingTop: 60,
@@ -286,8 +289,9 @@ const styles = StyleSheet.create({
         width: 80, height: 80, borderRadius: 40,
         backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center',
         marginBottom: spacing.md,
+        borderWidth: 3, borderColor: 'rgba(79, 70, 229, 0.2)',
     },
-    avatarLargeText: { fontSize: 32, fontWeight: '700', color: colors.textInverse },
+    avatarLargeText: { fontSize: 30, fontWeight: '700', color: colors.textInverse },
     displayName: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.xs },
     roleBadge: {
         ...typography.caption, color: colors.textSecondary,
