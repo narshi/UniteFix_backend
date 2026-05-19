@@ -25,21 +25,31 @@ async function seedTestData() {
         // ============================================================================
         // 1. ADMIN USER
         // ============================================================================
-        console.log('1️⃣  Seeding Admin User...');
-        const existingAdmin = await db.select().from(adminUsers).where(eq(adminUsers.username, 'admin')).limit(1);
+        console.log('1️⃣  Seeding Admin Users...');
+        
+        const adminAccounts = [
+            { username: 'Narayan', password: 'Narayan@UF1', email: 'narayan@unitefix.com' },
+            { username: 'Nagaraj', password: 'Nagaraj@UF1', email: 'nagaraj@unitefix.com' },
+            { username: 'Kumar', password: 'Kumar@UF1', email: 'kumar@unitefix.com' },
+            { username: 'admin', password: 'admin123', email: 'admin@unitefix.com' }, // keep default for safety
+        ];
 
-        if (existingAdmin.length === 0) {
-            const hashedPassword = await bcrypt.hash('admin123', 10);
-            await db.insert(adminUsers).values({
-                username: 'admin',
-                password: hashedPassword,
-                email: 'admin@unitefix.com',
-                role: 'super_admin',
-                isActive: true
-            }).onConflictDoNothing();
-            console.log('   ✅ Admin user created (admin/admin123)');
-        } else {
-            console.log('   ⏭️  Admin user already exists');
+        for (const adminData of adminAccounts) {
+            const existingAdmin = await db.select().from(adminUsers).where(eq(adminUsers.username, adminData.username)).limit(1);
+
+            if (existingAdmin.length === 0) {
+                const hashedPassword = await bcrypt.hash(adminData.password, 10);
+                await db.insert(adminUsers).values({
+                    username: adminData.username,
+                    password: hashedPassword,
+                    email: adminData.email,
+                    role: 'super_admin',
+                    isActive: true
+                }).onConflictDoNothing();
+                console.log(`   ✅ Admin user created (${adminData.username})`);
+            } else {
+                console.log(`   ⏭️  Admin user already exists (${adminData.username})`);
+            }
         }
 
         // ============================================================================
@@ -290,7 +300,9 @@ async function seedTestData() {
 
         console.log('\n✅ TEST DATA SEEDING COMPLETE!\n');
         console.log('🔐 TEST CREDENTIALS:');
-        console.log('   Admin:  admin / admin123');
+        console.log('   Admin:  Narayan / Narayan@UF1');
+        console.log('   Admin:  Nagaraj / Nagaraj@UF1');
+        console.log('   Admin:  Kumar / Kumar@UF1');
         console.log('   User:   9876543210 / password123');
         console.log('   Tech:   9988776655 / tech123');
         console.log('');
