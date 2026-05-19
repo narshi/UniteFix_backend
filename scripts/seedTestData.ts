@@ -2,8 +2,7 @@ import 'dotenv/config';
 import { db } from '../server/db';
 import {
     users,
-    serviceProviders,
-    partnerWallets,
+    employees,
     products,
     inventoryItems,
     serviceablePincodes,
@@ -82,16 +81,16 @@ async function seedTestData() {
         console.log(`   ✅ Users in database: ${userCount.length}`);
 
         // ============================================================================
-        // 3. TECHNICIANS (Service Providers) with Wallets
+        // 3. TECHNICIANS (Employees)
         // ============================================================================
-        console.log('\n3️⃣  Seeding Technicians (Service Providers)...');
+        console.log('\n3️⃣  Seeding Technicians (Employees)...');
         const technicians = [
             {
                 phone: '9988776655',
                 email: 'tech1@unitefix.com',
                 username: 'tech_ravi',
                 password: 'tech123',
-                partnerName: 'Ravi Kumar',
+                fullName: 'Ravi Kumar',
                 partnerId: 'TECH001',
                 skills: ['Electronics', 'Mobile Repair'],
                 location: 'Karwar'
@@ -101,7 +100,7 @@ async function seedTestData() {
                 email: 'tech2@unitefix.com',
                 username: 'tech_suresh',
                 password: 'tech123',
-                partnerName: 'Suresh Patil',
+                fullName: 'Suresh Patil',
                 partnerId: 'TECH002',
                 skills: ['Appliances', 'AC Repair'],
                 location: 'Dandeli'
@@ -111,7 +110,7 @@ async function seedTestData() {
                 email: 'tech3@unitefix.com',
                 username: 'tech_amit',
                 password: 'tech123',
-                partnerName: 'Amit Naik',
+                fullName: 'Amit Naik',
                 partnerId: 'TECH003',
                 skills: ['Electronics', 'Computer Repair'],
                 location: 'Sirsi'
@@ -119,7 +118,6 @@ async function seedTestData() {
         ];
 
         for (const techData of technicians) {
-            // Insert user with conflict handling
             const hashedPassword = await bcrypt.hash(techData.password, 10);
             const [newUser] = await db.insert(users).values({
                 phone: techData.phone,
@@ -131,34 +129,23 @@ async function seedTestData() {
                 isActive: true
             }).onConflictDoNothing().returning({ id: users.id });
 
-            // If user was just created, create provider and wallet
             if (newUser) {
-                const [newProvider] = await db.insert(serviceProviders).values({
+                await db.insert(employees).values({
                     userId: newUser.id,
                     partnerId: techData.partnerId,
-                    partnerName: techData.partnerName,
+                    fullName: techData.fullName,
                     partnerType: 'Individual',
-                    verificationStatus: 'verified',
+                    documentVerificationStatus: 'verified',
                     skills: techData.skills,
-                    location: techData.location,
+                    currentLocation: techData.location,
                     isActive: true,
                     walletBalance: '0'
-                }).onConflictDoNothing().returning({ id: serviceProviders.id });
-
-                if (newProvider) {
-                    await db.insert(partnerWallets).values({
-                        partnerId: newProvider.id,
-                        balanceHold: '0',
-                        balanceAvailable: '0',
-                        totalEarned: '0'
-                    }).onConflictDoNothing();
-                }
+                }).onConflictDoNothing();
             }
         }
 
-        const providerCount = await db.select().from(serviceProviders);
-        const walletCount = await db.select().from(partnerWallets);
-        console.log(`   ✅ Service Providers: ${providerCount.length}, Wallets: ${walletCount.length}`);
+        const employeeCount = await db.select().from(employees);
+        console.log(`   ✅ Employees (Technicians): ${employeeCount.length}`);
 
         // ============================================================================
         // 4. PRODUCTS (20 across 3 categories)
@@ -281,8 +268,7 @@ async function seedTestData() {
 
         const finalAdminCount = await db.select().from(adminUsers);
         const finalUserCount = await db.select().from(users);
-        const finalProviderCount = await db.select().from(serviceProviders);
-        const finalWalletCount = await db.select().from(partnerWallets);
+        const finalEmployeeCount = await db.select().from(employees);
         const finalProductCount = await db.select().from(products);
         const finalInventoryCount = await db.select().from(inventoryItems);
         const finalPincodeCount = await db.select().from(serviceablePincodes);
@@ -290,8 +276,7 @@ async function seedTestData() {
 
         console.log(`Admin Users:          ${finalAdminCount.length}`);
         console.log(`Regular Users:        ${finalUserCount.length}`);
-        console.log(`Service Providers:    ${finalProviderCount.length}`);
-        console.log(`Partner Wallets:      ${finalWalletCount.length}`);
+        console.log(`Service Employees:    ${finalEmployeeCount.length}`);
         console.log(`Products:             ${finalProductCount.length}`);
         console.log(`Inventory Items:      ${finalInventoryCount.length}`);
         console.log(`Serviceable Pincodes: ${finalPincodeCount.length}`);
