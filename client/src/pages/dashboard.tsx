@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import Sidebar from "@/components/admin/sidebar";
@@ -31,18 +32,13 @@ export default function Dashboard() {
 
   const handleExportReport = async () => {
     try {
-      // Fetch all necessary data for the report
-      const [statsResponse, servicesResponse, ordersResponse, usersResponse] = await Promise.all([
-        fetch("/api/admin/stats"),
-        fetch("/api/admin/services/recent"),
-        fetch("/api/admin/orders/recent"),
-        fetch("/api/admin/users")
+      // Fetch all necessary data for the report (uses apiRequest for auth token)
+      const [stats, services, orders, users] = await Promise.all([
+        apiRequest("GET", "/api/admin/stats"),
+        apiRequest("GET", "/api/admin/services/recent"),
+        apiRequest("GET", "/api/admin/orders/recent"),
+        apiRequest("GET", "/api/admin/users"),
       ]);
-
-      const stats = await statsResponse.json();
-      const services = await servicesResponse.json();
-      const orders = await ordersResponse.json();
-      const users = await usersResponse.json();
 
       // Create CSV content
       const csvContent = [

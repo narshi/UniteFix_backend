@@ -18,6 +18,7 @@ import {
   Dimensions,
   StatusBar,
   Image,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -240,7 +241,13 @@ export function RoleSelectionScreen({ navigation }: Props) {
 
       {/* Footer */}
       <Text style={styles.footerText}>
-        By continuing, you agree to our Terms of Service and Privacy Policy
+        By continuing, you agree to our{' '}
+        <Text
+          style={styles.footerLink}
+          onPress={() => Linking.openURL('https://unitefix.com/assets/terms-and-conditions.pdf')}
+        >
+          Terms of Service & Privacy Policy
+        </Text>
       </Text>
     </SafeAreaView>
   );
@@ -400,5 +407,9 @@ const styles = StyleSheet.create({
     color: colors.textDisabled,
     textAlign: 'center',
     paddingVertical: 16,
+  },
+  footerLink: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
   },
 });

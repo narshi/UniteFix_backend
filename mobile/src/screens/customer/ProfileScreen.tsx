@@ -26,7 +26,9 @@ import {
     Navigation,
     MessageCircle,
 } from 'lucide-react-native';
+import { Trash2 } from 'lucide-react-native';
 import * as Location from 'expo-location';
+import { apiClient } from '../../api/client';
 import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
@@ -122,6 +124,29 @@ export function ProfileScreen() {
                 onPress: () => logout(),
             },
         ]);
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Delete Account',
+            'This will permanently delete your account and all associated data after 30 days. This action cannot be undone.\n\nAre you sure you want to proceed?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete My Account',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await apiClient.delete('/api/client/account', { data: { confirmDelete: true } });
+                            Alert.alert('Account Scheduled for Deletion', 'Your account will be deleted within 30 days. You will now be logged out.');
+                            await logout();
+                        } catch (err: any) {
+                            Alert.alert('Error', err?.response?.data?.message || 'Failed to delete account. Please try again.');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     if (isLoading) {
@@ -250,6 +275,14 @@ export function ProfileScreen() {
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />
                         <Text style={[styles.menuLabel, { color: colors.error }]}>Log Out</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={handleDeleteAccount}>
+                    <View style={styles.menuLeft}>
+                        <Trash2 size={20} color={colors.error} />
+                        <Text style={[styles.menuLabel, { color: colors.error }]}>Delete Account</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

@@ -72,9 +72,9 @@ export function SplashScreen({ navigation }: Props) {
             hasNavigated.current = true;
 
             if (isAuthenticated) {
-                console.log('[Splash] Authenticated — RootNavigator will switch stacks');
+                if (__DEV__) console.log('[Splash] Authenticated — RootNavigator will switch stacks');
             } else {
-                console.log('[Splash] Not authenticated — navigating to RoleSelection');
+                if (__DEV__) console.log('[Splash] Not authenticated — navigating to RoleSelection');
                 navigation.replace('RoleSelection');
             }
         }, MIN_SPLASH_MS);

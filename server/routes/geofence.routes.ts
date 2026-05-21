@@ -30,7 +30,7 @@ export function registerGeofenceRoutes(app: Express) {
      * Body: { latitude: number, longitude: number }
      * Transition: ACCEPTED → REACHED
      */
-    app.patch('/api/v1/bookings/:id/arrive', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.patch('/api/bookings/:id/arrive', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { latitude, longitude } = req.body;
@@ -167,7 +167,7 @@ export function registerGeofenceRoutes(app: Express) {
      * Body: { otp: string }
      * Transition: REACHED → IN_PROGRESS
      */
-    app.patch('/api/v1/bookings/:id/start', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.patch('/api/bookings/:id/start', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { otp } = req.body;

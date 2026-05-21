@@ -7,10 +7,11 @@ import {
   insertServiceRequestSchema,
   insertProductOrderSchema,
   insertProductSchema,
-  // insertServiceProviderSchema, // PHASE 1: serviceProviders table deleted
+  insertEmployeeSchema,
   insertServiceablePincodeSchema,
   insertDistrictSchema,
   otpVerifications,
+  serviceRequests,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -40,6 +41,10 @@ import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
+import { BillingEngine } from "./services/billing-engine";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET environment variable is required");
@@ -134,6 +139,18 @@ function paginate<T>(data: T[], page: number = 1, limit: number = 20): { data: T
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+
+  // ==================== API VERSIONING REWRITE ====================
+  // Rewrite /api/v1/... requests to /api/... globally before any route handlers execute.
+  // This prevents versioning dead-ends for mobile clients.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.url.startsWith('/api/v1/')) {
+      req.url = req.url.replace('/api/v1/', '/api/');
+    } else if (req.url === '/api/v1') {
+      req.url = '/api';
+    }
+    next();
+  });
 
   // ==================== AUTHENTICATION ROUTES ====================
 
@@ -769,7 +786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         total = await storage.countServiceProviders('verified');
       } else if (status === 'suspended') {
         providers = await storage.getAllServiceProviders(limit, offset);
-        providers = providers.filter(p => p.verificationStatus === 'suspended');
+        providers = providers.filter(p => p.documentVerificationStatus === 'suspended');
         total = await storage.countServiceProviders('suspended');
       } else {
         providers = await storage.getAllServiceProviders(limit, offset);
@@ -963,7 +980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
 
-      if (provider.verificationStatus === 'suspended') {
+      if (provider.documentVerificationStatus === 'suspended') {
         return res.status(403).json({ success: false, message: "Cannot top up suspended provider wallet" });
       }
 
@@ -1024,7 +1041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Business partners endpoints (backward compatibility)
-  app.get("/api/business/partners", async (req, res, next) => {
+  app.get("/api/business/partners", authenticateAdmin, async (req, res, next) => {
     try {
       const providers = await storage.getAllServiceProviders();
       // PHASE 1: Map employees columns → legacy partner field names
@@ -1047,9 +1064,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/business/partners", async (req, res, next) => {
+  app.post("/api/business/partners", authenticateAdmin, async (req, res, next) => {
     try {
-      const providerData = insertServiceProviderSchema.parse(req.body);
+      const providerData = insertEmployeeSchema.parse(req.body);
       const provider = await storage.createServiceProvider({
         ...providerData,
         documentVerificationStatus: 'verified'
@@ -1060,7 +1077,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/business/partners/pending", async (req, res, next) => {
+  app.get("/api/business/partners/pending", authenticateAdmin, async (req, res, next) => {
     try {
       const providers = await storage.getPendingServiceProviders();
       res.json(providers);
@@ -1069,7 +1086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/business/partners/:id", async (req, res, next) => {
+  app.get("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
     try {
       const provider = await storage.getServiceProvider(parseInt(req.params.id));
       if (!provider) {
@@ -1081,7 +1098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/business/partners/:id", async (req, res, next) => {
+  app.put("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), req.body);
       if (!provider) {
@@ -1093,7 +1110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/business/partners/:id", async (req, res, next) => {
+  app.delete("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
     try {
       await storage.deleteServiceProvider(parseInt(req.params.id));
       res.json({ message: "Partner deleted" });
@@ -1102,7 +1119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/business/partners/:id/verify", async (req, res, next) => {
+  app.post("/api/business/partners/:id/verify", authenticateAdmin, async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
         documentVerificationStatus: 'verified'
@@ -1113,7 +1130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/business/partners/:id/suspend", async (req, res, next) => {
+  app.post("/api/business/partners/:id/suspend", authenticateAdmin, async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
         documentVerificationStatus: 'suspended',
@@ -1125,7 +1142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/business/partners/:id/deactivate", async (req, res, next) => {
+  app.post("/api/business/partners/:id/deactivate", authenticateAdmin, async (req, res, next) => {
     try {
       const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
         isActive: false
@@ -1314,19 +1331,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Geo-fencing check
-      if (service.locationLat && service.locationLong) {
-        const distance = calculateDistance(
-          providerLat,
-          providerLong,
-          service.locationLat,
-          service.locationLong
-        );
+      if (service.customerLocation) {
+        const match = service.customerLocation.match(/POINT\(([\d.-]+) ([\d.-]+)\)/);
+        if (match) {
+          const custLng = parseFloat(match[1]);
+          const custLat = parseFloat(match[2]);
+          const distance = calculateDistance(
+            providerLat,
+            providerLong,
+            custLat,
+            custLng
+          );
 
-        if (distance > MAX_SERVICE_START_DISTANCE) {
-          return res.status(403).json({
-            success: false,
-            message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)`
-          });
+          if (distance > MAX_SERVICE_START_DISTANCE) {
+            return res.status(403).json({
+              success: false,
+              message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)`
+            });
+          }
         }
       }
 
@@ -1371,7 +1393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== USER APP ROUTES ====================
 
-  // Create service request with ₹99 booking charge
+  // Create service request with booking charge (₹99 default, dynamic from config)
   app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
       const serviceData = insertServiceRequestSchema.parse({
@@ -1379,9 +1401,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.userId
       });
 
-      const service = await storage.createServiceRequest(serviceData);
+      // BILLING ENGINE: Freeze current pricing config into a snapshot
+      const pricingSnapshot = await BillingEngine.createBookingSnapshot();
 
-      // Attempt to create Razorpay booking charge order
+      const service = await storage.createServiceRequest({
+        ...serviceData,
+        bookingFee: pricingSnapshot.bookingFee,
+      });
+
+      // Write the frozen snapshot to the service_requests row
+      await db.update(serviceRequests)
+        .set({ pricingSnapshot: pricingSnapshot as any })
+        .where(eq(serviceRequests.id, service.id));
+
+      // Attempt to create Razorpay booking charge order using frozen fee
       let paymentInfo = null;
       try {
         const keyId = process.env.RAZORPAY_KEY_ID;
@@ -1391,9 +1424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const Razorpay = (await import('razorpay')).default;
           const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
 
-          const bookingFeeConfig = await configService.get('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
-          const bookingFee = Number(bookingFeeConfig);
-          const amountInPaise = bookingFee * 100;
+          const amountInPaise = pricingSnapshot.bookingFee * 100;
 
           const order = await razorpay.orders.create({
             amount: amountInPaise,
@@ -1409,11 +1440,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           paymentInfo = {
             razorpayOrderId: order.id,
             razorpayKeyId: keyId,
-            amount: bookingFee,
+            amount: pricingSnapshot.bookingFee,
             currency: 'INR',
           };
 
-          logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${bookingFee}`);
+          logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
         }
       } catch (payError: any) {
         logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
@@ -1985,7 +2016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fromState: 'assigned',
         toState: 'created',
         changedBy: userId,
-        metadata: { reason, providerId: provider.id, partnerName: provider.partnerName },
+        metadata: { reason, providerId: provider.id, partnerName: provider.fullName || provider.businessName || 'Unknown' },
       });
 
       res.json({ success: true, message: "Service denied. It will be reassigned.", service: updated });
@@ -2037,15 +2068,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
-
-  // ==================== API VERSIONING ====================
-  // Forward /api/v1/* requests to /api/* handlers
-  // Mobile app should use /api/v1/, admin dashboard uses /api/ (backward compat)
-  app.use('/api/v1', (req: Request, res: Response, next: NextFunction) => {
-    // Rewrite the original URL so Express re-routes through registered handlers
-    req.url = '/api' + req.url;
-    next();
-  });
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);

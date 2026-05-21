@@ -31,8 +31,8 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         value: '15',
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
-        description: 'Platform commission as percentage of subtotal (AI_CONTEXT §3.C)',
-        isEditable: true,
+        description: '@DEPRECATED — Use UNITEFIX_FEE_PERCENT instead. Platform commission as percentage of subtotal (AI_CONTEXT §3.C)',
+        isEditable: false, // Locked: edits should go to UNITEFIX_FEE_PERCENT
     },
     {
         key: 'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION',
@@ -64,6 +64,14 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
         description: 'UniteFix platform fee percentage on (parts + labor) subtotal (AI_CONTEXT §5.B)',
+        isEditable: true,
+    },
+    {
+        key: 'BUSINESS_CONFIG.CANCELLATION_FEE',
+        value: '150',
+        valueType: 'number',
+        category: 'BUSINESS_CONFIG',
+        description: 'Cancellation fee in INR charged when customer cancels after assignment',
         isEditable: true,
     },
 

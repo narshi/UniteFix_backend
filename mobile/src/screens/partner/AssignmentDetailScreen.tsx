@@ -64,7 +64,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                         });
                     }
                 })
-                .catch((err) => console.log('[MAP] Geocode failed:', err.message));
+                .catch((err) => { if (__DEV__) console.log('[MAP] Geocode failed:', err.message); });
         }
     }, [assignment?.address]);
 

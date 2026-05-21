@@ -117,7 +117,7 @@ export const authApi = {
    * PROFILE: Get authenticated user's profile
    */
   getProfile: () =>
-    apiClient.get('/api/client/auth/profile'),
+    apiClient.get('/api/client/profile'),
 
   /**
    * PROFILE: Update user profile
@@ -128,7 +128,7 @@ export const authApi = {
     address: string;
     pinCode: string;
   }>) =>
-    apiClient.patch('/api/client/auth/profile', data),
+    apiClient.patch('/api/client/profile', data),
 
   /**
    * ACCOUNT: Delete account

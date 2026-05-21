@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2
 } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
@@ -100,6 +100,29 @@ export function PartnerProfileScreen() {
             { text: 'Cancel' },
             { text: 'Log Out', style: 'destructive', onPress: () => logout() },
         ]);
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Delete Account',
+            'This will permanently delete your partner account and all associated data after 30 days. This action cannot be undone.\n\nAre you sure you want to proceed?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete My Account',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await apiClient.delete('/api/client/account', { data: { confirmDelete: true } });
+                            Alert.alert('Account Scheduled for Deletion', 'Your account will be deleted within 30 days. You will now be logged out.');
+                            await logout();
+                        } catch (err: any) {
+                            Alert.alert('Error', err?.response?.data?.message || 'Failed to delete account. Please try again.');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     // PHASE 3: Online/offline toggle handler (Task 3.4)
@@ -227,12 +250,20 @@ export function PartnerProfileScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Logout */}
+            {/* Account Actions */}
             <View style={[styles.section, { marginTop: spacing.md }]}>
                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />
                         <Text style={[styles.menuLabel, { color: colors.error }]}>Log Out</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={handleDeleteAccount}>
+                    <View style={styles.menuLeft}>
+                        <Trash2 size={20} color={colors.error} />
+                        <Text style={[styles.menuLabel, { color: colors.error }]}>Delete Account</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

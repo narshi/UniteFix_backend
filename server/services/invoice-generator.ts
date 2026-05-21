@@ -46,56 +46,79 @@ export class InvoiceGenerator {
                     }
                 }
 
-                // Fetch charges breakdown or default to invoice details
-                const [charges] = await db.select().from(serviceCharges).where(eq(serviceCharges.serviceRequestId, service.id)).limit(1);
-
-                if (charges) {
-                    // Add Labor/Service Amount
-                    if (Number(charges.serviceAmount) > 0) {
+                // PREFER pricing snapshot for accurate billing breakdown
+                const snapshot = service.pricingSnapshot as any;
+                if (snapshot && snapshot.snapshotVersion && snapshot.subtotal) {
+                    // Use exact frozen values from BillingEngine
+                    if (snapshot.sparePartsCost > 0) {
+                        items.push({
+                            description: "Spare Parts",
+                            quantity: 1,
+                            unitPrice: Number(snapshot.sparePartsCost),
+                            total: Number(snapshot.sparePartsCost)
+                        });
+                    }
+                    if (snapshot.serviceLaborCost > 0) {
                         items.push({
                             description: "Service Labor Charges",
                             quantity: 1,
-                            unitPrice: Number(charges.serviceAmount),
-                            total: Number(charges.serviceAmount)
+                            unitPrice: Number(snapshot.serviceLaborCost),
+                            total: Number(snapshot.serviceLaborCost)
                         });
                     }
-                    // Add Parts (partsUsed is text, maybe JSON or simple string)
-                    if (charges.partsUsed) {
-                        let partsTotal = 0;
-                        try {
-                            // Try parsing as JSON first
-                            const parts = JSON.parse(charges.partsUsed);
-                            if (Array.isArray(parts)) {
-                                parts.forEach((part: any) => {
-                                    items.push({
-                                        description: part.name || "Part",
-                                        quantity: part.quantity || 1,
-                                        unitPrice: Number(part.price || 0),
-                                        total: Number(part.price || 0) * (part.quantity || 1)
-                                    });
-                                    partsTotal += Number(part.price || 0) * (part.quantity || 1);
-                                });
-                            } else {
-                                throw new Error("Not array");
-                            }
-                        } catch (e) {
-                            // Fallback: treat as plain text description
-                            items.push({
-                                description: `Parts: ${charges.partsUsed}`,
-                                quantity: 1,
-                                unitPrice: 0, // Unknown price if just text
-                                total: 0
-                            });
-                        }
+                    if (snapshot.platformFee > 0) {
+                        items.push({
+                            description: `UniteFix Platform Fee (${snapshot.platformFeePercent || 15}%)`,
+                            quantity: 1,
+                            unitPrice: Number(snapshot.platformFee),
+                            total: Number(snapshot.platformFee)
+                        });
                     }
                 } else {
-                    // Fallback using Invoice totals if no service charge details
-                    items.push({
-                        description: `Service Charges: ${service.serviceType}`,
-                        quantity: 1,
-                        unitPrice: Number(invoice.baseAmount), // Use baseAmount from invoice
-                        total: Number(invoice.baseAmount)
-                    });
+                    // Legacy fallback: use service_charges table
+                    const [charges] = await db.select().from(serviceCharges).where(eq(serviceCharges.serviceRequestId, service.id)).limit(1);
+
+                    if (charges) {
+                        if (Number(charges.serviceAmount) > 0) {
+                            items.push({
+                                description: "Service Labor Charges",
+                                quantity: 1,
+                                unitPrice: Number(charges.serviceAmount),
+                                total: Number(charges.serviceAmount)
+                            });
+                        }
+                        if (charges.partsUsed) {
+                            try {
+                                const parts = JSON.parse(charges.partsUsed);
+                                if (Array.isArray(parts)) {
+                                    parts.forEach((part: any) => {
+                                        items.push({
+                                            description: part.name || "Part",
+                                            quantity: part.quantity || 1,
+                                            unitPrice: Number(part.price || 0),
+                                            total: Number(part.price || 0) * (part.quantity || 1)
+                                        });
+                                    });
+                                } else {
+                                    throw new Error("Not array");
+                                }
+                            } catch (e) {
+                                items.push({
+                                    description: `Parts: ${charges.partsUsed}`,
+                                    quantity: 1,
+                                    unitPrice: 0,
+                                    total: 0
+                                });
+                            }
+                        }
+                    } else {
+                        items.push({
+                            description: `Service Charges: ${service.serviceType}`,
+                            quantity: 1,
+                            unitPrice: Number(invoice.baseAmount),
+                            total: Number(invoice.baseAmount)
+                        });
+                    }
                 }
             }
         }
@@ -121,10 +144,10 @@ export class InvoiceGenerator {
             customerAddress: customer?.homeAddress || "",
             providerName,
             items,
-            subtotal: Number(invoice.baseAmount), // Correct field
-            gst: Number(invoice.cgst) + Number(invoice.sgst), // Calculate total GST
+            subtotal: Number(invoice.baseAmount),
+            gst: Number(invoice.cgst) + Number(invoice.sgst),
             total: Number(invoice.totalAmount),
-            status: "PAID" // Status field not in invoice? Assuming PAID for generated invoices.
+            status: "PAID"
         };
 
         return new Promise((resolve, reject) => {
@@ -136,10 +159,34 @@ export class InvoiceGenerator {
             doc.on("error", (err) => reject(err));
 
             // Header
-            doc.image(path.join(process.cwd(), "client", "public", "logo_clean.png"), 50, 45, { width: 50 }) // Fallback? 
-                .fillColor("#444444")
+            const logoPath = path.join(process.cwd(), "client", "public", "logo_clean.png");
+            let hasLogo = false;
+            try {
+                if (fs.existsSync(logoPath)) {
+                    doc.image(logoPath, 50, 45, { width: 50 });
+                    hasLogo = true;
+                }
+            } catch (e) {
+                // Ignore error
+            }
+
+            if (!hasLogo) {
+                // Vector fallback: Draw an elegant blue badge
+                doc.save()
+                   .roundedRect(50, 45, 50, 40, 8)
+                   .fill("#2563eb");
+                doc.fillColor("#ffffff")
+                   .font("Helvetica-Bold")
+                   .fontSize(16)
+                   .text("UF", 63, 57);
+                doc.restore();
+            }
+
+            doc.fillColor("#444444")
+                .font("Helvetica-Bold")
                 .fontSize(20)
                 .text("UniteFix Invoice", 110, 57)
+                .font("Helvetica")
                 .fontSize(10)
                 .text("UniteFix Technologies Pvt Ltd", 200, 50, { align: "right" })
                 .text("Bangalore, Karnataka, India", 200, 65, { align: "right" })

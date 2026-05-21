@@ -238,3 +238,39 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
             return res.status(500).json({ success: false, message: 'Authentication check failed' });
         });
 }
+
+/**
+ * Multi-role auth middleware — accepts BOTH customer ('user') and partner ('serviceman') tokens.
+ * Use for shared endpoints accessed by both roles (e.g., billing preview).
+ * Sets req.user with { userId, role } regardless of role.
+ */
+export function authenticateAny(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Access token required' });
+    }
+
+    let decoded: any;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (error) {
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    // Accept user and serviceman, block admin tokens
+    if (decoded.role !== 'user' && decoded.role !== 'serviceman') {
+        return res.status(403).json({
+            success: false,
+            message: 'This endpoint requires a customer or partner account',
+        });
+    }
+
+    (req as any).user = {
+        userId: decoded.userId,
+        role: decoded.role,
+    };
+    next();
+}
+

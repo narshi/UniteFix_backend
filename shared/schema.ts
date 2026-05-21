@@ -224,6 +224,10 @@ export const serviceRequests = pgTable("service_requests", {
   completedAt: timestamp("completed_at"),
   // PHASE 6: Admin audit trail
   adminNotes: text("admin_notes"),  // Override/dispute resolution log
+  // BILLING: Frozen pricing snapshot — immutable once written
+  // Phase 1 (booking creation): freezes bookingFee, platformFeePercent, gstPercent
+  // Phase 2 (bill submission): freezes full billing breakdown
+  pricingSnapshot: jsonb("pricing_snapshot"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

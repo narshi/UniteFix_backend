@@ -83,10 +83,10 @@ export const partnerApi = {
     getWallet: () =>
         apiClient.get<WalletSummary>('/api/serviceman/wallet'),
 
-    // Profile (reuse client profile)
+    // Profile (reuse client profile endpoint)
     getProfile: () =>
-        apiClient.get('/api/client/auth/profile'),
+        apiClient.get('/api/client/profile'),
 
     updateProfile: (data: Record<string, any>) =>
-        apiClient.patch('/api/client/auth/profile', data),
+        apiClient.patch('/api/client/profile', data),
 };

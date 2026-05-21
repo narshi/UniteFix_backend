@@ -67,6 +67,8 @@ import {
   services,
   type ServiceCategory,
   type ServiceItem,
+  type InsertServiceCategory,
+  type InsertServiceItem,
 } from "@shared/schema";
 import {
   InsertServiceOtp,

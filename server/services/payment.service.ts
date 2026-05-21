@@ -2,17 +2,13 @@
  * PHASE 5: Razorpay Payment Service
  * 
  * Handles:
- * - Booking charge (₹250) at creation
+ * - Booking charge (₹99 default, configurable) at creation
  * - Final payment after service completion
  * - Webhook verification for COMPLETED gate
  * - Refunds
  * 
- * LOCKED REQUIREMENTS:
- * - Booking: ₹250
- * - Service charge: Variable (entered by technician)
- * - GST: 18% on (Booking + Service)
- * - Invoice generated on COMPLETED
- * - COMPLETED gated by webhook verification
+ * BILLING RULE: Financial math lives in BillingEngine (billing-engine.ts).
+ * This service handles Razorpay integration and invoice persistence ONLY.
  */
 
 import Razorpay from "razorpay";
@@ -21,6 +17,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
+import logger from "../lib/logger";
 
 interface RazorpayConfig {
     keyId: string;
@@ -52,7 +49,7 @@ export class PaymentService {
     }
 
     /**
-     * Create Razorpay order for booking charge (₹250)
+     * Create Razorpay order for booking charge (₹99 default)
      * Called when service request is created
      */
     static async createBookingOrder(
@@ -61,9 +58,9 @@ export class PaymentService {
     ): Promise<{ orderId: string; amount: number; currency: string }> {
         const razorpay = await this.getRazorpayInstance();
 
-        // Get booking charge from config
+        // Get booking charge from config (₹99 default — matches schema and BillingEngine)
         const bookingCharge = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
-        const amount = parseFloat(bookingCharge || "250") * 100; // Convert to paise
+        const amount = parseFloat(bookingCharge || "99") * 100; // Convert to paise
 
         // Create Razorpay order
         const order = await razorpay.orders.create({
@@ -179,8 +176,11 @@ export class PaymentService {
     }
 
     /**
-     * Calculate invoice per locked requirements
-     * Booking: ₹250 | Service: variable | GST: 18% | Total - AlreadyPaid = Due
+     * @deprecated PHASE 2 COMPAT SHIM — reads frozen snapshot first, safe for continued use.
+     * Callers: createFinalPaymentOrder (only).
+     * The canonical billing formula lives in server/services/billing-engine.ts.
+     * Snapshot path: returns exact values from pricing_snapshot (immutable).
+     * Legacy path: reverse-calculates from config (for pre-refactor bookings only).
      */
     static async calculateInvoice(
         serviceRequestId: number,
@@ -195,19 +195,41 @@ export class PaymentService {
         amountPaid: number;
         amountDue: number;
     }> {
-        // Get booking charge from config
+        // Fetch booking to get the frozen snapshot
+        const srResult = await db.execute(sql`
+            SELECT booking_fee, pricing_snapshot, total_amount
+            FROM service_requests WHERE id = ${serviceRequestId}
+        `) as any;
+        const sr = srResult?.[0];
+
+        const bookingFee = parseInt(sr?.booking_fee || '99');
+        const snapshot = sr?.pricing_snapshot;
+
+        // If snapshot exists with billing data, use it directly
+        if (snapshot && snapshot.grossTotal && snapshot.finalTotal !== undefined) {
+            return {
+                bookingCharge: snapshot.bookingFee || bookingFee,
+                serviceCharge: snapshot.subtotal || serviceCharge,
+                subtotal: snapshot.taxableAmount || (serviceCharge + bookingFee),
+                gstPercentage: snapshot.gstPercent || 18,
+                gstAmount: (snapshot.cgst || 0) + (snapshot.sgst || 0),
+                totalAmount: snapshot.grossTotal,
+                amountPaid: snapshot.bookingFeeCredit || bookingFee,
+                amountDue: snapshot.finalTotal,
+            };
+        }
+
+        // Fallback for legacy bookings: use simplified calculation (aligned with BillingEngine integer math)
         const bookingChargeStr = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
         const gstPercentageStr = await configService.get<string>("BUSINESS_CONFIG.GST_PERCENTAGE");
+        const bookingCharge = Math.round(parseFloat(bookingChargeStr || "99"));
+        const gstPercentage = Math.round(parseFloat(gstPercentageStr || "18"));
 
-        const bookingCharge = parseFloat(bookingChargeStr || "250");
-        const gstPercentage = parseFloat(gstPercentageStr || "18");
-
-        // Calculate per locked requirements
         const subtotal = bookingCharge + serviceCharge;
-        const gstAmount = parseFloat(((subtotal * gstPercentage) / 100).toFixed(2));
+        const gstAmount = Math.round((subtotal * gstPercentage) / 100);
         const totalAmount = subtotal + gstAmount;
-        const amountPaid = bookingCharge; // Already paid at booking
-        const amountDue = totalAmount - amountPaid;
+        const amountPaid = bookingCharge;
+        const amountDue = Math.max(0, totalAmount - amountPaid);
 
         return {
             bookingCharge,
@@ -328,61 +350,77 @@ export class PaymentService {
 
     /**
      * Generate invoice on COMPLETED
-     * Saves to invoices table
+     * Saves to invoices table using the ACTUAL Drizzle schema columns:
+     * invoice_id, service_request_id, user_id, provider_id, base_amount, cgst, sgst, discount, total_amount
      */
     static async generateInvoice(
         serviceRequestId: number,
         customerId: number,
         providerId: number
     ): Promise<{ invoiceId: string }> {
-        // Get service charge
-        const serviceChargeResult = await db.execute(sql`
-      SELECT service_amount FROM service_charges 
-      WHERE service_request_id = ${serviceRequestId}
-                `) as any;
-        const serviceChargeRow = serviceChargeResult?.[0];
+        // Get booking data from service_requests — prefer pricing_snapshot for accuracy
+        const srResult = await db.execute(sql`
+            SELECT total_amount, commission_amount, booking_fee, pricing_snapshot
+            FROM service_requests
+            WHERE id = ${serviceRequestId}
+        `) as any;
+        const sr = srResult?.[0];
 
-        if (!serviceChargeRow) {
-            throw new Error("Service charge not entered");
+        if (!sr || !sr.total_amount) {
+            throw new Error("Service billing not completed — totalAmount is missing");
         }
 
-        const serviceCharge = parseFloat(serviceChargeRow.service_amount);
-        const invoice = await this.calculateInvoice(serviceRequestId, serviceCharge);
+        const snapshot = sr.pricing_snapshot;
+        let baseAmount: number;
+        let cgst: number;
+        let sgst: number;
+        let totalAmount: number;
+        let bookingFee: number;
 
-        const invoiceId = `INV - ${serviceRequestId} - ${Date.now()}`;
+        if (snapshot && snapshot.snapshotVersion && snapshot.grossTotal) {
+            // Use exact values from the frozen billing snapshot (no reverse-engineering)
+            baseAmount = snapshot.taxableAmount || snapshot.subtotal || 0;
+            cgst = snapshot.cgst || 0;
+            sgst = snapshot.sgst || 0;
+            totalAmount = snapshot.grossTotal;
+            bookingFee = snapshot.bookingFeeCredit || snapshot.bookingFee || 99;
+        } else {
+            // Legacy fallback: reverse-engineer from totalAmount (less precise)
+            totalAmount = parseInt(sr.total_amount);
+            bookingFee = parseInt(sr.booking_fee || '99');
+            const taxableAmountCalc = Math.round(totalAmount / 1.18);
+            const totalGst = totalAmount - taxableAmountCalc;
+            baseAmount = taxableAmountCalc;
+            cgst = Math.round(totalGst / 2);
+            sgst = totalGst - cgst;
+        }
 
-        // Insert invoice
+        const invoiceId = `UF-INV-${serviceRequestId}-${Date.now().toString(36).toUpperCase()}`;
+
+        // Insert invoice using correct Drizzle schema columns
         await db.execute(sql`
-      INSERT INTO invoices(
-                    invoice_id,
-                    service_request_id,
-                    user_id,
-                    provider_id,
-                    booking_charge,
-                    service_charge,
-                    subtotal,
-                    gst_percentage,
-                    gst_amount,
-                    total_amount_updated,
-                    amount_paid,
-                    amount_due,
-                    payment_status
-                ) VALUES(
-                    ${invoiceId},
-                    ${serviceRequestId},
-                    ${customerId},
-                    ${providerId},
-                    ${invoice.bookingCharge},
-                    ${invoice.serviceCharge},
-                    ${invoice.subtotal},
-                    ${invoice.gstPercentage},
-                    ${invoice.gstAmount},
-                    ${invoice.totalAmount},
-                    ${invoice.amountPaid},
-                    ${invoice.amountDue},
-                    'paid'
-                )
-                `);
+            INSERT INTO invoices (
+                invoice_id,
+                service_request_id,
+                user_id,
+                provider_id,
+                base_amount,
+                cgst,
+                sgst,
+                discount,
+                total_amount
+            ) VALUES (
+                ${invoiceId},
+                ${serviceRequestId},
+                ${customerId},
+                ${providerId},
+                ${baseAmount},
+                ${cgst},
+                ${sgst},
+                ${bookingFee},
+                ${totalAmount}
+            )
+        `);
 
         return { invoiceId };
     }
@@ -435,7 +473,7 @@ export class PaymentService {
                 amount: Math.round(payment.amount * 100),
                 currency: 'INR',
                 eventType: 'refund_initiated',
-                status: 'initiated',
+                status: 'refunded',
                 metadata: { refundId: refund.id, reason: 'cancellation' },
             });
 

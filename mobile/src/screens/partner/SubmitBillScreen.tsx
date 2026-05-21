@@ -12,7 +12,7 @@
  * Transitions: IN_PROGRESS → PENDING_PAYMENT
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     View,
     Text,
@@ -34,9 +34,10 @@ import { Button } from '../../components/ui';
 
 type Props = NativeStackScreenProps<any, 'SubmitBill'>;
 
-const UNITEFIX_FEE_PERCENT = 15;
-const GST_PERCENT = 18;
-const BOOKING_FEE = 99;
+// Defaults — overridden by API config on mount
+const DEFAULT_FEE_PERCENT = 15;
+const DEFAULT_GST_PERCENT = 18;
+const DEFAULT_BOOKING_FEE = 99;
 
 export function SubmitBillScreen({ navigation, route }: Props) {
     const bookingId = route.params?.bookingId || route.params?.serviceId;
@@ -45,22 +46,43 @@ export function SubmitBillScreen({ navigation, route }: Props) {
     const [laborInput, setLaborInput] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
+    // Dynamic config from server (frozen snapshot rates)
+    const [feePercent, setFeePercent] = useState(DEFAULT_FEE_PERCENT);
+    const [gstPercent, setGstPercent] = useState(DEFAULT_GST_PERCENT);
+    const [bookingFee, setBookingFee] = useState(DEFAULT_BOOKING_FEE);
+
+    // Fetch billing config from server on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                const { data } = await apiClient.get('/api/config/public');
+                const config = data?.data || data; // Handle both { data: {...} } and direct shapes
+                if (config?.platformFeePercent) setFeePercent(config.platformFeePercent);
+                if (config?.gstRate) setGstPercent(config.gstRate);
+                if (config?.bookingFee) setBookingFee(config.bookingFee);
+            } catch (err) {
+                // Use defaults if config fetch fails
+                console.warn('Failed to fetch billing config, using defaults');
+            }
+        })();
+    }, []);
+
     const parts = parseFloat(partsInput) || 0;
     const labor = parseFloat(laborInput) || 0;
 
-    // Real-time billing calculation (mirrors server logic)
+    // Real-time billing calculation — uses Math.round() to match server BillingEngine exactly
     const billing = useMemo(() => {
-        const subtotal = parts + labor;
-        const uniteFixFee = parseFloat((subtotal * UNITEFIX_FEE_PERCENT / 100).toFixed(2));
+        const subtotal = Math.round(parts + labor);
+        const uniteFixFee = Math.round(subtotal * feePercent / 100);
         const taxableAmount = subtotal + uniteFixFee;
-        const gstTotal = parseFloat((taxableAmount * GST_PERCENT / 100).toFixed(2));
-        const cgst = parseFloat((gstTotal / 2).toFixed(2));
-        const sgst = parseFloat((gstTotal - cgst).toFixed(2));
-        const grossTotal = parseFloat((taxableAmount + gstTotal).toFixed(2));
-        const finalTotal = parseFloat(Math.max(0, grossTotal - BOOKING_FEE).toFixed(2));
+        const totalGst = Math.round(taxableAmount * gstPercent / 100);
+        const cgst = Math.round(totalGst / 2);
+        const sgst = totalGst - cgst; // Remainder avoids rounding loss
+        const grossTotal = taxableAmount + totalGst;
+        const finalTotal = Math.max(0, grossTotal - bookingFee);
 
-        return { subtotal, uniteFixFee, taxableAmount, cgst, sgst, gstTotal, grossTotal, finalTotal };
-    }, [parts, labor]);
+        return { subtotal, uniteFixFee, taxableAmount, cgst, sgst, gstTotal: totalGst, grossTotal, finalTotal };
+    }, [parts, labor, feePercent, gstPercent, bookingFee]);
 
     const canSubmit = parts + labor > 0;
 
@@ -177,13 +199,13 @@ export function SubmitBillScreen({ navigation, route }: Props) {
                         <BreakdownRow label="Service Labor" value={labor} />
                         <View style={styles.divider} />
                         <BreakdownRow label="Subtotal" value={billing.subtotal} bold />
-                        <BreakdownRow label={`UniteFix Fee (${UNITEFIX_FEE_PERCENT}%)`} value={billing.uniteFixFee} color={colors.textSecondary} />
+                        <BreakdownRow label={`UniteFix Fee (${feePercent}%)`} value={billing.uniteFixFee} color={colors.textSecondary} />
                         <BreakdownRow label="Taxable Amount" value={billing.taxableAmount} />
-                        <BreakdownRow label={`CGST (${GST_PERCENT / 2}%)`} value={billing.cgst} color={colors.textSecondary} />
-                        <BreakdownRow label={`SGST (${GST_PERCENT / 2}%)`} value={billing.sgst} color={colors.textSecondary} />
+                        <BreakdownRow label={`CGST (${gstPercent / 2}%)`} value={billing.cgst} color={colors.textSecondary} />
+                        <BreakdownRow label={`SGST (${gstPercent / 2}%)`} value={billing.sgst} color={colors.textSecondary} />
                         <View style={styles.divider} />
                         <BreakdownRow label="Gross Total" value={billing.grossTotal} bold />
-                        <BreakdownRow label="Booking Fee Paid" value={-BOOKING_FEE} color={colors.success} />
+                        <BreakdownRow label="Booking Fee Paid" value={-bookingFee} color={colors.success} />
                         <View style={styles.divider} />
                         <View style={styles.finalRow}>
                             <Text style={styles.finalLabel}>Customer Pays</Text>

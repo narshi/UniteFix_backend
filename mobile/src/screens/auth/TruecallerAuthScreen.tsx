@@ -82,7 +82,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     if (!truecallerEmitter) return;
 
     const successSub = truecallerEmitter.addListener('TruecallerVerificationEvent', async (event) => {
-      console.log('[TC_EVENT_SUCCESS]', event);
+      if (__DEV__) console.log('[TC_EVENT_SUCCESS]', event);
       
       // TYPE_MISSED_CALL_INITIATED (Code 3)
       if (event.requestCode === 3) {
@@ -97,7 +97,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       
       // TYPE_MISSED_CALL_RECEIVED (Code 4)
       if (event.requestCode === 4) {
-        console.log('[TC_EVENT] Missed call detected!');
+        if (__DEV__) console.log('[TC_EVENT] Missed call detected!');
         setFallbackStep('profile_details');
         setIsAuthenticating(false);
       }

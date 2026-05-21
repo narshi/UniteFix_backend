@@ -3,7 +3,7 @@
  *
  * Flow:
  * 1. Employee submits spare_parts_cost + service_labor_cost (IN_PROGRESS state)
- * 2. Server calculates: Sub = parts + labor → +15% UniteFix fee → +18% GST → -₹99 booking
+ * 2. BillingEngine calculates using FROZEN rates from booking's pricing_snapshot
  * 3. Creates Razorpay payment order for the balance due
  * 4. Transitions booking to PENDING_PAYMENT
  * 5. Webhook payment.captured → COMPLETED + employee wallet credit
@@ -11,72 +11,19 @@
  * Also handles:
  * - ₹99 booking refund on cancellation from CREATED state
  * - WhatsApp support link for ASSIGNED+ bookings
+ *
+ * BILLING RULE: All financial math flows through BillingEngine. No inline formulas.
  */
 
 import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { eq, sql } from 'drizzle-orm';
-import { serviceRequests, employees, invoices } from '@shared/schema';
-import { authenticatePartner, authenticateToken } from '../middleware/auth.middleware';
+import { serviceRequests } from '@shared/schema';
+import { authenticatePartner, authenticateToken, authenticateAny } from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
-import { configService } from '../services/config.service';
+import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
 import logger from '../lib/logger';
-
-// ── Invoice Calculation Engine (AI_CONTEXT §5.B) ──────────────────────
-interface BillingBreakdown {
-    sparePartsCost: number;
-    serviceLaborCost: number;
-    subtotal: number;           // parts + labor
-    uniteFixFeePercent: number; // 15%
-    uniteFixFee: number;        // subtotal × 15%
-    taxableAmount: number;      // subtotal + fee
-    gstPercent: number;         // 18%
-    cgst: number;               // 9%
-    sgst: number;               // 9%
-    grossTotal: number;         // taxableAmount + GST
-    bookingFeeCredit: number;   // ₹99 already paid
-    finalTotal: number;         // grossTotal - bookingFee (customer pays this)
-    employeeEarnings: number;   // subtotal (parts + labor — employee keeps this)
-}
-
-async function calculateBilling(
-    sparePartsCost: number,
-    serviceLaborCost: number
-): Promise<BillingBreakdown> {
-    const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
-    const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
-    const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
-
-    const uniteFixFeePercent = parseFloat(feePercentStr || '15');
-    const gstPercent = parseFloat(gstPercentStr || '18');
-    const bookingFeeCredit = parseFloat(bookingFeeStr || '99');
-
-    const subtotal = sparePartsCost + serviceLaborCost;
-    const uniteFixFee = parseFloat((subtotal * uniteFixFeePercent / 100).toFixed(2));
-    const taxableAmount = subtotal + uniteFixFee;
-    const totalGst = parseFloat((taxableAmount * gstPercent / 100).toFixed(2));
-    const cgst = parseFloat((totalGst / 2).toFixed(2));
-    const sgst = parseFloat((totalGst - cgst).toFixed(2));
-    const grossTotal = parseFloat((taxableAmount + totalGst).toFixed(2));
-    const finalTotal = parseFloat(Math.max(0, grossTotal - bookingFeeCredit).toFixed(2));
-
-    return {
-        sparePartsCost,
-        serviceLaborCost,
-        subtotal,
-        uniteFixFeePercent,
-        uniteFixFee,
-        taxableAmount,
-        gstPercent,
-        cgst,
-        sgst,
-        grossTotal,
-        bookingFeeCredit,
-        finalTotal,
-        employeeEarnings: subtotal, // Employee gets parts + labor (pre-fee, pre-GST)
-    };
-}
 
 export function registerBillingRoutes(app: Express) {
 
@@ -84,12 +31,12 @@ export function registerBillingRoutes(app: Express) {
      * POST /api/v1/bookings/:id/submit-bill
      *
      * Employee submits spare parts cost + service labor cost.
-     * Server calculates full billing breakdown and creates Razorpay order.
+     * Uses the FROZEN pricing_snapshot from booking creation for calculation.
      * Transitions: IN_PROGRESS → PENDING_PAYMENT
      *
      * Body: { sparePartsCost: number, serviceLaborCost: number }
      */
-    app.post('/api/v1/bookings/:id/submit-bill', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.post('/api/bookings/:id/submit-bill', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { sparePartsCost = 0, serviceLaborCost = 0 } = req.body;
@@ -134,33 +81,45 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
-            // Calculate billing breakdown
-            const billing = await calculateBilling(parts, labor);
+            // BILLING ENGINE: Use frozen snapshot from booking creation.
+            // If booking was created before migration (no snapshot), build a legacy one.
+            let existingSnapshot = booking.pricingSnapshot as PricingSnapshot | null;
+            if (!existingSnapshot || !existingSnapshot.snapshotVersion) {
+                existingSnapshot = BillingEngine.buildLegacySnapshot({
+                    bookingFee: booking.bookingFee,
+                    totalAmount: null, // Not yet billed
+                    commissionAmount: null,
+                });
+            }
+
+            // Calculate full billing using FROZEN rates (not live config)
+            const billedSnapshot = BillingEngine.calculateFinalBill(parts, labor, existingSnapshot);
 
             // Create Razorpay order for the balance due
             let razorpayOrder = null;
             try {
                 razorpayOrder = await PaymentService.createFinalPaymentOrder(
                     bookingId,
-                    billing.subtotal // Service charge = parts + labor
+                    billedSnapshot.subtotal! // Service charge = parts + labor
                 );
             } catch (payErr: any) {
                 logger.error(`[BILLING] Razorpay order creation failed for booking ${bookingId}:`, payErr.message);
                 // Don't block the flow — mark as pending payment, customer can retry
             }
 
-            // Transition to PENDING_PAYMENT
+            // Transition to PENDING_PAYMENT and freeze the complete billing snapshot
             const [updated] = await db.update(serviceRequests)
                 .set({
                     status: BookingState.PENDING_PAYMENT as any,
-                    totalAmount: Math.round(billing.grossTotal),
-                    commissionAmount: Math.round(billing.uniteFixFee),
+                    totalAmount: billedSnapshot.grossTotal,
+                    commissionAmount: billedSnapshot.platformFee,
+                    pricingSnapshot: billedSnapshot as any,
                     updatedAt: new Date(),
                 })
                 .where(eq(serviceRequests.id, bookingId))
                 .returning();
 
-            logger.info(`[BILLING] Bill submitted for booking ${bookingId}: parts=₹${parts}, labor=₹${labor}, total=₹${billing.finalTotal}`);
+            logger.info(`[BILLING] Bill submitted for booking ${bookingId}: parts=₹${parts}, labor=₹${labor}, grossTotal=₹${billedSnapshot.grossTotal}, finalDue=₹${billedSnapshot.finalTotal}`);
 
             res.json({
                 success: true,
@@ -168,9 +127,9 @@ export function registerBillingRoutes(app: Express) {
                 data: {
                     bookingId: updated.id,
                     status: updated.status,
-                    billing,
+                    billing: billedSnapshot,
                     razorpayOrderId: razorpayOrder?.orderId || null,
-                    amountDue: billing.finalTotal,
+                    amountDue: billedSnapshot.finalTotal,
                 },
             });
         } catch (error) {
@@ -181,21 +140,54 @@ export function registerBillingRoutes(app: Express) {
     /**
      * GET /api/v1/bookings/:id/billing
      *
-     * Preview billing calculation without submitting.
-     * Used by SubmitBillScreen to show real-time breakdown.
+     * Preview billing calculation OR return the frozen snapshot.
+     * If query params parts/labor are provided, calculates a preview.
+     * If no params, returns the stored snapshot from the booking.
+     * Used by SubmitBillScreen (partner) and FinalPaymentScreen (customer).
      */
-    app.get('/api/v1/bookings/:id/billing', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.get('/api/bookings/:id/billing', authenticateAny, async (req: Request, res: Response, next: NextFunction) => {
         try {
+            const bookingId = parseInt(req.params.id);
+
+            // Fetch booking to get the snapshot
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, bookingId)).limit(1);
+
+            if (!booking) {
+                return res.status(404).json({ success: false, message: 'Booking not found' });
+            }
+
             const sparePartsCost = parseFloat(req.query.parts as string || '0');
             const serviceLaborCost = parseFloat(req.query.labor as string || '0');
 
-            if (isNaN(sparePartsCost) || isNaN(serviceLaborCost)) {
-                return res.status(400).json({ success: false, message: 'Invalid cost values' });
+            // If parts/labor are provided, return a preview calculation
+            if (sparePartsCost > 0 || serviceLaborCost > 0) {
+                let snapshot = booking.pricingSnapshot as PricingSnapshot | null;
+                if (!snapshot || !snapshot.snapshotVersion) {
+                    snapshot = BillingEngine.buildLegacySnapshot({
+                        bookingFee: booking.bookingFee,
+                        totalAmount: null,
+                        commissionAmount: null,
+                    });
+                }
+
+                const preview = BillingEngine.previewBill(sparePartsCost, serviceLaborCost, snapshot);
+                return res.json({ success: true, data: { billing: preview } });
             }
 
-            const billing = await calculateBilling(sparePartsCost, serviceLaborCost);
+            // No params — return the stored snapshot (for customer FinalPaymentScreen)
+            if (booking.pricingSnapshot) {
+                return res.json({ success: true, data: { billing: booking.pricingSnapshot } });
+            }
 
-            res.json({ success: true, data: billing });
+            // Legacy booking without snapshot — build one from stored values
+            const legacySnapshot = BillingEngine.buildLegacySnapshot({
+                bookingFee: booking.bookingFee,
+                totalAmount: booking.totalAmount,
+                commissionAmount: booking.commissionAmount,
+            });
+
+            res.json({ success: true, data: { billing: legacySnapshot } });
         } catch (error) {
             next(error);
         }
@@ -206,7 +198,7 @@ export function registerBillingRoutes(app: Express) {
      *
      * Customer cancels from CREATED state → triggers ₹99 Razorpay refund.
      */
-    app.post('/api/v1/bookings/:id/cancel', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
+    app.post('/api/bookings/:id/cancel', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const userId = (req as any).user!.userId;
@@ -271,7 +263,7 @@ export function registerBillingRoutes(app: Express) {
      *
      * Returns WhatsApp deep link for bookings in ASSIGNED state or beyond (Task 5.9).
      */
-    app.get('/api/v1/bookings/:id/support-link', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
+    app.get('/api/bookings/:id/support-link', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
 

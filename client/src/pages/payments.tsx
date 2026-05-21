@@ -51,7 +51,7 @@ export default function PaymentsPage() {
                   {invoices?.map((invoice: any) => (
                     <tr key={invoice.id} className="border-b border-gray-100">
                       <td className="py-3 px-4">
-                        <p className="font-medium text-gray-900">{invoice.invoiceId}</p>
+                        <p className="font-medium text-gray-900">{invoice.invoiceId || '—'}</p>
                       </td>
                       <td className="py-3 px-4">
                         <Badge variant={invoice.serviceRequestId ? 'default' : 'secondary'}>
@@ -62,21 +62,21 @@ export default function PaymentsPage() {
                         <p className="text-sm text-gray-900">Customer #{invoice.userId}</p>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="text-sm text-gray-900">₹{invoice.baseAmount.toLocaleString()}</p>
+                        <p className="text-sm text-gray-900">₹{(invoice.baseAmount ?? 0).toLocaleString()}</p>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="text-sm text-gray-900">₹{(invoice.cgst + invoice.sgst).toLocaleString()}</p>
-                        <p className="text-xs text-gray-600">CGST: ₹{invoice.cgst} | SGST: ₹{invoice.sgst}</p>
+                        <p className="text-sm text-gray-900">₹{((invoice.cgst ?? 0) + (invoice.sgst ?? 0)).toLocaleString()}</p>
+                        <p className="text-xs text-gray-600">CGST: ₹{invoice.cgst ?? 0} | SGST: ₹{invoice.sgst ?? 0}</p>
                       </td>
                       <td className="py-3 px-4">
-                        <p className="font-medium text-gray-900">₹{invoice.totalAmount.toLocaleString()}</p>
-                        {invoice.discount > 0 && (
+                        <p className="font-medium text-gray-900">₹{(invoice.totalAmount ?? 0).toLocaleString()}</p>
+                        {(invoice.discount ?? 0) > 0 && (
                           <p className="text-xs text-green-600">Discount: ₹{invoice.discount}</p>
                         )}
                       </td>
                       <td className="py-3 px-4">
                         <p className="text-sm text-gray-600">
-                          {new Date(invoice.createdAt).toLocaleDateString()}
+                          {invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : '—'}
                         </p>
                       </td>
                     </tr>

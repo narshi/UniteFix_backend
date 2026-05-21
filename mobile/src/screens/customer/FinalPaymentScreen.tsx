@@ -35,6 +35,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../api/client';
+import { usePublicConfig } from '../../hooks/useCustomerData';
 
 type Props = NativeStackScreenProps<any, 'FinalPayment'>;
 
@@ -43,6 +44,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const [paymentState, setPaymentState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [billingData, setBillingData] = useState<any>(null);
     const [loadingBill, setLoadingBill] = useState(true);
+    const { data: publicConfig } = usePublicConfig();
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -114,7 +116,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const subtotal = sparePartsCost + serviceLaborCost;
     const platformFee = billing.platformFee || Math.round(subtotal * 0.15);
     const gst = billing.gst || Math.round((subtotal + platformFee) * 0.18);
-    const bookingCredit = 99;
+    const bookingCredit = publicConfig?.bookingFee ?? 99;
     const total = billing.finalTotal || request.totalCharge || (subtotal + platformFee + gst - bookingCredit);
 
     if (paymentState === 'success') {

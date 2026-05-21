@@ -16,18 +16,10 @@ import {
     employees, users, serviceRequests, invoices,
     partnerWallets, walletTransactionsV2,
 } from '@shared/schema';
-import { authenticateToken } from '../middleware/auth.middleware';
+import { authenticateAdmin } from '../middleware/auth.middleware';
 import { BookingState } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import logger from '../lib/logger';
-
-// ── Admin middleware (inline for this module) ─────────────────────────
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
-    if (!(req as any).user?.isAdmin) {
-        return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
-    next();
-}
 
 export function registerAdminVerificationRoutes(app: Express) {
 
@@ -38,7 +30,7 @@ export function registerAdminVerificationRoutes(app: Express) {
      * List employees awaiting document verification.
      * Supports filter: ?status=pending|verified|rejected|suspended
      */
-    app.get('/api/admin/employees/pending', authenticateToken, requireAdmin, async (req, res, next) => {
+    app.get('/api/admin/employees/pending', authenticateAdmin, async (req, res, next) => {
         try {
             const statusFilter = (req.query.status as string) || 'pending';
             const page = parseInt(req.query.page as string) || 1;
@@ -101,7 +93,7 @@ export function registerAdminVerificationRoutes(app: Express) {
      *
      * Body: { status: 'verified' | 'rejected' | 'suspended', remarks?: string }
      */
-    app.patch('/api/admin/employees/:id/verify', authenticateToken, requireAdmin, async (req, res, next) => {
+    app.patch('/api/admin/employees/:id/verify', authenticateAdmin, async (req, res, next) => {
         try {
             const employeeId = parseInt(req.params.id);
             const { status, remarks } = req.body;
@@ -163,7 +155,7 @@ export function registerAdminVerificationRoutes(app: Express) {
      * Full billing audit trail for a booking.
      * Returns: billing breakdown, payment transactions, invoice, wallet credits.
      */
-    app.get('/api/admin/bookings/:id/billing', authenticateToken, requireAdmin, async (req, res, next) => {
+    app.get('/api/admin/bookings/:id/billing', authenticateAdmin, async (req, res, next) => {
         try {
             const bookingId = parseInt(req.params.id);
 
@@ -230,7 +222,7 @@ export function registerAdminVerificationRoutes(app: Express) {
      *
      * Body: { newState: BookingState, reason: string }
      */
-    app.post('/api/admin/bookings/:id/override', authenticateToken, requireAdmin, async (req, res, next) => {
+    app.post('/api/admin/bookings/:id/override', authenticateAdmin, async (req, res, next) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { newState, reason } = req.body;
@@ -299,7 +291,7 @@ export function registerAdminVerificationRoutes(app: Express) {
      *
      * Body: { resolution: 'refund_customer' | 'release_employee' | 'split', remarks: string, refundAmount?: number }
      */
-    app.post('/api/admin/bookings/:id/resolve-dispute', authenticateToken, requireAdmin, async (req, res, next) => {
+    app.post('/api/admin/bookings/:id/resolve-dispute', authenticateAdmin, async (req, res, next) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { resolution, remarks, refundAmount } = req.body;

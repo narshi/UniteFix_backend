@@ -12,6 +12,7 @@ import type { Express, Request, Response } from "express";
 import { AdminServiceManager } from "../services/admin-service.manager";
 import { AdminOrderManager, DelhiveryService } from "../services/admin-order.manager";
 import { storage } from "../storage";
+import { SupportTicketService } from "../services/support.service";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -482,6 +483,61 @@ export function registerAdminRoutes(app: Express) {
             }
 
             res.json(updated);
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // ==================== PLATFORM CONFIG MANAGEMENT ====================
+
+    /**
+     * GET /api/admin/config
+     * Returns all platform configuration values
+     */
+    app.get("/api/admin/config", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const configs = await storage.getAllPlatformConfigs();
+            res.json({ success: true, data: configs });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * PATCH /api/admin/config/:key
+     * Update a single platform configuration value
+     * Body: { value: string }
+     */
+    app.patch("/api/admin/config/:key", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const { key } = req.params;
+            const { value } = req.body;
+
+            if (value === undefined || value === null) {
+                return res.status(400).json({ error: "value is required" });
+            }
+
+            // Verify config exists and is editable
+            const existing = await storage.getPlatformConfig(key);
+            if (!existing) {
+                return res.status(404).json({ error: `Config key "${key}" not found` });
+            }
+            if (existing.isEditable === false) {
+                return res.status(403).json({ error: `Config key "${key}" is not editable` });
+            }
+
+            const adminUserId = (req as any).admin?.userId || (req as any).user?.userId || 0;
+            await storage.updatePlatformConfig(key, String(value), adminUserId);
+
+            res.json({ success: true, message: `Config "${key}" updated to "${value}"` });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

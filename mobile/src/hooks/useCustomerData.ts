@@ -132,3 +132,16 @@ export function useValidatePincode() {
         mutationFn: (pinCode: string) => customerApi.validatePincode(pinCode),
     });
 }
+
+// ==================== PUBLIC CONFIG ====================
+
+export function usePublicConfig() {
+    return useQuery({
+        queryKey: queryKeys.publicConfig,
+        queryFn: async () => {
+            const response = await customerApi.getPublicConfig();
+            return response.data.data;
+        },
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes — config rarely changes
+    });
+}

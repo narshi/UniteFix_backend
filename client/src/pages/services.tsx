@@ -37,37 +37,134 @@ export default function ServicesPage() {
     return matchesSearch && matchesStatus;
   }) : [];
   
-  // Function to download individual service invoice
+  // Function to download individual service invoice from FROZEN billing snapshot
   const downloadServiceInvoice = (service: any) => {
-    // Create PDF content
+    // Read from the frozen pricing snapshot (written by BillingEngine on the backend)
+    // Falls back to stored totalAmount/commissionAmount for legacy bookings
+    const snapshot = service.pricingSnapshot;
+    
+    let bookingFee: number;
+    let sparePartsCost: number;
+    let serviceLaborCost: number;
+    let subtotal: number;
+    let platformFeePercent: number;
+    let platformFee: number;
+    let taxableAmount: number;
+    let gstPercent: number;
+    let cgst: number;
+    let sgst: number;
+    let grossTotal: number;
+    let finalTotal: number;
+
+    if (snapshot && snapshot.snapshotVersion && snapshot.grossTotal) {
+      // Use exact frozen values — no recalculation
+      bookingFee = snapshot.bookingFee || 99;
+      sparePartsCost = snapshot.sparePartsCost || 0;
+      serviceLaborCost = snapshot.serviceLaborCost || 0;
+      subtotal = snapshot.subtotal || 0;
+      platformFeePercent = snapshot.platformFeePercent || 15;
+      platformFee = snapshot.platformFee || 0;
+      taxableAmount = snapshot.taxableAmount || 0;
+      gstPercent = snapshot.gstPercent || 18;
+      cgst = snapshot.cgst || 0;
+      sgst = snapshot.sgst || 0;
+      grossTotal = snapshot.grossTotal;
+      finalTotal = snapshot.finalTotal || 0;
+    } else {
+      // Legacy fallback: reconstruct from stored DB fields
+      bookingFee = service.bookingFee ?? 99;
+      grossTotal = service.totalAmount || 0;
+      platformFee = service.commissionAmount || 0;
+      platformFeePercent = 15;
+      gstPercent = 18;
+      // Reverse-engineer (best effort for old bookings)
+      const totalGst = grossTotal > 0 ? Math.round(grossTotal - grossTotal / 1.18) : 0;
+      taxableAmount = grossTotal - totalGst;
+      subtotal = Math.max(0, taxableAmount - platformFee);
+      sparePartsCost = subtotal; // Can't split parts/labor for legacy
+      serviceLaborCost = 0;
+      cgst = Math.round(totalGst / 2);
+      sgst = totalGst - cgst;
+      finalTotal = Math.max(0, grossTotal - bookingFee);
+    }
+
+    const invoiceId = `UF-INV-${service.id}-${Date.now().toString(36).toUpperCase()}`;
+    const invoiceDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const serviceDate = new Date(service.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
     const invoiceContent = `
-      UniteFix Service Invoice
-      =====================
-      
-      Service ID: ${service.id}
-      Service Type: ${service.serviceType}
-      Brand: ${service.brand}
-      Model: ${service.model}
-      Issue Description: ${service.issueDescription}
-      
-      Status: ${service.status}
-      Booking Fee: ₹${service.bookingFee || 200}
-      Service Charge: ₹${service.serviceCharge || 500}
-      Total Amount: ₹${(service.bookingFee || 200) + (service.serviceCharge || 500)}
-      
-      Customer Details:
-      Phone: ${service.customerPhone || 'N/A'}
-      Address: ${service.address || 'N/A'}
-      
-      Generated on: ${new Date().toLocaleDateString()}
-    `;
+══════════════════════════════════════════════════════
+                    UNITEFIX
+             SERVICE TAX INVOICE
+══════════════════════════════════════════════════════
+
+Invoice No:      ${invoiceId}
+Invoice Date:    ${invoiceDate}
+Service Date:    ${serviceDate}
+
+──────────────────────────────────────────────────────
+BOOKING DETAILS
+──────────────────────────────────────────────────────
+Booking ID:      ${service.serviceId || service.id}
+Service Type:    ${service.serviceType || 'N/A'}
+Brand/Model:     ${service.brand || '-'} ${service.model || ''}
+Description:     ${service.description || 'N/A'}
+Status:          ${service.status?.toUpperCase() || 'N/A'}
+
+──────────────────────────────────────────────────────
+CUSTOMER DETAILS
+──────────────────────────────────────────────────────
+Name:            ${service.user?.username || service.customerName || 'N/A'}
+Phone:           ${service.user?.phone || service.customerPhone || 'N/A'}
+Address:         ${service.address || 'N/A'}
+
+──────────────────────────────────────────────────────
+ASSIGNED EMPLOYEE
+──────────────────────────────────────────────────────
+Name:            ${service.partner?.username || service.technicianName || 'Not Assigned'}
+Employee ID:     ${service.providerId ? `BU${String(service.providerId).padStart(5, '0')}` : 'N/A'}
+
+══════════════════════════════════════════════════════
+                 BILLING BREAKDOWN
+══════════════════════════════════════════════════════
+
+Spare Parts:                          ₹${sparePartsCost.toFixed(2)}
+Service Labor:                        ₹${serviceLaborCost.toFixed(2)}
+                                      ──────────
+Subtotal:                             ₹${subtotal.toFixed(2)}
+
+UniteFix Platform Fee (${platformFeePercent}%):       ₹${platformFee.toFixed(2)}
+                                      ──────────
+Taxable Amount:                       ₹${taxableAmount.toFixed(2)}
+
+CGST (${gstPercent / 2}%):                           ₹${cgst.toFixed(2)}
+SGST (${gstPercent / 2}%):                           ₹${sgst.toFixed(2)}
+                                      ──────────
+Gross Total:                          ₹${grossTotal.toFixed(2)}
+
+Less: Booking Fee (Paid Earlier):     -₹${bookingFee.toFixed(2)}
+                                      ══════════
+AMOUNT DUE / PAID:                    ₹${finalTotal.toFixed(2)}
+
+${snapshot?.snapshotVersion ? '(Source: Frozen Billing Snapshot)' : '(Source: Legacy DB Values — approximate)'}
+
+──────────────────────────────────────────────────────
+GSTIN: [PENDING REGISTRATION]
+SAC Code: 998719 (Repair & Maintenance)
+──────────────────────────────────────────────────────
+
+This is a computer-generated invoice.
+Generated on: ${new Date().toLocaleString('en-IN')}
+© ${new Date().getFullYear()} UniteFix — Uttara Kannada
+══════════════════════════════════════════════════════
+`;
     
     // Create and download file
     const blob = new Blob([invoiceContent], { type: 'text/plain' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `service-invoice-${service.id}.txt`;
+    link.download = `UniteFix-Invoice-${service.serviceId || service.id}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -351,12 +448,18 @@ export default function ServicesPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm font-medium text-gray-600">Booking Fee</p>
-                      <p className="text-base">₹{selectedService.bookingFee || 250}</p>
+                      <p className="text-base">₹{selectedService.bookingFee ?? 99}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-600">Total Amount</p>
-                      <p className="text-base">₹{selectedService.totalAmount || 'Pending'}</p>
+                      <p className="text-base font-semibold">{selectedService.totalAmount ? `₹${selectedService.totalAmount}` : 'Pending'}</p>
                     </div>
+                    {selectedService.commissionAmount && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-600">Platform Commission</p>
+                        <p className="text-base text-green-700">₹{selectedService.commissionAmount}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

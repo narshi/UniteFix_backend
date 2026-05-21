@@ -17,7 +17,7 @@ import Constants from 'expo-constants';
 // This prevents "Network Error" caused by hardcoded IPs going stale after DHCP changes.
 // hostUri looks like "192.168.1.x:8081" — we extract just the IP part.
 function getApiBaseUrl(): string {
-    if (!__DEV__) return 'https://api.unitefix.com';
+    if (!__DEV__) return 'https://unitefix-backend.onrender.com';
 
     // Try to extract IP from expo-constants (works in Expo Go and dev builds)
     const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost ?? '';
@@ -27,8 +27,8 @@ function getApiBaseUrl(): string {
         return `http://${hostIp}:3000`;
     }
 
-    // Fallback to last known IP
-    return 'http://192.168.1.9:3000';
+    // Fallback to localhost
+    return 'http://localhost:3000';
 }
 
 const API_BASE_URL = getApiBaseUrl();

@@ -27,6 +27,7 @@ import {
     addNotificationResponseListener,
 } from '../services/notifications';
 import { colors } from '../theme/colors';
+import { GlobalAlertProvider } from '../components/ui/GlobalAlert';
 
 const RootStack = createNativeStackNavigator();
 
@@ -81,7 +82,7 @@ export function RootNavigator() {
     // Listen for incoming notifications (foreground)
     useEffect(() => {
         const receivedSub = addNotificationReceivedListener((notification) => {
-            console.log('[Notification] Received in foreground:', notification.request.content.title);
+            if (__DEV__) console.log('[Notification] Received in foreground:', notification.request.content.title);
         });
 
         // Listen for notification taps
@@ -121,6 +122,8 @@ export function RootNavigator() {
                         <RootStack.Screen name="CustomerMain" component={CustomerStack} />
                     )}
                 </RootStack.Navigator>
+                {/* Premium Global Alert Component */}
+                <GlobalAlertProvider />
             </NavigationContainer>
         </ErrorBoundary>
     );

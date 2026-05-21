@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,14 +8,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
-    // System Settings
+    // System Settings — loaded from DB
     systemName: "UniteFix App",
-    defaultBookingFee: 250,
+    defaultBookingFee: 99,
+    platformFeePercent: 15,
+    gstPercentage: 18,
+    cancellationFee: 150,
     maxAssignmentDays: 7,
     reassignmentDays: 2,
+    walletHoldDays: 7,
+    minWalletRedemption: 500,
+    maxServiceStartDistance: 200,
+    partnerAcceptTimeoutHours: 4,
     
     // Location Settings
     serviceRegion: "Uttara Kannada",
@@ -25,12 +33,10 @@ export default function SettingsPage() {
     enableOTPVerification: true,
     enableEmailNotifications: true,
     enableSMSNotifications: false,
-    autoAssignPartners: true,
+    autoAssignPartners: false,
     
     // Payment Settings
     paymentGateway: "razorpay",
-    cgstRate: 9,
-    sgstRate: 9,
     
     // Business Rules
     allowCancellationDays: 1,
@@ -52,27 +58,97 @@ export default function SettingsPage() {
     maintenanceMessage: "We are currently under maintenance. Please try again later."
   });
 
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
-  const handleSave = () => {
-    // In a real app, save to database/API
-    toast({
-      title: "Settings Saved",
-      description: "All settings have been updated successfully."
-    });
+  // CONFIG KEY → STATE FIELD MAPPING (only DB-backed fields)
+  const CONFIG_MAP: Record<string, { field: string; parse: (v: string) => any }> = {
+    'BUSINESS_CONFIG.BASE_SERVICE_FEE': { field: 'defaultBookingFee', parse: Number },
+    'BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT': { field: 'platformFeePercent', parse: Number },
+    'BUSINESS_CONFIG.GST_PERCENTAGE': { field: 'gstPercentage', parse: Number },
+    'BUSINESS_CONFIG.CANCELLATION_FEE': { field: 'cancellationFee', parse: Number },
+    'BUSINESS_CONFIG.WALLET_HOLD_DAYS': { field: 'walletHoldDays', parse: Number },
+    'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION': { field: 'minWalletRedemption', parse: Number },
+    'OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE': { field: 'maxServiceStartDistance', parse: Number },
+    'OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS': { field: 'partnerAcceptTimeoutHours', parse: Number },
+    'OPERATIONAL_CONFIG.ENABLE_AUTO_ASSIGNMENT': { field: 'autoAssignPartners', parse: (v) => v === 'true' },
+  };
+
+  // Reverse map: state field → config key
+  const FIELD_TO_KEY: Record<string, string> = {};
+  for (const [key, { field }] of Object.entries(CONFIG_MAP)) {
+    FIELD_TO_KEY[field] = key;
+  }
+
+  // Load config from API on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await apiRequest("GET", "/api/admin/config");
+        const configs = result?.data || result || [];
+        
+        const updates: any = {};
+        for (const cfg of configs) {
+          const mapping = CONFIG_MAP[cfg.key];
+          if (mapping) {
+            updates[mapping.field] = mapping.parse(cfg.value);
+          }
+        }
+        
+        if (Object.keys(updates).length > 0) {
+          setSettings(prev => ({ ...prev, ...updates }));
+        }
+      } catch (err) {
+        console.warn('Failed to load config from API, using defaults');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Save all DB-backed fields
+      const promises: Promise<any>[] = [];
+      for (const [field, configKey] of Object.entries(FIELD_TO_KEY)) {
+        const value = String((settings as any)[field]);
+        promises.push(
+          apiRequest("PATCH", `/api/admin/config/${encodeURIComponent(configKey)}`, { value })
+        );
+      }
+      
+      await Promise.all(promises);
+      
+      toast({
+        title: "Settings Saved",
+        description: "All configuration values have been updated successfully."
+      });
+    } catch (error: any) {
+      toast({
+        title: "Save Failed",
+        description: error.message || "Failed to save settings",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleReset = () => {
     setSettings(prev => ({
       ...prev,
-      // Reset to defaults
-      defaultBookingFee: 250,
+      defaultBookingFee: 99,
+      platformFeePercent: 15,
+      gstPercentage: 18,
+      cancellationFee: 150,
       maxAssignmentDays: 7,
       reassignmentDays: 2,
     }));
     toast({
       title: "Settings Reset",
-      description: "Settings have been reset to default values."
+      description: "Settings have been reset to default values. Click Save to persist."
     });
   };
 
@@ -90,43 +166,73 @@ export default function SettingsPage() {
             <CardTitle>System Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="systemName">System Name</Label>
-                <Input
-                  id="systemName"
-                  value={settings.systemName}
-                  onChange={(e) => setSettings(prev => ({ ...prev, systemName: e.target.value }))}
-                />
+            {loading ? (
+              <div className="animate-pulse space-y-3">
+                <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                <div className="h-10 bg-gray-200 rounded"></div>
+                <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                <div className="h-10 bg-gray-200 rounded"></div>
               </div>
-              <div>
-                <Label htmlFor="defaultBookingFee">Default Booking Fee (₹)</Label>
-                <Input
-                  id="defaultBookingFee"
-                  type="number"
-                  value={settings.defaultBookingFee}
-                  onChange={(e) => setSettings(prev => ({ ...prev, defaultBookingFee: parseInt(e.target.value) }))}
-                />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="systemName">System Name</Label>
+                  <Input
+                    id="systemName"
+                    value={settings.systemName}
+                    onChange={(e) => setSettings(prev => ({ ...prev, systemName: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="defaultBookingFee">Booking Fee (₹)</Label>
+                  <Input
+                    id="defaultBookingFee"
+                    type="number"
+                    value={settings.defaultBookingFee}
+                    onChange={(e) => setSettings(prev => ({ ...prev, defaultBookingFee: parseInt(e.target.value) || 0 }))}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Config: BASE_SERVICE_FEE</p>
+                </div>
+                <div>
+                  <Label htmlFor="platformFeePercent">Platform Fee (%)</Label>
+                  <Input
+                    id="platformFeePercent"
+                    type="number"
+                    value={settings.platformFeePercent}
+                    onChange={(e) => setSettings(prev => ({ ...prev, platformFeePercent: parseInt(e.target.value) || 0 }))}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Config: UNITEFIX_FEE_PERCENT</p>
+                </div>
+                <div>
+                  <Label htmlFor="gstPercentage">GST Rate (%)</Label>
+                  <Input
+                    id="gstPercentage"
+                    type="number"
+                    value={settings.gstPercentage}
+                    onChange={(e) => setSettings(prev => ({ ...prev, gstPercentage: parseInt(e.target.value) || 0 }))}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">CGST + SGST combined</p>
+                </div>
+                <div>
+                  <Label htmlFor="cancellationFee">Cancellation Fee (₹)</Label>
+                  <Input
+                    id="cancellationFee"
+                    type="number"
+                    value={settings.cancellationFee}
+                    onChange={(e) => setSettings(prev => ({ ...prev, cancellationFee: parseInt(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="maxServiceStartDistance">Max Service Start Distance (m)</Label>
+                  <Input
+                    id="maxServiceStartDistance"
+                    type="number"
+                    value={settings.maxServiceStartDistance}
+                    onChange={(e) => setSettings(prev => ({ ...prev, maxServiceStartDistance: parseInt(e.target.value) || 0 }))}
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="maxAssignmentDays">Max Assignment Days</Label>
-                <Input
-                  id="maxAssignmentDays"
-                  type="number"
-                  value={settings.maxAssignmentDays}
-                  onChange={(e) => setSettings(prev => ({ ...prev, maxAssignmentDays: parseInt(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="reassignmentDays">Reassignment Days</Label>
-                <Input
-                  id="reassignmentDays"
-                  type="number"
-                  value={settings.reassignmentDays}
-                  onChange={(e) => setSettings(prev => ({ ...prev, reassignmentDays: parseInt(e.target.value) }))}
-                />
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
@@ -247,21 +353,22 @@ export default function SettingsPage() {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="cgstRate">CGST Rate (%)</Label>
+                <Label htmlFor="walletHoldDays">Wallet Hold Days</Label>
                 <Input
-                  id="cgstRate"
+                  id="walletHoldDays"
                   type="number"
-                  value={settings.cgstRate}
-                  onChange={(e) => setSettings(prev => ({ ...prev, cgstRate: parseInt(e.target.value) }))}
+                  value={settings.walletHoldDays}
+                  onChange={(e) => setSettings(prev => ({ ...prev, walletHoldDays: parseInt(e.target.value) || 0 }))}
                 />
+                <p className="text-xs text-gray-500 mt-1">Days before partner earnings release</p>
               </div>
               <div>
-                <Label htmlFor="sgstRate">SGST Rate (%)</Label>
+                <Label htmlFor="minWalletRedemption">Min Wallet Redemption (₹)</Label>
                 <Input
-                  id="sgstRate"
+                  id="minWalletRedemption"
                   type="number"
-                  value={settings.sgstRate}
-                  onChange={(e) => setSettings(prev => ({ ...prev, sgstRate: parseInt(e.target.value) }))}
+                  value={settings.minWalletRedemption}
+                  onChange={(e) => setSettings(prev => ({ ...prev, minWalletRedemption: parseInt(e.target.value) || 0 }))}
                 />
               </div>
             </div>
@@ -407,11 +514,11 @@ export default function SettingsPage() {
 
         {/* Action Buttons */}
         <div className="flex justify-end space-x-4">
-          <Button variant="outline" onClick={handleReset}>
+          <Button variant="outline" onClick={handleReset} disabled={saving}>
             Reset to Defaults
           </Button>
-          <Button onClick={handleSave}>
-            Save Settings
+          <Button onClick={handleSave} disabled={saving || loading}>
+            {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>
       </div>

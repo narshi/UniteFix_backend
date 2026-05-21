@@ -38,7 +38,7 @@ export class NotificationService {
         }
 
         if (!Device.isDevice) {
-            console.log('[Notifications] Must use physical device for push notifications');
+            if (__DEV__) console.log('[Notifications] Must use physical device for push notifications');
             return null;
         }
 
@@ -52,7 +52,7 @@ export class NotificationService {
         }
 
         if (finalStatus !== 'granted') {
-            console.log('[Notifications] Permission not granted');
+            if (__DEV__) console.log('[Notifications] Permission not granted');
             return null;
         }
 
@@ -106,7 +106,7 @@ export class NotificationService {
                 token,
                 platform: Platform.OS,
             });
-            console.log('[Notifications] Token registered with backend');
+            if (__DEV__) console.log('[Notifications] Token registered with backend');
         } catch (error) {
             console.error('[Notifications] Failed to register token:', error);
         }

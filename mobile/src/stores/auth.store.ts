@@ -95,7 +95,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (lastActivity) {
         const elapsed = Date.now() - parseInt(lastActivity, 10);
         if (elapsed > SESSION_TIMEOUT_MS) {
-          console.log('[AUTH_STORE] Session expired (7-day inactivity)');
+          if (__DEV__) console.log('[AUTH_STORE] Session expired (7-day inactivity)');
           await secureClear();
           set({ isAuthenticated: false, isLoading: false, user: null, accessToken: null, refreshToken: null });
           return;
@@ -111,7 +111,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           accessToken,
           refreshToken,
         });
-        console.log(`[AUTH_STORE] Session restored: ${user.phone} (${user.role})`);
+        if (__DEV__) console.log(`[AUTH_STORE] Session restored: ${user.phone} (${user.role})`);
       } else {
         set({ isAuthenticated: false, isLoading: false });
       }
@@ -151,7 +151,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       refreshToken,
     });
 
-    console.log(`[AUTH_STORE] Logged in: ${enrichedUser.phone} (${enrichedUser.role}) docStatus=${enrichedUser.documentVerificationStatus}`);
+    if (__DEV__) console.log(`[AUTH_STORE] Logged in: ${enrichedUser.phone} (${enrichedUser.role}) docStatus=${enrichedUser.documentVerificationStatus}`);
   },
 
   /**
@@ -205,7 +205,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       refreshToken: null,
     });
 
-    console.log('[AUTH_STORE] Logged out');
+    if (__DEV__) console.log('[AUTH_STORE] Logged out');
   },
 
   /**

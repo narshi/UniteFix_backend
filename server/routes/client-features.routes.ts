@@ -73,12 +73,14 @@ export function registerClientFeatureRoutes(app: Express) {
     /**
      * GET /api/config/public
      * Returns public configuration values needed by the mobile app (e.g., booking fee)
+     * Includes platform fee % for transparent billing display
      */
     app.get('/api/config/public', async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingFee = await configService.get('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
             const gstRate = await configService.get('BUSINESS_CONFIG.GST_PERCENTAGE', 18);
             const cancelFee = await configService.get('BUSINESS_CONFIG.CANCELLATION_FEE', 150);
+            const platformFeePercent = await configService.get('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT', 15);
             const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
 
             res.json({
@@ -87,6 +89,7 @@ export function registerClientFeatureRoutes(app: Express) {
                     bookingFee: Number(bookingFee),
                     gstRate: Number(gstRate),
                     cancelFee: Number(cancelFee),
+                    platformFeePercent: Number(platformFeePercent),
                     whatsappNumber: whatsappNumber,
                 }
             });

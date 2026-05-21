@@ -8,17 +8,18 @@
 import type { Express, Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
 import { mobileLimiter } from "../middleware/rate-limit";
 import { storage } from "../storage";
+import { BillingEngine } from "../services/billing-engine";
+import { serviceRequests } from "@shared/schema";
 
 export function registerPaymentRoutes(app: Express) {
     /**
-     * POST /api/services/create
-     * Create service and booking order
-     * This replaces or enhances existing service creation
+     * POST /api/services/create-with-payment
+     * Create service and booking order with frozen pricing snapshot
      */
     app.post("/api/services/create-with-payment", mobileLimiter, authenticateToken as any, async (req: Request, res: Response) => {
         try {
@@ -33,14 +34,23 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(400).json({ error: "serviceType, description, and address are required" });
             }
 
-            // Create service request via storage layer
+            // BILLING ENGINE: Freeze current pricing config into a snapshot
+            const pricingSnapshot = await BillingEngine.createBookingSnapshot();
+
+            // Create service request via storage layer with frozen booking fee
             const serviceRequest = await storage.createServiceRequest({
                 userId: customerId,
                 serviceType,
                 description,
                 address,
                 status: 'created',
+                bookingFee: pricingSnapshot.bookingFee,
             });
+
+            // Write the frozen snapshot to the service_requests row
+            await db.update(serviceRequests)
+                .set({ pricingSnapshot: pricingSnapshot as any })
+                .where(eq(serviceRequests.id, serviceRequest.id));
 
             // Create Razorpay order for booking charge
             const order = await PaymentService.createBookingOrder(serviceRequest.id, customerId);
@@ -107,7 +117,8 @@ export function registerPaymentRoutes(app: Express) {
 
     /**
      * POST /api/customer/services/:id/create-final-payment
-     * Customer creates final payment order after service charge entered
+     * Customer creates final payment order after bill has been submitted.
+     * Reads the FROZEN pricing_snapshot to verify bill exists and get the correct amount.
      */
     app.post("/api/customer/services/:id/create-final-payment", authenticateToken as any, async (req: Request, res: Response) => {
         try {
@@ -118,22 +129,55 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
-            // Get service charge
+            // Read the frozen snapshot from the booking to verify bill has been submitted
+            const [booking] = await db.select({
+                totalAmount: serviceRequests.totalAmount,
+                pricingSnapshot: serviceRequests.pricingSnapshot,
+                status: serviceRequests.status,
+            })
+            .from(serviceRequests)
+            .where(eq(serviceRequests.id, serviceId))
+            .limit(1);
+
+            if (!booking) {
+                return res.status(404).json({ error: "Booking not found" });
+            }
+
+            const snapshot = booking.pricingSnapshot as any;
+
+            // If snapshot has billing data, use the frozen finalTotal directly
+            if (snapshot && snapshot.finalTotal !== undefined && snapshot.subtotal) {
+                // createFinalPaymentOrder internally calls calculateInvoice which
+                // now reads the snapshot first — pass subtotal as serviceCharge for compatibility
+                const result = await PaymentService.createFinalPaymentOrder(
+                    serviceId, 
+                    snapshot.subtotal // This is parts + labor from the snapshot
+                );
+
+                return res.json({
+                    message: "Final payment order created",
+                    razorpayOrder: {
+                        orderId: result.orderId,
+                        amount: result.amount,
+                    },
+                    invoice: result.invoice,
+                });
+            }
+
+            // Legacy fallback: read from service_charges table
             const serviceChargeResult = await db.execute(sql`
-        SELECT service_amount FROM service_charges 
-        WHERE service_request_id = ${serviceId}
-      `) as any;
+                SELECT service_amount FROM service_charges 
+                WHERE service_request_id = ${serviceId}
+            `) as any;
             const serviceCharge = serviceChargeResult?.[0];
 
             if (!serviceCharge) {
                 return res.status(400).json({
-                    error: "Service charge not entered yet by technician"
+                    error: "Bill not submitted yet. Employee must submit the bill first."
                 });
             }
 
             const amount = parseFloat(serviceCharge.service_amount);
-
-            // Create final payment order
             const result = await PaymentService.createFinalPaymentOrder(serviceId, amount);
 
             res.json({
