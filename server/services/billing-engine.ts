@@ -133,6 +133,27 @@ export class BillingEngine {
   }
 
   /**
+   * Calculate the amount to DEBIT from employee wallet when customer pays cash.
+   * This is UniteFix's share: platformFee + CGST + SGST.
+   * Employee collected the full amount in cash — we recover our cut from their wallet.
+   */
+  static calculateCashDebitAmount(snapshot: PricingSnapshot): number {
+    const platformFee = snapshot.platformFee ?? 0;
+    const cgst = snapshot.cgst ?? 0;
+    const sgst = snapshot.sgst ?? 0;
+    return platformFee + cgst + sgst;
+  }
+
+  /**
+   * Determine service value tier based on the final bill amount.
+   * high_value = ₹5,000+ (subtotal, i.e. parts + labor before fees/tax)
+   */
+  static determineServiceValueTier(snapshot: PricingSnapshot): 'standard' | 'high_value' {
+    const subtotal = snapshot.subtotal ?? 0;
+    return subtotal >= 5000 ? 'high_value' : 'standard';
+  }
+
+  /**
    * Build a synthetic snapshot for OLD bookings that don't have one.
    * Uses the values already stored on the booking record.
    * NEVER recalculates — just wraps existing data.

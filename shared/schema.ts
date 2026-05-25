@@ -83,6 +83,9 @@ export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'h
 export const ticketCategoryEnum = pgEnum('ticket_category', ['service', 'product', 'payment', 'general']);
 // PHASE 5: Shipment status enum
 export const shipmentStatusEnum = pgEnum('shipment_status', ['created', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'returned']);
+// PHASE 8: Payment method + service value tier
+export const paymentMethodEnum = pgEnum('payment_method', ['online', 'cash', 'pending']);
+export const serviceValueTierEnum = pgEnum('service_value_tier', ['standard', 'high_value']);
 
 // Users table - handles all user types
 export const users = pgTable("users", {
@@ -228,6 +231,11 @@ export const serviceRequests = pgTable("service_requests", {
   // Phase 1 (booking creation): freezes bookingFee, platformFeePercent, gstPercent
   // Phase 2 (bill submission): freezes full billing breakdown
   pricingSnapshot: jsonb("pricing_snapshot"),
+  // PHASE 8: Cash payment support
+  paymentMethod: paymentMethodEnum("payment_method").default('pending'),
+  serviceValueTier: serviceValueTierEnum("service_value_tier").default('standard'),
+  cashCollectedBy: integer("cash_collected_by").references(() => employees.id),
+  cashCollectedAt: timestamp("cash_collected_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

@@ -789,6 +789,7 @@ export class DatabaseStorage implements IStorage {
         .update(serviceRequests)
         .set({
           status: 'completed',
+          paymentMethod: 'online',
           totalAmount,
           commissionAmount,
           completedAt: new Date(),
@@ -866,7 +867,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction> {
+  async deductProviderWallet(providerId: number, amount: number, description: string, allowNegative: boolean = false): Promise<WalletTransaction> {
     const result = await db.transaction(async (tx) => {
       const [employee] = await tx
         .select()
@@ -879,8 +880,9 @@ export class DatabaseStorage implements IStorage {
 
       const currentBalance = parseFloat(employee.walletBalance || '0');
 
-      // Prevent negative balance
-      if (currentBalance < amount) {
+      // Block negative balance for regular deductions (withdrawals).
+      // Allow negative for commission deductions (cash payment platform fee recovery).
+      if (!allowNegative && currentBalance < amount) {
         throw new Error('Insufficient wallet balance');
       }
 
@@ -899,7 +901,7 @@ export class DatabaseStorage implements IStorage {
         .values({
           providerId,
           amount: (-amount).toFixed(2), // Negative amount for deduction record
-          type: 'debit',
+          type: 'commission',
           description,
           balanceBefore: currentBalance.toFixed(2),
           balanceAfter: newBalance.toFixed(2)

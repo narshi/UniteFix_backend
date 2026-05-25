@@ -69,6 +69,10 @@ export const partnerApi = {
     completeService: (serviceId: number) =>
         apiClient.post('/api/service/complete', { serviceId }),
 
+    // Cash payment — employee confirms cash collected from customer
+    collectCash: (bookingId: number, amountCollected: number) =>
+        apiClient.post(`/api/bookings/${bookingId}/cash-collected`, { amountCollected }),
+
     enterServiceCharge: (serviceId: number, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
         apiClient.post(`/api/technician/services/${serviceId}/enter-service-charge`, data),
 

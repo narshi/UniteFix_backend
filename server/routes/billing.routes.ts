@@ -18,7 +18,7 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { eq, sql } from 'drizzle-orm';
-import { serviceRequests } from '@shared/schema';
+import { serviceRequests, employees } from '@shared/schema';
 import { authenticatePartner, authenticateToken, authenticateAny } from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
@@ -108,12 +108,14 @@ export function registerBillingRoutes(app: Express) {
             }
 
             // Transition to PENDING_PAYMENT and freeze the complete billing snapshot
+            const serviceValueTier = BillingEngine.determineServiceValueTier(billedSnapshot);
             const [updated] = await db.update(serviceRequests)
                 .set({
                     status: BookingState.PENDING_PAYMENT as any,
                     totalAmount: billedSnapshot.grossTotal,
                     commissionAmount: billedSnapshot.platformFee,
                     pricingSnapshot: billedSnapshot as any,
+                    serviceValueTier: serviceValueTier as any,
                     updatedAt: new Date(),
                 })
                 .where(eq(serviceRequests.id, bookingId))
@@ -285,6 +287,140 @@ export function registerBillingRoutes(app: Express) {
                     whatsappLink: `https://wa.me/${whatsappNumber}?text=${message}`,
                     canCancel: booking.status === BookingState.CREATED,
                     status: booking.status,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * POST /api/bookings/:id/cash-collected
+     *
+     * Employee confirms customer paid cash.
+     * Gate: Booking must be in PENDING_PAYMENT state.
+     * Actions:
+     *   1. Validate amountCollected matches finalTotal (±₹1 tolerance)
+     *   2. Debit UniteFix's share (platformFee + GST) from employee wallet
+     *   3. Transition → COMPLETED with paymentMethod = 'cash'
+     *   4. Generate invoice
+     *   5. Record to audit trail
+     *
+     * Body: { amountCollected: number }
+     */
+    app.post('/api/bookings/:id/cash-collected', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const bookingId = parseInt(req.params.id);
+            const { amountCollected } = req.body;
+            const partnerId = (req as any).partner?.partnerId;
+
+            if (!amountCollected || typeof amountCollected !== 'number' || amountCollected <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'amountCollected must be a positive number',
+                });
+            }
+
+            // Fetch booking
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, bookingId)).limit(1);
+
+            if (!booking) {
+                return res.status(404).json({ success: false, message: 'Booking not found' });
+            }
+
+            if (booking.providerId !== partnerId) {
+                return res.status(403).json({ success: false, message: 'This booking is not assigned to you' });
+            }
+
+            // State validation — must be PENDING_PAYMENT
+            if (booking.status !== BookingState.PENDING_PAYMENT) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Cannot collect cash. Booking must be in 'pending_payment' state. Current: '${booking.status}'.`,
+                });
+            }
+
+            // Get the frozen billing snapshot
+            const snapshot = booking.pricingSnapshot as PricingSnapshot | null;
+            if (!snapshot || !snapshot.finalTotal) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Billing snapshot not found. Submit the bill first.',
+                });
+            }
+
+            // Validate amount matches expected finalTotal (±₹1 tolerance for rounding)
+            const expectedAmount = snapshot.finalTotal;
+            if (Math.abs(amountCollected - expectedAmount) > 1) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Amount mismatch. Expected ₹${expectedAmount}, received ₹${amountCollected}.`,
+                    data: { expectedAmount, receivedAmount: amountCollected },
+                });
+            }
+
+            // Calculate UniteFix's share to debit from employee wallet
+            const platformDebit = BillingEngine.calculateCashDebitAmount(snapshot);
+
+            // Debit employee wallet (allow negative — recovered from future earnings)
+            let walletTransaction = null;
+            try {
+                const { storage } = await import('../storage');
+                walletTransaction = await storage.deductProviderWallet(
+                    partnerId,
+                    platformDebit,
+                    `Platform fee — cash payment booking #${booking.serviceId}`,
+                    true // allowNegative: UniteFix always recovers its share
+                );
+            } catch (walletErr: any) {
+                logger.error(`[CASH] Wallet debit failed for booking ${bookingId}:`, walletErr.message);
+                // Don't block the completion — log and continue
+            }
+
+            // Transition to COMPLETED
+            const [updated] = await db.update(serviceRequests)
+                .set({
+                    status: BookingState.COMPLETED as any,
+                    paymentMethod: 'cash' as any,
+                    cashCollectedBy: partnerId,
+                    cashCollectedAt: new Date(),
+                    completedAt: new Date(),
+                    updatedAt: new Date(),
+                })
+                .where(eq(serviceRequests.id, bookingId))
+                .returning();
+
+            // Generate invoice
+            let invoiceId = null;
+            try {
+                const invoice = await PaymentService.generateInvoice(
+                    bookingId,
+                    booking.userId,
+                    partnerId
+                );
+                invoiceId = invoice.invoiceId;
+            } catch (invErr: any) {
+                logger.warn(`[CASH] Invoice generation failed for booking ${bookingId}:`, invErr.message);
+            }
+
+            logger.info(`[CASH] Cash collected for booking ${bookingId}: amount=₹${amountCollected}, platformDebit=₹${platformDebit}, employee=${partnerId}`);
+
+            res.json({
+                success: true,
+                message: 'Cash payment recorded. Service completed.',
+                data: {
+                    bookingId: updated.id,
+                    status: updated.status,
+                    paymentMethod: 'cash',
+                    amountCollected,
+                    platformFeeDeducted: platformDebit,
+                    employeeEarnings: snapshot.employeeEarnings,
+                    invoiceId,
+                    walletTransaction: walletTransaction ? {
+                        balanceBefore: walletTransaction.balanceBefore,
+                        balanceAfter: walletTransaction.balanceAfter,
+                    } : null,
                 },
             });
         } catch (error) {

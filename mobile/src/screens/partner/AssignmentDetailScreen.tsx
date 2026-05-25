@@ -19,7 +19,7 @@ import * as ExpoLocation from 'expo-location';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
     ArrowLeft, User, Phone, MapPin, Calendar, Navigation2,
-    CheckCircle, XCircle, Play, DollarSign, KeyRound,
+    CheckCircle, XCircle, Play, DollarSign, KeyRound, Banknote,
 } from 'lucide-react-native';
 import {
     useAcceptAssignment,
@@ -29,7 +29,7 @@ import {
     useCompleteService,
     useEnterServiceCharge,
 } from '../../hooks/usePartnerData';
-import { Assignment } from '../../api/partner.api';
+import { Assignment, partnerApi } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -43,6 +43,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
+    const [collectingCash, setCollectingCash] = useState(false);
     const [customerCoords, setCustomerCoords] = useState<{ latitude: number; longitude: number } | null>(null);
 
     const { mutate: accept, isPending: accepting } = useAcceptAssignment();
@@ -266,6 +267,60 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
+                {assignment.status === 'pending_payment' && (
+                    <View style={styles.actionsCard}>
+                        <Text style={styles.sectionTitle}>Awaiting Payment</Text>
+                        <Text style={styles.hintText}>
+                            Customer needs to pay ₹{assignment.totalCharge || 0}. If they have no network or phone charge, you can collect cash.
+                        </Text>
+
+                        <View style={styles.cashWarningCard}>
+                            <Banknote size={18} color={colors.warning} />
+                            <Text style={styles.cashWarningText}>
+                                UniteFix fee will be deducted from your wallet when you confirm cash collection.
+                            </Text>
+                        </View>
+
+                        <Button
+                            title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.totalCharge || 0}`}
+                            onPress={() => {
+                                const amount = assignment.totalCharge || 0;
+                                Alert.alert(
+                                    'Confirm Cash Collection',
+                                    `You are confirming that the customer paid ₹${amount} in cash.\n\nUniteFix platform fee will be deducted from your wallet.\n\nThis cannot be undone.`,
+                                    [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                            text: 'Confirm Cash Received',
+                                            style: 'default',
+                                            onPress: async () => {
+                                                setCollectingCash(true);
+                                                try {
+                                                    const { data } = await partnerApi.collectCash(assignment.id, amount);
+                                                    if (data?.success) {
+                                                        Alert.alert(
+                                                            '✅ Cash Payment Recorded',
+                                                            `Service completed! ₹${data.data?.platformFeeDeducted || 0} platform fee deducted from wallet.`,
+                                                            [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                                        );
+                                                    }
+                                                } catch (err: any) {
+                                                    const msg = err?.response?.data?.message || 'Failed to record cash payment.';
+                                                    Alert.alert('Error', msg);
+                                                } finally {
+                                                    setCollectingCash(false);
+                                                }
+                                            },
+                                        },
+                                    ]
+                                );
+                            }}
+                            loading={collectingCash}
+                            disabled={collectingCash}
+                        />
+                    </View>
+                )}
+
                 {/* Charges summary (if available) */}
                 {assignment.totalCharge != null && assignment.totalCharge > 0 && (
                     <View style={styles.card}>
@@ -355,5 +410,28 @@ const styles = StyleSheet.create({
     directionsBtnText: {
         ...typography.button,
         color: colors.textInverse,
+    },
+    hintText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginBottom: spacing.md,
+        lineHeight: 18,
+    },
+    cashWarningCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: spacing.sm,
+        backgroundColor: colors.warningLight || '#FFF8E1',
+        borderRadius: radii.md,
+        padding: spacing.md,
+        marginBottom: spacing.lg,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.warning,
+    },
+    cashWarningText: {
+        ...typography.small,
+        color: colors.warning,
+        flex: 1,
+        lineHeight: 18,
     },
 });

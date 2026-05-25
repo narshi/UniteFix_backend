@@ -18,6 +18,7 @@ import {
     Animated,
     Platform,
     ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { openRazorpayCheckout } from '../../services/razorpay';
@@ -236,6 +237,20 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                         Payment failed. Please try again.
                     </Text>
                 )}
+                <TouchableOpacity
+                    style={styles.cashOptionContainer}
+                    onPress={() => {
+                        Alert.alert(
+                            'Pay via Cash',
+                            'Ask your technician to collect the cash payment. They will confirm the payment from their app.\n\nThe service will be marked complete once the technician confirms.',
+                            [{ text: 'OK' }]
+                        );
+                    }}
+                >
+                    <Text style={styles.cashOptionText}>
+                        No network? Ask technician to collect cash
+                    </Text>
+                </TouchableOpacity>
             </View>
         </View>
     );
@@ -324,4 +339,16 @@ const styles = StyleSheet.create({
     successTitle: { ...typography.h2, color: colors.textPrimary, marginTop: spacing.xl },
     successAmount: { ...typography.monoLarge, color: colors.success, fontSize: 36, marginTop: spacing.sm },
     successSub: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.md },
+
+    // Cash option
+    cashOptionContainer: {
+        marginTop: spacing.md,
+        paddingVertical: spacing.sm,
+        alignItems: 'center',
+    },
+    cashOptionText: {
+        ...typography.small,
+        color: colors.textSecondary,
+        textDecorationLine: 'underline',
+    },
 });
