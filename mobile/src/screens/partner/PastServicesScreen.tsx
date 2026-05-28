@@ -62,7 +62,7 @@ export function PastServicesScreen() {
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
     const pastServices = (assignments || []).filter(
-        (a) => ['completed', 'cancelled', 'denied'].includes(a.status)
+        (a: Assignment) => ['completed', 'cancelled', 'denied'].includes(a.status)
     );
 
     if (isLoading) {

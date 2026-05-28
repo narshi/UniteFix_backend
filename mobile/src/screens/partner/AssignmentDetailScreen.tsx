@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     acceptBtn: { flex: 1 },
     denyBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.error },
     denyText: { ...typography.bodyMedium, color: colors.error },
-    hintText: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
+    hintText: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md, lineHeight: 18 },
     otpRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
     otpInput: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 18, letterSpacing: 4, textAlign: 'center', color: colors.textPrimary },
     otpBtn: { width: 100 },
@@ -411,12 +411,7 @@ const styles = StyleSheet.create({
         ...typography.button,
         color: colors.textInverse,
     },
-    hintText: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        marginBottom: spacing.md,
-        lineHeight: 18,
-    },
+
     cashWarningCard: {
         flexDirection: 'row',
         alignItems: 'flex-start',

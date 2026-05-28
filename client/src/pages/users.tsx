@@ -104,9 +104,17 @@ export default function UsersPage() {
                     <tr key={`${user.id}-${index}`} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="py-3 px-4">
                         <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
-                            {user.username?.charAt(0).toUpperCase() || "U"}
-                          </div>
+                          {user.profilePicture ? (
+                            <img
+                              src={user.profilePicture}
+                              alt={user.username}
+                              className="w-10 h-10 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
+                              {user.username?.charAt(0).toUpperCase() || "U"}
+                            </div>
+                          )}
                           <div>
                             <p className="font-medium text-gray-900">{user.username}</p>
                             <p className="text-xs text-gray-500">{user.email || "No email"}</p>
@@ -174,9 +182,17 @@ export default function UsersPage() {
           {selectedUser && (
             <div className="space-y-6">
               <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
-                <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center text-2xl font-bold">
-                  {selectedUser.username.charAt(0).toUpperCase()}
-                </div>
+                {selectedUser.profilePicture ? (
+                  <img
+                    src={selectedUser.profilePicture}
+                    alt={selectedUser.username}
+                    className="w-16 h-16 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center text-2xl font-bold">
+                    {selectedUser.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <h3 className="text-lg font-bold">{selectedUser.username}</h3>
                   <Badge variant="outline">{selectedUser.role.toUpperCase()}</Badge>

@@ -11,6 +11,8 @@
  */
 
 import type { Express, Request, Response, NextFunction } from "express";
+import multer from "multer";
+import { uploadImageBuffer } from "../services/cloudinary.service";
 import { db } from "../db";
 import { eq, and, desc, sql, avg, count } from "drizzle-orm";
 import {
@@ -383,22 +385,39 @@ export function registerClientFeatureRoutes(app: Express) {
 
     /**
      * POST /api/client/profile/picture
-     * Upload profile picture (accepts base64 or URL)
-     * In production, this would integrate with S3/Cloudinary
+     * Upload profile picture via multipart/form-data OR JSON { imageUrl }
+     * Uploads to Cloudinary and stores the CDN URL.
      */
-    app.post("/api/client/profile/picture", authenticateToken, async (req: Request, res, next) => {
+    const profileUpload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 5 * 1024 * 1024 },
+        fileFilter: (_req, file, cb) => {
+            if (file.mimetype.startsWith('image/')) cb(null, true);
+            else cb(new Error('Only image files are allowed'));
+        },
+    });
+
+    app.post("/api/client/profile/picture", authenticateToken, profileUpload.single('image'), async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
-            const { imageUrl } = req.body;
+            let profilePictureUrl: string;
 
-            if (!imageUrl) {
-                return res.status(400).json({ success: false, message: "Image URL is required" });
+            if (req.file) {
+                // File upload via multipart/form-data
+                const result = await uploadImageBuffer(req.file.buffer, 'profile_pictures', {
+                    maxWidth: 500,
+                    maxHeight: 500,
+                });
+                profilePictureUrl = result.url;
+            } else if (req.body.imageUrl) {
+                // Backward-compatible: accept a direct URL
+                profilePictureUrl = req.body.imageUrl;
+            } else {
+                return res.status(400).json({ success: false, message: "Image file or URL is required" });
             }
 
-            // TODO: In production, upload base64/file to S3/Cloudinary and get CDN URL
-            // For now, accepts a direct URL
             const [updated] = await db.update(users)
-                .set({ profilePicture: imageUrl, updatedAt: new Date() })
+                .set({ profilePicture: profilePictureUrl, updatedAt: new Date() })
                 .where(eq(users.id, userId))
                 .returning();
 

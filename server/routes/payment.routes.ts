@@ -159,6 +159,7 @@ export function registerPaymentRoutes(app: Express) {
                     razorpayOrder: {
                         orderId: result.orderId,
                         amount: result.amount,
+                        razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
                     },
                     invoice: result.invoice,
                 });
@@ -185,6 +186,7 @@ export function registerPaymentRoutes(app: Express) {
                 razorpayOrder: {
                     orderId: result.orderId,
                     amount: result.amount,
+                    razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
                 },
                 invoice: result.invoice,
             });

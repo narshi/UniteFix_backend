@@ -7,6 +7,7 @@
  *   const response = await openRazorpayCheckout({ ... });
  */
 
+// @ts-ignore
 import RazorpayCheckout from 'react-native-razorpay';
 import { Alert } from 'react-native';
 

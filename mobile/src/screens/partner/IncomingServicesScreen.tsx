@@ -70,7 +70,7 @@ export function IncomingServicesScreen() {
 
     // Show incoming (non-completed, non-denied) first
     const incoming = (assignments || []).filter(
-        (a) => !['completed', 'cancelled', 'denied'].includes(a.status)
+        (a: Assignment) => !['completed', 'cancelled', 'denied'].includes(a.status)
     );
 
     if (isLoading) {

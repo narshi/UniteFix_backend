@@ -17,6 +17,7 @@ import InventoryPage from "@/pages/admin/inventory";
 import DeveloperPage from "@/pages/developer";
 import SettingsPage from "@/pages/settings";
 import ServiceCatalogPage from "@/pages/service-catalog";
+import AssignmentQueuePage from "@/pages/assignment-queue";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 
@@ -112,6 +113,7 @@ function Router() {
         <Route path="/admin/inventory" component={InventoryPage} />
         <Route path="/admin/developer" component={DeveloperPage} />
         <Route path="/admin/catalog" component={ServiceCatalogPage} />
+        <Route path="/admin/assignments" component={AssignmentQueuePage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>

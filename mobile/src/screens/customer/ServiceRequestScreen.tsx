@@ -14,9 +14,12 @@ import {
     Platform,
     Alert,
     TextInput,
+    Image,
+    ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle } from 'lucide-react-native';
+import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useCreateServiceRequest, usePublicConfig } from '../../hooks/useCustomerData';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
@@ -28,6 +31,8 @@ import { PincodeChecker } from '../../components/PincodeChecker';
 
 type Props = NativeStackScreenProps<any, 'ServiceRequest'>;
 
+const MAX_PHOTOS = 5;
+
 export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceType = route.params?.serviceType || '';
     const serviceName = route.params?.serviceName || 'Service';
@@ -36,6 +41,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const [address, setAddress] = useState('');
     const [pinCode, setPinCode] = useState('');
     const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
+    const [photos, setPhotos] = useState<string[]>([]);
+    const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
@@ -53,6 +60,59 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         return Object.keys(newErrors).length === 0;
     };
 
+    const handlePickPhotos = () => {
+        if (photos.length >= MAX_PHOTOS) {
+            Alert.alert('Limit Reached', `You can add up to ${MAX_PHOTOS} photos.`);
+            return;
+        }
+
+        Alert.alert('Add Photo', 'Choose an option', [
+            {
+                text: 'Take Photo',
+                onPress: async () => {
+                    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                    if (status !== 'granted') {
+                        Alert.alert('Permission Denied', 'Camera permission is required to take photos.');
+                        return;
+                    }
+                    const result = await ImagePicker.launchCameraAsync({
+                        mediaTypes: ['images'],
+                        quality: 0.7,
+                        allowsEditing: true,
+                    });
+                    if (!result.canceled && result.assets[0]) {
+                        setPhotos((prev) => [...prev, result.assets[0].uri]);
+                    }
+                },
+            },
+            {
+                text: 'Choose from Gallery',
+                onPress: async () => {
+                    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (status !== 'granted') {
+                        Alert.alert('Permission Denied', 'Gallery permission is required to select photos.');
+                        return;
+                    }
+                    const result = await ImagePicker.launchImageLibraryAsync({
+                        mediaTypes: ['images'],
+                        quality: 0.7,
+                        allowsMultipleSelection: true,
+                        selectionLimit: MAX_PHOTOS - photos.length,
+                    });
+                    if (!result.canceled && result.assets.length > 0) {
+                        const newUris = result.assets.map((a) => a.uri);
+                        setPhotos((prev) => [...prev, ...newUris].slice(0, MAX_PHOTOS));
+                    }
+                },
+            },
+            { text: 'Cancel', style: 'cancel' },
+        ]);
+    };
+
+    const removePhoto = (index: number) => {
+        setPhotos((prev) => prev.filter((_, i) => i !== index));
+    };
+
     const handleSubmit = () => {
         if (!validate()) return;
 
@@ -64,57 +124,76 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: `Pay ₹${bookingFee} & Book`,
-                    onPress: () => {
-                        createRequest(
-                            {
-                                serviceType,
-                                description,
-                                address,
-                                pinCode,
-                                urgency,
-                            },
-                            {
-                                onSuccess: async (response: any) => {
-                                    const paymentData = response?.data?.payment;
+                    onPress: async () => {
+                        try {
+                            // Upload photos to Cloudinary first (if any)
+                            let photoUrls: string[] = [];
+                            if (photos.length > 0) {
+                                setUploading(true);
+                                try {
+                                    photoUrls = await customerApi.uploadImages(photos, 'service_photos');
+                                } catch (uploadErr) {
+                                    Alert.alert('Upload Failed', 'Could not upload photos. Your request will be created without images.');
+                                    photoUrls = [];
+                                } finally {
+                                    setUploading(false);
+                                }
+                            }
 
-                                    if (paymentData?.razorpayOrderId && paymentData?.razorpayKeyId) {
-                                        // Open Razorpay native checkout
-                                        try {
-                                            const paymentResponse = await openRazorpayCheckout({
-                                                razorpayOrderId: paymentData.razorpayOrderId,
-                                                razorpayKeyId: paymentData.razorpayKeyId,
-                                                amount: paymentData.amount,
-                                                description: `₹${paymentData.amount} Booking Fee — ${serviceName}`,
-                                            });
+                            createRequest(
+                                {
+                                    serviceType,
+                                    description,
+                                    address,
+                                    pinCode,
+                                    urgency,
+                                    photos: photoUrls.length > 0 ? photoUrls : undefined,
+                                },
+                                {
+                                    onSuccess: async (response: any) => {
+                                        const paymentData = response?.data?.payment;
 
-                                            // Verify payment on backend
-                                            await customerApi.verifyPayment(paymentResponse);
+                                        if (paymentData?.razorpayOrderId && paymentData?.razorpayKeyId) {
+                                            // Open Razorpay native checkout
+                                            try {
+                                                const paymentResponse = await openRazorpayCheckout({
+                                                    razorpayOrderId: paymentData.razorpayOrderId,
+                                                    razorpayKeyId: paymentData.razorpayKeyId,
+                                                    amount: paymentData.amount,
+                                                    description: `₹${paymentData.amount} Booking Fee — ${serviceName}`,
+                                                });
 
+                                                // Verify payment on backend
+                                                await customerApi.verifyPayment(paymentResponse);
+
+                                                Alert.alert(
+                                                    'Booking Confirmed! ✅',
+                                                    `Your ₹${bookingFee} booking fee has been paid. We will assign a technician soon.`,
+                                                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                                );
+                                            } catch (err: any) {
+                                                handleRazorpayError(err);
+                                                // Booking is created but unpaid — user can retry
+                                                Alert.alert(
+                                                    'Booking Created',
+                                                    'Your request is saved. Complete payment from My Requests to confirm.',
+                                                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                                );
+                                            }
+                                        } else {
+                                            // No payment required (Razorpay not configured / dev mode)
                                             Alert.alert(
-                                                'Booking Confirmed! ✅',
-                                                `Your ₹${bookingFee} booking fee has been paid. We will assign a technician soon.`,
-                                                [{ text: 'OK', onPress: () => navigation.goBack() }]
-                                            );
-                                        } catch (err: any) {
-                                            handleRazorpayError(err);
-                                            // Booking is created but unpaid — user can retry
-                                            Alert.alert(
-                                                'Booking Created',
-                                                'Your request is saved. Complete payment from My Requests to confirm.',
+                                                'Request Submitted! ✅',
+                                                'Your service request has been created. We will assign a technician soon.',
                                                 [{ text: 'OK', onPress: () => navigation.goBack() }]
                                             );
                                         }
-                                    } else {
-                                        // No payment required (Razorpay not configured / dev mode)
-                                        Alert.alert(
-                                            'Request Submitted! ✅',
-                                            'Your service request has been created. We will assign a technician soon.',
-                                            [{ text: 'OK', onPress: () => navigation.goBack() }]
-                                        );
-                                    }
-                                },
-                            }
-                        );
+                                    },
+                                }
+                            );
+                        } catch (error) {
+                            setUploading(false);
+                        }
                     },
                 },
             ]
@@ -207,20 +286,43 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     </View>
                 </View>
 
-                {/* Photo upload placeholder */}
+                {/* Photo upload */}
                 <View style={styles.fieldContainer}>
-                    <Text style={styles.label}>Photos (optional)</Text>
-                    <TouchableOpacity style={styles.photoUpload}>
-                        <Camera size={24} color={colors.textSecondary} />
-                        <Text style={styles.photoUploadText}>Tap to add photos</Text>
-                    </TouchableOpacity>
+                    <Text style={styles.label}>Photos (optional, max {MAX_PHOTOS})</Text>
+
+                    {/* Photo preview grid */}
+                    {photos.length > 0 && (
+                        <View style={styles.photoGrid}>
+                            {photos.map((uri, index) => (
+                                <View key={index} style={styles.photoPreviewContainer}>
+                                    <Image source={{ uri }} style={styles.photoPreview} />
+                                    <TouchableOpacity
+                                        style={styles.photoRemoveBtn}
+                                        onPress={() => removePhoto(index)}
+                                    >
+                                        <X size={14} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+
+                    {/* Add photo button */}
+                    {photos.length < MAX_PHOTOS && (
+                        <TouchableOpacity style={styles.photoUpload} onPress={handlePickPhotos}>
+                            <ImagePlus size={24} color={colors.primary} />
+                            <Text style={styles.photoUploadText}>
+                                {photos.length === 0 ? 'Tap to add photos of the issue' : 'Add more photos'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Submit */}
                 <Button
-                    title="Submit Request"
+                    title={uploading ? 'Uploading photos...' : 'Submit Request'}
                     onPress={handleSubmit}
-                    loading={isPending}
+                    loading={isPending || uploading}
                     style={styles.submitButton}
                 />
             </ScrollView>
@@ -333,19 +435,51 @@ const styles = StyleSheet.create({
     },
     photoUpload: {
         borderWidth: 1.5,
-        borderColor: colors.border,
+        borderColor: colors.primary,
         borderStyle: 'dashed',
         borderRadius: radii.md,
-        paddingVertical: spacing['2xl'],
+        paddingVertical: spacing.xl,
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing.sm,
+        backgroundColor: colors.primarySurface,
     },
     photoUploadText: {
         ...typography.caption,
-        color: colors.textSecondary,
+        color: colors.primary,
+        fontWeight: '500',
+    },
+    photoGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.sm,
+        marginBottom: spacing.md,
+    },
+    photoPreviewContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: radii.md,
+        overflow: 'hidden',
+        position: 'relative',
+    },
+    photoPreview: {
+        width: '100%',
+        height: '100%',
+        borderRadius: radii.md,
+    },
+    photoRemoveBtn: {
+        position: 'absolute',
+        top: 4,
+        right: 4,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     submitButton: {
         marginTop: spacing.md,
     },
 });
+

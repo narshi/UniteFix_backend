@@ -236,6 +236,8 @@ export const serviceRequests = pgTable("service_requests", {
   serviceValueTier: serviceValueTierEnum("service_value_tier").default('standard'),
   cashCollectedBy: integer("cash_collected_by").references(() => employees.id),
   cashCollectedAt: timestamp("cash_collected_at"),
+  // Urgency — set by customer when creating request
+  urgency: text("urgency").default('normal'),  // 'normal' | 'urgent'
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

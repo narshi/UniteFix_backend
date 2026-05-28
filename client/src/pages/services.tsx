@@ -419,6 +419,24 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </div>
                 </div>
 
+                {/* Customer Photos */}
+                {selectedService.photos && selectedService.photos.length > 0 && (
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium text-gray-900 mb-3">Customer Photos ({selectedService.photos.length})</h4>
+                    <div className="flex flex-wrap gap-3">
+                      {selectedService.photos.map((photoUrl: string, index: number) => (
+                        <a key={index} href={photoUrl} target="_blank" rel="noopener noreferrer">
+                          <img
+                            src={photoUrl}
+                            alt={`Issue photo ${index + 1}`}
+                            className="w-24 h-24 rounded-lg object-cover border border-gray-200 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {(selectedService.partner || selectedService.technicianName) && (
                   <div className="border-t pt-4">
                     <h4 className="font-medium text-gray-900 mb-3">Assigned Employee</h4>

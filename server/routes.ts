@@ -40,6 +40,7 @@ import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
 import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
+import { registerUploadRoutes } from "./routes/upload.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { db } from "./db";
@@ -2068,6 +2069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
+  registerUploadRoutes(app); // Image uploads (Cloudinary)
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);

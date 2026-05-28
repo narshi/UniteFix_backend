@@ -74,7 +74,7 @@ export const shopApi = {
     removeFromCart: (itemId: number) =>
         apiClient.delete(`/api/cart/${itemId}`),
 
-    checkout: (data: { address: string; deliveryLat?: number; deliveryLong?: number }) =>
+    checkout: (data: { address: string; deliveryLat?: number; deliveryLong?: number; paymentMethod?: string; paymentId?: string }) =>
         apiClient.post('/api/cart/checkout', data),
 
     // Orders

@@ -84,6 +84,7 @@ export class AdminServiceManager {
                 brand: serviceRequests.brand,
                 model: serviceRequests.model,
                 description: serviceRequests.description,
+                photos: serviceRequests.photos,
                 status: serviceRequests.status,
                 address: serviceRequests.address,
                 // Financial fields — critical for billing accuracy
@@ -387,6 +388,123 @@ export class AdminServiceManager {
         return {
             ...metrics,
             wallet: wallet || { balance_hold: 0, balance_available: 0, total_earned: 0 },
+        };
+    }
+
+    /**
+     * Get the full assignment queue payload for the admin Assignment Queue page.
+     * Returns pending requests (with customer info), available employees (with workload), and stats.
+     */
+    static async getAssignmentQueue(): Promise<{
+        queue: any[];
+        employees: any[];
+        stats: { totalPending: number; urgentCount: number; avgWaitHours: number; oldestHours: number };
+    }> {
+        const now = new Date();
+
+        // 1. Get all unassigned service requests with customer info
+        const pendingRequests = await db
+            .select({
+                id: serviceRequests.id,
+                serviceId: serviceRequests.serviceId,
+                serviceType: serviceRequests.serviceType,
+                brand: serviceRequests.brand,
+                model: serviceRequests.model,
+                description: serviceRequests.description,
+                photos: serviceRequests.photos,
+                urgency: serviceRequests.urgency,
+                address: serviceRequests.address,
+                bookingFeeStatus: serviceRequests.bookingFeeStatus,
+                createdAt: serviceRequests.createdAt,
+                customerName: users.username,
+                customerPhone: users.phone,
+            })
+            .from(serviceRequests)
+            .leftJoin(users, eq(serviceRequests.userId, users.id))
+            .where(eq(serviceRequests.status, 'created'))
+            .orderBy(desc(serviceRequests.createdAt));
+
+        // Calculate waiting hours for each request
+        const queue = pendingRequests.map((req) => {
+            const createdMs = req.createdAt ? new Date(req.createdAt).getTime() : now.getTime();
+            const waitingHours = Math.round(((now.getTime() - createdMs) / (1000 * 60 * 60)) * 10) / 10;
+            return { ...req, waitingHours };
+        });
+
+        // 2. Get all verified + active employees with active job counts
+        const employeeRows = await db
+            .select({
+                id: employees.id,
+                fullName: employees.fullName,
+                partnerId: employees.partnerId,
+                services: employees.services,
+                isOnline: employees.isOnline,
+                isActive: employees.isActive,
+                totalServicesCompleted: employees.totalServicesCompleted,
+                averageRating: employees.averageRating,
+                userId: employees.userId,
+            })
+            .from(employees)
+            .where(
+                and(
+                    eq(employees.documentVerificationStatus, 'verified'),
+                    eq(employees.isActive, true),
+                )
+            );
+
+        // Get active job counts per employee in a single query
+        const activeJobCounts = await db.execute(sql`
+            SELECT provider_id, COUNT(*) as active_count
+            FROM service_requests
+            WHERE provider_id IS NOT NULL
+              AND status IN ('assigned', 'accepted', 'reached', 'in_progress')
+            GROUP BY provider_id
+        `) as any;
+
+        const jobCountMap = new Map<number, number>();
+        if (Array.isArray(activeJobCounts)) {
+            for (const row of activeJobCounts) {
+                jobCountMap.set(row.provider_id, parseInt(row.active_count));
+            }
+        }
+
+        // Enrich employees with phone and active job count
+        const enrichedEmployees = await Promise.all(
+            employeeRows.map(async (emp) => {
+                // Get phone from users table
+                const [user] = await db
+                    .select({ phone: users.phone })
+                    .from(users)
+                    .where(eq(users.id, emp.userId));
+
+                return {
+                    id: emp.id,
+                    fullName: emp.fullName,
+                    partnerId: emp.partnerId,
+                    phone: user?.phone || '',
+                    services: emp.services || [],
+                    isOnline: emp.isOnline,
+                    activeJobCount: jobCountMap.get(emp.id) || 0,
+                    completedJobCount: emp.totalServicesCompleted || 0,
+                    averageRating: emp.averageRating || '0.00',
+                };
+            })
+        );
+
+        // 3. Compute stats
+        const totalPending = queue.length;
+        const urgentCount = queue.filter((r) => r.urgency === 'urgent').length;
+        const avgWaitHours = totalPending > 0
+            ? Math.round((queue.reduce((sum, r) => sum + r.waitingHours, 0) / totalPending) * 10) / 10
+            : 0;
+        const oldestHours = totalPending > 0
+            ? Math.max(...queue.map((r) => r.waitingHours))
+            : 0;
+
+        return {
+            queue,
+            employees: enrichedEmployees,
+            stats: { totalPending, urgentCount, avgWaitHours, oldestHours },
         };
     }
 }

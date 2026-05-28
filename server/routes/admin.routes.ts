@@ -18,6 +18,24 @@ export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
 
     /**
+     * GET /api/admin/assignment-queue
+     * Returns pending requests (with customer info), available employees (with workload), and stats.
+     * Used by the dedicated Assignment Queue admin page.
+     */
+    app.get("/api/admin/assignment-queue", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const result = await AdminServiceManager.getAssignmentQueue();
+            res.json({ success: true, ...result });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
      * GET /api/admin/services
      * View all service bookings with filters
      */

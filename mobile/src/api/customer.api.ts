@@ -185,4 +185,49 @@ export const customerApi = {
     // Shop payment order
     createShopOrder: (data: { amount: number; address: string }) =>
         apiClient.post<ApiResponse<{ razorpayOrderId: string; razorpayKeyId: string; amount: number }>>('/api/shop/create-order', data),
+
+    // Image Uploads
+    uploadImage: async (uri: string, folder: string = 'general'): Promise<string> => {
+        const formData = new FormData();
+        const filename = uri.split('/').pop() || 'photo.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        formData.append('image', { uri, name: filename, type } as any);
+
+        const response = await apiClient.post<ApiResponse<{ url: string }>>(`/api/upload/image?folder=${folder}`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 30000,
+        });
+        return response.data.data.url;
+    },
+
+    uploadImages: async (uris: string[], folder: string = 'general'): Promise<string[]> => {
+        const formData = new FormData();
+        uris.forEach((uri, index) => {
+            const filename = uri.split('/').pop() || `photo_${index}.jpg`;
+            const match = /\.(\w+)$/.exec(filename);
+            const type = match ? `image/${match[1]}` : 'image/jpeg';
+            formData.append('images', { uri, name: filename, type } as any);
+        });
+
+        const response = await apiClient.post<ApiResponse<{ urls: string[] }>>(`/api/upload/images?folder=${folder}`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 60000,
+        });
+        return response.data.data.urls;
+    },
+
+    uploadProfilePicture: async (uri: string): Promise<string> => {
+        const formData = new FormData();
+        const filename = uri.split('/').pop() || 'profile.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        formData.append('image', { uri, name: filename, type } as any);
+
+        const response = await apiClient.post<ApiResponse<{ profilePicture: string }>>('/api/client/profile/picture', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 30000,
+        });
+        return response.data.data.profilePicture;
+    },
 };

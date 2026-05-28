@@ -20,7 +20,7 @@ function getApiBaseUrl(): string {
     if (!__DEV__) return 'https://unitefix-backend.onrender.com';
 
     // Try to extract IP from expo-constants (works in Expo Go and dev builds)
-    const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost ?? '';
+    const hostUri = Constants.expoConfig?.hostUri ?? (Constants as any).manifest?.debuggerHost ?? '';
     const hostIp = hostUri.split(':')[0];
 
     if (hostIp && hostIp !== 'localhost') {

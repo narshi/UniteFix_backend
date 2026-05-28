@@ -84,6 +84,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
             if (data?.razorpayOrder?.orderId) {
                 const paymentResponse = await openRazorpayCheckout({
                     razorpayOrderId: data.razorpayOrder.orderId,
+                    razorpayKeyId: data.razorpayOrder.razorpayKeyId,
                     amount: data.razorpayOrder.amount,
                     description: `Final Payment — Booking #${request.id}`,
                 });
