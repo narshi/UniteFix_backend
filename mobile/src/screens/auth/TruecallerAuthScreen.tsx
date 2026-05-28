@@ -69,7 +69,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   // Initialize Theme and Animations
   useEffect(() => {
     // Set Truecaller Theme based on app color scheme
-    setTheme(colors.isDark ? 'dark' : 'light');
+    setTheme('light');
 
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -156,7 +156,8 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const isValidIndianPhone = (num: string) => /^[6-9]\d{9}$/.test(num.replace(/[\s\-()]/g, ''));
 
   /**
-   * Request Runtime Permissions strictly required for Drop Call
+   * Request Runtime Permissions for Drop Call (best-effort).
+   * If denied, we gracefully fall to email OTP instead of blocking.
    */
   const requestDropCallPermissions = async (): Promise<boolean> => {
     if (Platform.OS !== 'android') return false;
@@ -164,18 +165,14 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
         PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-        PermissionsAndroid.PERMISSIONS.ANSWER_PHONE_CALLS,
-        PermissionsAndroid.PERMISSIONS.CALL_PHONE,
       ]);
 
+      // Only READ_PHONE_STATE is essential; READ_CALL_LOG is nice-to-have
       return (
-        granted[PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE] === PermissionsAndroid.RESULTS.GRANTED &&
-        granted[PermissionsAndroid.PERMISSIONS.READ_CALL_LOG] === PermissionsAndroid.RESULTS.GRANTED &&
-        (granted[PermissionsAndroid.PERMISSIONS.ANSWER_PHONE_CALLS] === PermissionsAndroid.RESULTS.GRANTED || 
-         granted[PermissionsAndroid.PERMISSIONS.CALL_PHONE] === PermissionsAndroid.RESULTS.GRANTED)
+        granted[PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE] === PermissionsAndroid.RESULTS.GRANTED
       );
     } catch (err) {
-      console.warn(err);
+      if (__DEV__) console.warn('[Permissions]', err);
       return false;
     }
   };
@@ -218,6 +215,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
   /**
    * 2. DROP CALL FLOW: Start Verification
+   *    If permissions are denied, falls through to email OTP.
    */
   const handleStartDropCall = async () => {
     if (!isValidIndianPhone(phone)) {
@@ -230,7 +228,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
     const hasPermissions = await requestDropCallPermissions();
     if (!hasPermissions) {
-      setAuthError('Phone permissions are required to verify the missed call securely.');
+      // Permissions denied → gracefully switch to email OTP
+      setFallbackStep('email_otp');
+      setAuthError('Phone permissions not available. Please verify via email OTP instead.');
       setIsAuthenticating(false);
       return;
     }
@@ -445,13 +445,20 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                           autoFocus={!isAvailable}
                         />
                       </View>
-                      <Text style={styles.hintText}>We will place a missed call to verify this number.</Text>
+                      <Text style={styles.hintText}>We will verify this number via missed call or email OTP.</Text>
                       <Pressable
                         style={[styles.submitButton, !isValidIndianPhone(phone) && styles.submitButtonDisabled]}
                         onPress={handleStartDropCall}
                         disabled={!isValidIndianPhone(phone)}
                       >
                         <Text style={styles.submitButtonText}>Verify Number</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.manualTriggerBtn}
+                        onPress={() => { setFallbackStep('email_otp'); }}
+                      >
+                        <Mail size={16} color={colors.textPrimary} />
+                        <Text style={styles.manualTriggerText}>Or verify with Email OTP</Text>
                       </Pressable>
                     </>
                   )}
