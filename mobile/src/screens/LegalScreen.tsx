@@ -18,8 +18,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, ExternalLink, FileText, Shield, Scale } from 'lucide-react-native';
-import { colors } from '../../theme/colors';
-import { fontSizes, fontWeights } from '../../theme/typography';
+import { colors } from '../theme/colors';
+import { fontSizes, fontWeights } from '../theme/typography';
 
 const LEGAL_DOCS = [
   {
