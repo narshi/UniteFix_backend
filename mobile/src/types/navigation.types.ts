@@ -7,6 +7,7 @@ export type AuthStackParamList = {
     RoleSelection: undefined;
     TruecallerAuth: { role: 'user' | 'serviceman' };
     EmployeePending: undefined;
+    Legal: undefined;
 };
 
 

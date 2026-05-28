@@ -13,6 +13,7 @@ import { SplashScreen } from '../screens/auth/SplashScreen';
 import { RoleSelectionScreen } from '../screens/auth/RoleSelectionScreen';
 import { TruecallerAuthScreen } from '../screens/auth/TruecallerAuthScreen';
 import { EmployeePendingScreen } from '../screens/auth/EmployeePendingScreen';
+import { LegalScreen } from '../screens/LegalScreen';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
@@ -28,6 +29,7 @@ export function AuthStack() {
             <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
             <Stack.Screen name="TruecallerAuth" component={TruecallerAuthScreen} />
             <Stack.Screen name="EmployeePending" component={EmployeePendingScreen} />
+            <Stack.Screen name="Legal" component={LegalScreen} />
         </Stack.Navigator>
     );
 }

@@ -18,7 +18,6 @@ import {
   Dimensions,
   StatusBar,
   Image,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -244,7 +243,7 @@ export function RoleSelectionScreen({ navigation }: Props) {
         By continuing, you agree to our{' '}
         <Text
           style={styles.footerLink}
-          onPress={() => Linking.openURL('https://unitefix.com/assets/terms-and-conditions.pdf')}
+          onPress={() => navigation.navigate('Legal')}
         >
           Terms of Service & Privacy Policy
         </Text>
