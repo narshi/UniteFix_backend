@@ -11,8 +11,7 @@
 import RazorpayCheckout from 'react-native-razorpay';
 import { Alert } from 'react-native';
 
-// Razorpay test key — also sent from backend per-request
-const DEFAULT_KEY_ID = 'rzp_test_S4tdycF8xSAo2L';
+// Razorpay key must come from backend — no hardcoded fallback
 
 export interface RazorpayOrderInfo {
     razorpayOrderId: string;
@@ -39,8 +38,12 @@ export interface RazorpaySuccessResponse {
 export async function openRazorpayCheckout(
     orderInfo: RazorpayOrderInfo
 ): Promise<RazorpaySuccessResponse> {
+    if (!orderInfo.razorpayKeyId) {
+        throw new Error('Razorpay key not received from server. Payment cannot proceed.');
+    }
+
     const options = {
-        key: orderInfo.razorpayKeyId || DEFAULT_KEY_ID,
+        key: orderInfo.razorpayKeyId,
         amount: (orderInfo.amount * 100).toString(), // Rupees → Paise (string)
         currency: orderInfo.currency || 'INR',
         name: 'UniteFix',

@@ -43,6 +43,7 @@ import { registerAdminVerificationRoutes } from "./routes/admin-verification.rou
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
+import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 
@@ -1444,6 +1445,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             amount: pricingSnapshot.bookingFee,
             currency: 'INR',
           };
+
+          // Record booking payment in payment_transactions via Drizzle ORM
+          await PaymentTrackingService.recordPaymentEvent({
+            serviceRequestId: service.id,
+            razorpayOrderId: order.id,
+            amount: amountInPaise, // stored as paise
+            currency: 'INR',
+            eventType: 'order_created',
+            status: 'pending',
+            metadata: { paymentType: 'booking_charge', customerId: req.user!.userId },
+          });
 
           logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
         }

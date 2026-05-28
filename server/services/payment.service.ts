@@ -14,7 +14,8 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
+import { paymentTransactions } from "@shared/schema";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
 import logger from "../lib/logger";
@@ -97,26 +98,7 @@ export class PaymentService {
             },
         });
 
-        // Save to database
-        await db.execute(sql`
-      INSERT INTO payment_transactions (
-        transaction_id,
-        service_request_id,
-        razorpay_order_id,
-        amount,
-        payment_type,
-        payment_status
-      ) VALUES (
-        ${`txn_${Date.now()}_${serviceRequestId}`},
-        ${serviceRequestId},
-        ${order.id},
-        ${amount / 100},
-        'booking_charge',
-        'pending'
-      )
-    `);
-
-        // PHASE 10: Record to payment audit trail
+        // Record to payment audit trail (uses Drizzle ORM with correct columns)
         await PaymentTrackingService.recordPaymentEvent({
             serviceRequestId,
             razorpayOrderId: order.id,
@@ -161,30 +143,11 @@ export class PaymentService {
             },
         });
 
-        // Save to database
-        await db.execute(sql`
-      INSERT INTO payment_transactions (
-        transaction_id,
-        service_request_id,
-        razorpay_order_id,
-        amount,
-        payment_type,
-        payment_status
-      ) VALUES (
-        ${`txn_${Date.now()}_${serviceRequestId}`},
-        ${serviceRequestId},
-        ${order.id},
-        ${invoice.amountDue},
-        'final_payment',
-        'pending'
-      )
-    `);
-
-        // PHASE 10: Record to payment audit trail
+        // Record to payment audit trail (uses Drizzle ORM with correct columns)
         await PaymentTrackingService.recordPaymentEvent({
             serviceRequestId,
             razorpayOrderId: order.id,
-            amount: invoice.amountDue * 100, // in paise
+            amount: invoice.amountDue * 100, // convert rupees → paise for DB
             currency: 'INR',
             eventType: 'order_created',
             status: 'pending',
@@ -294,30 +257,33 @@ export class PaymentService {
         if (event === "payment.captured") {
             const paymentId = payload.payment.entity.id;
             const orderId = payload.payment.entity.order_id;
-            const amount = payload.payment.entity.amount / 100;
+            const amountPaise = payload.payment.entity.amount; // Razorpay sends paise
 
-            // Update payment transaction
-            await db.execute(sql`
-        UPDATE payment_transactions 
-        SET payment_status = 'captured',
-            razorpay_payment_id = ${paymentId},
-            webhook_verified = true,
-            webhook_verified_at = NOW(),
-            updated_at = NOW()
-        WHERE razorpay_order_id = ${orderId}
-      `);
-
-            // PHASE 10: Record capture to audit trail
+            // Record capture event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
                 razorpayOrderId: orderId,
                 razorpayPaymentId: paymentId,
-                amount: amount * 100, // in paise
+                amount: amountPaise, // stored as paise
                 currency: 'INR',
                 eventType: 'payment_captured',
                 status: 'captured',
                 method: payload.payment?.entity?.method,
                 metadata: payload.payment?.entity,
             });
+
+            // Also update bookingFeeStatus on the service_requests table
+            const notes = payload.payment?.entity?.notes;
+            if (notes?.payment_type === 'booking_charge' && notes?.service_request_id) {
+                try {
+                    await db.execute(sql`
+                        UPDATE service_requests
+                        SET booking_fee_status = 'paid', updated_at = NOW()
+                        WHERE id = ${parseInt(notes.service_request_id)}
+                    `);
+                } catch (err: any) {
+                    logger.warn(`[WEBHOOK] bookingFeeStatus update failed: ${err.message}`);
+                }
+            }
 
             return {
                 success: true,
@@ -327,18 +293,12 @@ export class PaymentService {
 
         if (event === "payment.failed") {
             const orderId = payload.payment.entity.order_id;
+            const amountPaise = payload.payment.entity.amount || 0; // Razorpay sends paise
 
-            await db.execute(sql`
-        UPDATE payment_transactions 
-        SET payment_status = 'failed',
-                updated_at = NOW()
-        WHERE razorpay_order_id = ${orderId}
-                `);
-
-            // PHASE 10: Record failure to audit trail
+            // Record failure event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
                 razorpayOrderId: orderId,
-                amount: payload.payment.entity.amount / 100 || 0,
+                amount: amountPaise, // stored as paise
                 eventType: 'payment_failed',
                 status: 'failed',
                 metadata: payload.payment?.entity,
@@ -358,17 +318,19 @@ export class PaymentService {
      * Called before allowing COMPLETED transition
      */
     static async isFinalPaymentVerified(serviceRequestId: number): Promise<boolean> {
-        const paymentResult = await db.execute(sql`
-      SELECT id FROM payment_transactions 
-      WHERE service_request_id = ${serviceRequestId}
-        AND payment_type = 'final_payment'
-        AND payment_status = 'captured'
-        AND webhook_verified = true
-      LIMIT 1
-                `) as any;
-        const payment = paymentResult?.[0];
+        // Use Drizzle ORM with correct column names (status, eventType)
+        const results = await db.select({ id: paymentTransactions.id })
+            .from(paymentTransactions)
+            .where(
+                and(
+                    eq(paymentTransactions.serviceRequestId, serviceRequestId),
+                    eq(paymentTransactions.eventType, 'payment_captured'),
+                    eq(paymentTransactions.status, 'captured')
+                )
+            )
+            .limit(1);
 
-        return !!payment;
+        return results.length > 0;
     }
 
     /**

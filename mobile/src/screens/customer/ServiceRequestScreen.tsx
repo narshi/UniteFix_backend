@@ -3,7 +3,7 @@
  * User selects service type, provides description, address, and optional photos
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -16,10 +16,12 @@ import {
     TextInput,
     Image,
     ActivityIndicator,
+    SafeAreaView,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { useCreateServiceRequest, usePublicConfig } from '../../hooks/useCustomerData';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
@@ -44,11 +46,27 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const [photos, setPhotos] = useState<string[]>([]);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
     const { data: publicConfig } = usePublicConfig();
 
     const bookingFee = publicConfig?.bookingFee ?? 99;
+
+    // Get device GPS location on mount for geofence support
+    useEffect(() => {
+        (async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    const loc = await Location.getCurrentPositionAsync({});
+                    setDeviceLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+                }
+            } catch (e) {
+                // Location is optional — geofence will skip if not available
+            }
+        })();
+    }, []);
 
     const validate = (): boolean => {
         const newErrors: Record<string, string> = {};
@@ -148,6 +166,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     pinCode,
                                     urgency,
                                     photos: photoUrls.length > 0 ? photoUrls : undefined,
+                                    // Send GPS coordinates for geofence enforcement
+                                    ...(deviceLocation ? {
+                                        customerLocation: `POINT(${deviceLocation.lng} ${deviceLocation.lat})`,
+                                    } : {}),
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -201,9 +223,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     };
 
     return (
+        <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
             style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
             {/* Header */}
             <View style={styles.header}>
@@ -327,10 +350,15 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                 />
             </ScrollView>
         </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
+    safeArea: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
     container: {
         flex: 1,
         backgroundColor: colors.background,
@@ -339,7 +367,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingTop: 50,
+        paddingTop: spacing.md,
         paddingBottom: spacing.md,
         paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,

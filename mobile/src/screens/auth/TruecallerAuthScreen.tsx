@@ -162,15 +162,13 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const requestDropCallPermissions = async (): Promise<boolean> => {
     if (Platform.OS !== 'android') return false;
     try {
-      const granted = await PermissionsAndroid.requestMultiple([
+      const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
-        PermissionsAndroid.PERMISSIONS.READ_CALL_LOG,
-      ]);
-
-      // Only READ_PHONE_STATE is essential; READ_CALL_LOG is nice-to-have
-      return (
-        granted[PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE] === PermissionsAndroid.RESULTS.GRANTED
       );
+
+      // READ_PHONE_STATE is essential for drop-call verification
+      // READ_CALL_LOG is stripped from AndroidManifest — do NOT request it
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
     } catch (err) {
       if (__DEV__) console.warn('[Permissions]', err);
       return false;

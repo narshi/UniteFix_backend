@@ -14,7 +14,8 @@ import { authenticateToken, authenticatePartner } from "../middleware/auth.middl
 import { mobileLimiter } from "../middleware/rate-limit";
 import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
-import { serviceRequests } from "@shared/schema";
+import { PaymentTrackingService } from "../services/payment-tracking.service";
+import { serviceRequests, paymentTransactions } from "@shared/schema";
 
 export function registerPaymentRoutes(app: Express) {
     /**
@@ -293,19 +294,31 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(400).json({ success: false, message: "Invalid payment signature" });
             }
 
-            // Update payment_transactions table if it exists
+            // Record verified payment via Drizzle ORM (correct columns)
+            await PaymentTrackingService.recordPaymentEvent({
+                razorpayOrderId: razorpay_order_id,
+                razorpayPaymentId: razorpay_payment_id,
+                amount: 0, // Amount will be updated by webhook
+                eventType: 'payment_captured',
+                status: 'captured',
+                metadata: { verifiedVia: 'mobile_sdk', razorpay_signature },
+            });
+
+            // Update bookingFeeStatus for any service request linked to this order
             try {
-                await db.execute(sql`
-                    UPDATE payment_transactions
-                    SET payment_status = 'captured',
-                        razorpay_payment_id = ${razorpay_payment_id},
-                        razorpay_signature = ${razorpay_signature},
-                        updated_at = NOW()
-                    WHERE razorpay_order_id = ${razorpay_order_id}
-                `);
+                // Find the service request associated with this Razorpay order
+                const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
+                    .from(paymentTransactions)
+                    .where(eq(paymentTransactions.razorpayOrderId, razorpay_order_id))
+                    .limit(1);
+
+                if (txns[0]?.serviceRequestId) {
+                    await db.update(serviceRequests)
+                        .set({ bookingFeeStatus: 'paid' as any, updatedAt: new Date() })
+                        .where(eq(serviceRequests.id, txns[0].serviceRequestId));
+                }
             } catch (dbErr: any) {
-                // Table may not exist yet — log but don't fail
-                console.warn(`[PAYMENT] DB update skipped: ${dbErr.message}`);
+                console.warn(`[PAYMENT] bookingFeeStatus update skipped: ${dbErr.message}`);
             }
 
             console.log(`[PAYMENT] ✅ Verified payment ${razorpay_payment_id} for order ${razorpay_order_id}`);
@@ -351,6 +364,16 @@ export function registerPaymentRoutes(app: Express) {
                     payment_type: 'product_order',
                     address: (address || '').substring(0, 200),
                 },
+            });
+
+            // Record order in payment_transactions via Drizzle ORM
+            await PaymentTrackingService.recordPaymentEvent({
+                razorpayOrderId: order.id,
+                amount: Math.round(amount * 100), // paise
+                currency: 'INR',
+                eventType: 'order_created',
+                status: 'pending',
+                metadata: { paymentType: 'product_order', customerId },
             });
 
             console.log(`[SHOP] Razorpay order ${order.id} created for customer ${customerId}, amount: ₹${amount}`);

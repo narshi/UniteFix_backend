@@ -81,6 +81,7 @@ export interface CreateServiceRequest {
     photos?: string[];
     scheduledDate?: string;
     urgency?: 'normal' | 'urgent';
+    customerLocation?: string; // WKT POINT(lng lat) for geofence
 }
 
 export interface UserProfile {
