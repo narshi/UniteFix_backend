@@ -29,50 +29,62 @@ export default function ServiceCatalogPage() {
   const createCategoryMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/admin/catalog/categories", data);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
       toast({ title: "Success", description: "Category created successfully" });
       setIsCategoryModalOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
 
   const updateCategoryMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number, data: any }) => {
       const res = await apiRequest("PATCH", `/api/admin/catalog/categories/${id}`, data);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
       toast({ title: "Success", description: "Category updated successfully" });
       setIsCategoryModalOpen(false);
       setEditingCategory(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
 
   const createServiceMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/admin/catalog/services", data);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
       toast({ title: "Success", description: "Service created successfully" });
       setIsServiceModalOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
 
   const updateServiceMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number, data: any }) => {
       const res = await apiRequest("PATCH", `/api/admin/catalog/services/${id}`, data);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
       toast({ title: "Success", description: "Service updated successfully" });
       setIsServiceModalOpen(false);
       setEditingService(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     }
   });
 
@@ -85,6 +97,16 @@ export default function ServiceCatalogPage() {
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
       isActive: formData.get('isActive') === 'on'
     };
+
+    const isDuplicate = categories.some((cat: any) => 
+      cat.name.toLowerCase() === data.name.toLowerCase() && 
+      (!editingCategory || cat.id !== editingCategory.id)
+    );
+
+    if (isDuplicate) {
+      toast({ title: "Validation Error", description: "A category with this name already exists", variant: "destructive" });
+      return;
+    }
 
     if (editingCategory) {
       updateCategoryMutation.mutate({ id: editingCategory.id, data });

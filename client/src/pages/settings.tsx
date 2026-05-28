@@ -111,20 +111,31 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       // Save all DB-backed fields
-      const promises: Promise<any>[] = [];
+      const promises: { key: string; promise: Promise<any> }[] = [];
       for (const [field, configKey] of Object.entries(FIELD_TO_KEY)) {
         const value = String((settings as any)[field]);
-        promises.push(
-          apiRequest("PATCH", `/api/admin/config/${encodeURIComponent(configKey)}`, { value })
-        );
+        promises.push({
+          key: configKey,
+          promise: apiRequest("PATCH", `/api/admin/config/${encodeURIComponent(configKey)}`, { value })
+        });
       }
       
-      await Promise.all(promises);
+      const results = await Promise.allSettled(promises.map(p => p.promise));
+      const failed = results.filter(r => r.status === 'rejected');
       
-      toast({
-        title: "Settings Saved",
-        description: "All configuration values have been updated successfully."
-      });
+      if (failed.length === 0) {
+        toast({
+          title: "Settings Saved",
+          description: "All configuration values have been updated successfully."
+        });
+      } else if (failed.length < promises.length) {
+        toast({
+          title: "Partially Saved",
+          description: `Saved ${promises.length - failed.length} settings. Failed to save ${failed.length} settings (e.g., read-only fields).`,
+        });
+      } else {
+        throw new Error("Failed to save all settings");
+      }
     } catch (error: any) {
       toast({
         title: "Save Failed",

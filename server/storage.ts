@@ -87,7 +87,7 @@ import {
   Notification
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne } from "drizzle-orm";
 import crypto from "crypto";
 // PHASE 2: State machine imports
 import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
@@ -724,11 +724,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createServiceCategory(category: InsertServiceCategory): Promise<ServiceCategory> {
+    const existing = await db
+      .select()
+      .from(serviceCategories)
+      .where(ilike(serviceCategories.name, category.name));
+    
+    if (existing.length > 0) {
+      throw new Error(`Category with name "${category.name}" already exists`);
+    }
+
     const [result] = await db.insert(serviceCategories).values(category).returning();
     return result;
   }
 
   async updateServiceCategory(id: number, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined> {
+    if (updates.name) {
+      const existing = await db
+        .select()
+        .from(serviceCategories)
+        .where(
+          and(
+            ilike(serviceCategories.name, updates.name),
+            ne(serviceCategories.id, id)
+          )
+        );
+      
+      if (existing.length > 0) {
+        throw new Error(`Category with name "${updates.name}" already exists`);
+      }
+    }
+
     const [result] = await db
       .update(serviceCategories)
       .set(updates)
@@ -1413,8 +1438,16 @@ export class DatabaseStorage implements IStorage {
           description: config.description,
           isEditable: config.isEditable ?? true,
         });
+      } else if (existing.isEditable !== (config.isEditable ?? true)) {
+        await db.update(platformConfig)
+          .set({ isEditable: config.isEditable ?? true })
+          .where(eq(platformConfig.key, config.key));
       }
     }
+
+    // Clean up stale legacy keys
+    const legacyKeys = ['BOOKING_FEE', 'GST_RATE', 'PARTNER_COMMISSION', 'OTP_EXPIRY_MINUTES'];
+    await db.delete(platformConfig).where(inArray(platformConfig.key, legacyKeys)).catch(() => {});
   }
 
   // ==================== PHASE 2: AUDIT LOGGING ====================
@@ -1998,6 +2031,7 @@ export class DatabaseStorage implements IStorage {
 
   constructor() {
     this.ensureDefaultDistrict().catch(console.error);
+    this.seedDefaultConfig().catch(console.error);
   }
 }
 
