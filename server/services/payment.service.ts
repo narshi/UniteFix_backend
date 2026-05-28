@@ -28,17 +28,40 @@ export class PaymentService {
     private static razorpay: Razorpay;
 
     /**
-   * Initialize Razorpay instance
-     */
+   * Initialize Razorpay instance.
+   * Priority: process.env → platform_config DB table.
+   * Env vars are the source of truth for secrets; DB may contain seed placeholders.
+   */
     private static async getRazorpayInstance(): Promise<Razorpay> {
         if (this.razorpay) return this.razorpay;
 
-        const keyId = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_ID");
-        const keySecret = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_SECRET");
+        // Prefer env vars (always authoritative for secrets)
+        let keyId = process.env.RAZORPAY_KEY_ID;
+        let keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+        // Fall back to DB config only if env vars are missing
+        if (!keyId) {
+            keyId = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_ID") || undefined;
+        }
+        if (!keySecret) {
+            keySecret = await configService.get<string>("PAYMENT_CONFIG.RAZORPAY_KEY_SECRET") || undefined;
+        }
+
+        // Guard against seed placeholders like 'rzp_test_xxxxx' or 'secret_xxxxx'
+        if (keyId && (keyId.includes('xxxxx') || keyId.length < 15)) {
+            logger.warn('[RAZORPAY] DB key looks like a placeholder, clearing');
+            keyId = process.env.RAZORPAY_KEY_ID;
+        }
+        if (keySecret && (keySecret.includes('xxxxx') || keySecret.length < 15)) {
+            logger.warn('[RAZORPAY] DB secret looks like a placeholder, clearing');
+            keySecret = process.env.RAZORPAY_KEY_SECRET;
+        }
 
         if (!keyId || !keySecret) {
             throw new Error("Razorpay credentials not configured");
         }
+
+        logger.info(`[RAZORPAY] Initialized with key: ${keyId.substring(0, 12)}...`);
 
         this.razorpay = new Razorpay({
             key_id: keyId,

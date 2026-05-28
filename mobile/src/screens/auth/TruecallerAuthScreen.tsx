@@ -241,7 +241,14 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       await requestVerification(normalized, 'IN');
       // The Native UI will emit events handled in useEffect
     } catch (err: any) {
-      setAuthError(err.message || 'Failed to start verification');
+      const msg = (err.message || '').toLowerCase();
+      // If the SDK rejects the phone (invalid, unsupported, etc.) → auto-fall to email OTP
+      if (msg.includes('invalid') || msg.includes('phone') || msg.includes('unsupported') || msg.includes('not supported')) {
+        setFallbackStep('email_otp');
+        setAuthError('Missed call verification unavailable for this number. Please use email OTP instead.');
+      } else {
+        setAuthError(err.message || 'Failed to start verification');
+      }
       setIsAuthenticating(false);
     }
   };
