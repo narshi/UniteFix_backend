@@ -12,6 +12,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 // Production-ready pool configuration
+const isRemoteDb = process.env.DATABASE_URL.includes("render.com") || 
+                   process.env.DATABASE_URL.includes("amazonaws.com") ||
+                   process.env.DB_SSL === "true";
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: parseInt(process.env.DB_POOL_MAX || '50'),                // Maximum connections (up from 20)
@@ -20,6 +24,7 @@ export const pool = new Pool({
   allowExitOnIdle: process.env.NODE_ENV !== 'production',         // Allow clean exit in dev
   application_name: 'unitefix-backend',                           // Shows in pg_stat_activity
   options: '-c statement_timeout=30000',                          // 30s query timeout — prevents connection hogging
+  ssl: isRemoteDb ? { rejectUnauthorized: false } : undefined,
 });
 
 // Log pool errors (don't crash the process)
