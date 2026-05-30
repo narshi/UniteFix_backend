@@ -263,21 +263,31 @@ router.post('/email/verify-request', async (req: Request, res: Response, next: N
     }
 
     // Send via Nodemailer
-    const { NotificationService } = await import('../services/notification.service');
-    await NotificationService.sendEmail(
-      normalizedEmail,
-      'UniteFix — Verify Your Email',
-      `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-        <h2 style="color: #1a1a2e; text-align: center;">Verify Your Email</h2>
-        <p style="color: #555; text-align: center;">Use the code below to verify your email address:</p>
-        <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-          <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
-        </div>
-        <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes.</p>
-      </div>`
-    );
+    try {
+      const { NotificationService } = await import('../services/notification.service');
+      await NotificationService.sendEmail(
+        normalizedEmail,
+        'UniteFix — Verify Your Email',
+        `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+          <h2 style="color: #1a1a2e; text-align: center;">Verify Your Email</h2>
+          <p style="color: #555; text-align: center;">Use the code below to verify your email address:</p>
+          <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+            <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
+          </div>
+          <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes.</p>
+        </div>`
+      );
+      logger.info(`[EMAIL_VERIFY] Code sent to ${normalizedEmail} for user ${user.userId}`);
+    } catch (smtpError: any) {
+      logger.error('[EMAIL_VERIFY] SMTP send failed', { email: normalizedEmail, error: smtpError.message });
+      // Always log the OTP code in case of SMTP failure, even in production, so administrators can find it
+      logger.warn(`[OTP FALLBACK LOG] Failed to send email via SMTP. The generated verification OTP code for ${normalizedEmail} is: ${otp}`);
+      return res.status(503).json({
+        success: false,
+        message: 'Could not send verification email right now. Please try again.',
+      });
+    }
 
-    logger.info(`[EMAIL_VERIFY] Code sent to ${normalizedEmail} for user ${user.userId}`);
     res.json({ success: true, message: 'Verification code sent to your email' });
   } catch (error) {
     next(error);
@@ -360,6 +370,8 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
       );
     } catch (smtpError: any) {
       logger.error('[FALLBACK_OTP] SMTP send failed', { email: normalizedEmail, error: smtpError.message });
+      // Always log the OTP code in case of SMTP failure, even in production, so administrators can find it
+      logger.warn(`[OTP FALLBACK LOG] Failed to send email via SMTP. The generated OTP code for ${normalizedEmail} (${normalizedPhone}) is: ${otp}`);
       // OTP is stored — user can retry. Return 503 with clear message body.
       return res.status(503).json({
         success: false,
