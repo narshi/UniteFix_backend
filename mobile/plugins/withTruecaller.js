@@ -364,10 +364,15 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
             else if (requestCode == VerificationCallback.TYPE_MISSED_CALL_RECEIVED) {
                 sendEvent("TruecallerVerificationEvent", params);
             } 
-            else if (requestCode == VerificationCallback.TYPE_VERIFICATION_COMPLETE || 
-                     requestCode == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
+            else if (requestCode == VerificationCallback.TYPE_VERIFICATION_COMPLETE) {
                 if (bundle != null) {
                     params.putString("accessToken", bundle.getString(VerificationDataBundle.KEY_ACCESS_TOKEN));
+                }
+                sendEvent("TruecallerVerificationEvent", params);
+            }
+            else if (requestCode == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
+                if (bundle != null && bundle.getProfile() != null) {
+                    params.putString("accessToken", bundle.getProfile().accessToken);
                 }
                 sendEvent("TruecallerVerificationEvent", params);
             }
