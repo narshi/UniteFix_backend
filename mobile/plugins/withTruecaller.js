@@ -72,7 +72,10 @@ function withTruecallerManifest(config, clientId) {
 
     // Add Drop Call Permissions
     const permissionsToAdd = [
-      "android.permission.READ_PHONE_STATE"
+      "android.permission.READ_PHONE_STATE",
+      "android.permission.READ_CALL_LOG",
+      "android.permission.ANSWER_PHONE_CALLS",
+      "android.permission.CALL_PHONE"
     ];
 
     if (!cfg.modResults.manifest["uses-permission"]) {
