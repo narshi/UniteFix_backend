@@ -258,6 +258,10 @@ router.post('/email/verify-request', async (req: Request, res: Response, next: N
       expiresAt,
     });
 
+    if (process.env.NODE_ENV === 'development') {
+      logger.info(`[DEV ONLY] Email verification OTP for ${normalizedEmail} is: ${otp}`);
+    }
+
     // Send via Nodemailer
     const { NotificationService } = await import('../services/notification.service');
     await NotificationService.sendEmail(
@@ -334,6 +338,10 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
       purpose: 'fallback_login',
       expiresAt,
     });
+
+    if (process.env.NODE_ENV === 'development') {
+      logger.info(`[DEV ONLY] Fallback login OTP for ${normalizedEmail} (${normalizedPhone}) is: ${otp}`);
+    }
 
     // Send email — wrap separately so SMTP errors return a clean JSON
     try {

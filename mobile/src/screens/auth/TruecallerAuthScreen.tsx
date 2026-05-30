@@ -112,9 +112,10 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
     const errorSub = truecallerEmitter.addListener('TruecallerVerificationError', (event) => {
       console.error('[TC_ERROR]', event.error);
-      setAuthError(event.error || 'Verification failed. Please try again.');
+      // Automatically fallback to email OTP on missed call / drop call failure
+      setFallbackStep('email_otp');
+      setAuthError(event.error ? `Truecaller verification failed: ${event.error}. Please verify via email OTP.` : 'Truecaller verification failed. Please verify via email OTP.');
       setIsAuthenticating(false);
-      setFallbackStep('phone');
     });
 
     return () => {
