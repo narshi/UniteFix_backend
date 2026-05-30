@@ -80,11 +80,21 @@ export class PaymentService {
         serviceRequestId: number,
         customerId: number
     ): Promise<{ orderId: string; amount: number; currency: string }> {
-        const razorpay = await this.getRazorpayInstance();
-
         // Get booking charge from config (₹99 default — matches schema and BillingEngine)
         const bookingCharge = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
-        const amount = parseFloat(bookingCharge || "99") * 100; // Convert to paise
+        const parsedAmount = parseFloat(bookingCharge || "99");
+
+        if (parsedAmount <= 0) {
+            // Free booking — no Razorpay order required
+            return {
+                orderId: `free_booking_${serviceRequestId}_${Date.now()}`,
+                amount: 0,
+                currency: "INR",
+            };
+        }
+
+        const razorpay = await this.getRazorpayInstance();
+        const amount = parsedAmount * 100; // Convert to paise
 
         // Create Razorpay order
         const order = await razorpay.orders.create({

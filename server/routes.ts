@@ -1409,6 +1409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const service = await storage.createServiceRequest({
         ...serviceData,
         bookingFee: pricingSnapshot.bookingFee,
+        bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
       });
 
       // Write the frozen snapshot to the service_requests row
@@ -1418,50 +1419,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Attempt to create Razorpay booking charge order using frozen fee
       let paymentInfo = null;
-      try {
-        const keyId = process.env.RAZORPAY_KEY_ID;
-        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+      if (pricingSnapshot.bookingFee > 0) {
+        try {
+          const keyId = process.env.RAZORPAY_KEY_ID;
+          const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
-        if (keyId && keySecret) {
-          const Razorpay = (await import('razorpay')).default;
-          const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+          if (keyId && keySecret) {
+            const Razorpay = (await import('razorpay')).default;
+            const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
 
-          const amountInPaise = pricingSnapshot.bookingFee * 100;
+            const amountInPaise = pricingSnapshot.bookingFee * 100;
 
-          const order = await razorpay.orders.create({
-            amount: amountInPaise,
-            currency: 'INR',
-            receipt: `booking_${service.id}_${Date.now()}`,
-            notes: {
-              service_request_id: service.id.toString(),
-              customer_id: req.user!.userId.toString(),
-              payment_type: 'booking_charge',
-            },
-          });
+            const order = await razorpay.orders.create({
+              amount: amountInPaise,
+              currency: 'INR',
+              receipt: `booking_${service.id}_${Date.now()}`,
+              notes: {
+                service_request_id: service.id.toString(),
+                customer_id: req.user!.userId.toString(),
+                payment_type: 'booking_charge',
+              },
+            });
 
-          paymentInfo = {
-            razorpayOrderId: order.id,
-            razorpayKeyId: keyId,
-            amount: pricingSnapshot.bookingFee,
-            currency: 'INR',
-          };
+            paymentInfo = {
+              razorpayOrderId: order.id,
+              razorpayKeyId: keyId,
+              amount: pricingSnapshot.bookingFee,
+              currency: 'INR',
+            };
 
-          // Record booking payment in payment_transactions via Drizzle ORM
-          await PaymentTrackingService.recordPaymentEvent({
-            serviceRequestId: service.id,
-            razorpayOrderId: order.id,
-            amount: amountInPaise, // stored as paise
-            currency: 'INR',
-            eventType: 'order_created',
-            status: 'pending',
-            metadata: { paymentType: 'booking_charge', customerId: req.user!.userId },
-          });
+            // Record booking payment in payment_transactions via Drizzle ORM
+            await PaymentTrackingService.recordPaymentEvent({
+              serviceRequestId: service.id,
+              razorpayOrderId: order.id,
+              amount: amountInPaise, // stored as paise
+              currency: 'INR',
+              eventType: 'order_created',
+              status: 'pending',
+              metadata: { paymentType: 'booking_charge', customerId: req.user!.userId },
+            });
 
-          logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
+            logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
+          }
+        } catch (payError: any) {
+          logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
+          // Don't block booking — proceed without payment for dev/testing
         }
-      } catch (payError: any) {
-        logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
-        // Don't block booking — proceed without payment for dev/testing
+      } else {
+        logger.info(`[BOOKING] Free booking created for service ${service.id}.`);
       }
 
       res.status(201).json({

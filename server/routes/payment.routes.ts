@@ -46,6 +46,7 @@ export function registerPaymentRoutes(app: Express) {
                 address,
                 status: 'created',
                 bookingFee: pricingSnapshot.bookingFee,
+                bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
             });
 
             // Write the frozen snapshot to the service_requests row
