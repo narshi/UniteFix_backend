@@ -156,7 +156,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const { mutate: rateService, isPending: submittingRating } = useRateService();
     const { data: publicConfig } = usePublicConfig();
     
-    const bookingFee = publicConfig?.bookingFee ?? 99;
+    const bookingFee = request?.bookingFee ?? publicConfig?.bookingFee ?? 99;
     const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
     const timelineSteps = getTimelineSteps(bookingFee);
 
@@ -336,7 +336,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         <View style={styles.cancelledNote}>
                             <XCircle size={16} color={colors.error} />
                             <Text style={styles.cancelledText}>
-                                This booking was cancelled. Your ₹99 booking fee has been refunded.
+                                This booking was cancelled. Your ₹{bookingFee} booking fee has been refunded.
                             </Text>
                         </View>
                     )}

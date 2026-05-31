@@ -145,7 +145,7 @@ function BookingCard({ item, onPress, index }: { item: ServiceRequest; onPress: 
                     {item.totalCharge ? (
                         <Text style={cardStyles.amount}>₹{item.totalCharge}</Text>
                     ) : (
-                        <Text style={cardStyles.bookingFee}>₹99 paid</Text>
+                        <Text style={cardStyles.bookingFee}>₹{item.bookingFee ?? 99} paid</Text>
                     )}
                     <ChevronRight size={16} color={colors.textDisabled} />
                 </View>

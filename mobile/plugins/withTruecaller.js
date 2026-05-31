@@ -149,7 +149,9 @@ import com.truecaller.android.sdk.common.VerificationCallback;
 import com.truecaller.android.sdk.common.VerificationDataBundle;
 import com.truecaller.android.sdk.common.models.TrueProfile;
 
+import androidx.activity.result.ActivityResultLauncher;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 
 public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements ActivityEventListener {
 
@@ -174,7 +176,7 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
     }
 
     /**
-     * Initialize the Truecaller SDK on UI Thread
+     * Initialize the Truecaller SDK (building options on UI thread, and executing init on background thread)
      */
     @ReactMethod
     public void initialize(Promise promise) {
@@ -190,11 +192,18 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
                         .sdkOptions(TcSdkOptions.OPTION_VERIFY_ALL_USERS) // Required for Drop Call fallback
                         .build();
 
-                TcSdk.init(options);
-                Log.d(TAG, "Truecaller OAuth SDK initialized with Drop Call Support");
-                promise.resolve(true);
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    try {
+                        TcSdk.init(options);
+                        Log.d(TAG, "Truecaller OAuth SDK initialized on background thread");
+                        promise.resolve(true);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to initialize SDK on background thread", e);
+                        promise.reject("INIT_ERROR", e.getMessage());
+                    }
+                });
             } catch (Exception e) {
-                Log.e(TAG, "Failed to initialize SDK", e);
+                Log.e(TAG, "Failed to build options on UI thread", e);
                 promise.reject("INIT_ERROR", e.getMessage());
             }
         });
@@ -256,7 +265,18 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
                     instance.setOAuthState(state);
                     instance.setCodeChallenge(codeChallenge);
                     instance.setOAuthScopes(new String[]{"openid", "profile", "phone", "email"});
-                    instance.getAuthorizationCode((FragmentActivity) activity);
+                    if (activity instanceof MainActivity) {
+                        MainActivity mainActivity = (MainActivity) activity;
+                        if (mainActivity.truecallerLauncher != null) {
+                            instance.getAuthorizationCode(mainActivity, mainActivity.truecallerLauncher);
+                        } else {
+                            promise.reject("LAUNCHER_NULL", "Truecaller launcher not initialized");
+                            mPromise = null;
+                        }
+                    } else {
+                        promise.reject("INVALID_ACTIVITY", "Activity is not MainActivity");
+                        mPromise = null;
+                    }
                 } else {
                     promise.reject("NOT_INITIALIZED", "SDK not initialized");
                     mPromise = null;
@@ -364,15 +384,10 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
             else if (requestCode == VerificationCallback.TYPE_MISSED_CALL_RECEIVED) {
                 sendEvent("TruecallerVerificationEvent", params);
             } 
-            else if (requestCode == VerificationCallback.TYPE_VERIFICATION_COMPLETE) {
+            else if (requestCode == VerificationCallback.TYPE_VERIFICATION_COMPLETE || 
+                     requestCode == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
                 if (bundle != null) {
                     params.putString("accessToken", bundle.getString(VerificationDataBundle.KEY_ACCESS_TOKEN));
-                }
-                sendEvent("TruecallerVerificationEvent", params);
-            }
-            else if (requestCode == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
-                if (bundle != null && bundle.getProfile() != null) {
-                    params.putString("accessToken", bundle.getProfile().accessToken);
                 }
                 sendEvent("TruecallerVerificationEvent", params);
             }
@@ -391,7 +406,7 @@ public class TruecallerOAuthModule extends ReactContextBaseJavaModule implements
         try {
             TcSdk instance = TcSdk.getInstance();
             if (instance != null) {
-                instance.onActivityResultObtained((FragmentActivity) activity, requestCode, resultCode, data);
+                instance.onActivityResultObtained((FragmentActivity) activity, resultCode, data);
             }
         } catch (Exception e) {}
     }

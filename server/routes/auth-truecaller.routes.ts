@@ -484,7 +484,10 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
 
     const response = await fetch(`https://sdk-otp-verification-noneu.truecaller.com/v1/otp/client/installation/phoneNumberDetail/${accessToken}`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'clientId': TRUECALLER_CLIENT_ID || '4gniidv8yotvmqym7nwgcfven6mk36mqep70ikeq8qs',
+      },
     });
 
     if (!response.ok) {

@@ -204,7 +204,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Actions</Text>
                         <View style={styles.actionRow}>
-                            <Button title="✓ Accept" onPress={handleAccept} loading={accepting} style={styles.acceptBtn} />
+                            <View style={{ flex: 1 }}>
+                                <Button title="✓ Accept" onPress={handleAccept} loading={accepting} />
+                            </View>
                             <TouchableOpacity style={styles.denyBtn} onPress={handleDeny} disabled={denying}>
                                 <XCircle size={18} color={colors.error} />
                                 <Text style={styles.denyText}>Deny</Text>

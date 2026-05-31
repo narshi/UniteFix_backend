@@ -198,19 +198,19 @@ export class PaymentService {
         `) as any;
         const sr = srResult?.[0];
 
-        const bookingFee = parseInt(sr?.booking_fee || '99');
+        const bookingFee = (sr?.booking_fee !== undefined && sr?.booking_fee !== null) ? parseInt(sr.booking_fee) : 99;
         const snapshot = sr?.pricing_snapshot;
 
         // If snapshot exists with billing data, use it directly
         if (snapshot && snapshot.grossTotal && snapshot.finalTotal !== undefined) {
             return {
-                bookingCharge: snapshot.bookingFee || bookingFee,
+                bookingCharge: (snapshot.bookingFee !== undefined && snapshot.bookingFee !== null) ? snapshot.bookingFee : bookingFee,
                 serviceCharge: snapshot.subtotal || serviceCharge,
                 subtotal: snapshot.taxableAmount || (serviceCharge + bookingFee),
                 gstPercentage: snapshot.gstPercent || 18,
                 gstAmount: (snapshot.cgst || 0) + (snapshot.sgst || 0),
                 totalAmount: snapshot.grossTotal,
-                amountPaid: snapshot.bookingFeeCredit || bookingFee,
+                amountPaid: (snapshot.bookingFeeCredit !== undefined && snapshot.bookingFeeCredit !== null) ? snapshot.bookingFeeCredit : bookingFee,
                 amountDue: snapshot.finalTotal,
             };
         }
@@ -378,11 +378,13 @@ export class PaymentService {
             cgst = snapshot.cgst || 0;
             sgst = snapshot.sgst || 0;
             totalAmount = snapshot.grossTotal;
-            bookingFee = snapshot.bookingFeeCredit || snapshot.bookingFee || 99;
+            bookingFee = (snapshot.bookingFeeCredit !== undefined && snapshot.bookingFeeCredit !== null)
+                ? snapshot.bookingFeeCredit
+                : ((snapshot.bookingFee !== undefined && snapshot.bookingFee !== null) ? snapshot.bookingFee : 99);
         } else {
             // Legacy fallback: reverse-engineer from totalAmount (less precise)
             totalAmount = parseInt(sr.total_amount);
-            bookingFee = parseInt(sr.booking_fee || '99');
+            bookingFee = (sr.booking_fee !== undefined && sr.booking_fee !== null) ? parseInt(sr.booking_fee) : 99;
             const taxableAmountCalc = Math.round(totalAmount / 1.18);
             const totalGst = totalAmount - taxableAmountCalc;
             baseAmount = taxableAmountCalc;

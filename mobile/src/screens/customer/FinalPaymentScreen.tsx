@@ -118,7 +118,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const subtotal = sparePartsCost + serviceLaborCost;
     const platformFee = billing.platformFee || Math.round(subtotal * 0.15);
     const gst = billing.gst || Math.round((subtotal + platformFee) * 0.18);
-    const bookingCredit = publicConfig?.bookingFee ?? 99;
+    const bookingCredit = request?.bookingFee ?? publicConfig?.bookingFee ?? 99;
     const total = billing.finalTotal || request.totalCharge || (subtotal + platformFee + gst - bookingCredit);
 
     if (paymentState === 'success') {

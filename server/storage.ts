@@ -147,7 +147,7 @@ export interface IStorage {
   getServiceRequest(id: number): Promise<ServiceRequest | undefined>;
   getServiceRequestByServiceId(serviceId: string): Promise<ServiceRequest | undefined>;
   getUserServiceRequests(userId: number): Promise<ServiceRequest[]>;
-  getProviderServiceRequests(providerId: number): Promise<ServiceRequest[]>;
+  getProviderServiceRequests(providerId: number): Promise<any[]>;
   updateServiceRequest(id: number, updates: Partial<ServiceRequest>): Promise<ServiceRequest | undefined>;
   updateServiceRequestStatus(id: number, status: string): Promise<ServiceRequest | undefined>;
   assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined>;
@@ -622,10 +622,48 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(serviceRequests.createdAt));
   }
 
-  async getProviderServiceRequests(providerId: number): Promise<ServiceRequest[]> {
+  async getProviderServiceRequests(providerId: number): Promise<any[]> {
     return await db
-      .select()
+      .select({
+        id: serviceRequests.id,
+        serviceId: serviceRequests.serviceId,
+        userId: serviceRequests.userId,
+        providerId: serviceRequests.providerId,
+        serviceType: serviceRequests.serviceType,
+        brand: serviceRequests.brand,
+        model: serviceRequests.model,
+        description: serviceRequests.description,
+        photos: serviceRequests.photos,
+        status: serviceRequests.status,
+        handshakeOtp: serviceRequests.handshakeOtp,
+        bookingFee: serviceRequests.bookingFee,
+        bookingFeeStatus: serviceRequests.bookingFeeStatus,
+        totalAmount: serviceRequests.totalAmount,
+        commissionAmount: serviceRequests.commissionAmount,
+        customerLocation: serviceRequests.customerLocation,
+        address: serviceRequests.address,
+        preferredDate: serviceRequests.preferredDate,
+        preferredTimeSlot: serviceRequests.preferredTimeSlot,
+        assignedAt: serviceRequests.assignedAt,
+        reachedAt: serviceRequests.reachedAt,
+        reachedLat: serviceRequests.reachedLat,
+        reachedLong: serviceRequests.reachedLong,
+        startedAt: serviceRequests.startedAt,
+        completedAt: serviceRequests.completedAt,
+        adminNotes: serviceRequests.adminNotes,
+        pricingSnapshot: serviceRequests.pricingSnapshot,
+        paymentMethod: serviceRequests.paymentMethod,
+        serviceValueTier: serviceRequests.serviceValueTier,
+        cashCollectedBy: serviceRequests.cashCollectedBy,
+        cashCollectedAt: serviceRequests.cashCollectedAt,
+        urgency: serviceRequests.urgency,
+        createdAt: serviceRequests.createdAt,
+        updatedAt: serviceRequests.updatedAt,
+        customerName: users.username,
+        customerPhone: users.phone,
+      })
       .from(serviceRequests)
+      .leftJoin(users, eq(serviceRequests.userId, users.id))
       .where(eq(serviceRequests.providerId, providerId))
       .orderBy(desc(serviceRequests.createdAt));
   }
@@ -1543,7 +1581,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.transaction(async (tx: any) => {
       // 1. Update service request status
       const statusUpdate: any = {
-        status: legacyState,
+        status: newState,
         updatedAt: new Date(),
       };
 
@@ -1568,7 +1606,7 @@ export class DatabaseStorage implements IStorage {
         entityId: serviceRequestId,
         action: 'state_change',
         fromState: service.status, // Log legacy state for debugging
-        toState: legacyState,       // Log legacy state for debugging  
+        toState: newState,       // Log legacy state for debugging  
         changedBy,
         metadata: {
           canonicalFromState: currentState,

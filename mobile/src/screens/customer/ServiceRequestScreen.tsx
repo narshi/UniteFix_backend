@@ -16,8 +16,8 @@ import {
     TextInput,
     Image,
     ActivityIndicator,
-    SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';

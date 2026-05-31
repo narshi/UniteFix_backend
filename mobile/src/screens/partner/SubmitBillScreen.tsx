@@ -57,9 +57,9 @@ export function SubmitBillScreen({ navigation, route }: Props) {
             try {
                 const { data } = await apiClient.get('/api/config/public');
                 const config = data?.data || data; // Handle both { data: {...} } and direct shapes
-                if (config?.platformFeePercent) setFeePercent(config.platformFeePercent);
-                if (config?.gstRate) setGstPercent(config.gstRate);
-                if (config?.bookingFee) setBookingFee(config.bookingFee);
+                if (config?.platformFeePercent !== undefined && config?.platformFeePercent !== null) setFeePercent(config.platformFeePercent);
+                if (config?.gstRate !== undefined && config?.gstRate !== null) setGstPercent(config.gstRate);
+                if (config?.bookingFee !== undefined && config?.bookingFee !== null) setBookingFee(config.bookingFee);
             } catch (err) {
                 // Use defaults if config fetch fails
                 console.warn('Failed to fetch billing config, using defaults');

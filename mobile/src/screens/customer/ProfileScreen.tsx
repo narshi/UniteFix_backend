@@ -369,5 +369,5 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.md,
     },
     menuLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    menuLabel: { ...typography.bodyMedium },
+    menuLabel: { ...typography.bodyMedium, color: colors.textPrimary },
 });
