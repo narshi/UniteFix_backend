@@ -118,8 +118,22 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         verifyOtp({ serviceId: assignment.serviceId || assignment.id, otp });
     };
 
-    const handleStart = () => {
-        startSvc({ serviceId: assignment.serviceId || assignment.id });
+    const handleStart = async () => {
+        try {
+            const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Location permission is required to start the service.');
+                return;
+            }
+            const location = await ExpoLocation.getCurrentPositionAsync({});
+            startSvc({ 
+                serviceId: assignment.serviceId || assignment.id,
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude
+            });
+        } catch (error) {
+            Alert.alert('Error', 'Failed to get location. Please enable GPS.');
+        }
     };
 
     const handleEnterCharge = () => {

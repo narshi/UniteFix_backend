@@ -20,7 +20,7 @@ import {
     partnerWallets, walletTransactionsV2, invoices,
     supportTickets, ticketMessages,
 } from "@shared/schema";
-import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
+import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
@@ -319,7 +319,7 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/profile
      * Get authenticated user's profile
      */
-    app.get("/api/client/profile", authenticateToken, async (req: Request, res, next) => {
+    app.get("/api/client/profile", authenticateAny, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
             const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -356,7 +356,7 @@ export function registerClientFeatureRoutes(app: Express) {
      * PATCH /api/client/profile
      * Update user profile (name, email, address, pinCode)
      */
-    app.patch("/api/client/profile", authenticateToken, async (req: Request, res, next) => {
+    app.patch("/api/client/profile", authenticateAny, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
             const { username, email, homeAddress, pinCode, savedAddresses } = req.body;
@@ -428,7 +428,7 @@ export function registerClientFeatureRoutes(app: Express) {
         },
     });
 
-    app.post("/api/client/profile/picture", authenticateToken, profileUpload.single('image'), async (req: Request, res, next) => {
+    app.post("/api/client/profile/picture", authenticateAny, profileUpload.single('image'), async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
             let profilePictureUrl: string;
@@ -466,7 +466,7 @@ export function registerClientFeatureRoutes(app: Express) {
      * DELETE /api/client/profile/picture
      * Remove profile picture
      */
-    app.delete("/api/client/profile/picture", authenticateToken, async (req: Request, res, next) => {
+    app.delete("/api/client/profile/picture", authenticateAny, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
 
@@ -489,7 +489,7 @@ export function registerClientFeatureRoutes(app: Express) {
      * - Password users: must send { password: "..." } in body
      * - Truecaller-only users: must send { confirmDelete: true } (phone already verified via TC)
      */
-    app.delete("/api/client/account", authenticateToken, async (req: Request, res, next) => {
+    app.delete("/api/client/account", authenticateAny, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
             const { password, confirmDelete } = req.body;

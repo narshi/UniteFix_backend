@@ -63,7 +63,10 @@ export function useVerifyHandshake() {
     return useMutation({
         mutationFn: ({ serviceId, otp }: { serviceId: number; otp: string }) =>
             partnerApi.verifyHandshake(serviceId, otp),
-        onSuccess: () => qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+            Alert.alert('Verified!', 'OTP verified successfully.');
+        },
         onError: (e) => Alert.alert('OTP Error', getApiErrorMessage(e)),
     });
 }

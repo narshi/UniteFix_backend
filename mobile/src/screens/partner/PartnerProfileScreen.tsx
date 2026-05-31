@@ -358,6 +358,6 @@ const styles = StyleSheet.create({
     menuItem: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md,
     },
-    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    menuLabel: { ...typography.bodyMedium, color: colors.textPrimary },
+    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+    menuLabel: { ...typography.bodyMedium, color: colors.textPrimary, flexShrink: 1 },
 });
