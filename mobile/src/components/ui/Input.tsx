@@ -23,6 +23,7 @@ interface InputProps extends TextInputProps {
     icon?: React.ReactNode;
     isPassword?: boolean;
     containerStyle?: ViewStyle;
+    rightElement?: React.ReactNode;
 }
 
 export function Input({
@@ -31,6 +32,7 @@ export function Input({
     icon,
     isPassword = false,
     containerStyle,
+    rightElement,
     ...textInputProps
 }: InputProps) {
     const [isFocused, setIsFocused] = useState(false);
@@ -73,6 +75,11 @@ export function Input({
                             <Eye size={20} color={colors.textSecondary} />
                         )}
                     </TouchableOpacity>
+                )}
+                {rightElement && (
+                    <View style={styles.rightElement}>
+                        {rightElement}
+                    </View>
                 )}
             </View>
             {error && <Text style={styles.errorText}>{error}</Text>}
@@ -126,5 +133,8 @@ const styles = StyleSheet.create({
         fontSize: fontSizes.xs,
         color: colors.error,
         marginTop: spacing.xs,
+    },
+    rightElement: {
+        paddingRight: spacing.md,
     },
 });

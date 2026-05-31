@@ -204,20 +204,25 @@ export function PartnerProfileScreen() {
                         <Input label="Full Name" value={username} onChangeText={setUsername} icon={<User size={18} color={colors.textSecondary} />} />
                         <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" icon={<Mail size={18} color={colors.textSecondary} />} />
                         <Input label="Phone (Read-only)" value={phone} editable={false} style={{ color: colors.textSecondary }} icon={<Phone size={18} color={colors.textSecondary} />} />
-                        <View style={{ position: 'relative' }}>
-                            <Input label="Address" value={homeAddress} onChangeText={setHomeAddress} icon={<MapPin size={18} color={colors.textSecondary} />} />
-                            <TouchableOpacity
-                                style={{ position: 'absolute', right: 10, top: 38, padding: 5 }}
-                                onPress={handleFetchLocation}
-                                disabled={fetchingLocation}
-                            >
-                                {fetchingLocation ? (
-                                    <ActivityIndicator size="small" color={colors.primary} />
-                                ) : (
-                                    <Navigation size={20} color={colors.primary} />
-                                )}
-                            </TouchableOpacity>
-                        </View>
+                        <Input 
+                            label="Address" 
+                            value={homeAddress} 
+                            onChangeText={setHomeAddress} 
+                            icon={<MapPin size={18} color={colors.textSecondary} />} 
+                            rightElement={
+                                <TouchableOpacity
+                                    onPress={handleFetchLocation}
+                                    disabled={fetchingLocation}
+                                    style={{ padding: 4 }}
+                                >
+                                    {fetchingLocation ? (
+                                        <ActivityIndicator size="small" color={colors.primary} />
+                                    ) : (
+                                        <Navigation size={20} color={colors.primary} />
+                                    )}
+                                </TouchableOpacity>
+                            }
+                        />
                         <View style={styles.editActions}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)}>
                                 <Text style={styles.cancelText}>Cancel</Text>

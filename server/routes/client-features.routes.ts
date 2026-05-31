@@ -369,8 +369,10 @@ export function registerClientFeatureRoutes(app: Express) {
                     if (existingUser && existingUser.id !== userId) {
                         return res.status(400).json({ success: false, message: "Email is already registered to another user" });
                     }
+                    updates.email = email.trim();
+                } else {
+                    updates.email = null;
                 }
-                updates.email = email;
             }
             if (homeAddress !== undefined) updates.homeAddress = homeAddress;
             if (pinCode !== undefined) updates.pinCode = pinCode;
