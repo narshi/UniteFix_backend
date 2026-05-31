@@ -296,7 +296,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    scrollContent: { paddingBottom: spacing['3xl'] },
+    scrollContent: { paddingBottom: 120 },
     profileHeader: {
         alignItems: 'center', paddingTop: 60, paddingBottom: spacing.xl,
         backgroundColor: colors.background, borderBottomLeftRadius: radii['2xl'],
