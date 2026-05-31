@@ -29,6 +29,7 @@ export function PartnerTabs() {
         <Tab.Navigator
             screenOptions={{
                 headerShown: false,
+                tabBarHideOnKeyboard: true,
                 tabBarActiveTintColor: colors.primary,
                 tabBarInactiveTintColor: colors.textDisabled,
                 tabBarStyle: {
