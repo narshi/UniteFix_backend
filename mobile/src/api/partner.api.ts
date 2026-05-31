@@ -69,7 +69,7 @@ export const partnerApi = {
         apiClient.post('/api/service/verify-handshake', { serviceId, otp }),
 
     startService: (serviceId: number, latitude?: number, longitude?: number) =>
-        apiClient.post('/api/service/start', { serviceId, latitude, longitude }),
+        apiClient.post('/api/service/start', { serviceId, providerLat: latitude, providerLong: longitude }),
 
     completeService: (serviceId: number) =>
         apiClient.post('/api/service/complete', { serviceId }),
