@@ -39,6 +39,7 @@ const phoneLoginSchema = z.object({
 const fallbackRequestSchema = z.object({
   phone: z.string().regex(/^(\+91)?[6-9]\d{9}$/, 'Valid Indian mobile number required'),
   email: z.string().email('Valid email is required'),
+  role: z.enum(['user', 'serviceman']),
 });
 
 const fallbackVerifySchema = z.object({
@@ -231,7 +232,10 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
   }
 });
 
-// ── Route: Email Verification Request (Authenticated) ─────────────────
+// ── Route: Save Email to Profile (Authenticated) ─────────────────────
+// NOTE: Email OTP verification is temporarily disabled.
+// This route now just validates the email format and saves it directly.
+// TODO: Re-enable OTP verification when SMTP/Resend is configured.
 
 router.post('/email/verify-request', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -246,56 +250,23 @@ router.post('/email/verify-request', async (req: Request, res: Response, next: N
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const crypto = await import('crypto');
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    await storage.createOtpVerification({
+    // Save email directly to profile (no OTP for now)
+    await storage.updateUser(user.userId, {
       email: normalizedEmail,
-      phone: null,
-      otp,
-      purpose: 'email_verify',
-      expiresAt,
+      emailVerified: false, // Will be set to true once OTP verification is re-enabled
     });
 
-    if (process.env.NODE_ENV === 'development') {
-      logger.info(`[DEV ONLY] Email verification OTP for ${normalizedEmail} is: ${otp}`);
-    }
-
-    // Send via Nodemailer
-    try {
-      const { NotificationService } = await import('../services/notification.service');
-      await NotificationService.sendEmail(
-        normalizedEmail,
-        'UniteFix — Verify Your Email',
-        `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-          <h2 style="color: #1a1a2e; text-align: center;">Verify Your Email</h2>
-          <p style="color: #555; text-align: center;">Use the code below to verify your email address:</p>
-          <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
-          </div>
-          <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes.</p>
-        </div>`
-      );
-      logger.info(`[EMAIL_VERIFY] Code sent to ${normalizedEmail} for user ${user.userId}`);
-    } catch (smtpError: any) {
-      logger.error('[EMAIL_VERIFY] SMTP send failed', { email: normalizedEmail, error: smtpError.message });
-      // Always log the OTP code in case of SMTP failure, even in production, so administrators can find it
-      logger.warn(`[OTP FALLBACK LOG] Failed to send email via SMTP. The generated verification OTP code for ${normalizedEmail} is: ${otp}`);
-      return res.status(503).json({
-        success: false,
-        message: 'Could not send verification email right now. Please try again.',
-      });
-    }
-
-    res.json({ success: true, message: 'Verification code sent to your email' });
+    logger.info(`[EMAIL] Email saved to profile: ${normalizedEmail} for user ${user.userId}`);
+    res.json({ success: true, message: 'Email saved successfully' });
   } catch (error) {
     next(error);
   }
 });
 
-// ── Route: Email Verification Confirm (Authenticated) ─────────────────
-
+// ── Route: Email Verification Confirm — TEMPORARILY DISABLED ──────────
+// TODO: Uncomment when email OTP verification is re-enabled
+/*
 router.post('/email/confirm', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user;
@@ -327,60 +298,82 @@ router.post('/email/confirm', async (req: Request, res: Response, next: NextFunc
     next(error);
   }
 });
+*/
 
 // ── Route: Fallback Authentication (Non-Truecaller Users) ─────────────
 
 router.post('/fallback/request-otp', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { phone, email } = fallbackRequestSchema.parse(req.body);
+    const { phone, email, role } = fallbackRequestSchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
     const normalizedEmail = email.trim().toLowerCase();
 
-    const crypto = await import('crypto');
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    // Direct Login / Registration (OTP bypass)
+    let user = await storage.getUserByPhone(normalizedPhone);
+    let isNewUser = false;
 
-    // Store OTP first (so it's valid even if email is slow)
-    await storage.createOtpVerification({
-      email: normalizedEmail,
-      phone: normalizedPhone,
-      otp,
-      purpose: 'fallback_login',
-      expiresAt,
-    });
+    if (!user) {
+      // Also check email to prevent duplicate accounts if phone changed
+      const existingEmail = await storage.getUserByEmail(normalizedEmail);
+      if (existingEmail) {
+        return res.status(400).json({ success: false, message: 'Email is already registered with another phone number.' });
+      }
 
-    if (process.env.NODE_ENV === 'development') {
-      logger.info(`[DEV ONLY] Fallback login OTP for ${normalizedEmail} (${normalizedPhone}) is: ${otp}`);
-    }
+      isNewUser = true;
+      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
+      const fullName = 'User';
 
-    // Send email — wrap separately so SMTP errors return a clean JSON
-    try {
-      const { NotificationService } = await import('../services/notification.service');
-      await NotificationService.sendEmail(
-        normalizedEmail,
-        'UniteFix — Login Verification Code',
-        `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-          <h2 style="color: #1a1a2e; text-align: center;">Your Login Code</h2>
-          <p style="color: #555; text-align: center;">Use the code below to log into UniteFix:</p>
-          <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
-          </div>
-          <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes.</p>
-        </div>`
-      );
-    } catch (smtpError: any) {
-      logger.error('[FALLBACK_OTP] SMTP send failed', { email: normalizedEmail, error: smtpError.message });
-      // Always log the OTP code in case of SMTP failure, even in production, so administrators can find it
-      logger.warn(`[OTP FALLBACK LOG] Failed to send email via SMTP. The generated OTP code for ${normalizedEmail} (${normalizedPhone}) is: ${otp}`);
-      // OTP is stored — user can retry. Return 503 with clear message body.
-      return res.status(503).json({
-        success: false,
-        message: 'Could not send email right now. Please check your email address and try again.',
+      user = await storage.createUser({
+        phone: normalizedPhone,
+        email: normalizedEmail,
+        password: null as any,
+        username: fullName,
+        role: userRole as any,
+        phoneVerified: false,
+        emailVerified: true,
+        isVerified: true,
+        isActive: userRole === 'user',
       });
+
+      if (userRole === 'serviceman') {
+        await storage.createEmployee({
+          userId: user.id,
+          fullName,
+          partnerType: 'Individual',
+          services: [],
+          isActive: false,
+          isOnline: false,
+        });
+      } else {
+        await storage.createCustomer({ userId: user.id, fullName });
+      }
+    } else {
+      // Existing user — ensure email is updated/verified
+      if (!user.emailVerified || user.email !== normalizedEmail) {
+        await storage.updateUser(user.id, { email: normalizedEmail, emailVerified: true });
+      }
     }
 
-    logger.info(`[FALLBACK_OTP] OTP sent to ${normalizedEmail}`);
-    res.json({ success: true, message: 'OTP sent to your email' });
+    const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+    let profileData = null;
+    if (user.role === 'serviceman') {
+      const emp = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: emp };
+    } else {
+      const customer = await storage.getCustomerByUserId(user.id);
+      profileData = { customer };
+    }
+
+    logger.info(`[FALLBACK_OTP_BYPASS] Direct login success: ${normalizedEmail} (${normalizedPhone})`);
+
+    res.json({
+      success: true,
+      message: isNewUser ? 'Account created successfully' : 'Login successful',
+      isNewUser,
+      user: { ...user, password: undefined },
+      profile: profileData,
+      ...tokens,
+    });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: error.errors[0].message });

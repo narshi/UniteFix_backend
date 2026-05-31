@@ -222,7 +222,9 @@ export function PartnerProfileScreen() {
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)}>
                                 <Text style={styles.cancelText}>Cancel</Text>
                             </TouchableOpacity>
-                            <Button title="Save" onPress={handleSave} loading={saving} style={{ flex: 1 }} />
+                            <View style={{ flex: 1 }}>
+                                <Button title="Save" onPress={handleSave} loading={saving} fullWidth={true} />
+                            </View>
                         </View>
                     </View>
                 ) : (

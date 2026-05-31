@@ -74,7 +74,15 @@ export function registerPaymentRoutes(app: Express) {
      */
     app.post("/api/technician/services/:id/enter-service-charge", authenticatePartner as any, async (req: Request, res: Response) => {
         try {
-            const serviceId = parseInt(req.params.id);
+            const serviceIdParam = req.params.id;
+            const isStringId = typeof serviceIdParam === 'string' && isNaN(Number(serviceIdParam));
+            let serviceId = parseInt(serviceIdParam);
+
+            if (isStringId) {
+                const service = await storage.getServiceRequestByServiceId(serviceIdParam);
+                if (!service) return res.status(404).json({ error: "Service not found" });
+                serviceId = service.id;
+            }
             const { serviceAmount, partsUsed, notes } = req.body;
             const technicianId = (req as any).user?.userId;
 

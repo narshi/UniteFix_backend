@@ -61,7 +61,7 @@ export interface ServiceRequest {
     // Technician
     servicemanName?: string;
     servicemanPhone?: string;
-    // State
+    // State / OTP
     handshakeOtp?: string;
     otp?: string;
     assignedAt?: string;

@@ -471,7 +471,8 @@ export function registerAdminRoutes(app: Express) {
 
             const filters = {
                 role: req.query.role as string,
-                search: req.query.search as string
+                search: req.query.search as string,
+                status: req.query.status as string
             };
 
             const users = await storage.getUsers(filters);

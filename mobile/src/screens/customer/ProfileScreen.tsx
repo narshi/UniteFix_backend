@@ -241,7 +241,9 @@ export function ProfileScreen() {
                             <TouchableOpacity style={styles.cancelEditBtn} onPress={() => setEditing(false)}>
                                 <Text style={styles.cancelEditText}>Cancel</Text>
                             </TouchableOpacity>
-                            <Button title="Save Changes" onPress={handleSave} loading={saving} style={styles.saveBtn} />
+                            <View style={{ flex: 1 }}>
+                                <Button title="Save Changes" onPress={handleSave} loading={saving} fullWidth={true} />
+                            </View>
                         </View>
                     </View>
                 ) : (
@@ -308,7 +310,7 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    scrollContent: { paddingBottom: 100 },
+    scrollContent: { paddingBottom: 140 },
     profileHeader: {
         alignItems: 'center',
         paddingTop: 60,

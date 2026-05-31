@@ -10,10 +10,12 @@ import {
     FlatList,
     RefreshControl,
     ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, DollarSign } from 'lucide-react-native';
-import { useWallet } from '../../hooks/usePartnerData';
+import { useWallet, useWithdraw } from '../../hooks/usePartnerData';
 import { WalletTransaction } from '../../api/partner.api';
+import { Button } from '../../components/ui/Button';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -47,10 +49,30 @@ function TransactionItem({ item }: { item: WalletTransaction }) {
 
 export function WalletScreen() {
     const { data: wallet, isLoading, refetch, isRefetching, isError } = useWallet();
+    const withdrawMutation = useWithdraw();
 
     if (isLoading) {
         return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
     }
+
+    const handleWithdraw = () => {
+        const available = wallet?.availableBalance || 0;
+        if (available < 500) {
+            Alert.alert('Insufficient Balance', 'Minimum withdrawal amount is ₹500.');
+            return;
+        }
+        Alert.alert(
+            'Confirm Withdrawal',
+            `Are you sure you want to withdraw ₹${available} to your bank account?`,
+            [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                    text: 'Withdraw', 
+                    onPress: () => withdrawMutation.mutate({ amount: available, method: 'bank' }) 
+                }
+            ]
+        );
+    };
 
     return (
         <View style={styles.container}>
@@ -69,16 +91,31 @@ export function WalletScreen() {
                 ListHeaderComponent={
                     <View>
                         {/* Summary cards */}
-                        <View style={styles.summaryRow}>
-                            <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
-                                <Wallet size={24} color="#fff" />
-                                <Text style={styles.summaryAmount}>₹{wallet?.totalEarnings || 0}</Text>
-                                <Text style={styles.summaryLabel}>Total Earnings</Text>
+                        <View style={styles.availableCard}>
+                            <View style={styles.availableHeader}>
+                                <Text style={styles.availableLabel}>Available Balance</Text>
+                                <Wallet size={20} color={colors.primary} />
                             </View>
-                            <View style={[styles.summaryCard, { backgroundColor: colors.warning }]}>
-                                <TrendingUp size={24} color="#fff" />
-                                <Text style={styles.summaryAmount}>₹{wallet?.pendingPayments || 0}</Text>
-                                <Text style={styles.summaryLabel}>Pending</Text>
+                            <Text style={styles.availableAmount}>₹{wallet?.availableBalance || 0}</Text>
+                            <Button 
+                                title="Withdraw to Bank" 
+                                onPress={handleWithdraw} 
+                                variant="primary"
+                                loading={withdrawMutation.isPending}
+                                style={styles.withdrawBtn}
+                            />
+                        </View>
+
+                        <View style={styles.summaryRow}>
+                            <View style={[styles.summaryCard, { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }]}>
+                                <TrendingUp size={24} color={colors.success} />
+                                <Text style={[styles.summaryAmount, { color: colors.textPrimary }]}>₹{wallet?.totalEarnings || 0}</Text>
+                                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>Total Earned</Text>
+                            </View>
+                            <View style={[styles.summaryCard, { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }]}>
+                                <Wallet size={24} color={colors.warning} />
+                                <Text style={[styles.summaryAmount, { color: colors.textPrimary }]}>₹{wallet?.pendingPayments || 0}</Text>
+                                <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>On Hold</Text>
                             </View>
                         </View>
 
@@ -120,8 +157,16 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
-    listContent: { padding: spacing.xl, paddingBottom: 100 },
-    summaryRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
+    listContent: { padding: spacing.xl, paddingBottom: 140 },
+    availableCard: {
+        backgroundColor: colors.primaryLight, borderRadius: radii.xl, padding: spacing.xl,
+        marginBottom: spacing.md, borderWidth: 1, borderColor: colors.primary + '30',
+    },
+    availableHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+    availableLabel: { ...typography.bodyMedium, color: colors.textSecondary },
+    availableAmount: { ...typography.h1, color: colors.primaryDark, marginBottom: spacing.lg },
+    withdrawBtn: { width: '100%' },
+    summaryRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xl },
     summaryCard: {
         flex: 1, borderRadius: radii.xl, padding: spacing.lg,
         alignItems: 'flex-start', gap: spacing.sm,

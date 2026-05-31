@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
-const { AlertCircle, ArrowLeft, Search, Grid, ChevronRight, ChevronDown, Inbox } = LucideIcons;
+const { AlertCircle, ArrowLeft, Search, Grid, ChevronRight, ChevronDown, Inbox, X } = LucideIcons;
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CustomerTabParamList, HomeStackParamList } from '../../types/navigation.types';
@@ -18,6 +19,8 @@ export const AllServicesScreen = () => {
     const { data: categories, isLoading, error } = useAllServices();
     
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearchActive, setIsSearchActive] = useState(false);
 
     // Set first category as default when loaded
     useEffect(() => {
@@ -66,29 +69,63 @@ export const AllServicesScreen = () => {
     }
 
     const selectedCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
-    const items = selectedCategory?.items || [];
+    const categoryItems = selectedCategory?.items || [];
+    
+    // Search logic: filter across ALL categories if searching
+    const allServices = categories.flatMap(c => c.items || []);
+    const searchResults = searchQuery.trim() === '' 
+        ? categoryItems 
+        : allServices.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : categoryItems;
 
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <ArrowLeft size={24} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <View>
-                    <Text style={styles.headerTitle}>All Services</Text>
-                    <Text style={styles.headerSubtitle}>{categories.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)} options</Text>
-                </View>
-                <View style={{ flex: 1 }} />
-                <TouchableOpacity style={styles.headerAction}>
-                    <Search size={20} color={colors.textPrimary} />
-                </TouchableOpacity>
+                {isSearchActive ? (
+                    <View style={styles.searchHeaderRow}>
+                        <TouchableOpacity onPress={() => { setIsSearchActive(false); setSearchQuery(''); }} style={styles.backButton}>
+                            <ArrowLeft size={24} color={colors.textPrimary} />
+                        </TouchableOpacity>
+                        <View style={styles.searchInputContainer}>
+                            <Search size={18} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
+                            <TextInput
+                                autoFocus
+                                style={styles.searchInput}
+                                placeholder="Search all services..."
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                placeholderTextColor={colors.textDisabled}
+                            />
+                            {searchQuery.length > 0 && (
+                                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                    <X size={18} color={colors.textSecondary} />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                ) : (
+                    <>
+                        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                            <ArrowLeft size={24} color={colors.textPrimary} />
+                        </TouchableOpacity>
+                        <View>
+                            <Text style={styles.headerTitle}>All Services</Text>
+                            <Text style={styles.headerSubtitle}>{categories.reduce((acc, cat) => acc + (cat.items?.length || 0), 0)} options</Text>
+                        </View>
+                        <View style={{ flex: 1 }} />
+                        <TouchableOpacity style={styles.headerAction} onPress={() => setIsSearchActive(true)}>
+                            <Search size={20} color={colors.textPrimary} />
+                        </TouchableOpacity>
+                    </>
+                )}
             </View>
 
             <View style={styles.mainContent}>
                 {/* Left Sidebar - Categories */}
                 <View style={styles.sidebar}>
-                    <ScrollView showsVerticalScrollIndicator={false}>
+                    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         {categories.map((category) => {
                             const isSelected = category.id === selectedCategoryId;
                             return (
@@ -105,9 +142,20 @@ export const AllServicesScreen = () => {
                                         isSelected && styles.sidebarIconContainerSelected
                                     ]}>
                                         {(() => {
+                                            if (category.icon && category.icon.startsWith('http')) {
+                                                return (
+                                                    <Image
+                                                        source={{ uri: category.icon }}
+                                                        style={{ width: '100%', height: '100%' }}
+                                                        contentFit="cover"
+                                                        transition={200}
+                                                    />
+                                                );
+                                            }
+
                                             const IconName = (category.icon as keyof typeof LucideIcons) || 'Grid';
                                             const CategoryIcon = (LucideIcons[IconName] as any) || Grid;
-                                            return <CategoryIcon size={22} color={isSelected ? colors.primary : colors.textSecondary} />;
+                                            return <CategoryIcon size={22} color={isSelected ? colors.textInverse : colors.textSecondary} />;
                                         })()}
                                     </View>
                                     <Text 
@@ -128,17 +176,29 @@ export const AllServicesScreen = () => {
 
                 {/* Right Content - Services Grid */}
                 <View style={styles.rightContent}>
-                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.rightContentScroll}>
-                        {selectedCategory && (
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.rightContentScroll} keyboardShouldPersistTaps="handled">
+                        {selectedCategory && !isSearchActive && (
                             <View style={styles.categoryHeaderSection}>
-                                <Text style={styles.categoryHeaderTitle}>
-                                    <Text style={{ fontWeight: 'bold', color: colors.textPrimary }}>{items.length} items</Text> in {selectedCategory.name}
-                                </Text>
+                                <View style={styles.categoryTitleRow}>
+                                    <View style={styles.categoryTitleAccent} />
+                                    <Text style={styles.categoryHeaderTitle}>
+                                        {selectedCategory.name}
+                                    </Text>
+                                </View>
+                                <View style={styles.categoryCountBadge}>
+                                    <Text style={styles.categoryCountText}>{itemsToDisplay.length} services available</Text>
+                                </View>
+                            </View>
+                        )}
+                        
+                        {isSearchActive && searchQuery.trim() !== '' && (
+                            <View style={styles.searchResultHeader}>
+                                <Text style={styles.searchResultText}>Found {itemsToDisplay.length} results for "{searchQuery}"</Text>
                             </View>
                         )}
 
                         <View style={styles.servicesGrid}>
-                            {items.length > 0 ? items.map((service) => (
+                            {itemsToDisplay.length > 0 ? itemsToDisplay.map((service) => (
                                 <View key={service.id} style={styles.serviceCardWrapper}>
                                     <ServiceCard
                                         service={service}
@@ -209,6 +269,39 @@ const styles = StyleSheet.create({
     headerAction: {
         padding: spacing.sm,
     },
+    searchHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    searchInputContainer: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: radii.full,
+        paddingHorizontal: spacing.md,
+        height: 40,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    searchInput: {
+        flex: 1,
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+        height: '100%',
+    },
+    searchResultHeader: {
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.xs,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.divider,
+        marginBottom: spacing.md,
+    },
+    searchResultText: {
+        ...typography.bodyMedium,
+        color: colors.textSecondary,
+    },
     mainContent: {
         flex: 1,
         flexDirection: 'row',
@@ -222,14 +315,14 @@ const styles = StyleSheet.create({
     },
     sidebarItem: {
         alignItems: 'center',
-        paddingVertical: spacing.md,
+        paddingVertical: spacing.lg,
         paddingHorizontal: spacing.xs,
         borderBottomWidth: 1,
-        borderBottomColor: colors.border + '50',
+        borderBottomColor: colors.divider,
         position: 'relative',
     },
     sidebarItemSelected: {
-        backgroundColor: colors.primaryLight + '10',
+        backgroundColor: colors.primaryLight + '15',
     },
     sidebarIconContainer: {
         width: 48,
@@ -239,44 +332,79 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: spacing.xs,
+        borderWidth: 1,
+        borderColor: colors.divider,
+        overflow: 'hidden',
     },
     sidebarIconContainerSelected: {
-        backgroundColor: colors.surfaceElevated,
-        ...shadows.sm,
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+        ...shadows.md,
     },
     sidebarText: {
         ...typography.small,
         color: colors.textSecondary,
         textAlign: 'center',
         fontSize: 10,
+        fontWeight: '500',
     },
     sidebarTextSelected: {
-        color: colors.primary,
-        fontWeight: 'bold',
+        color: colors.primaryDark,
+        fontWeight: '800',
     },
     activeIndicator: {
         position: 'absolute',
         left: 0,
-        top: '20%',
-        bottom: '20%',
+        top: '25%',
+        bottom: '25%',
         width: 4,
         backgroundColor: colors.primary,
-        borderTopRightRadius: radii.sm,
-        borderBottomRightRadius: radii.sm,
+        borderTopRightRadius: radii.md,
+        borderBottomRightRadius: radii.md,
     },
     rightContent: {
         flex: 1,
         backgroundColor: colors.surface,
     },
     rightContentScroll: {
-        padding: spacing.md,
+        padding: spacing.lg,
     },
     categoryHeaderSection: {
-        marginBottom: spacing.md,
+        marginBottom: spacing.xl,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: spacing.sm,
+    },
+    categoryTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+    },
+    categoryTitleAccent: {
+        width: 4,
+        height: 20,
+        backgroundColor: colors.primary,
+        borderRadius: radii.full,
     },
     categoryHeaderTitle: {
-        ...typography.body,
-        color: colors.textSecondary,
+        ...typography.h3,
+        color: colors.textPrimary,
+        fontWeight: '800',
+    },
+    categoryCountBadge: {
+        backgroundColor: colors.primarySurface,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 4,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: colors.primaryLight,
+    },
+    categoryCountText: {
+        ...typography.caption,
+        color: colors.primary,
+        fontWeight: '600',
     },
     servicesGrid: {
         flexDirection: 'row',

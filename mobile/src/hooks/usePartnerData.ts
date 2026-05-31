@@ -105,10 +105,19 @@ export function useEnterServiceCharge() {
 export function useWallet() {
     return useQuery({
         queryKey: partnerQueryKeys.wallet,
-        queryFn: async () => {
-            const response = await partnerApi.getWallet();
-            return response.data;
-        },
+        queryFn: () => partnerApi.getWallet(),
         retry: 1,
+    });
+}
+
+export function useWithdraw() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (data: { amount: number; method: 'bank' | 'upi' }) => partnerApi.withdraw(data),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.wallet });
+            Alert.alert('Success', 'Withdrawal requested successfully');
+        },
+        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
 }

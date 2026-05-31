@@ -1307,7 +1307,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { serviceId, otp } = req.body;
 
-      const service = await storage.getServiceRequest(parseInt(serviceId));
+      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
+      const service = isStringId 
+        ? await storage.getServiceRequestByServiceId(serviceId)
+        : await storage.getServiceRequest(parseInt(serviceId as string));
       if (!service) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
@@ -1327,7 +1330,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { serviceId, providerLat, providerLong } = req.body;
 
-      const service = await storage.getServiceRequest(parseInt(serviceId));
+      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
+      const service = isStringId 
+        ? await storage.getServiceRequestByServiceId(serviceId)
+        : await storage.getServiceRequest(parseInt(serviceId as string));
       if (!service) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
@@ -1338,6 +1344,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (match) {
           const custLng = parseFloat(match[1]);
           const custLat = parseFloat(match[2]);
+          
+          if (providerLat === undefined || providerLong === undefined) {
+             return res.status(400).json({ success: false, message: "Provider location is required to verify arrival distance." });
+          }
+
           const distance = calculateDistance(
             providerLat,
             providerLong,
@@ -1354,7 +1365,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const updatedService = await storage.updateServiceRequest(parseInt(serviceId), {
+      const targetId = isStringId ? service.id : parseInt(serviceId as string);
+      const updatedService = await storage.updateServiceRequest(targetId, {
         status: 'in_progress',
         startedAt: new Date()
       });
@@ -1374,8 +1386,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: "serviceId and totalAmount required" });
       }
 
+      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
+      let targetId = isStringId ? null : parseInt(serviceId as string);
+      
+      if (isStringId) {
+        const service = await storage.getServiceRequestByServiceId(serviceId);
+        if (!service) return res.status(404).json({ success: false, message: "Service not found" });
+        targetId = service.id;
+      }
+
       const result = await storage.completeServiceWithTransaction(
-        parseInt(serviceId),
+        targetId!,
         totalAmount,
         0.15 // PHASE 5: 15% UniteFix fee (was COMMISSION_RATE=0.10)
       );

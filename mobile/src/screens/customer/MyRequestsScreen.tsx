@@ -37,7 +37,7 @@ import {
     AlertTriangle,
     Shield,
 } from 'lucide-react-native';
-import { useServiceRequests } from '../../hooks/useCustomerData';
+import { useServiceRequests, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -83,6 +83,8 @@ const chipStyles = StyleSheet.create({
 });
 
 function BookingCard({ item, onPress, index }: { item: ServiceRequest; onPress: () => void; index: number }) {
+    const { data: publicConfig } = usePublicConfig();
+    const defaultBookingFee = publicConfig?.bookingFee ?? 99;
     const slideAnim = useRef(new Animated.Value(30)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -145,7 +147,7 @@ function BookingCard({ item, onPress, index }: { item: ServiceRequest; onPress: 
                     {item.totalCharge ? (
                         <Text style={cardStyles.amount}>₹{item.totalCharge}</Text>
                     ) : (
-                        <Text style={cardStyles.bookingFee}>₹{item.bookingFee ?? 99} paid</Text>
+                        <Text style={cardStyles.bookingFee}>₹{item.bookingFee ?? defaultBookingFee} paid</Text>
                     )}
                     <ChevronRight size={16} color={colors.textDisabled} />
                 </View>
@@ -367,7 +369,7 @@ const styles = StyleSheet.create({
     },
     listContent: {
         padding: spacing.xl,
-        paddingBottom: spacing['5xl'],
+        paddingBottom: 140, // Floating tab bar + safe area inset
     },
     emptyContainer: {
         alignItems: 'center',

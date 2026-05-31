@@ -23,6 +23,7 @@ export default function PartnersPage() {
   const [deductAmount, setDeductAmount] = useState("");
   const [deductReason, setDeductReason] = useState("");
   const [verificationStatusFilter, setVerificationStatusFilter] = useState<string>("all");
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState('');
   const [newPartner, setNewPartner] = useState({
     partnerName: '',
@@ -55,7 +56,11 @@ export default function PartnersPage() {
     const matchesStatus = verificationStatusFilter === "all" ||
       partner.verificationStatus === verificationStatusFilter;
 
-    return matchesSearch && matchesStatus;
+    const matchesActiveStatus = activeStatusFilter === "all" ||
+      (activeStatusFilter === "active" && partner.isActive) ||
+      (activeStatusFilter === "deactivated" && !partner.isActive);
+
+    return matchesSearch && matchesStatus && matchesActiveStatus;
   });
 
   const addPartnerMutation = useMutation({
@@ -260,10 +265,18 @@ export default function PartnersPage() {
               <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
                 <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="all">All Verification</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="verified">Verified</SelectItem>
                   <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={activeStatusFilter} onValueChange={setActiveStatusFilter}>
+                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="deactivated">Deactivated</SelectItem>
                 </SelectContent>
               </Select>
               <Input

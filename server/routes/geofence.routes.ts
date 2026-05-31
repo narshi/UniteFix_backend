@@ -226,6 +226,10 @@ export function registerGeofenceRoutes(app: Express) {
                 .where(eq(serviceRequests.id, bookingId))
                 .returning();
 
+            if (!updated) {
+                return res.status(500).json({ success: false, message: 'Failed to update booking status' });
+            }
+
             logger.info(`[OTP] Verified: Booking ${bookingId} → IN_PROGRESS`);
 
             res.json({
@@ -237,8 +241,9 @@ export function registerGeofenceRoutes(app: Express) {
                     startedAt: updated.startedAt,
                 },
             });
-        } catch (error) {
-            next(error);
+        } catch (error: any) {
+            logger.error('[START SERVICE ERROR]', { message: error.message, stack: error.stack });
+            res.status(500).json({ success: false, message: error.message || 'Internal server error' });
         }
     });
 }

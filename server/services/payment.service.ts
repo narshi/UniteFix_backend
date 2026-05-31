@@ -18,6 +18,7 @@ import { sql, eq, and } from "drizzle-orm";
 import { paymentTransactions } from "@shared/schema";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
+import { BookingState } from "../business/booking-state-machine";
 import logger from "../lib/logger";
 
 interface RazorpayConfig {
@@ -198,7 +199,8 @@ export class PaymentService {
         `) as any;
         const sr = srResult?.[0];
 
-        const bookingFee = (sr?.booking_fee !== undefined && sr?.booking_fee !== null) ? parseInt(sr.booking_fee) : 99;
+        const defaultFee = await configService.get<number>("BUSINESS_CONFIG.BASE_SERVICE_FEE", 99);
+        const bookingFee = (sr?.booking_fee !== undefined && sr?.booking_fee !== null) ? parseInt(sr.booking_fee) : defaultFee;
         const snapshot = sr?.pricing_snapshot;
 
         // If snapshot exists with billing data, use it directly
@@ -295,6 +297,24 @@ export class PaymentService {
                 }
             }
 
+            if (notes?.payment_type === 'final_payment' && notes?.service_request_id) {
+                try {
+                    const { storage } = await import('../storage');
+                    await storage.updateServiceRequestStatus(
+                        parseInt(notes.service_request_id),
+                        BookingState.COMPLETED,
+                        'system',
+                        {
+                            razorpayPaymentId: paymentId,
+                            notes: 'Final payment received via Razorpay webhook'
+                        }
+                    );
+                    logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED`);
+                } catch (err: any) {
+                    logger.warn(`[WEBHOOK] COMPLETED transition failed: ${err.message}`);
+                }
+            }
+
             return {
                 success: true,
                 message: `Payment ${paymentId} captured successfully`,
@@ -372,6 +392,8 @@ export class PaymentService {
         let totalAmount: number;
         let bookingFee: number;
 
+        const defaultFee = await configService.get<number>("BUSINESS_CONFIG.BASE_SERVICE_FEE", 99);
+
         if (snapshot && snapshot.snapshotVersion && snapshot.grossTotal) {
             // Use exact values from the frozen billing snapshot (no reverse-engineering)
             baseAmount = snapshot.taxableAmount || snapshot.subtotal || 0;
@@ -380,11 +402,11 @@ export class PaymentService {
             totalAmount = snapshot.grossTotal;
             bookingFee = (snapshot.bookingFeeCredit !== undefined && snapshot.bookingFeeCredit !== null)
                 ? snapshot.bookingFeeCredit
-                : ((snapshot.bookingFee !== undefined && snapshot.bookingFee !== null) ? snapshot.bookingFee : 99);
+                : ((snapshot.bookingFee !== undefined && snapshot.bookingFee !== null) ? snapshot.bookingFee : defaultFee);
         } else {
             // Legacy fallback: reverse-engineer from totalAmount (less precise)
             totalAmount = parseInt(sr.total_amount);
-            bookingFee = (sr.booking_fee !== undefined && sr.booking_fee !== null) ? parseInt(sr.booking_fee) : 99;
+            bookingFee = (sr.booking_fee !== undefined && sr.booking_fee !== null) ? parseInt(sr.booking_fee) : defaultFee;
             const taxableAmountCalc = Math.round(totalAmount / 1.18);
             const totalGst = totalAmount - taxableAmountCalc;
             baseAmount = taxableAmountCalc;
@@ -429,23 +451,31 @@ export class PaymentService {
     static async refundBookingCharge(serviceRequestId: number): Promise<{ refundId: string } | null> {
         const razorpay = await this.getRazorpayInstance();
 
-        // Find the booking charge payment
-        const paymentResult = await db.execute(sql`
-            SELECT razorpay_payment_id, amount FROM payment_transactions
-            WHERE service_request_id = ${serviceRequestId}
-              AND payment_type = 'booking_charge'
-              AND payment_status = 'captured'
-            LIMIT 1
-        `) as any;
+        // Find the booking charge payment using Drizzle ORM to avoid raw SQL column name issues
+        const paymentResult = await db.select({
+            id: paymentTransactions.id,
+            razorpayPaymentId: paymentTransactions.razorpayPaymentId,
+            amount: paymentTransactions.amount
+        })
+        .from(paymentTransactions)
+        .where(
+            and(
+                eq(paymentTransactions.serviceRequestId, serviceRequestId),
+                eq(paymentTransactions.status, 'captured'),
+                sql`${paymentTransactions.metadata}->>'paymentType' = 'booking_charge'`
+            )
+        )
+        .limit(1);
+        
         const payment = paymentResult?.[0];
 
-        if (!payment?.razorpay_payment_id) {
+        if (!payment?.razorpayPaymentId) {
             logger.warn(`[REFUND] No captured booking payment found for SR ${serviceRequestId}`);
             return null;
         }
 
         try {
-            const refund = await razorpay.payments.refund(payment.razorpay_payment_id, {
+            const refund = await razorpay.payments.refund(payment.razorpayPaymentId, {
                 amount: Math.round(payment.amount * 100), // Convert to paise
                 notes: {
                     service_request_id: serviceRequestId.toString(),
@@ -453,20 +483,18 @@ export class PaymentService {
                 },
             });
 
-            // Update payment record
-            await db.execute(sql`
-                UPDATE payment_transactions
-                SET payment_status = 'refunded',
-                    refund_id = ${refund.id},
-                    updated_at = NOW()
-                WHERE service_request_id = ${serviceRequestId}
-                  AND payment_type = 'booking_charge'
-            `);
+            // Update payment record using correct column 'status'
+            await db.update(paymentTransactions)
+                .set({
+                    status: 'refunded',
+                    updatedAt: new Date()
+                })
+                .where(eq(paymentTransactions.id, payment.id));
 
             // PHASE 10: Record refund to audit trail
             await PaymentTrackingService.recordPaymentEvent({
                 serviceRequestId,
-                razorpayPaymentId: payment.razorpay_payment_id,
+                razorpayPaymentId: payment.razorpayPaymentId,
                 amount: Math.round(payment.amount * 100),
                 currency: 'INR',
                 eventType: 'refund_initiated',

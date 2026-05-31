@@ -19,6 +19,7 @@ import { AuthStackParamList } from '../../types/navigation.types';
 import { useTruecallerAuth, truecallerEmitter } from '../../hooks/useTruecallerAuth';
 import { useAuthStore } from '../../stores/auth.store';
 import { authApi } from '../../api/auth.api';
+import { isValidEmail } from '../../utils/validation';
 import { colors } from '../../theme/colors';
 import { fontSizes, fontWeights } from '../../theme/typography';
 import { Phone, Shield, ChevronLeft, CheckCircle, AlertCircle, User as UserIcon, Mail } from 'lucide-react-native';
@@ -302,55 +303,35 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   };
 
   /**
-   * 5. EMAIL OTP FALLBACK: Request OTP
+   * 5. EMAIL FALLBACK LOGIN: Directly login/register using phone + email
    * Calls POST /api/auth/fallback/request-otp
    */
   const handleRequestEmailOtp = async () => {
-    if (!phone || !email.includes('@')) {
-      setAuthError('Please enter a valid phone number and email address');
+    if (!isValidIndianPhone(phone)) {
+      setAuthError('Please enter a valid 10-digit Indian mobile number');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setAuthError('Please enter a valid email address');
       return;
     }
     setIsAuthenticating(true);
     setAuthError(null);
     try {
       const normalized = phone.replace(/[^0-9]/g, '');
-      await authApi.requestFallbackOtp({ phone: normalized, email: email.trim().toLowerCase() });
-      setOtpSent(true);
-      setFallbackStep('otp_verify');
-    } catch (err: any) {
-      setAuthError(err?.response?.data?.message || err.message || 'Failed to send OTP. Please try again.');
-    } finally {
-      setIsAuthenticating(false);
-    }
-  };
-
-  /**
-   * 6. EMAIL OTP FALLBACK: Verify OTP and login
-   * Calls POST /api/auth/fallback/verify-otp
-   */
-  const handleVerifyEmailOtp = async () => {
-    if (!otp || otp.length < 4) {
-      setAuthError('Please enter the OTP sent to your email');
-      return;
-    }
-    setIsAuthenticating(true);
-    setAuthError(null);
-    try {
-      const normalized = phone.replace(/[^0-9]/g, '');
-      const { data } = await authApi.verifyFallbackOtp({
+      const { data } = await authApi.requestFallbackOtp({
         phone: normalized,
         email: email.trim().toLowerCase(),
-        code: otp,
         role,
       });
       if (data.success) {
         setAuthSuccess(true);
         await loginWithTruecaller(data);
       } else {
-        setAuthError(data.message || 'Invalid OTP. Please try again.');
+        setAuthError(data.message || 'Authentication failed');
       }
     } catch (err: any) {
-      setAuthError(err?.response?.data?.message || err.message || 'OTP verification failed.');
+      setAuthError(err?.response?.data?.message || err.message || 'Failed to authenticate. Please try again.');
     } finally {
       setIsAuthenticating(false);
     }
@@ -430,7 +411,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                   onPress={() => { setShowManualInput(true); setFallbackStep('email_otp'); }}
                 >
                   <Mail size={16} color={colors.textPrimary} />
-                  <Text style={styles.manualTriggerText}>Verify with Email OTP</Text>
+                  <Text style={styles.manualTriggerText}>Verify with Email</Text>
                 </Pressable>
               )}
 
@@ -455,7 +436,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                           autoFocus={!isAvailable}
                         />
                       </View>
-                      <Text style={styles.hintText}>We will verify this number via missed call or email OTP.</Text>
+                      <Text style={styles.hintText}>We will verify this number via missed call or email.</Text>
                       <Pressable
                         style={[styles.submitButton, !isValidIndianPhone(phone) && styles.submitButtonDisabled]}
                         onPress={handleStartDropCall}
@@ -468,7 +449,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                         onPress={() => { setFallbackStep('email_otp'); }}
                       >
                         <Mail size={16} color={colors.textPrimary} />
-                        <Text style={styles.manualTriggerText}>Or verify with Email OTP</Text>
+                        <Text style={styles.manualTriggerText}>Or verify with Email</Text>
                       </Pressable>
                     </>
                   )}
@@ -530,9 +511,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                     <>
                       <View style={styles.emailOtpHeader}>
                         <Mail size={28} color={colors.primary} />
-                        <Text style={styles.emailOtpTitle}>Verify via Email OTP</Text>
+                        <Text style={styles.emailOtpTitle}>Verify via Email</Text>
                         <Text style={styles.emailOtpSubtitle}>
-                          Enter your phone number and email. We'll send a one-time code.
+                          Enter your phone number and email address to continue.
                         </Text>
                       </View>
 
@@ -568,61 +549,15 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                       <Pressable
                         style={[
                           styles.submitButton,
-                          (!isValidIndianPhone(phone) || !email.includes('@')) && styles.submitButtonDisabled,
+                          (!isValidIndianPhone(phone) || !isValidEmail(email)) && styles.submitButtonDisabled,
                         ]}
                         onPress={handleRequestEmailOtp}
-                        disabled={!isValidIndianPhone(phone) || !email.includes('@') || isAuthenticating}
+                        disabled={!isValidIndianPhone(phone) || !isValidEmail(email) || isAuthenticating}
                       >
                         {isAuthenticating
                           ? <ActivityIndicator color="#fff" />
-                          : <Text style={styles.submitButtonText}>Send OTP</Text>
+                          : <Text style={styles.submitButtonText}>Submit</Text>
                         }
-                      </Pressable>
-                    </>
-                  )}
-
-                  {/* EMAIL OTP FALLBACK — Step 2: Enter OTP */}
-                  {fallbackStep === 'otp_verify' && (
-                    <>
-                      <View style={styles.emailOtpHeader}>
-                        <CheckCircle size={28} color={colors.success} />
-                        <Text style={styles.emailOtpTitle}>Enter OTP</Text>
-                        <Text style={styles.emailOtpSubtitle}>
-                          A 6-digit code was sent to{'\n'}<Text style={styles.emailHighlight}>{email}</Text>
-                        </Text>
-                      </View>
-
-                      <Text style={styles.inputLabel}>One-Time Password</Text>
-                      <View style={styles.inputWrapper}>
-                        <View style={styles.inputIcon}><Shield size={20} color={colors.textSecondary} /></View>
-                        <TextInput
-                          style={styles.input}
-                          value={otp}
-                          onChangeText={(t) => { setOtp(t.replace(/[^0-9]/g, '')); setAuthError(null); }}
-                          placeholder="Enter 6-digit OTP"
-                          placeholderTextColor={colors.textDisabled}
-                          keyboardType="number-pad"
-                          maxLength={6}
-                          autoFocus
-                        />
-                      </View>
-
-                      <Pressable
-                        style={[styles.submitButton, otp.length < 4 && styles.submitButtonDisabled]}
-                        onPress={handleVerifyEmailOtp}
-                        disabled={otp.length < 4 || isAuthenticating}
-                      >
-                        {isAuthenticating
-                          ? <ActivityIndicator color="#fff" />
-                          : <Text style={styles.submitButtonText}>Verify OTP</Text>
-                        }
-                      </Pressable>
-
-                      <Pressable
-                        style={styles.resendBtn}
-                        onPress={() => { setFallbackStep('email_otp'); setOtp(''); setAuthError(null); }}
-                      >
-                        <Text style={styles.resendText}>Didn't receive it? Resend OTP</Text>
                       </Pressable>
                     </>
                   )}

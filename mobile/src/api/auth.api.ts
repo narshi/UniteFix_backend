@@ -83,11 +83,8 @@ export const authApi = {
   logout: () =>
     apiClient.post('/api/auth/logout'),
 
-  /**
-   * FALLBACK AUTH: Request OTP via email for non-Truecaller users
-   */
-  requestFallbackOtp: (data: { phone: string; email: string }) =>
-    apiClient.post('/api/auth/fallback/request-otp', data),
+  requestFallbackOtp: (data: { phone: string; email: string; role: 'user' | 'serviceman' }) =>
+    apiClient.post<AuthResponse>('/api/auth/fallback/request-otp', data),
 
   /**
    * FALLBACK AUTH: Verify OTP for non-Truecaller users

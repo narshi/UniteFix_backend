@@ -360,7 +360,7 @@ export class DatabaseStorage implements IStorage {
     return result?.count ?? 0;
   }
 
-  async getUsers(filters?: { role?: string; search?: string }, limit: number = 100, offset: number = 0): Promise<User[]> {
+  async getUsers(filters?: { role?: string; search?: string; status?: string }, limit: number = 100, offset: number = 0): Promise<User[]> {
     let query = db.select().from(users);
     const conditions = [];
 
@@ -376,6 +376,12 @@ export class DatabaseStorage implements IStorage {
           ilike(users.phone, `%${filters.search}%`)
         )
       );
+    }
+
+    if (filters?.status === 'active') {
+      conditions.push(eq(users.isActive, true));
+    } else if (filters?.status === 'deactivated') {
+      conditions.push(eq(users.isActive, false));
     }
 
     if (conditions.length > 0) {
@@ -901,6 +907,7 @@ export class DatabaseStorage implements IStorage {
         throw new Error('Employee not found');
       }
 
+      // Update V1 Wallet
       const currentBalance = parseFloat(employee.walletBalance || '0');
       const newBalance = currentBalance + amount;
 
@@ -924,6 +931,32 @@ export class DatabaseStorage implements IStorage {
         })
         .returning();
 
+      // Update V2 Wallet (partner_wallets)
+      const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, providerId));
+      if (wallet) {
+        const v2CurrentAvailable = parseFloat(wallet.balanceAvailable);
+        const v2NewAvailable = v2CurrentAvailable + amount;
+        const v2CurrentTotalEarned = parseFloat(wallet.totalEarned);
+        
+        await tx.update(partnerWallets).set({
+          balanceAvailable: v2NewAvailable.toFixed(2),
+          totalEarned: (v2CurrentTotalEarned + amount).toFixed(2), // Topups count as earnings/available
+          updatedAt: new Date()
+        }).where(eq(partnerWallets.partnerId, providerId));
+
+        await tx.insert(walletTransactionsV2).values({
+          transactionId: `WTOP-${providerId}-${Date.now()}`,
+          partnerId: providerId,
+          transactionType: 'release', 
+          amount: amount.toFixed(2),
+          balanceAvailableBefore: wallet.balanceAvailable,
+          balanceAvailableAfter: v2NewAvailable.toFixed(2),
+          balanceHoldBefore: wallet.balanceHold,
+          balanceHoldAfter: wallet.balanceHold,
+          description: description || 'Admin Top-up',
+        });
+      }
+
       return transaction;
     });
 
@@ -941,16 +974,22 @@ export class DatabaseStorage implements IStorage {
         throw new Error('Employee not found');
       }
 
+      // Read V2 Wallet for actual balance check if available
+      const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, providerId));
+      const v2Balance = wallet ? parseFloat(wallet.balanceAvailable) : 0;
+      
       const currentBalance = parseFloat(employee.walletBalance || '0');
 
       // Block negative balance for regular deductions (withdrawals).
-      // Allow negative for commission deductions (cash payment platform fee recovery).
-      if (!allowNegative && currentBalance < amount) {
-        throw new Error('Insufficient wallet balance');
+      // Check V2 balance instead of V1 if wallet exists, otherwise fallback to V1
+      const effectiveBalance = wallet ? v2Balance : currentBalance;
+      if (!allowNegative && effectiveBalance < amount) {
+        throw new Error(`Insufficient wallet balance. Available: ₹${effectiveBalance.toFixed(2)}`);
       }
 
       const newBalance = currentBalance - amount;
 
+      // Update V1
       await tx
         .update(employees)
         .set({
@@ -970,6 +1009,27 @@ export class DatabaseStorage implements IStorage {
           balanceAfter: newBalance.toFixed(2)
         })
         .returning();
+
+      // Update V2
+      if (wallet) {
+        const v2NewAvailable = v2Balance - amount;
+        await tx.update(partnerWallets).set({
+          balanceAvailable: v2NewAvailable.toFixed(2),
+          updatedAt: new Date()
+        }).where(eq(partnerWallets.partnerId, providerId));
+
+        await tx.insert(walletTransactionsV2).values({
+          transactionId: `WDED-${providerId}-${Date.now()}`,
+          partnerId: providerId,
+          transactionType: 'withdraw_bank', // Best fit for generic deduction
+          amount: amount.toFixed(2),
+          balanceAvailableBefore: wallet.balanceAvailable,
+          balanceAvailableAfter: v2NewAvailable.toFixed(2),
+          balanceHoldBefore: wallet.balanceHold,
+          balanceHoldAfter: wallet.balanceHold,
+          description: description || 'Admin Deduction / Platform Fee',
+        });
+      }
 
       return transaction;
     });
@@ -1592,6 +1652,10 @@ export class DatabaseStorage implements IStorage {
         statusUpdate.startedAt = new Date();
       } else if (newState === BookingState.COMPLETED) {
         statusUpdate.completedAt = new Date();
+      } else if (newState === BookingState.ACCEPTED && !service.handshakeOtp) {
+        // Fallback: Generate OTP if missing for older bookings
+        const crypto = require('crypto');
+        statusUpdate.handshakeOtp = crypto.randomInt(1000, 9999).toString();
       }
 
       const [updatedService] = await tx
@@ -1627,7 +1691,8 @@ export class DatabaseStorage implements IStorage {
 
         // 3a. WALLET CREDIT (HOLD state)
         try {
-          const baseFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 250);
+          const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
+          const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
           const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
           const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
 

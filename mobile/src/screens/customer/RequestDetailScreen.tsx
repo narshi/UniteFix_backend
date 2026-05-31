@@ -20,6 +20,7 @@ import {
     Animated,
     Linking,
     Platform,
+    Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -40,6 +41,8 @@ import {
     Wrench,
     IndianRupee,
     AlertTriangle,
+    KeyRound,
+    Copy,
 } from 'lucide-react-native';
 import { useCancelServiceRequest, useRateService, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
@@ -176,6 +179,13 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const canRate = request.status === 'completed' && !request.rating;
     const needsPayment = request.status === 'pending_payment';
     const showSupport = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(request.status);
+    const showServiceCode = ['accepted', 'reached'].includes(request.status) && !!request.handshakeOtp;
+
+    const copyOtp = () => {
+        if (request.handshakeOtp) {
+            Alert.alert('Service Code', `Your code is: ${request.handshakeOtp}`);
+        }
+    };
 
     const handleCancel = () => {
         cancelRequest(request.id, {
@@ -255,6 +265,38 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         <CheckCircle size={14} color={colors.accent} />
                     </View>
                 </View>
+
+                {/* Service Code Card — shown when status is accepted or reached */}
+                {showServiceCode && (
+                    <View style={styles.serviceCodeCard}>
+                        <View style={styles.serviceCodeHeader}>
+                            <View style={styles.serviceCodeIconWrap}>
+                                <KeyRound size={22} color={colors.primary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.serviceCodeLabel}>Your Service Code</Text>
+                                <Text style={styles.serviceCodeHint}>
+                                    Share this code with the technician to start service
+                                </Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity style={styles.serviceCodeDisplay} onPress={copyOtp} activeOpacity={0.7}>
+                            <Text style={styles.serviceCodeDigits}>
+                                {request.handshakeOtp!.split('').join(' ')}
+                            </Text>
+                            <View style={styles.serviceCodeCopyBtn}>
+                                <Copy size={16} color={colors.primary} />
+                                <Text style={styles.serviceCodeCopyText}>Copy</Text>
+                            </View>
+                        </TouchableOpacity>
+                        <View style={styles.serviceCodeFooter}>
+                            <Shield size={14} color={colors.success} />
+                            <Text style={styles.serviceCodeFooterText}>
+                                Do not share this code with anyone other than your assigned technician
+                            </Text>
+                        </View>
+                    </View>
+                )}
 
                 {/* Payment CTA for PENDING_PAYMENT */}
                 {needsPayment && (
@@ -619,16 +661,75 @@ const styles = StyleSheet.create({
     totalLabel: { ...typography.h4, color: colors.textPrimary },
     totalValue: { ...typography.monoLarge, fontSize: 22, color: colors.primary },
 
-    // OTP Card
-    otpCard: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.primarySurface, borderRadius: radii.xl,
-        padding: spacing.lg, marginBottom: spacing.lg,
-        borderWidth: 1, borderColor: colors.primaryLight,
+    // Service Code Card (customer OTP display)
+    serviceCodeCard: {
+        backgroundColor: colors.background,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
+        marginBottom: spacing.lg,
+        borderWidth: 2,
+        borderColor: colors.primaryLight,
+        ...shadows.md,
     },
-    otpLabel: { ...typography.caption, color: colors.textSecondary },
-    otpValue: { ...typography.monoLarge, color: colors.primary, fontSize: 24 },
-    otpHint: { ...typography.small, color: colors.textSecondary, marginLeft: 'auto' },
+    serviceCodeHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        marginBottom: spacing.lg,
+    },
+    serviceCodeIconWrap: {
+        width: 48, height: 48, borderRadius: radii.lg,
+        backgroundColor: colors.primarySurface,
+        justifyContent: 'center', alignItems: 'center',
+    },
+    serviceCodeLabel: {
+        ...typography.h4, color: colors.textPrimary, marginBottom: 2,
+    },
+    serviceCodeHint: {
+        ...typography.caption, color: colors.textSecondary, lineHeight: 18,
+    },
+    serviceCodeDisplay: {
+        backgroundColor: colors.primarySurface,
+        borderRadius: radii.lg,
+        paddingVertical: spacing.xl,
+        paddingHorizontal: spacing.lg,
+        alignItems: 'center',
+        marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.primaryLight,
+        borderStyle: 'dashed',
+    },
+    serviceCodeDigits: {
+        fontSize: 36,
+        fontWeight: '800',
+        color: colors.primary,
+        letterSpacing: 12,
+        fontVariant: ['tabular-nums'],
+    },
+    serviceCodeCopyBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.xs,
+        marginTop: spacing.md,
+        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.md,
+        borderRadius: radii.full,
+        backgroundColor: colors.background,
+    },
+    serviceCodeCopyText: {
+        ...typography.caption,
+        color: colors.primary,
+        fontWeight: '600',
+    },
+    serviceCodeFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingTop: spacing.sm,
+    },
+    serviceCodeFooterText: {
+        ...typography.small, color: colors.textSecondary, flex: 1, lineHeight: 16,
+    },
 
     // Rating
     starRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm, marginBottom: spacing.lg },
@@ -642,6 +743,34 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background, borderRadius: radii.xl,
         padding: spacing.lg, marginBottom: spacing.lg,
         borderWidth: 1, borderColor: colors.border,
+    },
+    otpCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.xl,
+        marginHorizontal: spacing.md,
+        marginBottom: spacing.md,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.primaryLight,
+        ...shadows.sm,
+    },
+    otpLabel: {
+        ...typography.bodyMedium,
+        color: colors.textSecondary,
+        marginBottom: spacing.xs,
+    },
+    otpValue: {
+        ...typography.h1,
+        color: colors.primary,
+        fontWeight: 'bold',
+        letterSpacing: 4,
+        marginBottom: spacing.sm,
+    },
+    otpHint: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        textAlign: 'center',
     },
 });
 

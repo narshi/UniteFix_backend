@@ -10,6 +10,7 @@
 
 import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Home, ClipboardList, ShoppingBag, User } from 'lucide-react-native';
 import { CustomerTabParamList } from '../types/navigation.types';
@@ -49,6 +50,11 @@ const tabIconStyles = StyleSheet.create({
 });
 
 export function CustomerTabs() {
+    const insets = useSafeAreaInsets();
+    // On Android, use the actual system nav bar inset + visual margin;
+    // on iOS, the safe area inset already accounts for the home indicator.
+    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
+
     return (
         <Tab.Navigator
             screenOptions={{
@@ -57,7 +63,7 @@ export function CustomerTabs() {
                 tabBarInactiveTintColor: colors.textDisabled,
                 tabBarStyle: {
                     position: 'absolute',
-                    bottom: Platform.OS === 'ios' ? 24 : 12,
+                    bottom: tabBarBottom,
                     left: spacing.xl,
                     right: spacing.xl,
                     backgroundColor: colors.background,

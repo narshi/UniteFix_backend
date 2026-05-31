@@ -373,10 +373,10 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl, paddingHorizontal: spacing.xl,
     },
     otpInput: {
-        width: 200, height: 56, borderWidth: 2, borderColor: colors.border,
-        borderRadius: radii.lg, fontSize: 28, fontWeight: '700',
+        width: '100%', maxWidth: 320, height: 64, borderWidth: 2, borderColor: colors.border,
+        borderRadius: radii.lg, fontSize: 32, fontWeight: '700',
         color: colors.textPrimary, backgroundColor: colors.background,
-        letterSpacing: 8, textAlign: 'center',
+        letterSpacing: 12, textAlign: 'center',
     },
     otpInputError: { borderColor: colors.error },
     otpErrorText: {

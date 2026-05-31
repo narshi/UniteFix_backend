@@ -205,7 +205,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                         <Text style={styles.sectionTitle}>Actions</Text>
                         <View style={styles.actionRow}>
                             <View style={{ flex: 1 }}>
-                                <Button title="✓ Accept" onPress={handleAccept} loading={accepting} />
+                                <Button title="✓ Accept" onPress={handleAccept} loading={accepting} fullWidth={true} />
                             </View>
                             <TouchableOpacity style={styles.denyBtn} onPress={handleDeny} disabled={denying}>
                                 <XCircle size={18} color={colors.error} />
@@ -229,7 +229,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 maxLength={6}
                                 placeholderTextColor={colors.textDisabled}
                             />
-                            <Button title="Verify" onPress={handleVerifyOtp} loading={verifying} style={styles.otpBtn} />
+                            <Button title="Verify" onPress={handleVerifyOtp} loading={verifying} style={styles.otpBtn} fullWidth={false} />
                         </View>
                         <Button title="▶ Start Service" onPress={handleStart} loading={starting} style={styles.startBtn} />
                     </View>
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
     denyText: { ...typography.bodyMedium, color: colors.error },
     hintText: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md, lineHeight: 18 },
     otpRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
-    otpInput: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 18, letterSpacing: 4, textAlign: 'center', color: colors.textPrimary },
+    otpInput: { flex: 1, maxWidth: 320, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 24, fontWeight: '700', letterSpacing: 8, textAlign: 'center', color: colors.textPrimary },
     otpBtn: { width: 100 },
     startBtn: { marginTop: spacing.sm },
     chargeBtn: { marginBottom: spacing.md },

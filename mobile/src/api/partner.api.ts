@@ -34,6 +34,7 @@ export interface WalletSummary {
     totalEarnings: number;
     pendingPayments: number;
     completedJobs: number;
+    availableBalance?: number;
     recentTransactions: WalletTransaction[];
 }
 
@@ -44,6 +45,9 @@ export interface WalletTransaction {
     description: string;
     status: string;
     createdAt: string;
+    // Map from backend's V2 transactions
+    transactionType?: string;
+    balanceAvailableAfter?: string;
 }
 
 // ==================== API ====================
@@ -83,9 +87,44 @@ export const partnerApi = {
     updateLocation: (latitude: number, longitude: number) =>
         apiClient.post('/api/serviceman/location/update', { latitude, longitude }),
 
-    // Wallet (may not exist yet — graceful fallback)
-    getWallet: () =>
-        apiClient.get<WalletSummary>('/api/serviceman/wallet'),
+    // Wallet (V2 API calls)
+    getWallet: async (): Promise<WalletSummary> => {
+        try {
+            // Fetch balance
+            const balanceRes = await apiClient.get<any>('/api/partner/wallet/balance');
+            // Fetch transactions
+            const txRes = await apiClient.get<any>('/api/partner/wallet/transactions?limit=50');
+            
+            const walletData = balanceRes.data?.data || {};
+            const txData = txRes.data?.data || [];
+            
+            return {
+                totalEarnings: parseFloat(walletData.totalEarned || '0'),
+                pendingPayments: parseFloat(walletData.balanceHold || '0'),
+                availableBalance: parseFloat(walletData.balanceAvailable || '0'), // Added for UI
+                completedJobs: 0, // Not provided by API currently
+                recentTransactions: txData.map((tx: any) => {
+                    // Map V2 transaction types to credit/debit
+                    const isCredit = tx.transactionType === 'release' || tx.transactionType === 'hold_credit' || parseFloat(tx.amount) > 0;
+                    return {
+                        id: tx.id,
+                        amount: parseFloat(tx.amount || '0'),
+                        type: isCredit ? 'credit' : 'debit',
+                        description: tx.description || tx.transactionType,
+                        status: tx.isReleased ? 'completed' : 'pending',
+                        createdAt: tx.createdAt,
+                        transactionType: tx.transactionType
+                    };
+                })
+            };
+        } catch (error) {
+            console.error('Failed to fetch wallet:', error);
+            throw error;
+        }
+    },
+
+    withdraw: (data: { amount: number; method: 'bank' | 'upi' }) =>
+        apiClient.post('/api/partner/wallet/withdraw', data),
 
     // Profile (reuse client profile endpoint)
     getProfile: () =>

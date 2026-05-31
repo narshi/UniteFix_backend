@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: 100 },
+    listContent: { padding: spacing.xl, paddingBottom: 140 },
     card: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         backgroundColor: colors.background, borderRadius: radii.xl,

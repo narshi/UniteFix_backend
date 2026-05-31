@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Inbox, Clock, PlayCircle, Wallet, User } from 'lucide-react-native';
 import { PartnerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
@@ -21,6 +22,9 @@ import { radii, spacing, shadows } from '../theme/spacing';
 const Tab = createBottomTabNavigator<PartnerTabParamList>();
 
 export function PartnerTabs() {
+    const insets = useSafeAreaInsets();
+    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
+
     return (
         <Tab.Navigator
             screenOptions={{
@@ -29,7 +33,7 @@ export function PartnerTabs() {
                 tabBarInactiveTintColor: colors.textDisabled,
                 tabBarStyle: {
                     position: 'absolute',
-                    bottom: Platform.OS === 'ios' ? 24 : 12,
+                    bottom: tabBarBottom,
                     left: spacing.base,
                     right: spacing.base,
                     backgroundColor: colors.background,

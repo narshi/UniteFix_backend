@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: spacing.xl,
         paddingTop: spacing.xl,
-        paddingBottom: 100, // Floating tab bar
+        paddingBottom: 140, // Floating tab bar + safe area inset
     },
 
     // Trust Row

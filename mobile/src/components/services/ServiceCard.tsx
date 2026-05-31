@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
 import * as LucideIcons from 'lucide-react-native';
-const { Grid, Wrench } = LucideIcons;
+const { Grid, Wrench, ChevronRight } = LucideIcons;
+import { Image } from 'expo-image';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { ServiceItem } from '../../api/customer.api';
 
@@ -45,15 +46,30 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
 
     return (
         <TouchableOpacity 
-            style={[styles.card, style]} 
+            style={[styles.card, service.status !== 'ACTIVE' && styles.cardDisabled, style]} 
             onPress={onPress}
             activeOpacity={0.7}
         >
+            <View style={[styles.cardAccent, { backgroundColor: colors.primary }]} />
             <View style={styles.iconContainer}>
                 {(() => {
+                    const hasImageUrl = service.bannerImage || (service.icon && service.icon.startsWith('http'));
+                    const imageUrl = service.bannerImage || service.icon;
+                    
+                    if (hasImageUrl) {
+                        return (
+                            <Image
+                                source={{ uri: imageUrl }}
+                                style={styles.imageIcon}
+                                contentFit="cover"
+                                transition={200}
+                            />
+                        );
+                    }
+
                     const IconName = (service.icon as keyof typeof LucideIcons) || 'Wrench';
                     const ServiceIcon = (LucideIcons[IconName] as any) || Wrench;
-                    return <ServiceIcon size={24} color={colors.primary} />;
+                    return <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />;
                 })()}
             </View>
             <Text style={styles.title} numberOfLines={2}>
@@ -65,6 +81,12 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
                 </Text>
             ) : null}
             {renderStatusBadge()}
+            
+            {service.status === 'ACTIVE' && (
+                <View style={styles.chevronWrap}>
+                    <ChevronRight size={14} color={colors.primaryLight} strokeWidth={3} />
+                </View>
+            )}
         </TouchableOpacity>
     );
 };
@@ -72,14 +94,29 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
 const styles = StyleSheet.create({
     card: {
         backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.lg,
-        padding: spacing.md,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
         alignItems: 'center',
         justifyContent: 'center',
-        minHeight: 120,
-        ...shadows.sm,
+        minHeight: 140,
+        ...shadows.md,
         position: 'relative',
         overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.divider,
+    },
+    cardDisabled: {
+        opacity: 0.8,
+        backgroundColor: colors.background,
+    },
+    cardAccent: {
+        position: 'absolute',
+        left: 0,
+        top: '20%',
+        bottom: '20%',
+        width: 3,
+        borderTopRightRadius: radii.sm,
+        borderBottomRightRadius: radii.sm,
     },
     moreCard: {
         backgroundColor: colors.primaryLight + '20', // 20% opacity
@@ -88,20 +125,27 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed',
     },
     iconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: colors.primaryLight + '30',
+        width: 52,
+        height: 52,
+        borderRadius: radii.lg,
+        backgroundColor: colors.primaryLight + '15',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: spacing.sm,
+        marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.primaryLight + '30',
+        overflow: 'hidden',
+    },
+    imageIcon: {
+        width: '100%',
+        height: '100%',
     },
     moreIconContainer: {
         backgroundColor: colors.primaryLight + '50',
     },
     title: {
-        ...typography.body,
-        fontWeight: '600',
+        ...typography.bodyMedium,
+        fontWeight: '700',
         color: colors.textPrimary,
         textAlign: 'center',
         marginBottom: 2,
@@ -110,20 +154,30 @@ const styles = StyleSheet.create({
         ...typography.caption,
         color: colors.textSecondary,
         textAlign: 'center',
+        marginTop: 2,
     },
     badgeComingSoon: {
         position: 'absolute',
         top: spacing.sm,
         right: spacing.sm,
         backgroundColor: colors.warningLight,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: radii.sm,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: colors.warning,
     },
     badgeText: {
         ...typography.caption,
-        fontSize: 10,
-        color: colors.warning,
-        fontWeight: 'bold',
+        fontSize: 9,
+        color: colors.warningDark,
+        fontWeight: '800',
+        textTransform: 'uppercase',
+    },
+    chevronWrap: {
+        position: 'absolute',
+        bottom: spacing.sm,
+        right: spacing.sm,
+        opacity: 0.7,
     },
 });

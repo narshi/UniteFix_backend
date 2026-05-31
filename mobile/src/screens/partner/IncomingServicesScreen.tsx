@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: 100 },
+    listContent: { padding: spacing.xl, paddingBottom: 140 },
     card: {
         backgroundColor: colors.background, borderRadius: radii.xl,
         padding: spacing.lg, marginBottom: spacing.md,
