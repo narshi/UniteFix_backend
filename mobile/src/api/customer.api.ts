@@ -84,6 +84,14 @@ export interface CreateServiceRequest {
     customerLocation?: string; // WKT POINT(lng lat) for geofence
 }
 
+export interface SavedAddress {
+    label: string;
+    address: string;
+    lat: number;
+    long: number;
+    pinCode?: string;
+}
+
 export interface UserProfile {
     id: number;
     username: string;
@@ -92,6 +100,7 @@ export interface UserProfile {
     role: string;
     homeAddress?: string;
     pinCode?: string;
+    savedAddresses?: SavedAddress[];
     profilePicture?: string;
     isVerified: boolean;
     referralCode?: string;
@@ -116,7 +125,7 @@ export const customerApi = {
     getProfile: () =>
         apiClient.get<ApiResponse<UserProfile>>('/api/client/profile'),
 
-    updateProfile: (data: Partial<{ username: string; email: string; homeAddress: string; pinCode: string }>) =>
+    updateProfile: (data: Partial<{ username: string; email: string; homeAddress: string; pinCode: string; savedAddresses: SavedAddress[] }>) =>
         apiClient.patch<ApiResponse<UserProfile>>('/api/client/profile', data),
 
     // Service Requests

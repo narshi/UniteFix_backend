@@ -16,7 +16,7 @@ import { uploadImageBuffer } from "../services/cloudinary.service";
 import { db } from "../db";
 import { eq, and, desc, sql, avg, count } from "drizzle-orm";
 import {
-    ratings, serviceRequests, employees, users,
+    ratings, serviceRequests, employees, users, customers,
     partnerWallets, walletTransactionsV2, invoices,
     supportTickets, ticketMessages,
 } from "@shared/schema";
@@ -323,6 +323,9 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const userId = (req as any).user!.userId;
             const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+            
+            // Fetch customer profile to get savedAddresses
+            const [customer] = await db.select().from(customers).where(eq(customers.userId, userId)).limit(1);
 
             if (!user || user.deletedAt) {
                 return res.status(404).json({ success: false, message: "User not found" });
@@ -330,7 +333,11 @@ export function registerClientFeatureRoutes(app: Express) {
 
             res.json({
                 success: true,
-                data: { ...user, password: undefined },
+                data: { 
+                    ...user, 
+                    password: undefined,
+                    savedAddresses: customer?.savedAddresses || [] 
+                },
             });
         } catch (error) {
             next(error);
@@ -352,7 +359,7 @@ export function registerClientFeatureRoutes(app: Express) {
     app.patch("/api/client/profile", authenticateToken, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
-            const { username, email, homeAddress, pinCode } = req.body;
+            const { username, email, homeAddress, pinCode, savedAddresses } = req.body;
 
             const updates: any = { updatedAt: new Date() };
             if (username !== undefined) updates.username = username;
@@ -368,15 +375,39 @@ export function registerClientFeatureRoutes(app: Express) {
             if (homeAddress !== undefined) updates.homeAddress = homeAddress;
             if (pinCode !== undefined) updates.pinCode = pinCode;
 
-            const [updated] = await db.update(users)
-                .set(updates)
-                .where(eq(users.id, userId))
-                .returning();
+            let updatedUser = null;
+            if (Object.keys(updates).length > 1) { // More than just updatedAt
+                const [updated] = await db.update(users)
+                    .set(updates)
+                    .where(eq(users.id, userId))
+                    .returning();
+                updatedUser = updated;
+            } else {
+                const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+                updatedUser = user;
+            }
+
+            if (savedAddresses !== undefined) {
+                // Ensure customer record exists
+                const [customer] = await db.select().from(customers).where(eq(customers.userId, userId)).limit(1);
+                if (customer) {
+                    await db.update(customers).set({ savedAddresses }).where(eq(customers.userId, userId));
+                } else {
+                    await db.insert(customers).values({ userId, savedAddresses });
+                }
+            }
+
+            // Fetch final customer profile for response
+            const [finalCustomer] = await db.select().from(customers).where(eq(customers.userId, userId)).limit(1);
 
             res.json({
                 success: true,
                 message: "Profile updated",
-                data: { ...updated, password: undefined },
+                data: { 
+                    ...updatedUser, 
+                    password: undefined,
+                    savedAddresses: finalCustomer?.savedAddresses || []
+                },
             });
         } catch (error) {
             next(error);

@@ -29,7 +29,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
-import { PincodeChecker } from '../../components/PincodeChecker';
+import { SavedAddress } from '../../api/customer.api';
 
 type Props = NativeStackScreenProps<any, 'ServiceRequest'>;
 
@@ -40,13 +40,19 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceName = route.params?.serviceName || 'Service';
 
     const [description, setDescription] = useState('');
-    const [address, setAddress] = useState('');
-    const [pinCode, setPinCode] = useState('');
+    const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
     const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
     const [photos, setPhotos] = useState<string[]>([]);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
-    const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
+
+    // Read selected address from navigation params if returning from SavedAddressesScreen
+    useEffect(() => {
+        if (route.params?.selectedAddress) {
+            setSelectedAddress(route.params.selectedAddress);
+            setErrors((prev) => ({ ...prev, address: '' }));
+        }
+    }, [route.params?.selectedAddress]);
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
     const { data: publicConfig } = usePublicConfig();
@@ -71,9 +77,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const validate = (): boolean => {
         const newErrors: Record<string, string> = {};
         if (!description.trim()) newErrors.description = 'Please describe the issue';
-        if (!address.trim()) newErrors.address = 'Address is required';
-        if (!pinCode.trim()) newErrors.pinCode = 'Pin code is required';
-        else if (pinCode.length !== 6) newErrors.pinCode = 'Enter a valid 6-digit pin code';
+        if (!selectedAddress) newErrors.address = 'Please select an address';
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -162,14 +166,11 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                 {
                                     serviceType,
                                     description,
-                                    address,
-                                    pinCode,
+                                    address: selectedAddress!.address,
+                                    pinCode: selectedAddress!.pinCode || '000000',
+                                    photos: photoUrls,
                                     urgency,
-                                    photos: photoUrls.length > 0 ? photoUrls : undefined,
-                                    // Send GPS coordinates for geofence enforcement
-                                    ...(deviceLocation ? {
-                                        customerLocation: `POINT(${deviceLocation.lng} ${deviceLocation.lat})`,
-                                    } : {}),
+                                    customerLocation: `POINT(${selectedAddress!.long} ${selectedAddress!.lat})`,
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -263,25 +264,26 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
                 </View>
 
-                {/* Address */}
-                <Input
-                    label="Address *"
-                    placeholder="Full address for the visit"
-                    value={address}
-                    onChangeText={setAddress}
-                    icon={<MapPin size={18} color={colors.textSecondary} />}
-                    error={errors.address}
-                />
-
-                {/* Pin Code with Checker */}
+                {/* Address Selection */}
                 <View style={styles.fieldContainer}>
-                    <Text style={styles.label}>Service Pincode *</Text>
-                    <PincodeChecker
-                        initialPincode={pinCode}
-                        onVerified={setPinCode}
-                        showTitle={false}
-                    />
-                    {errors.pinCode && <Text style={styles.errorText}>{errors.pinCode}</Text>}
+                    <Text style={styles.label}>Service Address *</Text>
+                    <TouchableOpacity 
+                        style={[styles.addressSelector, errors.address && styles.inputError]}
+                        onPress={() => navigation.navigate('SavedAddresses', { fromCheckout: true })}
+                    >
+                        <MapPin size={20} color={colors.primary} />
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                            {selectedAddress ? (
+                                <>
+                                    <Text style={{ fontSize: 16, fontWeight: '500', color: colors.textPrimary }}>{selectedAddress.label}</Text>
+                                    <Text style={{ fontSize: 14, color: colors.textSecondary }} numberOfLines={2}>{selectedAddress.address}</Text>
+                                </>
+                            ) : (
+                                <Text style={{ fontSize: 16, color: colors.textSecondary }}>Select Address</Text>
+                            )}
+                        </View>
+                    </TouchableOpacity>
+                    {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
                 </View>
 
                 {/* Urgency selector */}
@@ -412,13 +414,23 @@ const styles = StyleSheet.create({
         marginBottom: spacing.sm,
     },
     textArea: {
+        backgroundColor: colors.background,
+        borderRadius: radii.md,
+        padding: spacing.md,
+        ...typography.body,
+        color: colors.textPrimary,
+        borderWidth: 1,
+        borderColor: colors.border,
+        minHeight: 100,
+    },
+    addressSelector: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.background,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: radii.md,
         padding: spacing.md,
-        height: 100,
-        fontSize: 15,
-        color: colors.textPrimary,
     },
     inputError: {
         borderColor: colors.error,

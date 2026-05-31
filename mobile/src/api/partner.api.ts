@@ -28,6 +28,7 @@ export interface Assignment {
     feedback?: string;
     latitude?: number;
     longitude?: number;
+    customerLocation?: string;
 }
 
 export interface WalletSummary {

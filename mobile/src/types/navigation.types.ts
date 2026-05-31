@@ -33,6 +33,8 @@ export type HomeStackParamList = {
     AllServices: undefined;
     ServiceRequest: { serviceType?: string };
     Notifications: undefined;
+    SavedAddresses: { fromCheckout?: boolean };
+    MapAddressPicker: { editAddressIndex?: number } | undefined;
 };
 
 export type BookingsStackParamList = {

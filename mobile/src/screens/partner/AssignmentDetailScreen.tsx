@@ -53,8 +53,22 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: complete, isPending: completing } = useCompleteService();
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
 
-    // Geocode customer address for mini-map
+    // Parse customerLocation from WKT string or fallback to geocode
     useEffect(() => {
+        if (assignment?.customerLocation) {
+            // customerLocation is in format: "POINT(lng lat)"
+            const match = assignment.customerLocation.match(/POINT\(([^ ]+)\s+([^)]+)\)/);
+            if (match && match.length === 3) {
+                const lng = parseFloat(match[1]);
+                const lat = parseFloat(match[2]);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    setCustomerCoords({ latitude: lat, longitude: lng });
+                    return; // Successfully parsed from DB, skip geocoding
+                }
+            }
+        }
+
+        // Fallback to geocoding if customerLocation is missing or invalid
         if (assignment?.address) {
             ExpoLocation.geocodeAsync(assignment.address)
                 .then((results) => {
@@ -67,7 +81,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 })
                 .catch((err) => { if (__DEV__) console.log('[MAP] Geocode failed:', err.message); });
         }
-    }, [assignment?.address]);
+    }, [assignment?.address, assignment?.customerLocation]);
 
     // Early return AFTER all hooks (React Rules of Hooks)
     if (!assignment) { navigation.goBack(); return null; }

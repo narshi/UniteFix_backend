@@ -18,6 +18,8 @@ import { OrderDetailScreen } from '../screens/shop/OrderDetailScreen';
 import { LocationSelectionScreen } from '../screens/customer/LocationSelectionScreen';
 import { AllServicesScreen } from '../screens/customer/AllServicesScreen';
 import { FinalPaymentScreen } from '../screens/customer/FinalPaymentScreen';
+import { SavedAddressesScreen } from '../screens/customer/SavedAddressesScreen';
+import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -38,6 +40,8 @@ export function CustomerStack() {
             <Stack.Screen name="LocationSelection" component={LocationSelectionScreen} />
             <Stack.Screen name="AllServices" component={AllServicesScreen} />
             <Stack.Screen name="FinalPayment" component={FinalPaymentScreen} />
+            <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
+            <Stack.Screen name="MapAddressPicker" component={MapAddressPickerScreen} />
         </Stack.Navigator>
     );
 }
