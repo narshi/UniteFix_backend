@@ -22,6 +22,7 @@ import {
     CheckCircle, XCircle, Play, DollarSign, KeyRound, Banknote,
 } from 'lucide-react-native';
 import {
+    useAssignments,
     useAcceptAssignment,
     useDenyAssignment,
     useVerifyHandshake,
@@ -38,13 +39,17 @@ import { Button, ScreenHeader } from '../../components/ui';
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 
 export function AssignmentDetailScreen({ navigation, route }: Props) {
-    const assignment: Assignment = route.params?.assignment;
+    const routeAssignment: Assignment = route.params?.assignment;
+    const { data: assignmentsList } = useAssignments();
+    const assignment = assignmentsList?.find(a => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
+    
     const [otp, setOtp] = useState('');
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
     const [collectingCash, setCollectingCash] = useState(false);
     const [customerCoords, setCustomerCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+    const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
     const { mutate: accept, isPending: accepting } = useAcceptAssignment();
     const { mutate: deny, isPending: denying } = useDenyAssignment();
@@ -120,9 +125,11 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     const handleStart = async () => {
         try {
+            setIsFetchingLocation(true);
             const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
                 Alert.alert('Permission Denied', 'Location permission is required to start the service.');
+                setIsFetchingLocation(false);
                 return;
             }
             const location = await ExpoLocation.getCurrentPositionAsync({});
@@ -133,6 +140,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
             });
         } catch (error) {
             Alert.alert('Error', 'Failed to get location. Please enable GPS.');
+        } finally {
+            setIsFetchingLocation(false);
         }
     };
 
@@ -259,7 +268,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             />
                             <Button title="Verify" onPress={handleVerifyOtp} loading={verifying} style={styles.otpBtn} fullWidth={false} />
                         </View>
-                        <Button title="▶ Start Service" onPress={handleStart} loading={starting} style={styles.startBtn} />
+                        <Button title={isFetchingLocation ? "Validating location..." : "▶ Start Service"} onPress={handleStart} loading={starting || isFetchingLocation} style={styles.startBtn} />
                     </View>
                 )}
 

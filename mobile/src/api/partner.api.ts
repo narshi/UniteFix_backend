@@ -79,7 +79,11 @@ export const partnerApi = {
         apiClient.post(`/api/bookings/${bookingId}/cash-collected`, { amountCollected }),
 
     enterServiceCharge: (serviceId: number, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
-        apiClient.post(`/api/technician/services/${serviceId}/enter-service-charge`, data),
+        apiClient.post(`/api/technician/services/${serviceId}/enter-service-charge`, {
+            serviceAmount: data.serviceCharge,
+            partsUsed: data.materialCharge,
+            notes: data.notes,
+        }),
 
     validateOtp: (serviceId: number, otp: string) =>
         apiClient.post(`/api/technician/services/${serviceId}/validate-otp`, { otp }),
