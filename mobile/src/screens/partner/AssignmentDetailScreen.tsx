@@ -149,7 +149,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         const charge = parseFloat(serviceCharge);
         if (isNaN(charge) || charge <= 0) { Alert.alert('Invalid', 'Enter a valid service charge.'); return; }
         enterCharge({
-            serviceId: assignment.serviceId || assignment.id,
+            serviceId: assignment.id,
             data: {
                 serviceCharge: charge,
                 materialCharge: materialCharge ? parseFloat(materialCharge) : undefined,
