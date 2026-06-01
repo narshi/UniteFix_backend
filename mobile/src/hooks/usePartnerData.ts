@@ -96,9 +96,12 @@ export function useCompleteService() {
 export function useEnterServiceCharge() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ serviceId, data }: { serviceId: number; data: { serviceCharge: number; materialCharge?: number; notes?: string } }) =>
-            partnerApi.enterServiceCharge(serviceId, data),
-        onSuccess: () => qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments }),
+        mutationFn: ({ serviceId, data }: { serviceId: number | string; data: { serviceCharge: number; materialCharge?: number; notes?: string } }) =>
+            partnerApi.enterServiceCharge(serviceId as number, data),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+            Alert.alert('Success', 'Service charges submitted successfully.');
+        },
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
 }

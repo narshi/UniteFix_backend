@@ -78,7 +78,7 @@ export const partnerApi = {
     collectCash: (bookingId: number, amountCollected: number) =>
         apiClient.post(`/api/bookings/${bookingId}/cash-collected`, { amountCollected }),
 
-    enterServiceCharge: (serviceId: number, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
+    enterServiceCharge: (serviceId: number | string, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
         apiClient.post(`/api/technician/services/${serviceId}/enter-service-charge`, {
             serviceAmount: data.serviceCharge,
             partsUsed: data.materialCharge,

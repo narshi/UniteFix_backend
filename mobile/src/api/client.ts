@@ -127,7 +127,7 @@ apiClient.interceptors.response.use(
 // Helper to extract error message from API responses
 export function getApiErrorMessage(error: unknown): string {
     if (axios.isAxiosError(error)) {
-        return error.response?.data?.message || error.message || 'Something went wrong';
+        return error.response?.data?.message || error.response?.data?.error || error.message || 'Something went wrong';
     }
     if (error instanceof Error) {
         return error.message;

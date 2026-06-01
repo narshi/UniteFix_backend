@@ -95,22 +95,22 @@ export function registerPaymentRoutes(app: Express) {
             const technicianId = (req as any).user?.userId;
 
             if (!technicianId) {
-                return res.status(401).json({ error: "Unauthorized - Technician only" });
+                return res.status(401).json({ success: false, message: "Unauthorized - Technician only" });
             }
 
             if (!serviceAmount || serviceAmount <= 0) {
-                return res.status(400).json({ error: "Valid service amount required" });
+                return res.status(400).json({ success: false, message: "Please enter a valid service amount" });
             }
 
             // Fetch existing booking to get the initial pricing snapshot
             const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
             
             if (!booking) {
-                return res.status(404).json({ error: "Service request not found" });
+                return res.status(404).json({ success: false, message: "Service request not found" });
             }
             
             if (!booking.pricingSnapshot) {
-                return res.status(400).json({ error: "Booking missing pricing snapshot" });
+                return res.status(400).json({ success: false, message: "Booking missing pricing snapshot" });
             }
 
             // Calculate final bill and freeze it
@@ -138,11 +138,12 @@ export function registerPaymentRoutes(app: Express) {
                 .where(eq(serviceRequests.id, serviceId));
 
             res.json({
-                message: "Service charge recorded successfully",
+                success: true,
+                message: "Service charges submitted successfully",
                 serviceAmount,
             });
         } catch (error: any) {
-            res.status(400).json({ error: error.message });
+            res.status(400).json({ success: false, message: error.message || "Failed to submit service charges" });
         }
     });
 
