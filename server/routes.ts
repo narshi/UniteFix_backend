@@ -1381,19 +1381,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Complete service with ACID transaction
   app.post("/api/service/complete", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
-      const { serviceId, totalAmount } = req.body;
+      const { serviceId } = req.body;
+      let { totalAmount } = req.body;
 
-      if (!serviceId || !totalAmount) {
-        return res.status(400).json({ success: false, message: "serviceId and totalAmount required" });
+      if (!serviceId) {
+        return res.status(400).json({ success: false, message: "serviceId required" });
       }
 
       const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
       let targetId = isStringId ? null : parseInt(serviceId as string);
       
+      let service;
       if (isStringId) {
-        const service = await storage.getServiceRequestByServiceId(serviceId);
+        service = await storage.getServiceRequestByServiceId(serviceId);
         if (!service) return res.status(404).json({ success: false, message: "Service not found" });
         targetId = service.id;
+      } else {
+        const [found] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, targetId!));
+        service = found;
+        if (!service) return res.status(404).json({ success: false, message: "Service not found" });
+      }
+
+      // If totalAmount wasn't provided, use the BillingEngine's frozen pricingSnapshot
+      if (!totalAmount) {
+        const snapshot = service.pricingSnapshot as any;
+        if (!snapshot || !snapshot.subtotal) {
+            return res.status(400).json({ success: false, message: "Service charges must be submitted before completion" });
+        }
+        totalAmount = snapshot.subtotal; // Subtotal (parts+labor) used for commission math
       }
 
       const result = await storage.completeServiceWithTransaction(
