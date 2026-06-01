@@ -18,7 +18,7 @@ import { eq, and, desc, sql, avg, count } from "drizzle-orm";
 import {
     ratings, serviceRequests, employees, users, customers,
     partnerWallets, walletTransactionsV2, invoices,
-    supportTickets, ticketMessages,
+    supportTickets, ticketMessages, withdrawalRequests,
 } from "@shared/schema";
 import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
@@ -692,9 +692,18 @@ export function registerClientFeatureRoutes(app: Express) {
                 balanceAvailableAfter: newAvailable.toFixed(2),
                 balanceHoldBefore: wallet.balanceHold,
                 balanceHoldAfter: wallet.balanceHold,
-                description: `Withdrawal via ${method.toUpperCase()}`,
+                description: `Withdrawal Request via ${method.toUpperCase()}`,
                 metadata: { method, requestedAt: new Date().toISOString() },
             }).returning();
+
+            // Create tracking request for admin approval
+            await db.insert(withdrawalRequests).values({
+                partnerId: provider.id,
+                amount: amount.toFixed(2),
+                method,
+                status: 'pending',
+                walletTransactionId: transaction.id,
+            });
 
             // Update wallet
             await db.update(partnerWallets)
@@ -706,7 +715,7 @@ export function registerClientFeatureRoutes(app: Express) {
 
             res.json({
                 success: true,
-                message: `Withdrawal of ₹${amount} via ${method.toUpperCase()} initiated`,
+                message: `Withdrawal request of ₹${amount} submitted for approval.`,
                 data: transaction,
             });
         } catch (error) {

@@ -6,6 +6,7 @@ import { z } from "zod";
 // Enums for better data integrity
 export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'serviceman']);
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected', 'suspended']);
+export const withdrawalStatusEnum = pgEnum("withdrawal_status", ["pending", "processing", "completed", "failed", "rejected"]);
 // PHASE 2: Updated booking state machine - normalized states
 export const serviceStatusEnum = pgEnum('service_status', [
   'created',          // User creates service request, pays ₹99
@@ -164,6 +165,9 @@ export const employees = pgTable("employees", {
   documentVerifiedAt: timestamp("document_verified_at"),
   documentVerifiedBy: integer("document_verified_by"),
   adminRemarks: text("admin_remarks"),
+  // Razorpay Payouts
+  razorpayContactId: text("razorpay_contact_id"),
+  razorpayFundAccountId: text("razorpay_fund_account_id"),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
@@ -532,6 +536,19 @@ export const walletTransactionsV2 = pgTable("wallet_transactions_v2", {
   // IDEMPOTENCY: Unique constraint on service_request_id + transaction_type for hold_credit
   uniqueHoldCredit: uniqueIndex("wallet_trans_v2_unique_hold_credit").on(table.serviceRequestId, table.transactionType),
 }));
+
+export const withdrawalRequests = pgTable("withdrawal_requests", {
+  id: serial("id").primaryKey(),
+  partnerId: integer("partner_id").notNull().references(() => employees.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  method: text("method").notNull(), // 'bank' or 'upi'
+  status: withdrawalStatusEnum("status").notNull().default("pending"),
+  razorpayPayoutId: text("razorpay_payout_id"),
+  failureReason: text("failure_reason"),
+  walletTransactionId: integer("wallet_transaction_id").references((): any => walletTransactionsV2.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 // PHASE 3: Inventory Items (Platform-Owned)
 export const inventoryItems = pgTable("inventory_items", {
@@ -1246,6 +1263,12 @@ export const insertPartnerWalletSchema = createInsertSchema(partnerWallets).omit
   updatedAt: true,
 });
 
+export const insertWithdrawalRequestSchema = createInsertSchema(withdrawalRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertWalletTransactionV2Schema = createInsertSchema(walletTransactionsV2).omit({
   id: true,
   createdAt: true,
@@ -1264,9 +1287,8 @@ export const insertInventoryTransactionSchema = createInsertSchema(inventoryTran
 
 // PHASE 3: Types
 export type PartnerWallet = typeof partnerWallets.$inferSelect;
-export type InsertPartnerWallet = z.infer<typeof insertPartnerWalletSchema>;
-
 export type WalletTransactionV2 = typeof walletTransactionsV2.$inferSelect;
+export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
 export type InsertWalletTransactionV2 = z.infer<typeof insertWalletTransactionV2Schema>;
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;

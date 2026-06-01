@@ -15,7 +15,15 @@ import { mobileLimiter } from "../middleware/rate-limit";
 import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
 import { PaymentTrackingService } from "../services/payment-tracking.service";
-import { serviceRequests, paymentTransactions } from "@shared/schema";
+import { 
+    paymentTransactions,
+    invoices,
+    serviceRequests,
+    users,
+    withdrawalRequests,
+    partnerWallets,
+    walletTransactionsV2
+} from "@shared/schema";
 
 export function registerPaymentRoutes(app: Express) {
     /**
@@ -241,6 +249,74 @@ export function registerPaymentRoutes(app: Express) {
 
             res.json(result);
         } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/webhooks/razorpayx
+     * RazorpayX Webhook (Payouts)
+     * Handles payout.processed, payout.failed, etc.
+     */
+    app.post("/api/webhooks/razorpayx", async (req: Request, res: Response) => {
+        try {
+            const webhookSecret = process.env.RAZORPAYX_WEBHOOK_SECRET;
+            if (!webhookSecret) {
+                console.error('RAZORPAYX_WEBHOOK_SECRET not configured');
+                return res.status(500).json({ error: "Webhook not configured" });
+            }
+            
+            const signature = req.headers["x-razorpay-signature"] as string;
+            if (!signature) return res.status(400).json({ error: "Missing signature" });
+
+            const webhookBody = JSON.stringify(req.body);
+            const isValid = PaymentService.verifyWebhookSignature(webhookBody, signature, webhookSecret);
+            if (!isValid) return res.status(401).json({ error: "Invalid signature" });
+
+            const { event, payload } = req.body;
+            
+            if (event === 'payout.processed') {
+                const payoutId = payload.payout.entity.id;
+                await db.update(withdrawalRequests)
+                    .set({ status: 'completed', updatedAt: new Date() })
+                    .where(eq(withdrawalRequests.razorpayPayoutId, payoutId));
+            } else if (event === 'payout.failed' || event === 'payout.reversed') {
+                const payout = payload.payout.entity;
+                const failureReason = payout.failure_reason || 'Payout failed';
+                
+                const [request] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.razorpayPayoutId, payout.id)).limit(1);
+                
+                if (request && request.status !== 'failed' && request.status !== 'rejected') {
+                    // Update request
+                    await db.update(withdrawalRequests)
+                        .set({ status: 'failed', failureReason, updatedAt: new Date() })
+                        .where(eq(withdrawalRequests.id, request.id));
+                        
+                    // Refund to wallet
+                    const [wallet] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, request.partnerId)).limit(1);
+                    if (wallet) {
+                        const amount = parseFloat(request.amount as any);
+                        const currentAvail = parseFloat(wallet.balanceAvailable as any);
+                        await db.update(partnerWallets)
+                            .set({ balanceAvailable: (currentAvail + amount).toFixed(2) })
+                            .where(eq(partnerWallets.partnerId, request.partnerId));
+                            
+                        await db.insert(walletTransactionsV2).values({
+                            transactionId: `REFUND-FAIL-${request.id}-${Date.now()}`,
+                            partnerId: request.partnerId,
+                            transactionType: 'other',
+                            amount: amount.toFixed(2),
+                            balanceAvailableBefore: wallet.balanceAvailable,
+                            balanceAvailableAfter: (currentAvail + amount).toFixed(2),
+                            description: `Withdrawal Failed Refund: ${failureReason}`,
+                        });
+                    }
+                }
+            }
+
+            res.json({ received: true });
+        } catch (error: any) {
+            console.error("RazorpayX Webhook Error:", error);
             res.status(500).json({ error: error.message });
         }
     });

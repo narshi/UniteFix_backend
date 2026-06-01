@@ -40,6 +40,7 @@ import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
 import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
+import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
@@ -2089,11 +2090,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== ROUTE REGISTRATION ====================
   // Apply Admin Authentication Middleware (skipping login/register)
-  // Admin middleware moved to top
-
-
+  // This must be registered BEFORE any admin routes
+  
   registerAdminRoutes(app);
-  registerPaymentRoutes(app);
+  registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
+  registerAdminWithdrawalRoutes(app);
+  registerCatalogRoutes(app);
   // PHASE 0: Product ordering halted — Coming Soon (AI_CONTEXT §3.K)
   // registerProductRoutes(app);
   // PHASE 0: Auth OTP removed — Truecaller handles phone auth (AI_CONTEXT §1.3)

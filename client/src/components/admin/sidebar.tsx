@@ -11,6 +11,7 @@ const navigation = [
   { name: "Inventory", href: "/admin/inventory", icon: "inventory_2" },
   { name: "Employees", href: "/partners", icon: "handyman" },
   { name: "Payments & Invoices", href: "/payments", icon: "payment" },
+  { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance" },
   { name: "Districts", href: "/admin/districts", icon: "map" },
   { name: "Location Management", href: "/locations", icon: "location_on" },
   { name: "Developer Details", href: "/admin/developer", icon: "code" },
