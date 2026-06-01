@@ -76,6 +76,17 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const handlePayment = async () => {
         setPaymentState('loading');
         try {
+            if (total <= 0) {
+                // If amount is 0 (e.g. covered entirely by booking fee), just mark complete via verify endpoint
+                await apiClient.post('/api/payments/verify', { 
+                    razorpay_payment_id: 'zero_amount', 
+                    razorpay_order_id: `order_${request.id}`, 
+                    razorpay_signature: 'zero_amount_sig' 
+                });
+                setPaymentState('success');
+                return;
+            }
+
             // Create Razorpay order on backend
             const { data } = await apiClient.post(
                 `/api/customer/services/${request.id}/create-final-payment`

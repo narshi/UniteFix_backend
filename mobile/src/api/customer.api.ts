@@ -58,6 +58,7 @@ export interface ServiceRequest {
     materialCharge?: number;
     totalCharge?: number;
     totalAmount?: number;
+    pricingSnapshot?: any;
     // Technician
     servicemanName?: string;
     servicemanPhone?: string;

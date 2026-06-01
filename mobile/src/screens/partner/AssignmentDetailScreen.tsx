@@ -55,7 +55,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: deny, isPending: denying } = useDenyAssignment();
     const { mutate: verifyOtp, isPending: verifying } = useVerifyHandshake();
     const { mutate: startSvc, isPending: starting } = useStartService();
-    const { mutate: complete, isPending: completing } = useCompleteService();
+    const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
 
     // Parse customerLocation from WKT string or fallback to geocode
@@ -276,7 +276,14 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Complete Service</Text>
 
-                        {!showChargeForm ? (
+                        {assignment.pricingSnapshot?.billedAt ? (
+                            <View style={styles.cashWarningCard}>
+                                <CheckCircle size={18} color={colors.success} />
+                                <Text style={[styles.cashWarningText, { color: colors.success }]}>
+                                    Charges submitted. Waiting for customer payment or refresh to see Awaiting Payment.
+                                </Text>
+                            </View>
+                        ) : !showChargeForm ? (
                             <Button title="💰 Enter Charges" onPress={() => setShowChargeForm(true)} style={styles.chargeBtn} />
                         ) : (
                             <View>
@@ -301,8 +308,6 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 <Button title="Submit Charges" onPress={handleEnterCharge} loading={enteringCharge} />
                             </View>
                         )}
-
-                        <Button title="✅ Mark Complete" onPress={handleComplete} loading={completing} style={styles.completeBtn} />
                     </View>
                 )}
 
@@ -310,7 +315,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Awaiting Payment</Text>
                         <Text style={styles.hintText}>
-                            Customer needs to pay ₹{assignment.totalCharge || 0}. If they have no network or phone charge, you can collect cash.
+                            Customer needs to pay ₹{assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}. If they have no network or phone charge, you can collect cash.
                         </Text>
 
                         <View style={styles.cashWarningCard}>
@@ -321,9 +326,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                         </View>
 
                         <Button
-                            title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.totalCharge || 0}`}
+                            title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}`}
                             onPress={() => {
-                                const amount = assignment.totalCharge || 0;
+                                const amount = assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0;
                                 Alert.alert(
                                     'Confirm Cash Collection',
                                     `You are confirming that the customer paid ₹${amount} in cash.\n\nUniteFix platform fee will be deducted from your wallet.\n\nThis cannot be undone.`,

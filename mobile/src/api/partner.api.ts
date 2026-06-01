@@ -26,6 +26,7 @@ export interface Assignment {
     otp?: string;
     rating?: number;
     feedback?: string;
+    pricingSnapshot?: any;
     latitude?: number;
     longitude?: number;
     customerLocation?: string;
@@ -79,9 +80,9 @@ export const partnerApi = {
         apiClient.post(`/api/bookings/${bookingId}/cash-collected`, { amountCollected }),
 
     enterServiceCharge: (serviceId: number | string, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
-        apiClient.post(`/api/technician/services/${serviceId}/enter-service-charge`, {
-            serviceAmount: data.serviceCharge,
-            partsUsed: data.materialCharge,
+        apiClient.post(`/api/bookings/${serviceId}/submit-bill`, {
+            serviceLaborCost: data.serviceCharge,
+            sparePartsCost: data.materialCharge || 0,
             notes: data.notes,
         }),
 

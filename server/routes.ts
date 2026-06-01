@@ -1402,6 +1402,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!service) return res.status(404).json({ success: false, message: "Service not found" });
       }
 
+      if (service.status === 'completed') {
+        return res.json({ success: true, message: "Service is already completed" });
+      }
+      if (service.status === 'pending_payment') {
+        return res.status(409).json({ success: false, message: "Cannot mark complete directly. Please collect cash or wait for customer payment." });
+      }
+
       // If totalAmount wasn't provided, use the BillingEngine's frozen pricingSnapshot
       if (!totalAmount) {
         const snapshot = service.pricingSnapshot as any;

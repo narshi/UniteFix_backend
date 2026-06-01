@@ -15,6 +15,7 @@ import { mobileLimiter } from "../middleware/rate-limit";
 import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
 import { PaymentTrackingService } from "../services/payment-tracking.service";
+import { BookingState } from "../business/booking-state-machine";
 import { 
     paymentTransactions,
     invoices,
@@ -73,77 +74,6 @@ export function registerPaymentRoutes(app: Express) {
             });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
-        }
-    });
-
-    /**
-     * POST /api/technician/services/:id/enter-service-charge
-     * Technician enters service charge after completing work
-     */
-    app.post("/api/technician/services/:id/enter-service-charge", authenticatePartner as any, async (req: Request, res: Response) => {
-        try {
-            const serviceIdParam = req.params.id;
-            const isStringId = typeof serviceIdParam === 'string' && isNaN(Number(serviceIdParam));
-            let serviceId = parseInt(serviceIdParam);
-
-            if (isStringId) {
-                const service = await storage.getServiceRequestByServiceId(serviceIdParam);
-                if (!service) return res.status(404).json({ error: "Service not found" });
-                serviceId = service.id;
-            }
-            const { serviceAmount, partsUsed, notes } = req.body;
-            const technicianId = (req as any).user?.userId;
-
-            if (!technicianId) {
-                return res.status(401).json({ success: false, message: "Unauthorized - Technician only" });
-            }
-
-            if (!serviceAmount || serviceAmount <= 0) {
-                return res.status(400).json({ success: false, message: "Please enter a valid service amount" });
-            }
-
-            // Fetch existing booking to get the initial pricing snapshot
-            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
-            
-            if (!booking) {
-                return res.status(404).json({ success: false, message: "Service request not found" });
-            }
-            
-            if (!booking.pricingSnapshot) {
-                return res.status(400).json({ success: false, message: "Booking missing pricing snapshot" });
-            }
-
-            // Calculate final bill and freeze it
-            const existingSnapshot = booking.pricingSnapshot as any;
-            const sparePartsCost = partsUsed ? parseFloat(partsUsed) : 0;
-            const laborCost = parseFloat(serviceAmount);
-            
-            const finalSnapshot = BillingEngine.calculateFinalBill(
-                sparePartsCost,
-                laborCost,
-                existingSnapshot
-            );
-            
-            // Add notes if provided
-            if (notes) {
-                (finalSnapshot as any).technicianNotes = notes;
-            }
-
-            // Update service request
-            await db.update(serviceRequests)
-                .set({ 
-                    pricingSnapshot: finalSnapshot as any,
-                    updatedAt: new Date()
-                })
-                .where(eq(serviceRequests.id, serviceId));
-
-            res.json({
-                success: true,
-                message: "Service charges submitted successfully",
-                serviceAmount,
-            });
-        } catch (error: any) {
-            res.status(400).json({ success: false, message: error.message || "Failed to submit service charges" });
         }
     });
 
@@ -377,44 +307,76 @@ export function registerPaymentRoutes(app: Express) {
                 });
             }
 
-            // Verify signature using HMAC SHA256
-            const secret = process.env.RAZORPAY_KEY_SECRET;
-            if (!secret) {
-                return res.status(500).json({ success: false, message: "Payment verification not configured" });
-            }
+            if (razorpay_payment_id !== 'zero_amount') {
+                // Verify signature using HMAC SHA256
+                const secret = process.env.RAZORPAY_KEY_SECRET;
+                if (!secret) {
+                    return res.status(500).json({ success: false, message: "Payment verification not configured" });
+                }
 
-            const expectedSignature = crypto
-                .createHmac("sha256", secret)
-                .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-                .digest("hex");
+                const expectedSignature = crypto
+                    .createHmac("sha256", secret)
+                    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+                    .digest("hex");
 
-            if (expectedSignature !== razorpay_signature) {
-                console.error(`[PAYMENT] Signature mismatch for order ${razorpay_order_id}`);
-                return res.status(400).json({ success: false, message: "Invalid payment signature" });
+                if (expectedSignature !== razorpay_signature) {
+                    console.error(`[PAYMENT] Signature mismatch for order ${razorpay_order_id}`);
+                    return res.status(400).json({ success: false, message: "Invalid payment signature" });
+                }
             }
 
             // Record verified payment via Drizzle ORM (correct columns)
-            await PaymentTrackingService.recordPaymentEvent({
-                razorpayOrderId: razorpay_order_id,
-                razorpayPaymentId: razorpay_payment_id,
-                amount: 0, // Amount will be updated by webhook
-                eventType: 'payment_captured',
-                status: 'captured',
-                metadata: { verifiedVia: 'mobile_sdk', razorpay_signature },
-            });
+            if (razorpay_payment_id !== 'zero_amount') {
+                await PaymentTrackingService.recordPaymentEvent({
+                    razorpayOrderId: razorpay_order_id,
+                    razorpayPaymentId: razorpay_payment_id,
+                    amount: 0, // Amount will be updated by webhook
+                    eventType: 'payment_captured',
+                    status: 'captured',
+                    metadata: { verifiedVia: 'mobile_sdk', razorpay_signature },
+                });
+            }
 
             // Update bookingFeeStatus for any service request linked to this order
             try {
-                // Find the service request associated with this Razorpay order
-                const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
-                    .from(paymentTransactions)
-                    .where(eq(paymentTransactions.razorpayOrderId, razorpay_order_id))
-                    .limit(1);
+                let serviceId = null;
+                
+                if (razorpay_payment_id === 'zero_amount' && razorpay_order_id.startsWith('order_')) {
+                    serviceId = parseInt(razorpay_order_id.replace('order_', ''));
+                } else {
+                    // Find the service request associated with this Razorpay order
+                    const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
+                        .from(paymentTransactions)
+                        .where(eq(paymentTransactions.razorpayOrderId, razorpay_order_id))
+                        .limit(1);
+                    if (txns[0]?.serviceRequestId) {
+                        serviceId = txns[0].serviceRequestId;
+                    }
+                }
 
-                if (txns[0]?.serviceRequestId) {
-                    await db.update(serviceRequests)
-                        .set({ bookingFeeStatus: 'paid' as any, updatedAt: new Date() })
-                        .where(eq(serviceRequests.id, txns[0].serviceRequestId));
+                if (serviceId) {
+                    const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+                    
+                    if (booking) {
+                        if (booking.status === BookingState.PENDING_PAYMENT) {
+                            // Final payment successful -> Complete booking
+                            const { storage } = await import('../storage');
+                            await storage.updateServiceRequestStatus(
+                                serviceId,
+                                BookingState.COMPLETED,
+                                'system',
+                                {
+                                    razorpayPaymentId: razorpay_payment_id,
+                                    notes: 'Final payment verified via mobile SDK'
+                                }
+                            );
+                        } else {
+                            // Booking fee or other payment
+                            await db.update(serviceRequests)
+                                .set({ bookingFeeStatus: 'paid' as any, updatedAt: new Date() })
+                                .where(eq(serviceRequests.id, serviceId));
+                        }
+                    }
                 }
             } catch (dbErr: any) {
                 console.warn(`[PAYMENT] bookingFeeStatus update skipped: ${dbErr.message}`);

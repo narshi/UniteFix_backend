@@ -306,7 +306,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                             <View style={{ marginLeft: spacing.md }}>
                                 <Text style={styles.paymentTitle}>Payment Required</Text>
                                 <Text style={styles.paymentAmount}>
-                                    ₹{request.totalCharge || 0}
+                                    ₹{request.pricingSnapshot?.finalTotal || request.totalCharge || 0}
                                 </Text>
                             </View>
                         </View>

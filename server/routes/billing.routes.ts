@@ -81,6 +81,14 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
+            // Double submission guard
+            if (booking.pricingSnapshot && (booking.pricingSnapshot as any).billedAt) {
+                 return res.status(409).json({
+                     success: false,
+                     message: 'Bill has already been submitted for this booking',
+                 });
+            }
+
             // BILLING ENGINE: Use frozen snapshot from booking creation.
             // If booking was created before migration (no snapshot), build a legacy one.
             let existingSnapshot = booking.pricingSnapshot as PricingSnapshot | null;
@@ -109,12 +117,17 @@ export function registerBillingRoutes(app: Express) {
 
             // Transition to PENDING_PAYMENT and freeze the complete billing snapshot
             const serviceValueTier = BillingEngine.determineServiceValueTier(billedSnapshot);
+            const snapshotToSave = {
+                ...billedSnapshot,
+                billedAt: new Date().toISOString()
+            };
+            
             const [updated] = await db.update(serviceRequests)
                 .set({
                     status: BookingState.PENDING_PAYMENT as any,
                     totalAmount: billedSnapshot.grossTotal,
                     commissionAmount: billedSnapshot.platformFee,
-                    pricingSnapshot: billedSnapshot as any,
+                    pricingSnapshot: snapshotToSave as any,
                     serviceValueTier: serviceValueTier as any,
                     updatedAt: new Date(),
                 })
@@ -331,6 +344,14 @@ export function registerBillingRoutes(app: Express) {
 
             if (booking.providerId !== partnerId) {
                 return res.status(403).json({ success: false, message: 'This booking is not assigned to you' });
+            }
+
+            // Idempotency check: if already completed with cash, return success
+            if (booking.status === BookingState.COMPLETED && booking.paymentMethod === 'cash') {
+                return res.json({
+                    success: true,
+                    message: 'Cash payment already recorded successfully.',
+                });
             }
 
             // State validation — must be PENDING_PAYMENT
