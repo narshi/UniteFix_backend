@@ -102,27 +102,40 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(400).json({ error: "Valid service amount required" });
             }
 
-            // Insert service charge
-            await db.execute(sql`
-        INSERT INTO service_charges (
-          service_request_id,
-          service_amount,
-          parts_used,
-          technician_notes,
-          entered_by
-        ) VALUES (
-          ${serviceId},
-          ${serviceAmount},
-          ${partsUsed || ''},
-          ${notes || ''},
-          ${technicianId}
-        )
-        ON CONFLICT (service_request_id) DO UPDATE
-        SET service_amount = ${serviceAmount},
-            parts_used = ${partsUsed || ''},
-            technician_notes = ${notes || ''},
-            entered_at = NOW()
-      `);
+            // Fetch existing booking to get the initial pricing snapshot
+            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+            
+            if (!booking) {
+                return res.status(404).json({ error: "Service request not found" });
+            }
+            
+            if (!booking.pricingSnapshot) {
+                return res.status(400).json({ error: "Booking missing pricing snapshot" });
+            }
+
+            // Calculate final bill and freeze it
+            const existingSnapshot = booking.pricingSnapshot as any;
+            const sparePartsCost = partsUsed ? parseFloat(partsUsed) : 0;
+            const laborCost = parseFloat(serviceAmount);
+            
+            const finalSnapshot = BillingEngine.calculateFinalBill(
+                sparePartsCost,
+                laborCost,
+                existingSnapshot
+            );
+            
+            // Add notes if provided
+            if (notes) {
+                (finalSnapshot as any).technicianNotes = notes;
+            }
+
+            // Update service request
+            await db.update(serviceRequests)
+                .set({ 
+                    pricingSnapshot: finalSnapshot as any,
+                    updatedAt: new Date()
+                })
+                .where(eq(serviceRequests.id, serviceId));
 
             res.json({
                 message: "Service charge recorded successfully",
