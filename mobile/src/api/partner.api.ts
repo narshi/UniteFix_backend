@@ -8,8 +8,10 @@ import { apiClient } from './client';
 
 export interface Assignment {
     id: number;
-    serviceId: number;
+    serviceId: string;  // Human-readable ID like "SR000001"
     serviceType: string;
+    brand?: string;
+    model?: string;
     description: string;
     status: string;
     customerName: string;
@@ -58,6 +60,9 @@ export const partnerApi = {
     // Assignments
     getAssignments: () =>
         apiClient.get<Assignment[]>('/api/serviceman/assignments'),
+
+    getAssignmentHistory: (page: number = 1, limit: number = 15) =>
+        apiClient.get<any>(`/api/serviceman/assignments?status=past&page=${page}&limit=${limit}`),
 
     acceptAssignment: (id: number) =>
         apiClient.post(`/api/serviceman/requests/${id}/accept`),

@@ -19,6 +19,7 @@ import {
     RefreshControl,
     Animated,
     Platform,
+    ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,7 +38,7 @@ import {
     AlertTriangle,
     Shield,
 } from 'lucide-react-native';
-import { useServiceRequests, usePublicConfig } from '../../hooks/useCustomerData';
+import { useServiceRequests, useServiceHistory, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -244,28 +245,49 @@ const cardStyles = StyleSheet.create({
 
 export function MyRequestsScreen() {
     const { data: requests, isLoading, refetch, isRefetching } = useServiceRequests();
+    const {
+        data: historyPages,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        isLoading: historyLoading,
+        refetch: refetchHistory,
+        isRefetching: isHistoryRefetching,
+    } = useServiceHistory();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
     const handlePress = (item: ServiceRequest) => {
         navigation.navigate('RequestDetail', { request: item });
     };
 
-    // Split into active and past
+    // Active bookings from the regular query
     const activeRequests = (requests || []).filter(
-        (r: ServiceRequest) => !['completed', 'cancelled'].includes(r.status)
+        (r: ServiceRequest) => !['completed', 'cancelled', 'disputed'].includes(r.status)
     );
-    const pastRequests = (requests || []).filter(
-        (r: ServiceRequest) => ['completed', 'cancelled'].includes(r.status)
-    );
+
+    // Past bookings from infinite query (flattened pages)
+    const pastRequests = historyPages?.pages?.flatMap((page: any) => page.data || []) || [];
+    const totalPast = historyPages?.pages?.[0]?.pagination?.total || pastRequests.length;
 
     const allData = [
         ...(activeRequests.length > 0 ? [{ type: 'header', title: `Active (${activeRequests.length})` }] : []),
         ...activeRequests.map((r: ServiceRequest) => ({ type: 'item', data: r })),
-        ...(pastRequests.length > 0 ? [{ type: 'header', title: `Past (${pastRequests.length})` }] : []),
-        ...pastRequests.map((r: ServiceRequest) => ({ type: 'item', data: r })),
+        ...(pastRequests.length > 0 ? [{ type: 'header', title: `Past (${totalPast})` }] : []),
+        ...pastRequests.map((r: any) => ({ type: 'item', data: r })),
     ];
 
-    if (isLoading) {
+    const handleRefresh = () => {
+        refetch();
+        refetchHistory();
+    };
+
+    const handleEndReached = () => {
+        if (hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+        }
+    };
+
+    if (isLoading && historyLoading) {
         return (
             <View style={styles.container}>
                 <View style={styles.header}>
@@ -290,7 +312,7 @@ export function MyRequestsScreen() {
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>My Bookings</Text>
                 <Text style={styles.headerSub}>
-                    {requests?.length || 0} total booking{(requests?.length || 0) !== 1 ? 's' : ''}
+                    {activeRequests.length} active · {totalPast} past
                 </Text>
             </View>
 
@@ -313,13 +335,25 @@ export function MyRequestsScreen() {
                 keyExtractor={(item: any, index) => item.type === 'header' ? `header-${index}` : `item-${item.data.id}`}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
+                onEndReached={handleEndReached}
+                onEndReachedThreshold={0.3}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={5}
                 refreshControl={
                     <RefreshControl
-                        refreshing={isRefetching}
-                        onRefresh={refetch}
+                        refreshing={isRefetching || isHistoryRefetching}
+                        onRefresh={handleRefresh}
                         colors={[colors.primary]}
                         tintColor={colors.primary}
                     />
+                }
+                ListFooterComponent={
+                    isFetchingNextPage ? (
+                        <View style={{ paddingVertical: spacing.lg, alignItems: 'center' }}>
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        </View>
+                    ) : null
                 }
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>

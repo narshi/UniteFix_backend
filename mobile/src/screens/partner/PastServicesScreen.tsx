@@ -1,5 +1,8 @@
 /**
- * Past Services Screen — Completed/cancelled service history
+ * Past Services Screen — Paginated completed/cancelled service history
+ * 
+ * Uses useInfiniteQuery for efficient loading of large history datasets.
+ * Navigates to ServiceHistoryDetail for read-only detail view.
  */
 
 import React from 'react';
@@ -11,11 +14,12 @@ import {
     TouchableOpacity,
     RefreshControl,
     ActivityIndicator,
+    Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Calendar, ChevronRight, Star, Clock } from 'lucide-react-native';
-import { useAssignments } from '../../hooks/usePartnerData';
+import { useAssignmentHistory } from '../../hooks/usePartnerData';
 import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -34,7 +38,9 @@ function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) 
                 <View style={[styles.statusDot, { backgroundColor: isDone ? colors.success : colors.error }]} />
                 <View style={{ flex: 1 }}>
                     <Text style={styles.serviceType}>{item.serviceType.replace(/_/g, ' ')}</Text>
-                    <Text style={styles.customer}>{item.customerName}</Text>
+                    <Text style={styles.customer}>
+                        {item.customerName}{item.serviceId ? ` · ${item.serviceId}` : ''}
+                    </Text>
                     <View style={styles.dateRow}>
                         <Calendar size={12} color={colors.textDisabled} />
                         <Text style={styles.dateText}>{date}</Text>
@@ -58,12 +64,26 @@ function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) 
 }
 
 export function PastServicesScreen() {
-    const { data: assignments, isLoading, refetch, isRefetching } = useAssignments();
+    const {
+        data: historyPages,
+        isLoading,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        refetch,
+        isRefetching,
+    } = useAssignmentHistory();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
-    const pastServices = (assignments || []).filter(
-        (a: Assignment) => ['completed', 'cancelled', 'denied'].includes(a.status)
-    );
+    // Flatten all pages into a single list
+    const pastServices = historyPages?.pages?.flatMap((page: any) => page.data || []) || [];
+    const totalCount = historyPages?.pages?.[0]?.pagination?.total || pastServices.length;
+
+    const handleEndReached = () => {
+        if (hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+        }
+    };
 
     if (isLoading) {
         return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -73,18 +93,34 @@ export function PastServicesScreen() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Past Services</Text>
-                <Text style={styles.headerSub}>{pastServices.length} completed</Text>
+                <Text style={styles.headerSub}>{totalCount} completed</Text>
             </View>
 
             <FlatList
                 data={pastServices}
                 renderItem={({ item }) => (
-                    <PastCard item={item} onPress={() => navigation.navigate('AssignmentDetail', { assignment: item })} />
+                    <PastCard
+                        item={item}
+                        onPress={() => navigation.navigate('ServiceHistoryDetail', { assignment: item })}
+                    />
                 )}
                 keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
+                onEndReached={handleEndReached}
+                onEndReachedThreshold={0.3}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={5}
+                removeClippedSubviews={true}
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />}
+                ListFooterComponent={
+                    isFetchingNextPage ? (
+                        <View style={{ paddingVertical: spacing.lg, alignItems: 'center' }}>
+                            <ActivityIndicator size="small" color={colors.primary} />
+                        </View>
+                    ) : null
+                }
                 ListEmptyComponent={
                     <EmptyState
                         icon={<Clock size={36} color={colors.textDisabled} />}
@@ -101,7 +137,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
     header: {
-        paddingTop: 54, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
+        paddingTop: Platform.OS === 'ios' ? 56 : 44, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },

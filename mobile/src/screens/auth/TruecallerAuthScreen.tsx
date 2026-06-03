@@ -315,6 +315,10 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       setAuthError('Please enter a valid email address');
       return;
     }
+    if (!firstName.trim() || !lastName.trim()) {
+      setAuthError('Please enter your full name');
+      return;
+    }
     setIsAuthenticating(true);
     setAuthError(null);
     try {
@@ -323,6 +327,8 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         phone: normalized,
         email: email.trim().toLowerCase(),
         role,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
       });
       if (data.success) {
         setAuthSuccess(true);
@@ -546,13 +552,35 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                         />
                       </View>
 
+                      <Text style={styles.inputLabel}>First Name</Text>
+                      <View style={styles.inputWrapper}>
+                        <View style={styles.inputIcon}><UserIcon size={20} color={colors.textSecondary} /></View>
+                        <TextInput
+                          style={styles.input}
+                          value={firstName}
+                          onChangeText={setFirstName}
+                          placeholder="E.g. Rahul"
+                        />
+                      </View>
+
+                      <Text style={styles.inputLabel}>Last Name</Text>
+                      <View style={styles.inputWrapper}>
+                        <View style={styles.inputIcon}><UserIcon size={20} color={colors.textSecondary} /></View>
+                        <TextInput
+                          style={styles.input}
+                          value={lastName}
+                          onChangeText={setLastName}
+                          placeholder="E.g. Sharma"
+                        />
+                      </View>
+
                       <Pressable
                         style={[
                           styles.submitButton,
-                          (!isValidIndianPhone(phone) || !isValidEmail(email)) && styles.submitButtonDisabled,
+                          (!isValidIndianPhone(phone) || !isValidEmail(email) || !firstName || !lastName) && styles.submitButtonDisabled,
                         ]}
                         onPress={handleRequestEmailOtp}
-                        disabled={!isValidIndianPhone(phone) || !isValidEmail(email) || isAuthenticating}
+                        disabled={!isValidIndianPhone(phone) || !isValidEmail(email) || !firstName || !lastName || isAuthenticating}
                       >
                         {isAuthenticating
                           ? <ActivityIndicator color="#fff" />

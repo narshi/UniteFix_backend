@@ -248,7 +248,7 @@ export function registerPaymentRoutes(app: Express) {
                         await db.insert(walletTransactionsV2).values({
                             transactionId: `REFUND-FAIL-${request.id}-${Date.now()}`,
                             partnerId: request.partnerId,
-                            transactionType: 'other',
+                            transactionType: 'refund', // Payout failed → funds returned
                             amount: amount.toFixed(2),
                             balanceAvailableBefore: wallet.balanceAvailable,
                             balanceAvailableAfter: (currentAvail + amount).toFixed(2),
@@ -364,12 +364,11 @@ export function registerPaymentRoutes(app: Express) {
                             await storage.updateServiceRequestStatus(
                                 serviceId,
                                 BookingState.COMPLETED,
-                                'system',
-                                {
-                                    razorpayPaymentId: razorpay_payment_id,
-                                    notes: 'Final payment verified via mobile SDK'
-                                }
                             );
+                            // Store payment reference as metadata via updateServiceRequest
+                            await storage.updateServiceRequest(serviceId, {
+                                paymentMethod: 'razorpay' as any,
+                            });
                         } else {
                             // Booking fee or other payment
                             await db.update(serviceRequests)

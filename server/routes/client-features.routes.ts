@@ -83,6 +83,7 @@ export function registerClientFeatureRoutes(app: Express) {
             const gstRate = await configService.get('BUSINESS_CONFIG.GST_PERCENTAGE', 18);
             const cancelFee = await configService.get('BUSINESS_CONFIG.CANCELLATION_FEE', 150);
             const platformFeePercent = await configService.get('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT', 15);
+            const supportWindowHours = await configService.get('BUSINESS_CONFIG.SUPPORT_WINDOW_HOURS', 48);
             const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
 
             res.json({
@@ -92,6 +93,7 @@ export function registerClientFeatureRoutes(app: Express) {
                     gstRate: Number(gstRate),
                     cancelFee: Number(cancelFee),
                     platformFeePercent: Number(platformFeePercent),
+                    supportWindowHours: Number(supportWindowHours),
                     whatsappNumber: whatsappNumber,
                 }
             });

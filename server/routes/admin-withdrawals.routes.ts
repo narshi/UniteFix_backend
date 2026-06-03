@@ -137,7 +137,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 await db.insert(walletTransactionsV2).values({
                     transactionId: `REFUND-${withdrawal.id}-${Date.now()}`,
                     partnerId: withdrawal.partnerId,
-                    transactionType: 'other', // Or a new withdraw_refund enum
+                    transactionType: 'refund', // Withdrawal rejected → funds returned
                     amount: amount.toFixed(2),
                     balanceAvailableBefore: wallet.balanceAvailable,
                     balanceAvailableAfter: (currentAvail + amount).toFixed(2),

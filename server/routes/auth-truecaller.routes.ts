@@ -40,6 +40,8 @@ const fallbackRequestSchema = z.object({
   phone: z.string().regex(/^(\+91)?[6-9]\d{9}$/, 'Valid Indian mobile number required'),
   email: z.string().email('Valid email is required'),
   role: z.enum(['user', 'serviceman']),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
 });
 
 const fallbackVerifySchema = z.object({
@@ -47,6 +49,8 @@ const fallbackVerifySchema = z.object({
   email: z.string().email('Valid email is required'),
   code: z.string().min(6, 'Code must be 6 digits'),
   role: z.enum(['user', 'serviceman']),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
 });
 
 // ── Indian Phone Validation Helper ────────────────────────────────────
@@ -304,7 +308,7 @@ router.post('/email/confirm', async (req: Request, res: Response, next: NextFunc
 
 router.post('/fallback/request-otp', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { phone, email, role } = fallbackRequestSchema.parse(req.body);
+    const { phone, email, role, firstName, lastName } = fallbackRequestSchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -321,7 +325,7 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
 
       isNewUser = true;
       const userRole = role === 'serviceman' ? 'serviceman' : 'user';
-      const fullName = 'User';
+      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'User';
 
       user = await storage.createUser({
         phone: normalizedPhone,
@@ -385,7 +389,7 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
 
 router.post('/fallback/verify-otp', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { phone, email, code, role } = fallbackVerifySchema.parse(req.body);
+    const { phone, email, code, role, firstName, lastName } = fallbackVerifySchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -407,7 +411,7 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
 
       isNewUser = true;
       const userRole = role === 'serviceman' ? 'serviceman' : 'user';
-      const fullName = 'User';
+      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'User';
 
       user = await storage.createUser({
         phone: normalizedPhone,

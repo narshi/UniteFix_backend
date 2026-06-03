@@ -147,7 +147,17 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 </Text>
                 <Button
                     title="Back to Bookings"
-                    onPress={() => navigation.popToTop()}
+                    onPress={() => navigation.reset({
+                        index: 0,
+                        routes: [
+                            {
+                                name: 'CustomerTabs',
+                                state: {
+                                    routes: [{ name: 'BookingsTab' }],
+                                },
+                            },
+                        ],
+                    })}
                     style={{ marginTop: spacing['2xl'] }}
                 />
             </View>

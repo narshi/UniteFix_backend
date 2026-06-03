@@ -78,11 +78,9 @@ export function SavedAddressesScreen() {
                     <Text style={styles.addressText} numberOfLines={2}>{item.address}</Text>
                 </View>
             </View>
-            {!fromCheckout && (
-                <TouchableOpacity onPress={() => handleDelete(index)} style={styles.deleteBtn}>
-                    <Trash2 size={20} color={colors.error} />
-                </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={() => handleDelete(index)} style={styles.deleteBtn}>
+                <Trash2 size={20} color={colors.error} />
+            </TouchableOpacity>
         </TouchableOpacity>
     );
 

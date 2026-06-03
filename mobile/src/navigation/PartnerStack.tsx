@@ -9,6 +9,7 @@ import { AssignmentDetailScreen } from '../screens/partner/AssignmentDetailScree
 import { StartServiceScreen } from '../screens/partner/StartServiceScreen';
 import { InvoiceViewScreen } from '../screens/partner/InvoiceViewScreen';
 import { SubmitBillScreen } from '../screens/partner/SubmitBillScreen';
+import { ServiceHistoryDetailScreen } from '../screens/partner/ServiceHistoryDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -20,6 +21,8 @@ export function PartnerStack() {
             <Stack.Screen name="StartService" component={StartServiceScreen} />
             <Stack.Screen name="InvoiceView" component={InvoiceViewScreen} />
             <Stack.Screen name="SubmitBill" component={SubmitBillScreen} />
+            <Stack.Screen name="ServiceHistoryDetail" component={ServiceHistoryDetailScreen} />
         </Stack.Navigator>
     );
 }
+

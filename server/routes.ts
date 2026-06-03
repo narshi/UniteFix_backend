@@ -45,6 +45,7 @@ import { registerUploadRoutes } from "./routes/upload.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
+import { PaymentService } from "./services/payment.service";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 
@@ -1288,7 +1289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get serviceman assignments
+  // Get serviceman assignments (with optional pagination + status filter)
   app.get("/api/serviceman/assignments", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
     try {
       const provider = await storage.getServiceProviderByUserId(req.user!.userId);
@@ -1296,6 +1297,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ success: false, message: "Provider profile not found" });
       }
 
+      const statusFilter = req.query.status as 'active' | 'past' | undefined;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 15, 50);
+
+      // If pagination params are provided, use paginated method
+      if (statusFilter || req.query.page || req.query.limit) {
+        const result = await storage.getProviderServiceRequestsPaginated(
+          provider.id,
+          statusFilter || 'all',
+          page,
+          limit,
+        );
+        const totalPages = Math.ceil(result.total / limit);
+        return res.json({
+          success: true,
+          data: result.data,
+          pagination: {
+            page,
+            limit,
+            total: result.total,
+            pages: totalPages,
+            hasMore: page < totalPages,
+          },
+        });
+      }
+
+      // Backwards compat: no query params → return all
       const assignments = await storage.getProviderServiceRequests(provider.id);
       res.json({ success: true, data: assignments });
     } catch (error) {
@@ -1523,9 +1551,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get user's service requests
+  // Get user's service requests (with optional pagination + status filter)
   app.get("/api/services/my-requests", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
+      const statusFilter = req.query.status as 'active' | 'past' | undefined;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 15, 50); // Cap at 50
+
+      // If pagination params are provided, use the paginated method
+      if (statusFilter || req.query.page || req.query.limit) {
+        const result = await storage.getUserServiceRequestsPaginated(
+          req.user!.userId,
+          statusFilter || 'all',
+          page,
+          limit,
+        );
+        const totalPages = Math.ceil(result.total / limit);
+        return res.json({
+          success: true,
+          data: result.data,
+          pagination: {
+            page,
+            limit,
+            total: result.total,
+            pages: totalPages,
+            hasMore: page < totalPages,
+          },
+        });
+      }
+
+      // Backwards compat: no query params → return all (legacy behavior)
       const services = await storage.getUserServiceRequests(req.user!.userId);
       res.json({ success: true, data: services });
     } catch (error) {
@@ -1538,13 +1593,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const service = await storage.getServiceRequest(parseInt(req.params.id));
 
-      if (!service || service.userId !== req.user!.userId) {
+      const isAdmin = req.user!.role === 'admin';
+
+      if (!service || (service.userId !== req.user!.userId && !isAdmin)) {
         return res.status(404).json({ success: false, message: "Service not found" });
       }
 
-      // Allow cancellation from early booking states (before work starts)
+      // Allow cancellation from early booking states for users. Admins can cancel anytime before completion.
       const cancellableStates = ['placed', 'confirmed', 'created', 'assigned'];
-      if (!cancellableStates.includes(service.status)) {
+      if (!isAdmin && !cancellableStates.includes(service.status)) {
         return res.status(400).json({
           success: false,
           message: "Cannot cancel after service has started. Please contact support.",
@@ -1554,8 +1611,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const updated = await storage.updateServiceRequestStatus(service.id, 'cancelled');
-      res.json({ success: true, message: "Service cancelled successfully", data: updated });
+      if (isAdmin && service.status === 'completed') {
+        return res.status(400).json({ success: false, message: "Cannot cancel a completed service." });
+      }
+
+      // Admin cancellation automatically triggers a refund of the booking fee
+      let refundInitiated = false;
+      if (isAdmin) {
+          try {
+              await PaymentService.refundBookingCharge(service.id);
+              refundInitiated = true;
+              logger.info(`[ADMIN] Booking ${service.id} cancelled by admin + refund initiated`);
+          } catch (refundErr: any) {
+              logger.error(`[ADMIN] Refund failed for booking ${service.id} during admin cancellation:`, refundErr.message);
+          }
+      }
+
+      // Update both status and bookingFeeStatus
+      const [updated] = await db.update(serviceRequests).set({
+          status: 'cancelled',
+          bookingFeeStatus: refundInitiated ? 'refunded' : service.bookingFeeStatus,
+          updatedAt: new Date()
+      }).where(eq(serviceRequests.id, service.id)).returning();
+
+      res.json({ success: true, message: refundInitiated ? "Service cancelled and refund initiated" : "Service cancelled successfully", data: updated });
     } catch (error) {
       next(error);
     }

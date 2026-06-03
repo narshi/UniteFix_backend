@@ -2,13 +2,14 @@
  * React Query hooks for partner/employee data
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { partnerApi } from '../api/partner.api';
 import { Alert } from 'react-native';
 import { getApiErrorMessage } from '../api/client';
 
 export const partnerQueryKeys = {
     assignments: ['partner.assignments'] as const,
+    assignmentHistory: ['partner.assignmentHistory'] as const,
     wallet: ['partner.wallet'] as const,
     profile: ['partner.profile'] as const,
 };
@@ -29,6 +30,26 @@ export function useAssignments() {
             return []; // Fallback to empty array
         },
         refetchInterval: 30_000,
+    });
+}
+
+export function useAssignmentHistory() {
+    return useInfiniteQuery({
+        queryKey: partnerQueryKeys.assignmentHistory,
+        queryFn: async ({ pageParam = 1 }) => {
+            const response = await partnerApi.getAssignmentHistory(pageParam as number, 15);
+            const payload = response.data;
+            // Normalize: backend returns { success, data: [...], pagination: {...} }
+            return payload;
+        },
+        initialPageParam: 1,
+        getNextPageParam: (lastPage: any) => {
+            const pagination = lastPage.pagination;
+            if (pagination && pagination.hasMore) {
+                return pagination.page + 1;
+            }
+            return undefined;
+        },
     });
 }
 

@@ -178,8 +178,21 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const canCancel = ['created', 'placed', 'confirmed', 'assigned'].includes(request.status);
     const canRate = request.status === 'completed' && !request.rating;
     const needsPayment = request.status === 'pending_payment';
-    const showSupport = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(request.status);
+    const isTerminal = ['completed', 'cancelled', 'disputed'].includes(request.status);
     const showServiceCode = ['accepted', 'reached'].includes(request.status) && !!request.handshakeOtp;
+
+    // Support window: active services always show support; terminal services only within 48h
+    const supportWindowHours = publicConfig?.supportWindowHours ?? 48;
+    const withinSupportWindow = request.completedAt
+        ? (Date.now() - new Date(request.completedAt).getTime()) < supportWindowHours * 60 * 60 * 1000
+        : false;
+    const showSupport = isTerminal
+        ? withinSupportWindow
+        : ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(request.status);
+    const showExpiredSupport = isTerminal && !withinSupportWindow;
+
+    // Privacy: hide serviceman phone for terminal states (server already strips it, this is defense-in-depth)
+    const canShowServicemanPhone = !isTerminal && !!request.servicemanPhone;
 
     const copyOtp = () => {
         if (request.handshakeOtp) {
@@ -205,6 +218,13 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     };
 
     const openWhatsApp = () => {
+        if (isTerminal && request.completedAt) {
+            const hoursSinceCompletion = (Date.now() - new Date(request.completedAt).getTime()) / (1000 * 60 * 60);
+            if (hoursSinceCompletion > 48) {
+                Alert.alert('Support Timeline Over', 'Your support timeline is over (48 hours). Please contact our generic helpdesk for further assistance.');
+                return;
+            }
+        }
         const msg = encodeURIComponent(`Hi, I need help with booking #${request.id}. Service: ${request.serviceType}`);
         Linking.openURL(`https://wa.me/${whatsappNumber}?text=${msg}`);
     };
@@ -241,6 +261,11 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.serviceType}>{request.serviceType.replace(/_/g, ' ')}</Text>
+                            {(request.brand || request.model) && (
+                                <Text style={styles.brandText}>
+                                    {request.brand} {request.model ? `- ${request.model}` : ''}
+                                </Text>
+                            )}
                             <Text style={styles.serviceDesc} numberOfLines={2}>{request.description}</Text>
                         </View>
                     </View>
@@ -387,7 +412,9 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 {/* Technician Info */}
                 {request.servicemanName && (
                     <View style={styles.techCard}>
-                        <Text style={styles.sectionTitle}>Assigned Technician</Text>
+                        <Text style={styles.sectionTitle}>
+                            {isTerminal ? 'Service Partner' : 'Assigned Technician'}
+                        </Text>
                         <View style={styles.techRow}>
                             <View style={styles.techAvatar}>
                                 <Text style={styles.techInitial}>
@@ -396,7 +423,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                             </View>
                             <View style={styles.techInfo}>
                                 <Text style={styles.techName}>{request.servicemanName}</Text>
-                                {request.servicemanPhone && (
+                                {canShowServicemanPhone && (
                                     <TouchableOpacity
                                         style={styles.techPhoneRow}
                                         onPress={() => Linking.openURL(`tel:${request.servicemanPhone}`)}
@@ -406,7 +433,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                                     </TouchableOpacity>
                                 )}
                             </View>
-                            {request.servicemanPhone && (
+                            {canShowServicemanPhone && (
                                 <TouchableOpacity
                                     style={styles.callBtn}
                                     onPress={() => Linking.openURL(`tel:${request.servicemanPhone}`)}
@@ -502,7 +529,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
-                {/* WhatsApp Support */}
+                {/* WhatsApp Support — Active services or within 48h of completion */}
                 {showSupport && (
                     <Button
                         title="Contact Support"
@@ -510,6 +537,20 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         onPress={openWhatsApp}
                         icon={<MessageCircle size={18} color={colors.whatsapp} />}
                         style={{ marginBottom: spacing.md }}
+                    />
+                )}
+
+                {/* Support Expired — Show disabled help button for completed services past 48h */}
+                {showExpiredSupport && (
+                    <Button
+                        title="Help"
+                        variant="ghost"
+                        onPress={() => Alert.alert(
+                            'Support Window Expired',
+                            `The ${supportWindowHours}-hour support window for this service has ended. For general inquiries, please contact us through the Profile screen.`
+                        )}
+                        icon={<MessageCircle size={18} color={colors.textDisabled} />}
+                        style={{ marginBottom: spacing.md, opacity: 0.6 }}
                     />
                 )}
 
@@ -569,15 +610,10 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: colors.border, ...shadows.sm,
     },
     serviceCardHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.base },
-    serviceIconWrap: {
-        width: 44, height: 44, borderRadius: radii.lg,
-        backgroundColor: colors.primarySurface, justifyContent: 'center', alignItems: 'center',
-        marginRight: spacing.md,
-    },
-    serviceType: {
-        ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize',
-    },
-    serviceDesc: { ...typography.body, color: colors.textSecondary, marginTop: 2 },
+    serviceIconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accent, justifyContent: 'center', alignItems: 'center', marginRight: spacing.md },
+    serviceType: { ...typography.h5, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: 2 },
+    brandText: { ...typography.body2, color: colors.primary, fontWeight: '500', marginBottom: 2 },
+    serviceDesc: { ...typography.body2, color: colors.textSecondary, marginTop: 2 },
     metaGrid: { gap: spacing.sm },
     metaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     metaText: { ...typography.caption, color: colors.textSecondary, flex: 1 },

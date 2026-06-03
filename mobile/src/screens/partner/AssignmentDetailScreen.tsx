@@ -176,6 +176,11 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 {/* Service info card */}
                 <View style={styles.card}>
                     <Text style={styles.serviceType}>{assignment.serviceType.replace(/_/g, ' ')}</Text>
+                    {(assignment.brand || assignment.model) && (
+                        <Text style={styles.brandText}>
+                            {assignment.brand} {assignment.model ? `- ${assignment.model}` : ''}
+                        </Text>
+                    )}
                     <Text style={styles.desc}>{assignment.description}</Text>
                     <View style={styles.metaRow}>
                         <Calendar size={14} color={colors.textSecondary} />
@@ -403,7 +408,8 @@ const styles = StyleSheet.create({
     headerTitle: { ...typography.h4, color: colors.textPrimary },
     scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     card: { backgroundColor: colors.background, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
-    serviceType: { ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.sm },
+    serviceType: { ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.xs },
+    brandText: { ...typography.body2, color: colors.primary, fontWeight: '500', marginBottom: spacing.xs },
     desc: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },
     metaText: { ...typography.caption, color: colors.textSecondary },

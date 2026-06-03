@@ -276,7 +276,8 @@ export function registerBillingRoutes(app: Express) {
     /**
      * GET /api/v1/bookings/:id/support-link
      *
-     * Returns WhatsApp deep link for bookings in ASSIGNED state or beyond (Task 5.9).
+     * Returns WhatsApp deep link for bookings in ASSIGNED state or beyond.
+     * For completed/cancelled bookings, enforces a configurable support window (default 48h).
      */
     app.get('/api/bookings/:id/support-link', authenticateToken, async (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -294,12 +295,26 @@ export function registerBillingRoutes(app: Express) {
                 `Hi UniteFix Support, I need help with booking ${booking.serviceId} (Status: ${booking.status})`
             );
 
+            // Support window check for terminal states
+            const terminalStates = ['completed', 'cancelled', 'disputed'];
+            const isTerminal = terminalStates.includes(booking.status);
+            const supportWindowHours = 48; // Could be fetched from configService
+            let supportExpired = false;
+
+            if (isTerminal && booking.completedAt) {
+                const completedTime = new Date(booking.completedAt).getTime();
+                const windowMs = supportWindowHours * 60 * 60 * 1000;
+                supportExpired = Date.now() - completedTime > windowMs;
+            }
+
             res.json({
                 success: true,
                 data: {
                     whatsappLink: `https://wa.me/${whatsappNumber}?text=${message}`,
                     canCancel: booking.status === BookingState.CREATED,
                     status: booking.status,
+                    supportExpired,
+                    supportWindowHours,
                 },
             });
         } catch (error) {

@@ -303,12 +303,11 @@ export class PaymentService {
                     await storage.updateServiceRequestStatus(
                         parseInt(notes.service_request_id),
                         BookingState.COMPLETED,
-                        'system',
-                        {
-                            razorpayPaymentId: paymentId,
-                            notes: 'Final payment received via Razorpay webhook'
-                        }
                     );
+                    // Store payment metadata separately
+                    await storage.updateServiceRequest(parseInt(notes.service_request_id), {
+                        paymentMethod: 'razorpay' as any,
+                    });
                     logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED`);
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] COMPLETED transition failed: ${err.message}`);

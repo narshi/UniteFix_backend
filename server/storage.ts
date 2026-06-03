@@ -148,6 +148,8 @@ export interface IStorage {
   getServiceRequestByServiceId(serviceId: string): Promise<ServiceRequest | undefined>;
   getUserServiceRequests(userId: number): Promise<ServiceRequest[]>;
   getProviderServiceRequests(providerId: number): Promise<any[]>;
+  getUserServiceRequestsPaginated(userId: number, statusFilter?: 'active' | 'past' | 'all', page?: number, limit?: number): Promise<{ data: any[]; total: number }>;
+  getProviderServiceRequestsPaginated(providerId: number, statusFilter?: 'active' | 'past' | 'all', page?: number, limit?: number): Promise<{ data: any[]; total: number }>;
   updateServiceRequest(id: number, updates: Partial<ServiceRequest>): Promise<ServiceRequest | undefined>;
   updateServiceRequestStatus(id: number, status: string): Promise<ServiceRequest | undefined>;
   assignProviderToService(serviceRequestId: number, providerId: number): Promise<ServiceRequest | undefined>;
@@ -620,10 +622,50 @@ export class DatabaseStorage implements IStorage {
     return request || undefined;
   }
 
-  async getUserServiceRequests(userId: number): Promise<ServiceRequest[]> {
+  async getUserServiceRequests(userId: number): Promise<any[]> {
     return await db
-      .select()
+      .select({
+        id: serviceRequests.id,
+        serviceId: serviceRequests.serviceId,
+        userId: serviceRequests.userId,
+        providerId: serviceRequests.providerId,
+        serviceType: serviceRequests.serviceType,
+        brand: serviceRequests.brand,
+        model: serviceRequests.model,
+        description: serviceRequests.description,
+        photos: serviceRequests.photos,
+        status: serviceRequests.status,
+        handshakeOtp: serviceRequests.handshakeOtp,
+        bookingFee: serviceRequests.bookingFee,
+        bookingFeeStatus: serviceRequests.bookingFeeStatus,
+        totalAmount: serviceRequests.totalAmount,
+        commissionAmount: serviceRequests.commissionAmount,
+        customerLocation: serviceRequests.customerLocation,
+        address: serviceRequests.address,
+        preferredDate: serviceRequests.preferredDate,
+        preferredTimeSlot: serviceRequests.preferredTimeSlot,
+        assignedAt: serviceRequests.assignedAt,
+        reachedAt: serviceRequests.reachedAt,
+        reachedLat: serviceRequests.reachedLat,
+        reachedLong: serviceRequests.reachedLong,
+        startedAt: serviceRequests.startedAt,
+        completedAt: serviceRequests.completedAt,
+        adminNotes: serviceRequests.adminNotes,
+        pricingSnapshot: serviceRequests.pricingSnapshot,
+        paymentMethod: serviceRequests.paymentMethod,
+        serviceValueTier: serviceRequests.serviceValueTier,
+        cashCollectedBy: serviceRequests.cashCollectedBy,
+        cashCollectedAt: serviceRequests.cashCollectedAt,
+        urgency: serviceRequests.urgency,
+        createdAt: serviceRequests.createdAt,
+        updatedAt: serviceRequests.updatedAt,
+        // Employee join fields
+        servicemanName: employees.fullName,
+        servicemanPhone: users.phone,
+      })
       .from(serviceRequests)
+      .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
+      .leftJoin(users, eq(employees.userId, users.id))
       .where(eq(serviceRequests.userId, userId))
       .orderBy(desc(serviceRequests.createdAt));
   }
@@ -672,6 +714,184 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(users, eq(serviceRequests.userId, users.id))
       .where(eq(serviceRequests.providerId, providerId))
       .orderBy(desc(serviceRequests.createdAt));
+  }
+
+  // ── Paginated Service History (with privacy filtering) ──────────────
+
+  private static readonly TERMINAL_STATES = ['completed', 'cancelled', 'disputed'];
+  private static readonly ACTIVE_STATES = ['created', 'assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'];
+
+  /**
+   * Customer-facing paginated service requests.
+   * Joins with employees table to get serviceman name/phone.
+   * Privacy: Strips serviceman phone for terminal states.
+   */
+  async getUserServiceRequestsPaginated(
+    userId: number,
+    statusFilter: 'active' | 'past' | 'all' = 'all',
+    page: number = 1,
+    limit: number = 15,
+  ): Promise<{ data: any[]; total: number }> {
+    const offset = (page - 1) * limit;
+
+    // Build status condition
+    let statusCondition;
+    if (statusFilter === 'past') {
+      statusCondition = inArray(serviceRequests.status, DatabaseStorage.TERMINAL_STATES as any);
+    } else if (statusFilter === 'active') {
+      statusCondition = inArray(serviceRequests.status, DatabaseStorage.ACTIVE_STATES as any);
+    }
+
+    const whereCondition = statusCondition
+      ? and(eq(serviceRequests.userId, userId), statusCondition)
+      : eq(serviceRequests.userId, userId);
+
+    // Count total
+    const [countResult] = await db
+      .select({ total: count() })
+      .from(serviceRequests)
+      .where(whereCondition!);
+    const total = countResult?.total || 0;
+
+    // Fetch page with employee join for serviceman info
+    const rows = await db
+      .select({
+        id: serviceRequests.id,
+        serviceId: serviceRequests.serviceId,
+        userId: serviceRequests.userId,
+        providerId: serviceRequests.providerId,
+        serviceType: serviceRequests.serviceType,
+        brand: serviceRequests.brand,
+        model: serviceRequests.model,
+        description: serviceRequests.description,
+        photos: serviceRequests.photos,
+        status: serviceRequests.status,
+        handshakeOtp: serviceRequests.handshakeOtp,
+        bookingFee: serviceRequests.bookingFee,
+        bookingFeeStatus: serviceRequests.bookingFeeStatus,
+        totalAmount: serviceRequests.totalAmount,
+        commissionAmount: serviceRequests.commissionAmount,
+        address: serviceRequests.address,
+        preferredDate: serviceRequests.preferredDate,
+        preferredTimeSlot: serviceRequests.preferredTimeSlot,
+        assignedAt: serviceRequests.assignedAt,
+        reachedAt: serviceRequests.reachedAt,
+        startedAt: serviceRequests.startedAt,
+        completedAt: serviceRequests.completedAt,
+        pricingSnapshot: serviceRequests.pricingSnapshot,
+        paymentMethod: serviceRequests.paymentMethod,
+        urgency: serviceRequests.urgency,
+        createdAt: serviceRequests.createdAt,
+        updatedAt: serviceRequests.updatedAt,
+        // Employee join fields
+        servicemanName: employees.fullName,
+        // Phone lives on users table, linked via employees.userId
+        servicemanPhone: users.phone,
+      })
+      .from(serviceRequests)
+      .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
+      .leftJoin(users, eq(employees.userId, users.id))
+      .where(whereCondition!)
+      .orderBy(desc(serviceRequests.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Privacy: strip serviceman phone for terminal states
+    const data = rows.map(row => ({
+      ...row,
+      servicemanPhone: DatabaseStorage.TERMINAL_STATES.includes(row.status)
+        ? null
+        : row.servicemanPhone,
+    }));
+
+    return { data, total };
+  }
+
+  /**
+   * Partner-facing paginated assignments.
+   * Joins with users table to get customer name/phone.
+   * Privacy: Strips customer phone for terminal states.
+   */
+  async getProviderServiceRequestsPaginated(
+    providerId: number,
+    statusFilter: 'active' | 'past' | 'all' = 'all',
+    page: number = 1,
+    limit: number = 15,
+  ): Promise<{ data: any[]; total: number }> {
+    const offset = (page - 1) * limit;
+
+    let statusCondition;
+    if (statusFilter === 'past') {
+      statusCondition = inArray(serviceRequests.status, DatabaseStorage.TERMINAL_STATES as any);
+    } else if (statusFilter === 'active') {
+      statusCondition = inArray(serviceRequests.status, DatabaseStorage.ACTIVE_STATES as any);
+    }
+
+    const whereCondition = statusCondition
+      ? and(eq(serviceRequests.providerId, providerId), statusCondition)
+      : eq(serviceRequests.providerId, providerId);
+
+    const [countResult] = await db
+      .select({ total: count() })
+      .from(serviceRequests)
+      .where(whereCondition!);
+    const total = countResult?.total || 0;
+
+    const rows = await db
+      .select({
+        id: serviceRequests.id,
+        serviceId: serviceRequests.serviceId,
+        userId: serviceRequests.userId,
+        providerId: serviceRequests.providerId,
+        serviceType: serviceRequests.serviceType,
+        brand: serviceRequests.brand,
+        model: serviceRequests.model,
+        description: serviceRequests.description,
+        photos: serviceRequests.photos,
+        status: serviceRequests.status,
+        handshakeOtp: serviceRequests.handshakeOtp,
+        bookingFee: serviceRequests.bookingFee,
+        bookingFeeStatus: serviceRequests.bookingFeeStatus,
+        totalAmount: serviceRequests.totalAmount,
+        commissionAmount: serviceRequests.commissionAmount,
+        customerLocation: serviceRequests.customerLocation,
+        address: serviceRequests.address,
+        preferredDate: serviceRequests.preferredDate,
+        preferredTimeSlot: serviceRequests.preferredTimeSlot,
+        assignedAt: serviceRequests.assignedAt,
+        reachedAt: serviceRequests.reachedAt,
+        reachedLat: serviceRequests.reachedLat,
+        reachedLong: serviceRequests.reachedLong,
+        startedAt: serviceRequests.startedAt,
+        completedAt: serviceRequests.completedAt,
+        adminNotes: serviceRequests.adminNotes,
+        pricingSnapshot: serviceRequests.pricingSnapshot,
+        paymentMethod: serviceRequests.paymentMethod,
+        serviceValueTier: serviceRequests.serviceValueTier,
+        cashCollectedBy: serviceRequests.cashCollectedBy,
+        cashCollectedAt: serviceRequests.cashCollectedAt,
+        urgency: serviceRequests.urgency,
+        createdAt: serviceRequests.createdAt,
+        updatedAt: serviceRequests.updatedAt,
+        customerName: users.username,
+        customerPhone: users.phone,
+      })
+      .from(serviceRequests)
+      .leftJoin(users, eq(serviceRequests.userId, users.id))
+      .where(whereCondition!)
+      .orderBy(desc(serviceRequests.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Privacy: strip customer phone for terminal states
+    const data = rows.map(row => ({
+      ...row,
+      customerPhone: DatabaseStorage.TERMINAL_STATES.includes(row.status)
+        ? null
+        : row.customerPhone,
+    }));
+
+    return { data, total };
   }
 
   async updateServiceRequest(id: number, updates: Partial<ServiceRequest>): Promise<ServiceRequest | undefined> {

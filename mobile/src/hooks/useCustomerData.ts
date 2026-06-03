@@ -2,7 +2,7 @@
  * React Query hooks for customer data
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { customerApi, CreateServiceRequest } from '../api/customer.api';
 import { Alert } from 'react-native';
 import { getApiErrorMessage } from '../api/client';
@@ -12,6 +12,7 @@ import { getApiErrorMessage } from '../api/client';
 export const queryKeys = {
     profile: ['profile'] as const,
     serviceRequests: ['serviceRequests'] as const,
+    serviceHistory: ['serviceHistory'] as const,
     notifications: ['notifications'] as const,
     homeServices: ['homeServices'] as const,
     allServices: ['allServices'] as const,
@@ -78,6 +79,24 @@ export function useServiceRequests() {
     });
 }
 
+export function useServiceHistory() {
+    return useInfiniteQuery({
+        queryKey: queryKeys.serviceHistory,
+        queryFn: async ({ pageParam = 1 }) => {
+            const response = await customerApi.getServiceHistory(pageParam as number, 15);
+            return response.data;
+        },
+        initialPageParam: 1,
+        getNextPageParam: (lastPage: any) => {
+            const pagination = lastPage.pagination;
+            if (pagination && pagination.hasMore) {
+                return pagination.page + 1;
+            }
+            return undefined;
+        },
+    });
+}
+
 export function useCreateServiceRequest() {
     const queryClient = useQueryClient();
     return useMutation({
@@ -98,6 +117,7 @@ export function useCancelServiceRequest() {
         mutationFn: (id: number) => customerApi.cancelServiceRequest(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.serviceRequests });
+            queryClient.invalidateQueries({ queryKey: queryKeys.serviceHistory });
         },
     });
 }

@@ -44,6 +44,8 @@ export interface ServiceRequest {
     status: 'created' | 'assigned' | 'accepted' | 'reached' | 'in_progress' | 'pending_payment' | 'completed' | 'cancelled' | 'disputed';
     address?: string;
     pinCode?: string;
+    brand?: string;
+    model?: string;
     photos?: string[];
     assignedTo?: number;
     providerId?: number;
@@ -136,6 +138,11 @@ export const customerApi = {
     getMyServiceRequests: () =>
         apiClient.get<ApiResponse<ServiceRequest[]>>('/api/services/my-requests'),
 
+    getServiceHistory: (page: number = 1, limit: number = 15) =>
+        apiClient.get<ApiResponse<ServiceRequest[]> & { pagination: any }>(
+            `/api/services/my-requests?status=past&page=${page}&limit=${limit}`
+        ),
+
     cancelServiceRequest: (id: number) =>
         apiClient.post(`/api/services/${id}/cancel`),
 
@@ -176,7 +183,7 @@ export const customerApi = {
 
     // Platform Config
     getPublicConfig: () =>
-        apiClient.get<ApiResponse<{ bookingFee: number; gstRate: number; cancelFee: number; whatsappNumber: string }>>('/api/config/public'),
+        apiClient.get<ApiResponse<{ bookingFee: number; gstRate: number; cancelFee: number; supportWindowHours: number; whatsappNumber: string }>>('/api/config/public'),
 
     // OTP
     generateOTP: (serviceId: number) =>
