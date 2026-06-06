@@ -230,7 +230,7 @@ export function HomeScreen() {
                                 ))
                             ) : (
                                 <>
-                                    {homeServices?.map((service: ServiceItem) => (
+                                    {homeServices?.slice(0, 5).map((service: ServiceItem) => (
                                         <View key={service.id} style={styles.serviceCardWrapper}>
                                             <ServiceCard
                                                 service={service}
