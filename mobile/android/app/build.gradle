@@ -113,15 +113,7 @@ android {
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
-        }
         release {
-            def localProperties = new Properties()
-            def localPropertiesFile = rootProject.file('local.properties')
-            if (localPropertiesFile.exists()) {
-                localPropertiesFile.withReader('UTF-8') { reader ->
-                    localProperties.load(reader)
-                }
-            }
             storeFile file('unitefix-release.keystore')
             storePassword localProperties.getProperty('UNITEFIX_RELEASE_STORE_PASSWORD') ?: ''
             keyAlias localProperties.getProperty('UNITEFIX_RELEASE_KEY_ALIAS') ?: 'unitefix'
