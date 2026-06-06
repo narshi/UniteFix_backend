@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "config": {
-        "googleMapsApiKey": "AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU"
+        "googleMapsApiKey": ""
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "UniteFix needs your location to show nearby services and set your address.",
@@ -28,7 +28,7 @@
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU"
+          "apiKey": ""
         }
       },
       "permissions": [

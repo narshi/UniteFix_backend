@@ -14,7 +14,7 @@ import { customerApi, SavedAddress } from '../../api/customer.api';
 import { Button } from '../../components/ui/Button';
 
 // ── Google Places API key (same key used for Maps) ──
-const GOOGLE_API_KEY = 'AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU';
+const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
 interface PlacePrediction {
     place_id: string;
