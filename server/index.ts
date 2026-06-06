@@ -68,6 +68,31 @@ app.get("/api/health", async (_req: Request, res: Response) => {
   }
 });
 
+// P1: Google Play Account Deletion Requirement
+app.get("/delete-account", (_req: Request, res: Response) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Delete Account - UniteFix</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: system-ui, sans-serif; padding: 40px 20px; max-width: 600px; margin: 0 auto; line-height: 1.6; color: #333; }
+          h1 { color: #153980; }
+          .container { background: #f9f9f9; padding: 30px; border-radius: 12px; border: 1px solid #eee; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>Request Account Deletion</h1>
+          <p>If you would like to permanently delete your UniteFix account and all associated data, please contact our support team.</p>
+          <p><strong>Email:</strong> <a href="mailto:support@unitefix.com">support@unitefix.com</a></p>
+          <p>Please include your registered phone number in the email. Our team will process your deletion request within 48 hours.</p>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
