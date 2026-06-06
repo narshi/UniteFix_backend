@@ -90,7 +90,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
 
                 res.json({ success: true, message: "Payout processing via RazorpayX", payout: payoutData });
             } catch (payoutError: any) {
-                // If it fails immediately, we can mark it failed and refund.
+                // If it fails immediately, mark failed and refund the wallet.
                 logger.error(`Immediate Payout Failure: ${payoutError.message}`);
                 
                 await db.update(withdrawalRequests).set({
@@ -99,7 +99,35 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     updatedAt: new Date()
                 }).where(eq(withdrawalRequests.id, requestId));
                 
-                // Refund wallet logic (abbreviated for now, would restore balanceAvailable)
+                // Refund wallet: restore the deducted balanceAvailable
+                const [wallet] = await db.select().from(partnerWallets)
+                    .where(eq(partnerWallets.partnerId, withdrawal.partnerId)).limit(1);
+                
+                if (wallet) {
+                    const amount = parseFloat(withdrawal.amount as any);
+                    const currentAvail = parseFloat(wallet.balanceAvailable as any);
+                    const newAvail = (currentAvail + amount).toFixed(2);
+
+                    await db.update(partnerWallets).set({
+                        balanceAvailable: newAvail,
+                        updatedAt: new Date(),
+                    }).where(eq(partnerWallets.partnerId, withdrawal.partnerId));
+
+                    await db.insert(walletTransactionsV2).values({
+                        transactionId: `PAYOUT-FAIL-REFUND-${withdrawal.id}-${Date.now()}`,
+                        partnerId: withdrawal.partnerId,
+                        transactionType: 'refund',
+                        amount: amount.toFixed(2),
+                        balanceAvailableBefore: wallet.balanceAvailable,
+                        balanceAvailableAfter: newAvail,
+                        balanceHoldBefore: wallet.balanceHold,
+                        balanceHoldAfter: wallet.balanceHold,
+                        description: `Payout failed — funds returned: ${payoutError.message}`,
+                    });
+
+                    logger.info(`[WITHDRAWAL] Refunded ₹${amount} to partner ${withdrawal.partnerId} after payout failure`);
+                }
+
                 return res.status(500).json({ error: "Payout failed immediately: " + payoutError.message });
             }
 
@@ -141,6 +169,8 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     amount: amount.toFixed(2),
                     balanceAvailableBefore: wallet.balanceAvailable,
                     balanceAvailableAfter: (currentAvail + amount).toFixed(2),
+                    balanceHoldBefore: wallet.balanceHold,
+                    balanceHoldAfter: wallet.balanceHold,
                     description: `Withdrawal Rejected Refund: ${reason || 'Admin action'}`,
                 });
             }

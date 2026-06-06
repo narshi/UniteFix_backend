@@ -114,14 +114,14 @@ Status:          ${service.status?.toUpperCase() || 'N/A'}
 ──────────────────────────────────────────────────────
 CUSTOMER DETAILS
 ──────────────────────────────────────────────────────
-Name:            ${service.user?.username || service.customerName || 'N/A'}
-Phone:           ${service.user?.phone || service.customerPhone || 'N/A'}
+Name:            ${service.customerName || 'N/A'}
+Phone:           ${service.customerPhone || 'N/A'}
 Address:         ${service.address || 'N/A'}
 
 ──────────────────────────────────────────────────────
 ASSIGNED EMPLOYEE
 ──────────────────────────────────────────────────────
-Name:            ${service.partner?.username || service.technicianName || 'Not Assigned'}
+Name:            ${service.technicianName || 'Not Assigned'}
 Employee ID:     ${service.providerId ? `BU${String(service.providerId).padStart(5, '0')}` : 'N/A'}
 
 ══════════════════════════════════════════════════════
@@ -274,28 +274,27 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                     {filteredServices.map((service: any) => (
                       <tr key={service.id} className="border-b border-gray-100">
                         <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.id}</p>
-                          <p className="text-sm text-gray-600">{service.verificationCode}</p>
+                          <p className="font-medium text-gray-900">{service.serviceId || service.id}</p>
+                          <p className="text-sm text-gray-600">#{service.id}</p>
                         </td>
                         <td className="py-3 px-4">
                           <p className="font-medium text-gray-900">{service.serviceType}</p>
                           <p className="text-sm text-gray-600">{service.description}</p>
                         </td>
                         <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.user?.username || service.customerName}</p>
-                          <p className="text-sm text-gray-600">{service.user?.phone || service.customerPhone}</p>
+                          <p className="font-medium text-gray-900">{service.customerName || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">{service.customerPhone}</p>
                         </td>
                         <td className="py-3 px-4">
                           <p className="text-sm text-gray-900">{service.brand}</p>
                           <p className="text-sm text-gray-600">{service.model}</p>
                         </td>
                         <td className="py-3 px-4">
-                          {service.partner || service.technicianName ? (
+                          {service.technicianName ? (
                             <div>
-                              <p className="font-medium text-gray-900">{service.partner?.username || service.technicianName}</p>
-                              <p className="text-sm text-gray-600">{service.partner?.phone}</p>
+                              <p className="font-medium text-gray-900">{service.technicianName}</p>
                               <Badge variant="secondary" className="text-xs mt-1">
-                                BU{String(service.partner?.id || service.providerId || '').padStart(5, '0')}
+                                BU{String(service.providerId || '').padStart(5, '0')}
                               </Badge>
                             </div>
                           ) : (
@@ -319,7 +318,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                             className="flex items-center gap-2"
                           >
                             <Download className="h-4 w-4" />
-                            PDF
+                            Invoice
                           </Button>
                         </td>
                         <td className="py-3 px-4">
@@ -367,7 +366,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Service ID</p>
-                    <p className="text-lg font-semibold">{selectedService.id}</p>
+                    <p className="text-lg font-semibold">{selectedService.serviceId || selectedService.id}</p>
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-600">Status</p>
@@ -378,8 +377,8 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                     <p className="text-base">{selectedService.serviceType}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Verification Code</p>
-                    <p className="text-base font-mono">{selectedService.verificationCode || 'N/A'}</p>
+                    <p className="text-sm font-medium text-gray-600">Booking Fee Status</p>
+                    <p className="text-base font-mono">{selectedService.bookingFeeStatus || 'N/A'}</p>
                   </div>
                 </div>
 
@@ -388,11 +387,11 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm font-medium text-gray-600">Name</p>
-                      <p className="text-base">{selectedService.user?.username || selectedService.customerName}</p>
+                      <p className="text-base">{selectedService.customerName || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-600">Phone</p>
-                      <p className="text-base">{selectedService.user?.phone || selectedService.customerPhone}</p>
+                      <p className="text-base">{selectedService.customerPhone || 'N/A'}</p>
                     </div>
                     <div className="col-span-2">
                       <p className="text-sm font-medium text-gray-600">Address</p>
@@ -437,25 +436,17 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </div>
                 )}
 
-                {(selectedService.partner || selectedService.technicianName) && (
+                {selectedService.technicianName && (
                   <div className="border-t pt-4">
                     <h4 className="font-medium text-gray-900 mb-3">Assigned Employee</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <p className="text-sm font-medium text-gray-600">Employee Name</p>
-                        <p className="text-base">{selectedService.partner?.username || selectedService.technicianName}</p>
+                        <p className="text-base">{selectedService.technicianName}</p>
                       </div>
                       <div>
                         <p className="text-sm font-medium text-gray-600">Employee ID</p>
-                        <p className="text-base">BU{String(selectedService.partner?.id || selectedService.providerId || '').padStart(5, '0')}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Contact</p>
-                        <p className="text-base">{selectedService.partner?.phone || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Email</p>
-                        <p className="text-base">{selectedService.partner?.email || 'N/A'}</p>
+                        <p className="text-base">BU{String(selectedService.providerId || '').padStart(5, '0')}</p>
                       </div>
                     </div>
                   </div>

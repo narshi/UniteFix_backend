@@ -59,7 +59,7 @@ export interface WalletTransaction {
 export const partnerApi = {
     // Assignments
     getAssignments: () =>
-        apiClient.get<Assignment[]>('/api/serviceman/assignments'),
+        apiClient.get<{ success: boolean; data: Assignment[] }>('/api/serviceman/assignments'),
 
     getAssignmentHistory: (page: number = 1, limit: number = 15) =>
         apiClient.get<any>(`/api/serviceman/assignments?status=past&page=${page}&limit=${limit}`),

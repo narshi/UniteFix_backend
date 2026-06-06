@@ -1,21 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Alert, Keyboard } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, TextInput,
+    ActivityIndicator, Alert, Keyboard, FlatList, Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Region, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
-import { ArrowLeft, Search, MapPin, Check } from 'lucide-react-native';
+import { ArrowLeft, Search, MapPin, Check, Navigation, X } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { customerApi } from '../../api/customer.api';
 import { useProfile } from '../../hooks/useCustomerData';
 
+// ── Google Places API key (same key used for Maps) ──
+const GOOGLE_API_KEY = 'AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU';
+
+// ── Types ──
+interface PlacePrediction {
+    place_id: string;
+    description: string;
+    structured_formatting: {
+        main_text: string;
+        secondary_text: string;
+    };
+}
+
 export function LocationSelectionScreen() {
     const navigation = useNavigation();
     const { refetch } = useProfile();
     const mapRef = useRef<MapView>(null);
-    
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const [region, setRegion] = useState<Region>({
         latitude: 20.5937,
         longitude: 78.9629,
@@ -27,9 +44,13 @@ export function LocationSelectionScreen() {
     const [currentAddress, setCurrentAddress] = useState('');
     const [currentPinCode, setCurrentPinCode] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [isSearching, setIsSearching] = useState(false);
     const [isServiceable, setIsServiceable] = useState<boolean | null>(null);
     const [isValidating, setIsValidating] = useState(false);
+
+    // Autocomplete state
+    const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
 
     useEffect(() => {
         getCurrentLocation();
@@ -52,6 +73,108 @@ export function LocationSelectionScreen() {
         }
     }, [currentPinCode]);
 
+    // ── Cleanup debounce timer ──
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+        };
+    }, []);
+
+    // ── Google Places Autocomplete ──
+    const fetchPredictions = useCallback(async (input: string) => {
+        if (input.length < 3) {
+            setPredictions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        setIsFetchingSuggestions(true);
+        try {
+            const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&key=${GOOGLE_API_KEY}&components=country:in&language=en`;
+            const response = await fetch(url);
+            const json = await response.json();
+
+            if (json.status === 'OK' && json.predictions?.length > 0) {
+                setPredictions(json.predictions.slice(0, 5));
+                setShowSuggestions(true);
+            } else {
+                setPredictions([]);
+                setShowSuggestions(false);
+            }
+        } catch (error) {
+            console.error('Places Autocomplete error:', error);
+            setPredictions([]);
+        } finally {
+            setIsFetchingSuggestions(false);
+        }
+    }, []);
+
+    const onSearchTextChange = (text: string) => {
+        setSearchQuery(text);
+
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+
+        if (text.length < 3) {
+            setPredictions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        debounceRef.current = setTimeout(() => {
+            fetchPredictions(text);
+        }, 350); // 350ms debounce
+    };
+
+    // ── Select a suggestion → resolve to coordinates ──
+    const selectPrediction = async (prediction: PlacePrediction) => {
+        Keyboard.dismiss();
+        setSearchQuery(prediction.description);
+        setShowSuggestions(false);
+        setPredictions([]);
+
+        try {
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address,address_components&key=${GOOGLE_API_KEY}`;
+            const response = await fetch(url);
+            const json = await response.json();
+
+            if (json.status === 'OK' && json.result?.geometry?.location) {
+                const { lat, lng } = json.result.geometry.location;
+                const newRegion = {
+                    latitude: lat,
+                    longitude: lng,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                };
+                setRegion(newRegion);
+                setSelectedLocation({ latitude: lat, longitude: lng });
+                mapRef.current?.animateToRegion(newRegion, 1000);
+
+                // Extract address and pin code from address_components
+                const components = json.result.address_components || [];
+                const postalComponent = components.find((c: any) =>
+                    c.types?.includes('postal_code')
+                );
+                setCurrentAddress(json.result.formatted_address || prediction.description);
+                if (postalComponent) {
+                    setCurrentPinCode(postalComponent.long_name.replace(/\s+/g, ''));
+                } else {
+                    // Fallback to reverse geocode for pin code
+                    await fetchAddressFromCoords(lat, lng);
+                }
+            }
+        } catch (error) {
+            console.error('Place Details error:', error);
+            Alert.alert('Error', 'Could not resolve location details.');
+        }
+    };
+
+    const clearSearch = () => {
+        setSearchQuery('');
+        setPredictions([]);
+        setShowSuggestions(false);
+    };
+
+    // ── Location helpers ──
     const getCurrentLocation = async () => {
         setIsLoading(true);
         try {
@@ -64,7 +187,7 @@ export function LocationSelectionScreen() {
 
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
-            
+
             const newRegion = {
                 latitude,
                 longitude,
@@ -74,7 +197,7 @@ export function LocationSelectionScreen() {
             setRegion(newRegion);
             setSelectedLocation({ latitude, longitude });
             mapRef.current?.animateToRegion(newRegion, 1000);
-            
+
             await fetchAddressFromCoords(latitude, longitude);
         } catch (error) {
             console.error('Error getting location:', error);
@@ -96,35 +219,6 @@ export function LocationSelectionScreen() {
             }
         } catch (error) {
             console.error('Reverse geocoding error:', error);
-        }
-    };
-
-    const handleSearch = async () => {
-        if (!searchQuery.trim()) return;
-        Keyboard.dismiss();
-        setIsSearching(true);
-        try {
-            const geocodeResult = await Location.geocodeAsync(searchQuery);
-            if (geocodeResult.length > 0) {
-                const { latitude, longitude } = geocodeResult[0];
-                const newRegion = {
-                    latitude,
-                    longitude,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01,
-                };
-                setRegion(newRegion);
-                setSelectedLocation({ latitude, longitude });
-                mapRef.current?.animateToRegion(newRegion, 1000);
-                await fetchAddressFromCoords(latitude, longitude);
-            } else {
-                Alert.alert('Not found', 'Could not find the requested location.');
-            }
-        } catch (error) {
-            console.error('Geocoding error:', error);
-            Alert.alert('Error', 'Failed to search location.');
-        } finally {
-            setIsSearching(false);
         }
     };
 
@@ -156,6 +250,7 @@ export function LocationSelectionScreen() {
         }
     };
 
+    // ── Render ──
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
@@ -164,22 +259,6 @@ export function LocationSelectionScreen() {
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Select Location</Text>
                 <View style={{ width: 24 }} />
-            </View>
-
-            <View style={styles.searchContainer}>
-                <View style={styles.searchBox}>
-                    <Search color={colors.textSecondary} size={20} />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Search area or landmark..."
-                        placeholderTextColor={colors.textSecondary}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                        onSubmitEditing={handleSearch}
-                        returnKeyType="search"
-                    />
-                    {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
-                </View>
             </View>
 
             <MapView
@@ -194,17 +273,73 @@ export function LocationSelectionScreen() {
                 )}
             </MapView>
 
+            {/* Search Bar + Autocomplete Dropdown */}
+            <View style={styles.searchContainer}>
+                <View style={styles.searchBox}>
+                    <Search color={colors.textSecondary} size={20} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search area, landmark, or city..."
+                        placeholderTextColor={colors.textSecondary}
+                        value={searchQuery}
+                        onChangeText={onSearchTextChange}
+                        returnKeyType="search"
+                        autoCorrect={false}
+                    />
+                    {isFetchingSuggestions && <ActivityIndicator size="small" color={colors.primary} />}
+                    {searchQuery.length > 0 && !isFetchingSuggestions && (
+                        <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <X size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                {/* Suggestions Dropdown */}
+                {showSuggestions && predictions.length > 0 && (
+                    <View style={styles.suggestionsContainer}>
+                        <FlatList
+                            data={predictions}
+                            keyExtractor={(item) => item.place_id}
+                            keyboardShouldPersistTaps="handled"
+                            scrollEnabled={false}
+                            renderItem={({ item, index }) => (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.suggestionItem,
+                                        index === predictions.length - 1 && styles.suggestionItemLast,
+                                    ]}
+                                    onPress={() => selectPrediction(item)}
+                                    activeOpacity={0.6}
+                                >
+                                    <MapPin size={16} color={colors.primary} style={{ marginTop: 2 }} />
+                                    <View style={styles.suggestionTextWrap}>
+                                        <Text style={styles.suggestionMainText} numberOfLines={1}>
+                                            {item.structured_formatting.main_text}
+                                        </Text>
+                                        <Text style={styles.suggestionSecondaryText} numberOfLines={1}>
+                                            {item.structured_formatting.secondary_text}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                )}
+            </View>
+
+            {/* My Location FAB */}
             <TouchableOpacity style={styles.myLocationButton} onPress={getCurrentLocation}>
-                <MapPin color={colors.primary} size={24} />
+                <Navigation color={colors.primary} size={22} />
             </TouchableOpacity>
 
+            {/* Bottom Sheet */}
             <View style={styles.bottomSheet}>
                 <Text style={styles.sheetTitle}>Selected Location</Text>
                 <View style={styles.addressRow}>
                     <MapPin color={colors.textSecondary} size={20} style={{ marginTop: 2 }} />
                     <View style={styles.addressTextContainer}>
                         <Text style={styles.addressText}>
-                            {currentAddress || 'Tap on the map to select a location'}
+                            {currentAddress || 'Tap on the map or search to select a location'}
                         </Text>
                         {currentPinCode ? (
                             <View>
@@ -220,12 +355,12 @@ export function LocationSelectionScreen() {
                         ) : null}
                     </View>
                 </View>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                     style={[
-                        styles.saveButton, 
-                        (!currentAddress || isLoading) && styles.saveButtonDisabled
-                    ]} 
+                        styles.saveButton,
+                        (!currentAddress || isLoading) && styles.saveButtonDisabled,
+                    ]}
                     onPress={handleSaveLocation}
                     disabled={!currentAddress || isLoading}
                 >
@@ -256,7 +391,7 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.md,
         backgroundColor: colors.surface,
         ...shadows.sm,
-        zIndex: 10,
+        zIndex: 20,
     },
     backButton: {
         padding: spacing.xs,
@@ -265,12 +400,14 @@ const styles = StyleSheet.create({
         ...typography.h4,
         color: colors.textPrimary,
     },
+
+    // ── Search + Autocomplete ──
     searchContainer: {
         position: 'absolute',
-        top: 90,
-        left: spacing.xl,
-        right: spacing.xl,
-        zIndex: 10,
+        top: Platform.OS === 'ios' ? 120 : 100,
+        left: spacing.lg,
+        right: spacing.lg,
+        zIndex: 15,
     },
     searchBox: {
         flexDirection: 'row',
@@ -287,12 +424,47 @@ const styles = StyleSheet.create({
         ...typography.body,
         color: colors.textPrimary,
     },
+    suggestionsContainer: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.lg,
+        marginTop: spacing.xs,
+        overflow: 'hidden',
+        ...shadows.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    suggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.divider,
+        gap: spacing.sm,
+    },
+    suggestionItemLast: {
+        borderBottomWidth: 0,
+    },
+    suggestionTextWrap: {
+        flex: 1,
+    },
+    suggestionMainText: {
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+    },
+    suggestionSecondaryText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+
+    // ── Map ──
     map: {
         flex: 1,
     },
     myLocationButton: {
         position: 'absolute',
-        bottom: 200,
+        bottom: 210,
         right: spacing.xl,
         backgroundColor: colors.surface,
         width: 50,
@@ -302,6 +474,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         ...shadows.md,
     },
+
+    // ── Bottom Sheet ──
     bottomSheet: {
         backgroundColor: colors.surface,
         padding: spacing.xl,

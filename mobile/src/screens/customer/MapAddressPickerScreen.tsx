@@ -1,12 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+    View, StyleSheet, Text, TouchableOpacity, TextInput,
+    ActivityIndicator, Alert, FlatList, Keyboard, Platform,
+} from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { ArrowLeft, MapPin } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Search, X, Navigation } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
+import { typography } from '../../theme/typography';
+import { spacing, radii, shadows } from '../../theme/spacing';
 import { customerApi, SavedAddress } from '../../api/customer.api';
 import { Button } from '../../components/ui/Button';
+
+// ── Google Places API key (same key used for Maps) ──
+const GOOGLE_API_KEY = 'AIzaSyBxKpV_-RjLz8B8NrKYSU6xs2O2gOMI4VU';
+
+interface PlacePrediction {
+    place_id: string;
+    description: string;
+    structured_formatting: {
+        main_text: string;
+        secondary_text: string;
+    };
+}
 
 type ParamList = {
     MapAddressPicker: { editAddressIndex?: number };
@@ -15,13 +32,22 @@ type ParamList = {
 export function MapAddressPickerScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
-    
+
+    const mapRef = useRef<MapView>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
     const [region, setRegion] = useState<Region | null>(null);
     const [markerCoordinate, setMarkerCoordinate] = useState<{ latitude: number, longitude: number } | null>(null);
     const [addressText, setAddressText] = useState('');
     const [label, setLabel] = useState('Home');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Autocomplete state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
 
     useEffect(() => {
         (async () => {
@@ -48,6 +74,13 @@ export function MapAddressPickerScreen() {
         })();
     }, []);
 
+    // Cleanup
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+        };
+    }, []);
+
     const reverseGeocode = async (lat: number, lng: number) => {
         try {
             const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
@@ -64,6 +97,85 @@ export function MapAddressPickerScreen() {
         } catch (err) {
             console.log("Geocode error", err);
         }
+    };
+
+    // ── Google Places Autocomplete ──
+    const fetchPredictions = useCallback(async (input: string) => {
+        if (input.length < 3) {
+            setPredictions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        setIsFetchingSuggestions(true);
+        try {
+            const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&key=${GOOGLE_API_KEY}&components=country:in&language=en`;
+            const response = await fetch(url);
+            const json = await response.json();
+
+            if (json.status === 'OK' && json.predictions?.length > 0) {
+                setPredictions(json.predictions.slice(0, 5));
+                setShowSuggestions(true);
+            } else {
+                setPredictions([]);
+                setShowSuggestions(false);
+            }
+        } catch (error) {
+            console.error('Places Autocomplete error:', error);
+            setPredictions([]);
+        } finally {
+            setIsFetchingSuggestions(false);
+        }
+    }, []);
+
+    const onSearchTextChange = (text: string) => {
+        setSearchQuery(text);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+
+        if (text.length < 3) {
+            setPredictions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        debounceRef.current = setTimeout(() => {
+            fetchPredictions(text);
+        }, 350);
+    };
+
+    const selectPrediction = async (prediction: PlacePrediction) => {
+        Keyboard.dismiss();
+        setSearchQuery(prediction.description);
+        setShowSuggestions(false);
+        setPredictions([]);
+
+        try {
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address&key=${GOOGLE_API_KEY}`;
+            const response = await fetch(url);
+            const json = await response.json();
+
+            if (json.status === 'OK' && json.result?.geometry?.location) {
+                const { lat, lng } = json.result.geometry.location;
+                const newRegion: Region = {
+                    latitude: lat,
+                    longitude: lng,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                };
+                setRegion(newRegion);
+                setMarkerCoordinate({ latitude: lat, longitude: lng });
+                mapRef.current?.animateToRegion(newRegion, 1000);
+                setAddressText(json.result.formatted_address || prediction.description);
+            }
+        } catch (error) {
+            console.error('Place Details error:', error);
+        }
+    };
+
+    const clearSearch = () => {
+        setSearchQuery('');
+        setPredictions([]);
+        setShowSuggestions(false);
     };
 
     const handleMapPress = (e: any) => {
@@ -118,10 +230,12 @@ export function MapAddressPickerScreen() {
                     <ArrowLeft size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Select Location</Text>
+                <View style={{ width: 24 }} />
             </View>
 
-            <MapView 
-                style={styles.map} 
+            <MapView
+                ref={mapRef}
+                style={styles.map}
                 region={region || undefined}
                 onPress={handleMapPress}
                 showsUserLocation
@@ -131,11 +245,64 @@ export function MapAddressPickerScreen() {
                 )}
             </MapView>
 
+            {/* Search Bar + Autocomplete */}
+            <View style={styles.searchContainer}>
+                <View style={styles.searchBox}>
+                    <Search color={colors.textSecondary} size={20} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search area, landmark, or city..."
+                        placeholderTextColor={colors.textSecondary}
+                        value={searchQuery}
+                        onChangeText={onSearchTextChange}
+                        returnKeyType="search"
+                        autoCorrect={false}
+                    />
+                    {isFetchingSuggestions && <ActivityIndicator size="small" color={colors.primary} />}
+                    {searchQuery.length > 0 && !isFetchingSuggestions && (
+                        <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <X size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                {showSuggestions && predictions.length > 0 && (
+                    <View style={styles.suggestionsContainer}>
+                        <FlatList
+                            data={predictions}
+                            keyExtractor={(item) => item.place_id}
+                            keyboardShouldPersistTaps="handled"
+                            scrollEnabled={false}
+                            renderItem={({ item, index }) => (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.suggestionItem,
+                                        index === predictions.length - 1 && styles.suggestionItemLast,
+                                    ]}
+                                    onPress={() => selectPrediction(item)}
+                                    activeOpacity={0.6}
+                                >
+                                    <MapPin size={16} color={colors.primary} style={{ marginTop: 2 }} />
+                                    <View style={styles.suggestionTextWrap}>
+                                        <Text style={styles.suggestionMainText} numberOfLines={1}>
+                                            {item.structured_formatting.main_text}
+                                        </Text>
+                                        <Text style={styles.suggestionSecondaryText} numberOfLines={1}>
+                                            {item.structured_formatting.secondary_text}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </View>
+                )}
+            </View>
+
             <View style={styles.bottomSheet}>
                 <Text style={styles.labelTitle}>Save As</Text>
                 <View style={styles.labelRow}>
                     {['Home', 'Work', 'Other'].map((l) => (
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             key={l}
                             style={[styles.labelChip, label === l && styles.labelChipActive]}
                             onPress={() => setLabel(l)}
@@ -148,7 +315,7 @@ export function MapAddressPickerScreen() {
                 <Text style={styles.labelTitle}>Address</Text>
                 <View style={styles.addressInputContainer}>
                     <MapPin size={20} color={colors.primary} style={styles.addressIcon} />
-                    <TextInput 
+                    <TextInput
                         style={styles.addressInput}
                         value={addressText}
                         onChangeText={setAddressText}
@@ -156,11 +323,11 @@ export function MapAddressPickerScreen() {
                     />
                 </View>
 
-                <Button 
-                    title="Save Address" 
-                    onPress={handleSave} 
+                <Button
+                    title="Save Address"
+                    onPress={handleSave}
                     loading={saving}
-                    fullWidth 
+                    fullWidth
                     style={{ marginTop: 20 }}
                 />
             </View>
@@ -173,16 +340,75 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'space-between',
         padding: 16,
-        paddingTop: 50,
+        paddingTop: Platform.OS === 'ios' ? 56 : 50,
         backgroundColor: colors.surface,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        elevation: 2,
-        zIndex: 10,
+        ...shadows.sm,
+        zIndex: 20,
     },
     backBtn: { padding: 4 },
-    headerTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary, marginLeft: 16 },
+    headerTitle: { ...typography.h4, color: colors.textPrimary },
+
+    // ── Search + Autocomplete ──
+    searchContainer: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 130 : 110,
+        left: spacing.lg,
+        right: spacing.lg,
+        zIndex: 15,
+    },
+    searchBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: radii.lg,
+        paddingHorizontal: spacing.md,
+        height: 50,
+        ...shadows.md,
+    },
+    searchInput: {
+        flex: 1,
+        marginLeft: spacing.sm,
+        ...typography.body,
+        color: colors.textPrimary,
+    },
+    suggestionsContainer: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.lg,
+        marginTop: spacing.xs,
+        overflow: 'hidden',
+        ...shadows.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    suggestionItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.divider,
+        gap: spacing.sm,
+    },
+    suggestionItemLast: {
+        borderBottomWidth: 0,
+    },
+    suggestionTextWrap: {
+        flex: 1,
+    },
+    suggestionMainText: {
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+    },
+    suggestionSecondaryText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+
     map: { flex: 1 },
     bottomSheet: {
         backgroundColor: colors.surface,
@@ -195,7 +421,7 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 10,
     },
-    labelTitle: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 10, marginTop: 10 },
+    labelTitle: { ...typography.label, color: colors.textSecondary, marginBottom: 10, marginTop: 10 },
     labelRow: { flexDirection: 'row', gap: 10 },
     labelChip: {
         paddingHorizontal: 16,

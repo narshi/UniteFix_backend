@@ -115,7 +115,29 @@ export function useCancelServiceRequest() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (id: number) => customerApi.cancelServiceRequest(id),
-        onSuccess: () => {
+        onMutate: async (id: number) => {
+            await queryClient.cancelQueries({ queryKey: queryKeys.serviceRequests });
+            await queryClient.cancelQueries({ queryKey: queryKeys.serviceHistory });
+
+            const previousRequests = queryClient.getQueryData(queryKeys.serviceRequests);
+            const previousHistory = queryClient.getQueryData(queryKeys.serviceHistory);
+
+            queryClient.setQueryData(queryKeys.serviceRequests, (old: any) => {
+                if (!old) return old;
+                return old.map((r: any) => r.id === id ? { ...r, status: 'cancelled' } : r);
+            });
+
+            return { previousRequests, previousHistory };
+        },
+        onError: (err, id, context) => {
+            if (context?.previousRequests) {
+                queryClient.setQueryData(queryKeys.serviceRequests, context.previousRequests);
+            }
+            if (context?.previousHistory) {
+                queryClient.setQueryData(queryKeys.serviceHistory, context.previousHistory);
+            }
+        },
+        onSettled: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.serviceRequests });
             queryClient.invalidateQueries({ queryKey: queryKeys.serviceHistory });
         },

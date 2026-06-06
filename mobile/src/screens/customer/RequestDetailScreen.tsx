@@ -43,6 +43,13 @@ import {
     AlertTriangle,
     KeyRound,
     Copy,
+    Snowflake,
+    Droplets,
+    Zap,
+    Hammer,
+    Paintbrush,
+    Sparkles,
+    Bug,
 } from 'lucide-react-native';
 import { useCancelServiceRequest, useRateService, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
@@ -52,6 +59,20 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
+
+// Service Icon Mapping
+const SERVICE_ICONS: Record<string, { icon: any; color: string }> = {
+    'AC Repair': { icon: Snowflake, color: '#3B82F6' },
+    'AC Service': { icon: Snowflake, color: '#3B82F6' },
+    'Plumber': { icon: Droplets, color: '#06B6D4' },
+    'Electrician': { icon: Zap, color: '#F59E0B' },
+    'Carpenter': { icon: Hammer, color: '#8B5CF6' },
+    'Appliance Repair': { icon: Wrench, color: '#EF4444' },
+    'Painting': { icon: Paintbrush, color: '#EC4899' },
+    'Cleaning': { icon: Sparkles, color: '#10B981' },
+    'Pest Control': { icon: Bug, color: '#84CC16' },
+    'default': { icon: Wrench, color: '#64748B' },
+};
 
 // Full state machine timeline matching AI_CONTEXT.md §3.B
 const getTimelineSteps = (bookingFee: number) => [
@@ -174,8 +195,8 @@ export function RequestDetailScreen({ navigation, route }: Props) {
         return null;
     }
 
-    // Cancel from early states (before work starts)
-    const canCancel = ['created', 'placed', 'confirmed', 'assigned'].includes(request.status);
+    // Cancel only from 'created' state — once assigned, user must contact support
+    const canCancel = request.status === 'created';
     const canRate = request.status === 'completed' && !request.rating;
     const needsPayment = request.status === 'pending_payment';
     const isTerminal = ['completed', 'cancelled', 'disputed'].includes(request.status);
@@ -256,8 +277,15 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 {/* Service Info Card */}
                 <View style={styles.serviceCard}>
                     <View style={styles.serviceCardHeader}>
-                        <View style={styles.serviceIconWrap}>
-                            <Wrench size={20} color={colors.primary} />
+                        <View style={[
+                            styles.serviceIconWrap, 
+                            { backgroundColor: (SERVICE_ICONS[request.serviceType] || SERVICE_ICONS['default']).color + '20' }
+                        ]}>
+                            {(() => {
+                                const mapping = SERVICE_ICONS[request.serviceType] || SERVICE_ICONS['default'];
+                                const ServiceIcon = mapping.icon;
+                                return <ServiceIcon size={20} color={mapping.color} strokeWidth={2.5} />;
+                            })()}
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.serviceType}>{request.serviceType.replace(/_/g, ' ')}</Text>

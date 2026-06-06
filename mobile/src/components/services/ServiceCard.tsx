@@ -67,8 +67,8 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
                         );
                     }
 
-                    const IconName = (service.icon as keyof typeof LucideIcons) || 'Wrench';
-                    const ServiceIcon = (LucideIcons[IconName] as any) || Wrench;
+                    const pascalCaseName = service.icon ? service.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Wrench';
+                    const ServiceIcon = (LucideIcons as any)[pascalCaseName] || Wrench;
                     return <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />;
                 })()}
             </View>

@@ -45,6 +45,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const [photos, setPhotos] = useState<string[]>([]);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
 
     // Read selected address from navigation params if returning from SavedAddressesScreen
     useEffect(() => {
@@ -90,7 +91,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
         Alert.alert('Add Photo', 'Choose an option', [
             {
-                text: 'Take Photo',
+                text: 'Camera',
                 onPress: async () => {
                     const { status } = await ImagePicker.requestCameraPermissionsAsync();
                     if (status !== 'granted') {
@@ -108,7 +109,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                 },
             },
             {
-                text: 'Choose from Gallery',
+                text: 'Gallery',
                 onPress: async () => {
                     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                     if (status !== 'granted') {

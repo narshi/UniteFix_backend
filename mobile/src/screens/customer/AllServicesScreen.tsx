@@ -146,16 +146,16 @@ export const AllServicesScreen = () => {
                                                 return (
                                                     <Image
                                                         source={{ uri: category.icon }}
-                                                        style={{ width: '100%', height: '100%' }}
-                                                        contentFit="cover"
+                                                        style={{ width: '80%', height: '80%' }}
+                                                        contentFit="contain"
                                                         transition={200}
                                                     />
                                                 );
                                             }
 
-                                            const IconName = (category.icon as keyof typeof LucideIcons) || 'Grid';
-                                            const CategoryIcon = (LucideIcons[IconName] as any) || Grid;
-                                            return <CategoryIcon size={22} color={isSelected ? colors.textInverse : colors.textSecondary} />;
+                                            const pascalCaseName = category.icon ? category.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Grid';
+                                            const CategoryIcon = (LucideIcons as any)[pascalCaseName] || Grid;
+                                            return <CategoryIcon size={24} color={isSelected ? colors.primary : colors.textSecondary} />;
                                         })()}
                                     </View>
                                     <Text 
@@ -167,7 +167,6 @@ export const AllServicesScreen = () => {
                                     >
                                         {category.name}
                                     </Text>
-                                    {isSelected && <View style={styles.activeIndicator} />}
                                 </TouchableOpacity>
                             );
                         })}
@@ -315,31 +314,27 @@ const styles = StyleSheet.create({
     },
     sidebarItem: {
         alignItems: 'center',
-        paddingVertical: spacing.lg,
+        paddingVertical: spacing.md,
         paddingHorizontal: spacing.xs,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.divider,
         position: 'relative',
     },
     sidebarItemSelected: {
-        backgroundColor: colors.primaryLight + '15',
+        backgroundColor: 'transparent',
     },
     sidebarIconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: colors.surface,
+        width: 56,
+        height: 56,
+        borderRadius: radii.xl,
+        backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: spacing.xs,
-        borderWidth: 1,
-        borderColor: colors.divider,
         overflow: 'hidden',
     },
     sidebarIconContainerSelected: {
-        backgroundColor: colors.primary,
-        borderColor: colors.primary,
-        ...shadows.md,
+        backgroundColor: colors.primaryLight + '15',
+        borderWidth: 1.5,
+        borderColor: colors.primaryLight + '60',
     },
     sidebarText: {
         ...typography.small,
@@ -349,18 +344,8 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     sidebarTextSelected: {
-        color: colors.primaryDark,
+        color: colors.textPrimary,
         fontWeight: '800',
-    },
-    activeIndicator: {
-        position: 'absolute',
-        left: 0,
-        top: '25%',
-        bottom: '25%',
-        width: 4,
-        backgroundColor: colors.primary,
-        borderTopRightRadius: radii.md,
-        borderBottomRightRadius: radii.md,
     },
     rightContent: {
         flex: 1,

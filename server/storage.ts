@@ -662,10 +662,14 @@ export class DatabaseStorage implements IStorage {
         // Employee join fields
         servicemanName: employees.fullName,
         servicemanPhone: users.phone,
+        // Rating join fields
+        rating: ratings.rating,
+        feedback: ratings.review,
       })
       .from(serviceRequests)
       .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
       .leftJoin(users, eq(employees.userId, users.id))
+      .leftJoin(ratings, eq(ratings.serviceRequestId, serviceRequests.id))
       .where(eq(serviceRequests.userId, userId))
       .orderBy(desc(serviceRequests.createdAt));
   }
@@ -787,10 +791,14 @@ export class DatabaseStorage implements IStorage {
         servicemanName: employees.fullName,
         // Phone lives on users table, linked via employees.userId
         servicemanPhone: users.phone,
+        // Rating join fields
+        rating: ratings.rating,
+        feedback: ratings.review,
       })
       .from(serviceRequests)
       .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
       .leftJoin(users, eq(employees.userId, users.id))
+      .leftJoin(ratings, eq(ratings.serviceRequestId, serviceRequests.id))
       .where(whereCondition!)
       .orderBy(desc(serviceRequests.createdAt))
       .limit(limit)
@@ -1636,7 +1644,9 @@ export class DatabaseStorage implements IStorage {
           eq(serviceRequests.status, 'created'),
           eq(serviceRequests.status, 'assigned'),
           eq(serviceRequests.status, 'accepted'),
-          eq(serviceRequests.status, 'in_progress')
+          eq(serviceRequests.status, 'reached'),
+          eq(serviceRequests.status, 'in_progress'),
+          eq(serviceRequests.status, 'pending_payment')
         )
       );
 
@@ -1687,10 +1697,29 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getRecentServices(limit: number): Promise<ServiceRequest[]> {
+  async getRecentServices(limit: number): Promise<any[]> {
     return await db
-      .select()
+      .select({
+        id: serviceRequests.id,
+        serviceId: serviceRequests.serviceId,
+        userId: serviceRequests.userId,
+        providerId: serviceRequests.providerId,
+        serviceType: serviceRequests.serviceType,
+        description: serviceRequests.description,
+        status: serviceRequests.status,
+        bookingFee: serviceRequests.bookingFee,
+        bookingFeeStatus: serviceRequests.bookingFeeStatus,
+        totalAmount: serviceRequests.totalAmount,
+        address: serviceRequests.address,
+        createdAt: serviceRequests.createdAt,
+        // Joined fields
+        customerName: users.username,
+        customerPhone: users.phone,
+        technicianName: employees.fullName,
+      })
       .from(serviceRequests)
+      .leftJoin(users, eq(serviceRequests.userId, users.id))
+      .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
       .orderBy(desc(serviceRequests.createdAt))
       .limit(limit);
   }

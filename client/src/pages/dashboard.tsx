@@ -33,12 +33,17 @@ export default function Dashboard() {
   const handleExportReport = async () => {
     try {
       // Fetch all necessary data for the report (uses apiRequest for auth token)
-      const [stats, services, orders, users] = await Promise.all([
+      const [statsRes, servicesRes, ordersRes, usersRes] = await Promise.all([
         apiRequest("GET", "/api/admin/stats"),
         apiRequest("GET", "/api/admin/services/recent"),
         apiRequest("GET", "/api/admin/orders/recent"),
         apiRequest("GET", "/api/admin/users"),
       ]);
+
+      // Unwrap the { success, data } wrapper
+      const stats = statsRes?.data || statsRes || {};
+      const services = Array.isArray(servicesRes) ? servicesRes : (servicesRes?.data || []);
+      const orders = Array.isArray(ordersRes) ? ordersRes : (ordersRes?.data || []);
 
       // Create CSV content
       const csvContent = [
@@ -46,10 +51,10 @@ export default function Dashboard() {
         ["UniteFix Admin Report", new Date().toLocaleDateString()],
         [],
         ["Summary Statistics"],
-        ["Total Users", stats.totalUsers],
-        ["Active Services", stats.activeServices],
-        ["Product Orders", stats.productOrders],
-        ["Total Revenue", `₹${stats.revenue}`],
+        ["Total Users", stats.totalUsers || 0],
+        ["Active Services", stats.activeServices || 0],
+        ["Product Orders", stats.totalOrders || 0],
+        ["Total Revenue", `₹${stats.totalRevenue || 0}`],
         [],
         ["Recent Services"],
         ["Service ID", "Type", "Status", "Customer", "Created"],
@@ -57,7 +62,7 @@ export default function Dashboard() {
           service.serviceId || "N/A",
           service.serviceType,
           service.status || "Pending",
-          service.user?.username || "Unknown",
+          service.customerName || "Unknown",
           new Date(service.createdAt).toLocaleDateString()
         ]),
         [],
@@ -67,7 +72,7 @@ export default function Dashboard() {
           order.orderId || "N/A",
           `₹${order.totalAmount}`,
           order.status || "Pending",
-          order.user?.username || "Unknown",
+          order.customerName || "Unknown",
           new Date(order.createdAt).toLocaleDateString()
         ])
       ];
