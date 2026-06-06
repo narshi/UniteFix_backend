@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
-import { Search, Plus, Edit, Archive, CheckCircle2, XCircle, Grid, List, MoreVertical, Image as ImageIcon } from "lucide-react";
+import { Search, Plus, Edit, Archive, CheckCircle2, XCircle, Grid, List, MoreVertical, Image as ImageIcon, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -51,6 +51,21 @@ export default function ServiceCatalogPage() {
       toast({ title: "Success", description: "Category updated successfully" });
       setIsCategoryModalOpen(false);
       setEditingCategory(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/catalog/categories/${id}`);
+      return res;
+    },
+    onSuccess: (_, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
+      toast({ title: "Success", description: "Category and its services deleted successfully" });
+      if (selectedCategoryId === deletedId) setSelectedCategoryId('all');
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -184,19 +199,38 @@ export default function ServiceCatalogPage() {
               <div key={cat.id} className="flex items-center group">
                 <Button 
                   variant={selectedCategoryId === cat.id ? "secondary" : "ghost"} 
-                  className="flex-1 justify-start text-sm"
+                  className="flex-1 justify-start text-sm truncate"
                   onClick={() => setSelectedCategoryId(cat.id)}
+                  title={cat.name}
                 >
+                  {cat.icon && cat.icon.startsWith('http') ? (
+                    <img src={cat.icon} alt={cat.name} className="w-5 h-5 mr-2 rounded-sm object-cover" referrerPolicy="no-referrer" />
+                  ) : null}
                   {cat.name}
                 </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
-                >
-                  <Edit className="w-3 h-3 text-gray-400" />
-                </Button>
+                <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8"
+                    onClick={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }}
+                  >
+                    <Edit className="w-3 h-3 text-gray-500 hover:text-blue-600" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8"
+                    onClick={() => {
+                      if (window.confirm("Are you sure you want to delete this category? This will also delete all services inside it.")) {
+                        deleteCategoryMutation.mutate(cat.id);
+                      }
+                    }}
+                    disabled={deleteCategoryMutation.isPending}
+                  >
+                    <Trash2 className="w-3 h-3 text-gray-500 hover:text-red-600" />
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>
@@ -231,7 +265,7 @@ export default function ServiceCatalogPage() {
                   <Card key={service.id} className="overflow-hidden group hover:shadow-md transition-all border-gray-200">
                     <div className="h-24 bg-gray-100 relative overflow-hidden">
                       {service.bannerImage ? (
-                        <img src={service.bannerImage} alt={service.name} className="w-full h-full object-cover" />
+                        <img src={service.bannerImage} alt={service.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-300">
                           <ImageIcon className="w-8 h-8" />

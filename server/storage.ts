@@ -162,6 +162,7 @@ export interface IStorage {
   getAdminServiceCatalog(): Promise<(ServiceCategory & { items: ServiceItem[] })[]>;
   createServiceCategory(category: InsertServiceCategory): Promise<ServiceCategory>;
   updateServiceCategory(id: number, updates: Partial<ServiceCategory>): Promise<ServiceCategory | undefined>;
+  deleteServiceCategory(id: number): Promise<boolean>;
   createService(service: InsertServiceItem): Promise<ServiceItem>;
   updateService(id: number, updates: Partial<ServiceItem>): Promise<ServiceItem | undefined>;
 
@@ -1392,6 +1393,17 @@ export class DatabaseStorage implements IStorage {
 
     const [cartItem] = await db.insert(cartItems).values(item).returning();
     return cartItem;
+  }
+
+  async deleteServiceCategory(id: number): Promise<boolean> {
+    try {
+      await db.delete(services).where(eq(services.categoryId, id));
+      const [deleted] = await db.delete(serviceCategories).where(eq(serviceCategories.id, id)).returning();
+      return !!deleted;
+    } catch (e) {
+      console.error('Error deleting category:', e);
+      return false;
+    }
   }
 
   async getCartItems(userId: number): Promise<CartItem[]> {

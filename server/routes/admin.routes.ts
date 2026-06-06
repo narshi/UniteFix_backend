@@ -253,6 +253,23 @@ export function registerAdminRoutes(app: Express) {
     });
 
     /**
+     * DELETE /api/admin/catalog/categories/:id
+     * Delete service category
+     */
+    app.delete("/api/admin/catalog/categories/:id", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const id = parseInt(req.params.id);
+            const deleted = await storage.deleteServiceCategory(id);
+            if (!deleted) return res.status(404).json({ error: "Category not found" });
+            res.json({ success: true, data: { id } });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+    /**
      * POST /api/admin/catalog/services
      * Create a new service item
      */
