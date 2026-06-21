@@ -210,27 +210,28 @@ export default function InventoryPage() {
     };
 
     return (
-        <div className="p-8">
-            <div className="flex flex-col md:flex-row w-full justify-between items-start md:items-center mb-8 gap-4">
+        <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+            <div className="flex flex-col md:flex-row w-full justify-between items-start md:items-center mb-8 gap-4 relative z-10 stagger-enter">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Inventory Management</h1>
-                    <p className="text-gray-500 mt-2">Manage products, stock, and categories.</p>
+                    <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Inventory Management</h1>
+                    <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">Manage products, stock, and categories.</p>
                 </div>
                 <div className="flex gap-2">
                     <Button
                         variant="outline"
                         onClick={handleExportSelected}
                         disabled={selectedProducts.length === 0}
+                        className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]"
                     >
                         <span className="material-icons text-sm mr-2">download</span>
                         Export Selected ({selectedProducts.length})
                     </Button>
-                    <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+                    <Button variant="outline" onClick={() => setIsImportModalOpen(true)} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">
                         <span className="material-icons text-sm mr-2">upload_file</span>
                         Import/Export
                     </Button>
                     <Button
-                        className="bg-primary text-white"
+                        className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95"
                         onClick={() => {
                             setEditingProduct(null);
                             setFormData({ name: '', description: '', price: '', category: 'Computer', stock: '', images: '' });
@@ -243,21 +244,22 @@ export default function InventoryPage() {
                 </div>
             </div>
 
-            <Card className="shadow-md border-0 ring-1 ring-gray-200 mb-6">
+            <Card className="glass-card border-[rgba(255,255,255,0.08)] mb-6 relative z-10 stagger-enter">
                 <CardContent className="p-4 flex gap-4 items-center">
                     <div className="flex-1">
                         <Input
                             placeholder="Search products..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
+                            className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                         />
                     </div>
                     <div className="w-[200px]">
                         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                            <SelectTrigger>
+                            <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
                                 <SelectValue placeholder="Category" />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
                                 <SelectItem value="all">All Categories</SelectItem>
                                 {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                             </SelectContent>
@@ -266,65 +268,68 @@ export default function InventoryPage() {
                 </CardContent>
             </Card>
 
-            <Card className="shadow-md border-0 ring-1 ring-gray-200">
+            <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
                 <CardContent className="p-0">
-                    <table className="w-full">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">
+                    <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full glass-table">
+                            <thead>
+                                <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider w-[50px]">
                                     <Checkbox
                                         checked={filteredProducts && filteredProducts.length > 0 && selectedProducts.length === filteredProducts.length}
                                         onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                                        className="border-[rgba(255,255,255,0.2)] data-[state=checked]:bg-[hsl(217,91%,60%)]"
                                     />
                                 </th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Image</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Name</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Category</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Price</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Stock</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Image</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Name</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Category</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Price</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Stock</th>
+                                <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
+                        <tbody>
                             {filteredProducts?.map((product) => (
-                                <tr key={product.id} className="hover:bg-gray-50/60">
-                                    <td className="px-6 py-4">
+                                <tr key={product.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                                    <td className="p-4">
                                         <Checkbox
                                             checked={selectedProducts.includes(product.id)}
                                             onCheckedChange={(checked) => handleSelectOne(product.id, checked as boolean)}
+                                            className="border-[rgba(255,255,255,0.2)] data-[state=checked]:bg-[hsl(217,91%,60%)]"
                                         />
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="p-4">
                                         {product.images?.[0] ? (
-                                            <img src={product.images[0]} alt={product.name} className="w-12 h-12 object-cover rounded" />
+                                            <img src={product.images[0]} alt={product.name} className="w-12 h-12 object-cover rounded-lg border border-[rgba(255,255,255,0.1)] shadow-sm" />
                                         ) : (
-                                            <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-gray-400">
+                                            <div className="w-12 h-12 bg-[rgba(255,255,255,0.05)] rounded-lg flex items-center justify-center text-[hsl(215,20%,50%)] border border-[rgba(255,255,255,0.05)]">
                                                 <span className="material-icons text-sm">image</span>
                                             </div>
                                         )}
                                     </td>
-                                    <td className="px-6 py-4 font-medium text-gray-900">{product.name}</td>
-                                    <td className="px-6 py-4"><Badge variant="outline">{product.category}</Badge></td>
-                                    <td className="px-6 py-4">₹{product.price}</td>
-                                    <td className="px-6 py-4">
-                                        <Badge variant={product.stock < 5 ? "destructive" : "secondary"}>
+                                    <td className="p-4 font-medium text-[hsl(210,20%,90%)]">{product.name}</td>
+                                    <td className="p-4"><Badge variant="outline" className="border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] bg-[rgba(255,255,255,0.02)]">{product.category}</Badge></td>
+                                    <td className="p-4 font-mono text-[hsl(210,20%,80%)]">₹{product.price}</td>
+                                    <td className="p-4">
+                                        <Badge variant={product.stock < 5 ? "destructive" : "secondary"} className={product.stock < 5 ? "bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,60%)] border-[hsla(347,77%,50%,0.3)] border shadow-sm backdrop-blur-sm" : "bg-[hsla(217,91%,60%,0.15)] text-[hsl(217,91%,70%)] border-[hsla(217,91%,60%,0.3)] border shadow-sm backdrop-blur-sm"}>
                                             {product.stock}
                                         </Badge>
                                     </td>
-                                    <td className="px-6 py-4 flex gap-2">
-                                        <Button variant="ghost" size="sm" onClick={() => handleEdit(product)}>Edit</Button>
+                                    <td className="p-4 flex gap-2 justify-end">
+                                        <Button variant="ghost" size="sm" onClick={() => handleEdit(product)} className="text-[hsl(215,20%,70%)] hover:text-white hover:bg-[rgba(255,255,255,0.05)]">Edit</Button>
                                         <AlertDialog>
                                             <AlertDialogTrigger asChild>
-                                                <Button variant="ghost" size="sm" className="text-red-600">Delete</Button>
+                                                <Button variant="ghost" size="sm" className="text-[hsl(347,77%,60%)] hover:text-[hsl(347,77%,70%)] hover:bg-[hsla(347,77%,50%,0.1)] transition-colors">Delete</Button>
                                             </AlertDialogTrigger>
-                                            <AlertDialogContent>
+                                            <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
                                                 <AlertDialogHeader>
-                                                    <AlertDialogTitle>Delete {product.name}?</AlertDialogTitle>
-                                                    <AlertDialogDescription>This will remove the product from inventory.</AlertDialogDescription>
+                                                    <AlertDialogTitle className="text-white">Delete {product.name}?</AlertDialogTitle>
+                                                    <AlertDialogDescription className="text-[hsl(215,20%,65%)]">This will remove the product from inventory.</AlertDialogDescription>
                                                 </AlertDialogHeader>
                                                 <AlertDialogFooter>
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction className="bg-red-600" onClick={() => deleteProductMutation.mutate(product.id)}>Delete</AlertDialogAction>
+                                                    <AlertDialogCancel className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction className="bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white" onClick={() => deleteProductMutation.mutate(product.id)}>Delete</AlertDialogAction>
                                                 </AlertDialogFooter>
                                             </AlertDialogContent>
                                         </AlertDialog>
@@ -333,26 +338,27 @@ export default function InventoryPage() {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </CardContent>
             </Card>
 
             {/* Add/Edit Modal */}
             <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl glass-panel border-[rgba(255,255,255,0.1)] overflow-y-auto max-h-[85vh] custom-scrollbar">
                     <DialogHeader>
-                        <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+                        <DialogTitle className="text-xl text-white">{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <Label>Name</Label>
-                                <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                                <Label className="text-[hsl(215,20%,75%)]">Name</Label>
+                                <Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
                             </div>
                             <div>
-                                <Label>Category</Label>
+                                <Label className="text-[hsl(215,20%,75%)]">Category</Label>
                                 <Select value={formData.category} onValueChange={val => setFormData({ ...formData, category: val })}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
+                                    <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
+                                    <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
                                         {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
@@ -360,26 +366,26 @@ export default function InventoryPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <Label>Price (₹)</Label>
-                                <Input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} />
+                                <Label className="text-[hsl(215,20%,75%)]">Price (₹)</Label>
+                                <Input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
                             </div>
                             <div>
-                                <Label>Stock</Label>
-                                <Input type="number" value={formData.stock} onChange={e => setFormData({ ...formData, stock: e.target.value })} />
+                                <Label className="text-[hsl(215,20%,75%)]">Stock</Label>
+                                <Input type="number" value={formData.stock} onChange={e => setFormData({ ...formData, stock: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
                             </div>
                         </div>
                         <div>
-                            <Label>Description</Label>
-                            <Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+                            <Label className="text-[hsl(215,20%,75%)]">Description</Label>
+                            <Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all min-h-[80px]" />
                         </div>
                         <div>
-                            <Label>Image URLs (comma separated)</Label>
-                            <Input value={formData.images} onChange={e => setFormData({ ...formData, images: e.target.value })} placeholder="https://..., https://..." />
+                            <Label className="text-[hsl(215,20%,75%)]">Image URLs (comma separated)</Label>
+                            <Input value={formData.images} onChange={e => setFormData({ ...formData, images: e.target.value })} placeholder="https://..., https://..." className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
                         </div>
                     </div>
-                    <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setIsAddModalOpen(false)}>Cancel</Button>
-                        <Button onClick={() => saveProductMutation.mutate(formData)} disabled={saveProductMutation.isPending}>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setIsAddModalOpen(false)} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</Button>
+                        <Button onClick={() => saveProductMutation.mutate(formData)} disabled={saveProductMutation.isPending} className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95">
                             {saveProductMutation.isPending ? 'Saving...' : 'Save Product'}
                         </Button>
                     </div>
@@ -388,15 +394,15 @@ export default function InventoryPage() {
 
             {/* Import Modal */}
             <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
-                <DialogContent>
+                <DialogContent className="glass-panel border-[rgba(255,255,255,0.1)] overflow-y-auto max-h-[85vh] custom-scrollbar">
                     <DialogHeader>
-                        <DialogTitle>Bulk Import / Export</DialogTitle>
+                        <DialogTitle className="text-xl text-white">Bulk Import / Export</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-6 py-4">
                         <div className="space-y-2">
-                            <h4 className="font-medium">1. Download Template</h4>
-                            <p className="text-sm text-gray-500">Download the Excel template to key in your products.</p>
-                            <Button variant="outline" onClick={async () => {
+                            <h4 className="font-medium text-[hsl(210,20%,90%)]">1. Download Template</h4>
+                            <p className="text-sm text-[hsl(215,20%,65%)]">Download the Excel template to key in your products.</p>
+                            <Button variant="outline" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]" onClick={async () => {
                                 try {
                                     const token = localStorage.getItem("adminToken");
                                     const res = await fetch("/api/admin/inventory/template", {
@@ -429,11 +435,11 @@ export default function InventoryPage() {
                             </Button>
                         </div>
                         <div className="space-y-2">
-                            <h4 className="font-medium">2. Upload Filled Template</h4>
-                            <p className="text-sm text-gray-500">Upload the filled Excel file to import products.</p>
+                            <h4 className="font-medium text-[hsl(210,20%,90%)]">2. Upload Filled Template</h4>
+                            <p className="text-sm text-[hsl(215,20%,65%)]">Upload the filled Excel file to import products.</p>
                             <div className="flex gap-2">
-                                <Input type="file" ref={fileInputRef} accept=".xlsx, .xls" />
-                                <Button onClick={() => {
+                                <Input type="file" ref={fileInputRef} accept=".xlsx, .xls" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white file:text-white file:border-0 file:bg-[rgba(255,255,255,0.05)] file:mr-4 file:px-4 file:py-2 file:rounded-md cursor-pointer focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+                                <Button className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95" onClick={() => {
                                     const file = fileInputRef.current?.files?.[0];
                                     if (file) importMutation.mutate(file);
                                 }} disabled={importMutation.isPending}>

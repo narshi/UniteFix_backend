@@ -131,6 +131,13 @@ export const customerApi = {
     updateProfile: (data: Partial<{ username: string; email: string; homeAddress: string; pinCode: string; savedAddresses: SavedAddress[] }>) =>
         apiClient.patch<ApiResponse<UserProfile>>('/api/client/profile', data),
 
+    // Partner-Specific Profile
+    getPartnerProfile: () =>
+        apiClient.get<ApiResponse<any>>('/api/partner/profile'),
+
+    updateUpiId: (data: { upiId: string }) =>
+        apiClient.put<ApiResponse<{ upiId: string }>>('/api/partner/profile/upi', data),
+
     // Service Requests
     createServiceRequest: (data: CreateServiceRequest) =>
         apiClient.post<ApiResponse<ServiceRequest>>('/api/services/create', data),

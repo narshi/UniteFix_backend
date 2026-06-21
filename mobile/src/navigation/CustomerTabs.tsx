@@ -21,6 +21,7 @@ import { HomeScreen } from '../screens/customer/HomeScreen';
 import { MyRequestsScreen } from '../screens/customer/MyRequestsScreen';
 import { ProfileScreen } from '../screens/customer/ProfileScreen';
 import { ShopScreen } from '../screens/shop/ShopScreen';
+import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator<CustomerTabParamList>();
 
@@ -51,6 +52,7 @@ const tabIconStyles = StyleSheet.create({
 
 export function CustomerTabs() {
     const insets = useSafeAreaInsets();
+    const { t } = useTranslation();
     // On Android, use the actual system nav bar inset + visual margin;
     // on iOS, the safe area inset already accounts for the home indicator.
     const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
@@ -91,7 +93,7 @@ export function CustomerTabs() {
                 name="HomeTab"
                 component={HomeScreen}
                 options={{
-                    tabBarLabel: 'Home',
+                    tabBarLabel: t('tabs.home', 'Home'),
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={Home} color={color} focused={focused} />
                     ),
@@ -101,7 +103,7 @@ export function CustomerTabs() {
                 name="BookingsTab"
                 component={MyRequestsScreen}
                 options={{
-                    tabBarLabel: 'Bookings',
+                    tabBarLabel: t('tabs.my_requests', 'Bookings'),
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={ClipboardList} color={color} focused={focused} />
                     ),
@@ -131,7 +133,7 @@ export function CustomerTabs() {
                 name="ProfileTab"
                 component={ProfileScreen}
                 options={{
-                    tabBarLabel: 'Profile',
+                    tabBarLabel: t('tabs.profile', 'Profile'),
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={User} color={color} focused={focused} />
                     ),

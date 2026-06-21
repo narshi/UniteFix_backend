@@ -60,18 +60,18 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="flex-1 p-8">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Customer Management</h2>
-        <p className="text-gray-600">Manage all registered customers. Employees are managed in the Employees section.</p>
+    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+      <div className="mb-8 relative z-10 stagger-enter">
+        <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Customer Management</h2>
+        <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage all registered customers. Employees are managed in the Employees section.</p>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle>All Users</CardTitle>
-          <div className="flex gap-2">
+      <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">All Users</CardTitle>
+          <div className="flex gap-3">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
@@ -79,101 +79,99 @@ export default function UsersPage() {
               </SelectContent>
             </Select>
             <div className="relative w-64">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
               <Input
                 placeholder="Search users..."
-                className="pl-8"
+                className="pl-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           {isLoading ? (
             <div className="space-y-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                    </div>
+                <div key={i} className="flex items-center space-x-4 border border-[rgba(255,255,255,0.06)] rounded-xl p-4 bg-[rgba(255,255,255,0.02)]">
+                  <div className="w-12 h-12 skeleton-shimmer rounded-full shrink-0"></div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 skeleton-shimmer rounded w-3/4"></div>
+                    <div className="h-3 skeleton-shimmer rounded w-1/2"></div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full glass-table">
                 <thead>
-                  <tr className="border-b border-gray-200 text-sm">
-                    <th className="text-left py-3 px-4">User</th>
-                    <th className="text-left py-3 px-4">Type</th>
-                    <th className="text-left py-3 px-4">Contact</th>
-                    <th className="text-left py-3 px-4">Status</th>
-                    <th className="text-left py-3 px-4">Joined</th>
-                    <th className="text-right py-3 px-4">Actions</th>
+                  <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">User</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Type</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Contact</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Joined</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm">
                   {filteredUsers?.map((user: any, index: number) => (
-                    <tr key={`${user.id}-${index}`} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center space-x-3">
+                    <tr key={`${user.id}-${index}`} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                      <td className="p-4">
+                        <div className="flex items-center space-x-4">
                           {user.profilePicture ? (
                             <img
                               src={user.profilePicture}
                               alt={user.username}
-                              className="w-10 h-10 rounded-full object-cover"
+                              className="w-10 h-10 rounded-full object-cover shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
                             />
                           ) : (
-                            <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
+                            <div className="w-10 h-10 bg-gradient-to-br from-[hsl(217,91%,60%)] to-[hsl(263,70%,50%)] rounded-full flex items-center justify-center font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
                               {user.username?.charAt(0).toUpperCase() || "U"}
                             </div>
                           )}
                           <div>
-                            <p className="font-medium text-gray-900">{user.username}</p>
-                            <p className="text-xs text-gray-500">{user.email || "No email"}</p>
+                            <p className="font-medium text-[hsl(210,20%,90%)]">{user.username}</p>
+                            <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{user.email || "No email"}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                      <td className="p-4">
+                        <Badge variant={user.role === 'admin' ? 'default' : 'outline'} className={user.role === 'admin' ? "bg-[hsla(263,70%,58%,0.2)] text-[hsl(263,70%,70%)] border-[hsla(263,70%,58%,0.3)]" : "text-[hsl(215,20%,70%)] border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]"}>
                           {user.role === 'admin' ? 'Admin' : 'Customer'}
                         </Badge>
                       </td>
-                      <td className="py-3 px-4">
-                        <p className="text-gray-900">{user.phone}</p>
-                        <p className="text-xs text-gray-500">{user.pinCode}</p>
+                      <td className="p-4">
+                        <p className="font-medium text-[hsl(210,20%,85%)]">{user.phone}</p>
+                        <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{user.pinCode}</p>
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="flex flex-col gap-1">
-                          <Badge variant={user.isVerified ? 'default' : 'destructive'} className="w-fit">
+                      <td className="p-4">
+                        <div className="flex flex-col gap-1.5">
+                          <Badge variant={user.isVerified ? 'default' : 'secondary'} className={`w-fit ${user.isVerified ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]' : 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)]'}`}>
                             {user.isVerified ? 'Verified' : 'Unverified'}
                           </Badge>
                           {!user.isActive && (
-                            <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50 w-fit">
+                            <Badge variant="outline" className="w-fit bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border border-[hsla(347,77%,50%,0.3)] shadow-[0_0_10px_hsla(347,77%,50%,0.2)]">
                               Inactive
                             </Badge>
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-4">
-                        <p className="text-gray-600">
+                      <td className="p-4">
+                        <p className="text-[hsl(215,20%,65%)]">
                           {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}
                         </p>
                       </td>
-                      <td className="py-3 px-4 text-right">
+                      <td className="p-4 text-right">
                         <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="ghost" onClick={() => handleViewDetails(user)}>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-[hsl(215,20%,65%)] hover:text-[hsl(217,91%,65%)] hover:bg-[rgba(255,255,255,0.05)] transition-colors" onClick={() => handleViewDetails(user)}>
                             <Eye className="w-4 h-4" />
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="ghost"
-                            className={user.isActive ? "text-red-600" : "text-green-600"}
+                            className={`h-8 w-8 transition-colors ${user.isActive ? "text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)]" : "text-[hsl(160,84%,60%)] hover:bg-[hsla(160,84%,39%,0.1)]"}`}
                             onClick={() => handleToggleStatus(user)}
                             disabled={updateUserStatusMutation.isPending}
                           >
@@ -191,58 +189,68 @@ export default function UsersPage() {
       </Card>
 
       <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] overflow-y-auto max-h-[85vh] custom-scrollbar">
           <DialogHeader>
-            <DialogTitle>User Details</DialogTitle>
-            <DialogDescription>Full profile information for {selectedUser?.username}</DialogDescription>
+            <DialogTitle className="text-xl text-white">User Details</DialogTitle>
+            <DialogDescription className="text-[hsl(215,20%,55%)]">Full profile information for <span className="text-white font-medium">{selectedUser?.username}</span></DialogDescription>
           </DialogHeader>
 
           {selectedUser && (
             <div className="space-y-6">
-              <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-4 p-4 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-xl shadow-inner">
                 {selectedUser.profilePicture ? (
                   <img
                     src={selectedUser.profilePicture}
                     alt={selectedUser.username}
-                    className="w-16 h-16 rounded-full object-cover"
+                    className="w-16 h-16 rounded-full object-cover shadow-[0_2px_10px_rgba(0,0,0,0.3)]"
                   />
                 ) : (
-                  <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center text-2xl font-bold">
+                  <div className="w-16 h-16 bg-gradient-to-br from-[hsl(217,91%,60%)] to-[hsl(263,70%,50%)] text-white rounded-full flex items-center justify-center text-2xl font-bold shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
                     {selectedUser.username.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <h3 className="text-lg font-bold">{selectedUser.username}</h3>
-                  <Badge variant="outline">{selectedUser.role.toUpperCase()}</Badge>
+                  <h3 className="text-lg font-bold text-white tracking-tight">{selectedUser.username}</h3>
+                  <Badge variant="outline" className="text-[10px] mt-1 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,75%)]">{selectedUser.role.toUpperCase()}</Badge>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
-                <div className="flex items-center space-x-3 text-sm">
-                  <Phone className="w-4 h-4 text-gray-400" />
+              <div className="grid grid-cols-1 gap-4 p-1">
+                <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
+                  <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
+                    <Phone className="w-4 h-4 text-[hsl(215,20%,65%)]" />
+                  </div>
                   <span>{selectedUser.phone}</span>
                 </div>
-                <div className="flex items-center space-x-3 text-sm">
-                  <Mail className="w-4 h-4 text-gray-400" />
+                <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
+                  <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
+                    <Mail className="w-4 h-4 text-[hsl(215,20%,65%)]" />
+                  </div>
                   <span>{selectedUser.email || "N/A"}</span>
                 </div>
-                <div className="flex items-center space-x-3 text-sm">
-                  <MapPin className="w-4 h-4 text-gray-400" />
+                <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
+                  <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
+                    <MapPin className="w-4 h-4 text-[hsl(215,20%,65%)]" />
+                  </div>
                   <span>{selectedUser.homeAddress || "No address provided"} ({selectedUser.pinCode || "No Pin"})</span>
                 </div>
-                <div className="flex items-center space-x-3 text-sm">
-                  <Calendar className="w-4 h-4 text-gray-400" />
+                <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
+                  <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 text-[hsl(215,20%,65%)]" />
+                  </div>
                   <span>Joined: {new Date(selectedUser.createdAt).toLocaleDateString()}</span>
                 </div>
-                <div className="flex items-center space-x-3 text-sm">
-                  <Share2 className="w-4 h-4 text-gray-400" />
-                  <span>Referral Code: <span className="font-mono font-bold">{selectedUser.referralCode || "NONE"}</span></span>
+                <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
+                  <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
+                    <Share2 className="w-4 h-4 text-[hsl(215,20%,65%)]" />
+                  </div>
+                  <span>Referral Code: <span className="font-mono font-bold text-[hsl(160,84%,60%)] ml-1">{selectedUser.referralCode || "NONE"}</span></span>
                 </div>
               </div>
 
-              <div className="pt-4 border-t flex gap-2">
+              <div className="pt-5 border-t border-[rgba(255,255,255,0.06)] flex gap-3">
                 <Button
-                  className="flex-1"
+                  className={`flex-1 transition-all active:scale-[0.97] ${selectedUser.isActive ? "bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border border-[hsla(347,77%,50%,0.3)] hover:bg-[hsla(347,77%,50%,0.25)]" : "bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border border-[hsla(160,84%,39%,0.3)] hover:bg-[hsla(160,84%,39%,0.25)]"}`}
                   variant={selectedUser.isActive ? "destructive" : "default"}
                   onClick={() => {
                     handleToggleStatus(selectedUser);
@@ -251,7 +259,7 @@ export default function UsersPage() {
                 >
                   {selectedUser.isActive ? "Deactivate Account" : "Activate Account"}
                 </Button>
-                <Button className="flex-1" variant="outline" onClick={() => setIsDetailModalOpen(false)}>
+                <Button className="flex-1 border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.05)] text-[hsl(210,20%,85%)] transition-all active:scale-[0.97]" variant="outline" onClick={() => setIsDetailModalOpen(false)}>
                   Close
                 </Button>
               </div>

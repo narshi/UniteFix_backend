@@ -96,50 +96,52 @@ export default function OrdersPage() {
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      'placed': { color: 'bg-gray-100 text-gray-800', text: 'Order Placed' },
-      'confirmed': { color: 'bg-blue-100 text-blue-800', text: 'Confirmed' },
-      'in_transit': { color: 'bg-yellow-100 text-yellow-800', text: 'In Transit' },
-      'out_for_delivery': { color: 'bg-orange-100 text-orange-800', text: 'Out for Delivery' },
-      'delivered': { color: 'bg-green-100 text-green-800', text: 'Delivered' },
+      'placed': { color: 'bg-[hsla(215,20%,50%,0.15)] text-[hsl(215,20%,70%)] border-[hsla(215,20%,50%,0.3)]', text: 'Order Placed' },
+      'confirmed': { color: 'bg-[hsla(217,91%,60%,0.15)] text-[hsl(217,91%,70%)] border-[hsla(217,91%,60%,0.3)]', text: 'Confirmed' },
+      'in_transit': { color: 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,60%)] border-[hsla(38,92%,50%,0.3)]', text: 'In Transit' },
+      'out_for_delivery': { color: 'bg-[hsla(27,90%,55%,0.15)] text-[hsl(27,90%,65%)] border-[hsla(27,90%,55%,0.3)]', text: 'Out for Delivery' },
+      'delivered': { color: 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]', text: 'Delivered' },
     };
     
     const config = statusConfig[status as keyof typeof statusConfig] || { 
-      color: 'bg-gray-100 text-gray-800', 
+      color: 'bg-[rgba(255,255,255,0.05)] text-[hsl(215,20%,65%)] border-[rgba(255,255,255,0.1)]', 
       text: status 
     };
     
     return (
-      <span className={`px-3 py-1 ${config.color} text-xs font-medium rounded-full`}>
+      <span className={`px-3 py-1 ${config.color} border text-xs font-medium rounded-full shadow-sm backdrop-blur-sm`}>
         {config.text}
       </span>
     );
   };
 
   return (
-      <div className="flex-1 p-8">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Product Orders</h2>
-          <p className="text-gray-600">Monitor and manage all product orders</p>
+      <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+        <div className="mb-8 relative z-10 stagger-enter">
+          <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Product Orders</h2>
+          <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Monitor and manage all product orders</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>All Product Orders</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <div className="flex justify-between items-center w-full">
+              <CardTitle className="text-xl text-white">All Product Orders</CardTitle>
               <div className="flex space-x-3">
                 <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
                   <Input
                     placeholder="Search orders..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-64 pl-8"
+                    className="w-64 pl-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                 </div>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48">
-                    <Filter className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Filter by status" />
+                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
+                    <div className="flex items-center">
+                      <Filter className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
+                      <SelectValue placeholder="Filter by status" />
+                    </div>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
@@ -151,9 +153,11 @@ export default function OrdersPage() {
                   </SelectContent>
                 </Select>
                 <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger className="w-48">
-                    <Package className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Filter by category" />
+                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
+                    <div className="flex items-center">
+                      <Package className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
+                      <SelectValue placeholder="Filter by category" />
+                    </div>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
@@ -167,79 +171,79 @@ export default function OrdersPage() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             {isLoading ? (
-              <div className="space-y-4">
+              <div className="space-y-4 skeleton-shimmer">
                 {[...Array(5)].map((_, i) => (
                   <div key={i} className="animate-pulse">
                     <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                      <div className="w-12 h-12 bg-[rgba(255,255,255,0.05)] rounded-xl border border-[rgba(255,255,255,0.08)]"></div>
                       <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        <div className="h-4 bg-[rgba(255,255,255,0.05)] rounded-md w-3/4"></div>
+                        <div className="h-3 bg-[rgba(255,255,255,0.03)] rounded-md w-1/2"></div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full glass-table">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4">Order ID</th>
-                      <th className="text-left py-3 px-4">Customer</th>
-                      <th className="text-left py-3 px-4">Products</th>
-                      <th className="text-left py-3 px-4">Address</th>
-                      <th className="text-left py-3 px-4">Status</th>
-                      <th className="text-left py-3 px-4">Amount</th>
-                      <th className="text-left py-3 px-4">Download Invoice</th>
-                      <th className="text-left py-3 px-4">Date</th>
+                    <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Order ID</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Products</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Address</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Download Invoice</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Date</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOrders?.map((order: any) => (
-                      <tr key={order.id} className="border-b border-gray-100">
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{order.orderId}</p>
+                      <tr key={order.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{order.orderId}</p>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{order.user?.username}</p>
-                          <p className="text-sm text-gray-600">{order.user?.phone}</p>
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{order.user?.username}</p>
+                          <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{order.user?.phone}</p>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           <div className="space-y-1">
                             {Array.isArray(order.products) ? order.products.map((product: any, idx: number) => (
-                              <p key={idx} className="text-sm text-gray-600">
+                              <p key={idx} className="text-xs text-[hsl(210,20%,85%)]">
                                 {product.quantity}x Product #{product.productId}
                               </p>
                             )) : (
-                              <p className="text-sm text-gray-600">Multiple items</p>
+                              <p className="text-xs text-[hsl(215,20%,65%)]">Multiple items</p>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="text-sm text-gray-600">{order.address}</p>
+                        <td className="p-4">
+                          <p className="text-sm text-[hsl(215,20%,70%)] line-clamp-2 max-w-[200px]">{order.address}</p>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           {getStatusBadge(order.status)}
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">₹{order.totalAmount.toLocaleString()}</p>
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(160,84%,65%)] font-mono">₹{order.totalAmount.toLocaleString()}</p>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => downloadOrderInvoice(order)}
-                            className="flex items-center gap-2"
+                            className="flex items-center gap-1.5 h-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,80%)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white transition-all"
                           >
-                            <Download className="h-4 w-4" />
-                            PDF
+                            <Download className="h-3.5 w-3.5" />
+                            <span className="text-xs">PDF</span>
                           </Button>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="text-sm text-gray-600">
+                        <td className="p-4">
+                          <p className="text-sm text-[hsl(215,20%,70%)]">
                             {new Date(order.createdAt).toLocaleDateString()}
                           </p>
                         </td>

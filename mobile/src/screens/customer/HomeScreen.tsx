@@ -43,6 +43,7 @@ import { Skeleton, CardSkeleton } from '../../components/Skeleton';
 import * as Location from 'expo-location';
 import { customerApi } from '../../api/customer.api';
 import { SectionHeader } from '../../components/ui/SectionHeader';
+import { useTranslation } from 'react-i18next';
 
 import { ServiceCard } from '../../components/services/ServiceCard';
 import { useHomeServices } from '../../hooks/useCustomerData';
@@ -61,6 +62,7 @@ export function HomeScreen() {
     const { data: profile, isLoading: isProfileLoading, refetch: refetchProfile } = useProfile();
     const { data: homeServices, isLoading: isServicesLoading, refetch: refetchServices } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
+    const { t } = useTranslation();
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
     const [isServiceable, setIsServiceable] = React.useState<boolean | null>(null);
@@ -144,7 +146,7 @@ export function HomeScreen() {
                             </View>
                         )}
                         <View>
-                            <Text style={styles.greeting}>{getGreeting()},</Text>
+                            <Text style={styles.greeting}>{t('home.greeting', 'Hello')},</Text>
                             {isLoading ? (
                                 <Skeleton width={100} height={20} style={{ marginTop: 4 }} />
                             ) : (
@@ -215,8 +217,8 @@ export function HomeScreen() {
                     <>
                         {/* Services Section */}
                         <SectionHeader
-                            title="Our Services"
-                            subtitle="What do you need help with?"
+                            title={t('home.categories', 'Our Services')}
+                            subtitle={t('home.what_do_you_need', 'What do you need help with?')}
                             actionLabel="View all"
                             onAction={() => navigation.navigate('AllServices')}
                         />

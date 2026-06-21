@@ -1,0 +1,29 @@
+{
+  "translation": {
+    "tabs": {
+      "home": "ಮನೆ",
+      "my_requests": "ನನ್ನ ವಿನಂತಿಗಳು",
+      "profile": "ಪ್ರೊಫೈಲ್",
+      "assignments": "ಕಾರ್ಯಯೋಜನೆಗಳು",
+      "wallet": "ವಾಲೆಟ್"
+    },
+    "home": {
+      "greeting": "ನಮಸ್ಕಾರ",
+      "what_do_you_need": "ನಿಮಗೆ ಯಾವ ಸಹಾಯ ಬೇಕು?",
+      "search_placeholder": "ಸೇವೆಗಳನ್ನು ಹುಡುಕಿ...",
+      "categories": "ವರ್ಗಗಳು"
+    },
+    "profile": {
+      "title": "ಪ್ರೊಫೈಲ್",
+      "language": "ಭಾಷೆ",
+      "select_language": "ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ",
+      "logout": "ಲಾಗ್ ಔಟ್"
+    },
+    "common": {
+      "cancel": "ರದ್ದುಮಾಡಿ",
+      "save": "ಉಳಿಸಿ",
+      "submit": "ಸಲ್ಲಿಸಿ",
+      "close": "ಮುಚ್ಚಿ"
+    }
+  }
+}

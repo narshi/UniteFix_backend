@@ -1,89 +1,356 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   LIQUID GLASS DESIGN SYSTEM — UniteFix Admin Dashboard
+   ============================================================ */
+
 :root {
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(240, 10%, 3.9%);
-  --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(240, 10%, 3.9%);
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(240, 10%, 3.9%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(210, 40%, 98%);
-  --secondary: hsl(28, 100%, 50%);
-  --secondary-foreground: hsl(222.2, 84%, 4.9%);
-  --muted: hsl(210, 40%, 96%);
-  --muted-foreground: hsl(215.4, 16.3%, 46.9%);
-  --accent: hsl(210, 40%, 96%);
-  --accent-foreground: hsl(222.2, 84%, 4.9%);
-  --destructive: hsl(0, 84.2%, 60.2%);
-  --destructive-foreground: hsl(210, 40%, 98%);
-  --border: hsl(214.3, 31.8%, 91.4%);
-  --input: hsl(214.3, 31.8%, 91.4%);
-  --ring: hsl(222.2, 84%, 4.9%);
-  --radius: 0.5rem;
-  
-  /* UniteFix specific colors */
-  --unitefix-primary: hsl(207, 90%, 54%);
-  --unitefix-secondary: hsl(28, 100%, 50%);
-  --unitefix-success: hsl(120, 60%, 50%);
-  --unitefix-warning: hsl(28, 100%, 50%);
-  --unitefix-error: hsl(0, 84.2%, 60.2%);
-  --unitefix-neutral: hsl(215, 25%, 27%);
-  --unitefix-light-grey: hsl(210, 20%, 98%);
+  /* ── Surface palette (dark-first) ── */
+  --surface-0: 222 47% 6%;
+  --surface-1: 222 40% 10%;
+  --surface-2: 222 35% 13%;
+  --surface-3: 222 30% 17%;
+
+  /* ── Glass tokens ── */
+  --glass-bg: rgba(255, 255, 255, 0.035);
+  --glass-bg-hover: rgba(255, 255, 255, 0.065);
+  --glass-bg-active: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-hover: rgba(255, 255, 255, 0.14);
+  --glass-border-active: rgba(255, 255, 255, 0.22);
+
+  /* ── Accent palette ── */
+  --accent-blue: 217 91% 60%;
+  --accent-blue-glow: hsla(217, 91%, 60%, 0.25);
+  --accent-emerald: 160 84% 39%;
+  --accent-emerald-glow: hsla(160, 84%, 39%, 0.2);
+  --accent-amber: 38 92% 50%;
+  --accent-amber-glow: hsla(38, 92%, 50%, 0.2);
+  --accent-rose: 347 77% 50%;
+  --accent-rose-glow: hsla(347, 77%, 50%, 0.2);
+  --accent-violet: 263 70% 58%;
+
+  /* ── Shadcn CSS variable bridge ── */
+  --background: var(--surface-0);
+  --foreground: 210 20% 92%;
+  --card: var(--surface-2);
+  --card-foreground: 210 20% 92%;
+  --popover: var(--surface-2);
+  --popover-foreground: 210 20% 92%;
+  --primary: var(--accent-blue);
+  --primary-foreground: 210 40% 98%;
+  --secondary: var(--surface-3);
+  --secondary-foreground: 210 20% 80%;
+  --muted: var(--surface-2);
+  --muted-foreground: 215 20% 55%;
+  --accent: var(--surface-3);
+  --accent-foreground: 210 20% 92%;
+  --destructive: var(--accent-rose);
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 25% 18%;
+  --input: 217 25% 18%;
+  --ring: var(--accent-blue);
+  --radius: 0.75rem;
+
+  /* ── Chart colors ── */
+  --chart-1: hsl(var(--accent-blue));
+  --chart-2: hsl(var(--accent-emerald));
+  --chart-3: hsl(var(--accent-amber));
+  --chart-4: hsl(var(--accent-rose));
+  --chart-5: hsl(var(--accent-violet));
 }
 
-.dark {
-  --background: hsl(222.2, 84%, 4.9%);
-  --foreground: hsl(210, 40%, 98%);
-  --card: hsl(222.2, 84%, 4.9%);
-  --card-foreground: hsl(210, 40%, 98%);
-  --popover: hsl(222.2, 84%, 4.9%);
-  --popover-foreground: hsl(210, 40%, 98%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(222.2, 84%, 4.9%);
-  --secondary: hsl(217.2, 32.6%, 17.5%);
-  --secondary-foreground: hsl(210, 40%, 98%);
-  --muted: hsl(217.2, 32.6%, 17.5%);
-  --muted-foreground: hsl(215, 20.2%, 65.1%);
-  --accent: hsl(217.2, 32.6%, 17.5%);
-  --accent-foreground: hsl(210, 40%, 98%);
-  --destructive: hsl(0, 62.8%, 30.6%);
-  --destructive-foreground: hsl(210, 40%, 98%);
-  --border: hsl(217.2, 32.6%, 17.5%);
-  --input: hsl(217.2, 32.6%, 17.5%);
-  --ring: hsl(212.7, 26.8%, 83.9%);
-}
-
+/* ============================================================
+   BASE LAYER
+   ============================================================ */
 @layer base {
   * {
     @apply border-border;
   }
-  
+
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-background text-foreground;
-    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: hsl(var(--surface-0));
+    color: hsl(var(--foreground));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Custom Scrollbar ── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* ── Selection ── */
+  ::selection {
+    background: hsla(217, 91%, 60%, 0.3);
+    color: white;
   }
 }
 
+/* ============================================================
+   COMPONENT UTILITIES
+   ============================================================ */
 @layer components {
-  .unitefix-bg-primary {
-    background-color: var(--unitefix-primary);
+  /* ── Glass Panel (generic container) ── */
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(1.8);
+    -webkit-backdrop-filter: blur(16px) saturate(1.8);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    transition: all 0.2s ease;
   }
-  
-  .unitefix-bg-secondary {
-    background-color: var(--unitefix-secondary);
-  }
-  
-  .unitefix-bg-success {
-    background-color: var(--unitefix-success);
+  .glass-panel:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
   }
 
-/* Material Icons fix */
+  /* ── Glass Card ── */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    border: 1px solid var(--glass-border);
+    border-radius: calc(var(--radius) + 4px);
+    box-shadow: 0 0 0 0 transparent, 0 4px 24px -4px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .glass-card:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+    box-shadow: 0 0 0 1px var(--glass-border-hover), 0 8px 32px -4px rgba(0, 0, 0, 0.4);
+    transform: translateY(-1px);
+  }
+
+  /* ── Glass Input ── */
+  .glass-input {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid var(--glass-border) !important;
+    color: hsl(210 20% 92%) !important;
+    transition: all 0.2s ease !important;
+  }
+  .glass-input::placeholder {
+    color: hsl(215 20% 45%);
+  }
+  .glass-input:focus {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: hsl(var(--accent-blue)) !important;
+    box-shadow: 0 0 0 3px var(--accent-blue-glow) !important;
+    outline: none !important;
+  }
+
+  /* ── Glass Badge ── */
+  .glass-badge {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Glass Table ── */
+  .glass-table thead tr {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--glass-border);
+  }
+  .glass-table thead th {
+    color: hsl(215 20% 55%);
+    font-weight: 500;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .glass-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.15s ease;
+  }
+  .glass-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* ── Glass Sidebar ── */
+  .glass-sidebar {
+    background: hsl(var(--surface-1));
+    border-right: 1px solid var(--glass-border);
+  }
+
+  /* ── Gradient Text ── */
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(var(--accent-blue)), hsl(var(--accent-violet)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Glow Effects ── */
+  .glow-blue {
+    box-shadow: 0 0 20px -4px var(--accent-blue-glow);
+  }
+  .glow-emerald {
+    box-shadow: 0 0 20px -4px var(--accent-emerald-glow);
+  }
+  .glow-amber {
+    box-shadow: 0 0 20px -4px var(--accent-amber-glow);
+  }
+  .glow-rose {
+    box-shadow: 0 0 20px -4px var(--accent-rose-glow);
+  }
+
+  /* ── Status Dots ── */
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  .status-dot-active {
+    background: hsl(var(--accent-emerald));
+    box-shadow: 0 0 8px hsla(160, 84%, 39%, 0.5);
+  }
+  .status-dot-warning {
+    background: hsl(var(--accent-amber));
+    box-shadow: 0 0 8px hsla(38, 92%, 50%, 0.5);
+  }
+  .status-dot-error {
+    background: hsl(var(--accent-rose));
+    box-shadow: 0 0 8px hsla(347, 77%, 50%, 0.5);
+  }
+
+  /* ── Noise Overlay ── */
+  .noise-overlay::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.015;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 128px;
+  }
+
+  /* ── Decorative Gradient Orb ── */
+  .gradient-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.15;
+    pointer-events: none;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  /* ── Stagger entrance for cards ── */
+  .stagger-enter > * {
+    opacity: 0;
+    transform: translateY(12px);
+    animation: glass-fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .stagger-enter > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-enter > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger-enter > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger-enter > *:nth-child(4) { animation-delay: 180ms; }
+  .stagger-enter > *:nth-child(5) { animation-delay: 240ms; }
+  .stagger-enter > *:nth-child(6) { animation-delay: 300ms; }
+  .stagger-enter > *:nth-child(7) { animation-delay: 360ms; }
+  .stagger-enter > *:nth-child(8) { animation-delay: 420ms; }
+}
+
+/* ============================================================
+   KEYFRAME ANIMATIONS
+   ============================================================ */
+@keyframes glass-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glass-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes glass-slide-down {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-12px) rotate(1deg);
+  }
+  66% {
+    transform: translateY(6px) rotate(-1deg);
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   MATERIAL ICONS
+   ============================================================ */
 .material-icons {
   font-family: 'Material Icons' !important;
   font-weight: normal;
@@ -99,114 +366,18 @@
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
 }
-  
-  .unitefix-bg-warning {
-    background-color: var(--unitefix-warning);
-  }
-  
-  .unitefix-bg-error {
-    background-color: var(--unitefix-error);
-  }
-  
-  .unitefix-bg-neutral {
-    background-color: var(--unitefix-neutral);
-  }
-  
-  .unitefix-bg-light-grey {
-    background-color: var(--unitefix-light-grey);
-  }
-  
-  .unitefix-text-primary {
-    color: var(--unitefix-primary);
-  }
-  
-  .unitefix-text-secondary {
-    color: var(--unitefix-secondary);
-  }
-  
-  .unitefix-text-success {
-    color: var(--unitefix-success);
-  }
-  
-  .unitefix-text-warning {
-    color: var(--unitefix-warning);
-  }
-  
-  .unitefix-text-error {
-    color: var(--unitefix-error);
-  }
-  
-  .unitefix-text-neutral {
-    color: var(--unitefix-neutral);
-  }
-}
 
-/* Material Icons support */
-.material-icons {
-  font-family: 'Material Icons';
-  font-weight: normal;
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  -webkit-font-feature-settings: 'liga';
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Override default Tailwind colors to match UniteFix theme */
-.bg-primary {
-  background-color: var(--unitefix-primary) !important;
-}
-
-.text-primary {
-  color: var(--unitefix-primary) !important;
-}
-
-.bg-secondary {
-  background-color: var(--unitefix-secondary) !important;
-}
-
-.text-secondary {
-  color: var(--unitefix-secondary) !important;
-}
-
-.bg-success {
-  background-color: var(--unitefix-success) !important;
-}
-
-.text-success {
-  color: var(--unitefix-success) !important;
-}
-
-.bg-warning {
-  background-color: var(--unitefix-warning) !important;
-}
-
-.text-warning {
-  color: var(--unitefix-warning) !important;
-}
-
-.bg-error {
-  background-color: var(--unitefix-error) !important;
-}
-
-.text-error {
-  color: var(--unitefix-error) !important;
-}
-
-.bg-neutral {
-  background-color: var(--unitefix-neutral) !important;
-}
-
-.text-neutral {
-  color: var(--unitefix-neutral) !important;
-}
-
-.bg-light-grey {
-  background-color: var(--unitefix-light-grey) !important;
+/* ============================================================
+   SHIMMER LOADING SKELETON
+   ============================================================ */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+  border-radius: var(--radius);
 }

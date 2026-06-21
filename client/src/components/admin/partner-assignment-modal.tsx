@@ -101,48 +101,52 @@ export default function PartnerAssignmentModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-full max-w-lg mx-4" data-testid="partner-assignment-modal">
+      <DialogContent className="w-full max-w-lg mx-4 glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)]" data-testid="partner-assignment-modal">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <User className="w-5 h-5" />
+          <DialogTitle className="flex items-center gap-2 text-white text-xl">
+            <div className="p-2 rounded-lg bg-[hsla(217,91%,60%,0.15)] border border-[hsla(217,91%,60%,0.3)]">
+              <User className="w-5 h-5 text-[hsl(217,91%,65%)]" />
+            </div>
             Assign Employee
           </DialogTitle>
         </DialogHeader>
         
         {service && (
-          <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+          <div className="mb-4 p-4 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] shadow-inner">
             <div className="flex justify-between items-start">
               <div>
-                <p className="font-semibold text-gray-900">{service.serviceType}</p>
-                <p className="text-sm text-gray-600">{service.description}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {service.serviceId} • {service.brand} {service.model}
+                <p className="font-semibold text-white text-lg tracking-tight">{service.serviceType}</p>
+                <p className="text-sm text-[hsl(210,20%,85%)] mt-1">{service.description}</p>
+                <p className="text-xs text-[hsl(215,20%,55%)] mt-2 font-medium">
+                  {service.serviceId} <span className="mx-1 opacity-50">•</span> {service.brand} {service.model}
                 </p>
               </div>
               {service.locationLat && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs bg-[hsla(160,84%,39%,0.1)] border-[hsla(160,84%,39%,0.3)] text-[hsl(160,84%,65%)]">
                   <MapPin className="w-3 h-3 mr-1" />
                   Geo-located
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-2 flex items-center">
-              <Navigation className="w-3 h-3 mr-1" />
-              {service.address}
-            </p>
+            <div className="mt-3 pt-3 border-t border-[rgba(255,255,255,0.06)]">
+              <p className="text-xs text-[hsl(210,20%,75%)] flex items-center">
+                <Navigation className="w-3 h-3 mr-1.5 text-[hsl(217,91%,60%)]" />
+                {service.address}
+              </p>
+            </div>
           </div>
         )}
 
-        <div className="space-y-3 max-h-72 overflow-y-auto pr-2">
+        <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
           {isLoading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="animate-pulse border rounded-lg p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                <div key={i} className="border border-[rgba(255,255,255,0.06)] rounded-xl p-4 bg-[rgba(255,255,255,0.02)]">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-12 h-12 skeleton-shimmer rounded-full shrink-0"></div>
                     <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                      <div className="h-4 skeleton-shimmer rounded w-3/4"></div>
+                      <div className="h-3 skeleton-shimmer rounded w-1/2"></div>
                     </div>
                   </div>
                 </div>
@@ -154,57 +158,57 @@ export default function PartnerAssignmentModal({
               .map((partner: Partner, index: number) => (
               <div
                 key={partner.id}
-                className={`border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
+                className={`border rounded-xl p-4 cursor-pointer transition-all duration-300 ${
                   selectedPartnerId === partner.id
-                    ? "border-blue-500 bg-blue-50 shadow-md"
-                    : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
+                    ? "border-[hsla(217,91%,60%,0.5)] bg-[hsla(217,91%,60%,0.1)] shadow-[0_0_20px_hsla(217,91%,60%,0.15)] scale-[1.02]"
+                    : "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] hover:border-[rgba(255,255,255,0.1)]"
                 }`}
                 onClick={() => setSelectedPartnerId(partner.id)}
                 data-testid={`partner-option-${partner.id}`}
               >
                 <div className="flex items-center space-x-4">
-                  <div className="relative">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                  <div className="relative shrink-0">
+                    <div className="w-12 h-12 bg-gradient-to-br from-[hsl(217,91%,60%)] to-[hsl(263,70%,50%)] rounded-full flex items-center justify-center shadow-[0_4px_10px_rgba(0,0,0,0.3)]">
                       <span className="text-white font-bold text-lg">
                         {partner.partnerName?.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     {index === 0 && partner.distanceKm && (
-                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                        <span className="text-white text-xs font-bold">1</span>
+                      <div className="absolute -top-1 -right-1 w-5 h-5 bg-[hsl(160,84%,45%)] border-2 border-[hsl(222,40%,10%)] rounded-full flex items-center justify-center shadow-sm">
+                        <span className="text-white text-[10px] font-bold">1</span>
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="font-semibold text-gray-900 truncate">{partner.partnerName}</p>
+                      <p className="font-semibold text-white truncate text-[15px]">{partner.partnerName}</p>
                       {partner.distanceKm && (
-                        <Badge variant="secondary" className="ml-2 text-xs">
-                          <MapPin className="w-3 h-3 mr-1" />
+                        <Badge variant="secondary" className="ml-2 text-[10px] bg-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.15)] border-transparent">
+                          <MapPin className="w-3 h-3 mr-1 text-[hsl(217,91%,65%)]" />
                           {partner.distanceKm} km
                         </Badge>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant={partner.partnerType === 'Business' ? 'default' : 'outline'} className="text-xs">
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <Badge variant={partner.partnerType === 'Business' ? 'default' : 'outline'} className="text-[10px] px-1.5 py-0">
                         {partner.partnerType}
                       </Badge>
-                      <span className="text-xs text-gray-500 flex items-center">
-                        <Star className="w-3 h-3 mr-0.5 text-yellow-500 fill-yellow-500" />
+                      <span className="text-xs text-[hsl(215,20%,65%)] flex items-center bg-[rgba(255,255,255,0.05)] px-1.5 py-0.5 rounded">
+                        <Star className="w-3 h-3 mr-1 text-[hsl(38,92%,55%)] fill-[hsl(38,92%,55%)]" />
                         {getRandomRating()}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-[hsl(215,20%,50%)]">
                         {partner.partnerId}
                       </span>
                     </div>
                     {partner.services && partner.services.length > 0 && (
-                      <p className="text-xs text-gray-500 mt-1.5 truncate">
-                        Services: {partner.services.slice(0, 3).join(', ')}
+                      <p className="text-xs text-[hsl(215,20%,65%)] mt-2 truncate">
+                        Services: <span className="text-[hsl(210,20%,85%)]">{partner.services.slice(0, 3).join(', ')}</span>
                         {partner.services.length > 3 && ` +${partner.services.length - 3} more`}
                       </p>
                     )}
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-xs text-emerald-600 font-medium">
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-[rgba(255,255,255,0.04)]">
+                      <span className="text-xs text-[hsl(160,84%,65%)] font-medium">
                         Wallet: ₹{parseFloat(partner.walletBalance || '0').toLocaleString()}
                       </span>
                     </div>
@@ -214,20 +218,20 @@ export default function PartnerAssignmentModal({
             ))
           ) : (
             <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <User className="w-8 h-8 text-gray-400" />
+              <div className="w-16 h-16 bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] rounded-full flex items-center justify-center mx-auto mb-4">
+                <User className="w-8 h-8 text-[hsl(215,20%,50%)]" />
               </div>
-              <p className="text-gray-500 font-medium">No verified employees available</p>
-              <p className="text-sm text-gray-400 mt-1">Add employees in Employee Management</p>
+              <p className="text-[hsl(210,20%,85%)] font-medium">No verified employees available</p>
+              <p className="text-sm text-[hsl(215,20%,55%)] mt-1">Add employees in Employee Management</p>
             </div>
           )}
         </div>
 
-        <div className="flex gap-3 mt-6 pt-4 border-t">
+        <div className="flex gap-3 mt-6 pt-4 border-t border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] -mx-4 -mb-4 p-4 rounded-b-xl">
           <Button 
             variant="outline" 
             onClick={onClose} 
-            className="flex-1"
+            className="flex-1 border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.05)] text-[hsl(210,20%,85%)]"
             data-testid="cancel-assignment"
           >
             Cancel
@@ -235,14 +239,14 @@ export default function PartnerAssignmentModal({
           <Button 
             onClick={handleAssign}
             disabled={!selectedPartnerId || assignPartnerMutation.isPending}
-            className="flex-1 bg-blue-600 hover:bg-blue-700"
+            className="flex-1 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] disabled:opacity-50 transition-all active:scale-[0.97]"
             data-testid="confirm-assignment"
           >
             {assignPartnerMutation.isPending ? (
-              <>
-                <span className="animate-spin mr-2">⟳</span>
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Assigning...
-              </>
+              </span>
             ) : (
               "Assign Employee"
             )}

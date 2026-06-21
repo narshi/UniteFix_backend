@@ -108,25 +108,25 @@ export default function Dashboard() {
 
   return (
       <main className="flex-1 p-8">
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-6">
+        <div className="mb-8 stagger-enter">
+          <div className="flex justify-between items-center mb-8">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Dashboard Overview</h2>
-              <p className="text-gray-600">Uttara Kannada Service Region</p>
+              <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Dashboard Overview</h2>
+              <p className="text-[hsl(215,20%,65%)] mt-1 tracking-wide uppercase text-sm font-medium">Uttara Kannada Service Region</p>
             </div>
             <div className="flex space-x-4">
               <button 
                 onClick={handleExportReport}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+                className="bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] text-white px-4 py-2 rounded-lg hover:bg-[rgba(255,255,255,0.08)] flex items-center space-x-2 transition-all active:scale-[0.97]"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-[hsl(210,20%,75%)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 <span>Export Report</span>
               </button>
               <button 
                 onClick={handleAddPartner}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
+                className="bg-[hsl(160,84%,39%)] text-white px-4 py-2 rounded-lg hover:bg-[hsl(160,84%,34%)] shadow-[0_4px_14px_hsla(160,84%,39%,0.3)] hover:shadow-[0_6px_20px_hsla(160,84%,39%,0.4)] flex items-center space-x-2 transition-all active:scale-[0.97]"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

@@ -25,7 +25,10 @@ import {
     Save,
     Navigation,
     MessageCircle,
+    Globe,
 } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
+import { useLanguageStore } from '../../stores/languageStore';
 import { Trash2 } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { apiClient } from '../../api/client';
@@ -41,6 +44,8 @@ export function ProfileScreen() {
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
     const { logout, user } = useAuthStore();
     const { data: publicConfig } = usePublicConfig();
+    const { t, i18n } = useTranslation();
+    const { language, setLanguage } = useLanguageStore();
     
     const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
 
@@ -147,6 +152,12 @@ export function ProfileScreen() {
                 },
             ]
         );
+    };
+
+    const toggleLanguage = () => {
+        const newLang = language === 'en' ? 'kn' : 'en';
+        setLanguage(newLang);
+        // Note: i18n instance automatically syncs via the store subscription in i18n/index.ts
     };
 
     if (isLoading) {
@@ -259,8 +270,16 @@ export function ProfileScreen() {
 
             {/* Account section */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Account</Text>
+                <Text style={styles.sectionTitle}>{t('profile.title', 'Account')}</Text>
                 
+                <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={toggleLanguage}>
+                    <View style={styles.menuLeft}>
+                        <Globe size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>{t('profile.language', 'Language')} ({language === 'en' ? 'English' : 'ಕನ್ನಡ'})</Text>
+                    </View>
+                    <Text style={{ ...typography.caption, color: colors.textSecondary }}>{t('profile.select_language', 'Tap to change')}</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => {
                     Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
                         Alert.alert('Error', 'Make sure WhatsApp is installed on your device');

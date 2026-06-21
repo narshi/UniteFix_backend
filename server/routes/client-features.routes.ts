@@ -656,6 +656,13 @@ export function registerClientFeatureRoutes(app: Express) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
             }
 
+            if (!provider.upiId || !provider.razorpayFundAccountId) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: "UPI ID not found. Please update your Payout Details in your Profile before withdrawing." 
+                });
+            }
+
             // Get wallet
             const [wallet] = await db.select().from(partnerWallets)
                 .where(eq(partnerWallets.partnerId, provider.id)).limit(1);

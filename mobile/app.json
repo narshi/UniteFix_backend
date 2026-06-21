@@ -3,7 +3,7 @@
     "name": "UniteFix",
     "slug": "unitefix-mobile",
     "scheme": "unitefix",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.unitefix.app",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
@@ -70,7 +71,8 @@
         {
           "clientId": "4gniidv8yotvmqym7nwgcfven6mk36mqep70ikeq8qs"
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "extra": {
       "eas": {

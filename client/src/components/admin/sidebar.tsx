@@ -30,36 +30,40 @@ export default function Sidebar() {
   const adminUser = JSON.parse(localStorage.getItem("adminUser") || "{}");
 
   return (
-    <aside className="w-64 bg-white shadow-lg flex flex-col h-screen">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <aside className="w-64 glass-sidebar flex flex-col h-screen sticky top-0 z-40">
+      <div className="p-6 border-b border-[rgba(255,255,255,0.06)] relative overflow-hidden">
+        <div className="gradient-orb w-32 h-32 -top-16 -left-16 bg-[hsl(217,91%,60%)]" />
+        <div className="flex items-center space-x-3 relative z-10">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[hsla(217,91%,60%,0.15)] border border-[hsla(217,91%,60%,0.3)] shadow-[0_0_15px_hsla(217,91%,60%,0.2)]">
+            <svg className="w-6 h-6 text-[hsl(217,91%,60%)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 7.172V5L8 4z" />
             </svg>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">UniteFix</h1>
-            <p className="text-sm text-gray-500">Admin Dashboard</p>
+            <h1 className="text-xl font-bold tracking-tight text-white">Unite<span className="gradient-text">Fix</span></h1>
+            <p className="text-xs font-medium tracking-wider uppercase text-[hsl(217,91%,60%)]">Admin Dashboard</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 p-4">
-        <ul className="space-y-2">
+      <nav className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
+        <ul className="space-y-1.5">
           {navigation.map((item) => {
             const isActive = location === item.href;
             return (
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${isActive
-                    ? "bg-blue-50 text-blue-600 font-medium"
-                    : "text-gray-700 hover:bg-gray-50"
+                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-all duration-200 group relative overflow-hidden ${isActive
+                    ? "bg-[rgba(255,255,255,0.08)] text-white"
+                    : "text-[hsl(210,20%,75%)] hover:bg-[rgba(255,255,255,0.04)] hover:text-white"
                     }`}
                 >
-                  <span className="material-icons text-lg" style={{ fontFamily: 'Material Icons' }}>{item.icon}</span>
-                  <span>{item.name}</span>
+                  {isActive && (
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[hsl(217,91%,60%)] shadow-[0_0_10px_hsl(217,91%,60%)] rounded-r-full" />
+                  )}
+                  <span className={`material-icons text-xl transition-colors ${isActive ? 'text-[hsl(217,91%,60%)]' : 'group-hover:text-[hsl(217,91%,70%)]'}`} style={{ fontFamily: 'Material Icons' }}>{item.icon}</span>
+                  <span className={`font-medium ${isActive ? 'tracking-wide' : ''}`}>{item.name}</span>
                 </Link>
               </li>
             );
@@ -67,28 +71,27 @@ export default function Sidebar() {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-gray-200">
-        <div className="flex items-center space-x-3 mb-3">
-          <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-            <span className="material-icons text-sm text-gray-600" style={{ fontFamily: 'Material Icons' }}>account_circle</span>
+      <div className="p-4 border-t border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] relative z-20">
+        <div className="glass-card p-3 flex items-center space-x-3 mb-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+          <div className="w-9 h-9 bg-[hsl(217,25%,18%)] rounded-full flex items-center justify-center border border-[rgba(255,255,255,0.1)]">
+            <span className="material-icons text-[hsl(210,20%,85%)]" style={{ fontFamily: 'Material Icons' }}>shield</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">
-              {adminUser.username || 'Admin'}
+            <p className="text-sm font-semibold text-white truncate">
+              {adminUser.username || 'Administrator'}
             </p>
-            <p className="text-xs text-gray-500 truncate">
-              {adminUser.email || 'admin@unitefix.com'}
+            <p className="text-xs text-[hsl(215,20%,55%)] truncate">
+              {adminUser.email || 'System Access'}
             </p>
           </div>
         </div>
         <Button
           onClick={handleLogout}
           variant="outline"
-          size="sm"
-          className="w-full"
+          className="w-full border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/30 transition-all"
         >
-          <span className="material-icons text-sm mr-2" style={{ fontFamily: 'Material Icons' }}>logout</span>
-          Logout
+          <span className="material-icons text-[18px] mr-2" style={{ fontFamily: 'Material Icons' }}>logout</span>
+          Secure Logout
         </Button>
       </div>
     </aside>

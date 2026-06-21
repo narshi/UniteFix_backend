@@ -190,37 +190,39 @@ Generated on: ${new Date().toLocaleString('en-IN')}
     };
     
     return (
-      <span className={`px-3 py-1 ${config.color} text-xs font-medium rounded-full`}>
+      <span className={`px-3 py-1 ${config.color} text-xs font-medium rounded-full border border-current/20 shadow-sm backdrop-blur-sm`}>
         {config.text}
       </span>
     );
   };
 
   return (
-      <div className="flex-1 p-8">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Service Requests</h2>
-          <p className="text-gray-600">Monitor and manage all service requests</p>
+      <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+        <div className="mb-8 relative z-10 stagger-enter">
+          <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Service Requests</h2>
+          <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Monitor and manage all service requests</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>All Service Requests</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <div className="flex justify-between items-center w-full">
+              <CardTitle className="text-xl text-white">All Service Requests</CardTitle>
               <div className="flex space-x-3">
                 <div className="relative">
-                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
                   <Input
                     placeholder="Search services..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-64 pl-8"
+                    className="w-64 pl-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                 </div>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48">
-                    <Filter className="mr-2 h-4 w-4" />
-                    <SelectValue placeholder="Filter by status" />
+                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
+                    <div className="flex items-center">
+                      <Filter className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
+                      <SelectValue placeholder="Filter by status" />
+                    </div>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
@@ -238,110 +240,112 @@ Generated on: ${new Date().toLocaleString('en-IN')}
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             {isLoading ? (
-              <div className="space-y-4">
+              <div className="space-y-4 skeleton-shimmer">
                 {[...Array(5)].map((_, i) => (
                   <div key={i} className="animate-pulse">
                     <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                      <div className="w-12 h-12 bg-[rgba(255,255,255,0.05)] rounded-xl border border-[rgba(255,255,255,0.08)]"></div>
                       <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        <div className="h-4 bg-[rgba(255,255,255,0.05)] rounded-md w-3/4"></div>
+                        <div className="h-3 bg-[rgba(255,255,255,0.03)] rounded-md w-1/2"></div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full glass-table">
                   <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4">Service ID</th>
-                      <th className="text-left py-3 px-4">Service Type</th>
-                      <th className="text-left py-3 px-4">Customer</th>
-                      <th className="text-left py-3 px-4">Brand/Model</th>
-                      <th className="text-left py-3 px-4">Assigned Employee</th>
-                      <th className="text-left py-3 px-4">Status</th>
-                      <th className="text-left py-3 px-4">Amount</th>
-                      <th className="text-left py-3 px-4">Download Invoice</th>
-                      <th className="text-left py-3 px-4">Created</th>
-                      <th className="text-left py-3 px-4">Actions</th>
+                    <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service ID</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service Type</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Brand/Model</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Assigned Employee</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Download Invoice</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Created</th>
+                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredServices.map((service: any) => (
-                      <tr key={service.id} className="border-b border-gray-100">
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.serviceId || service.id}</p>
-                          <p className="text-sm text-gray-600">#{service.id}</p>
+                      <tr key={service.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceId || service.id}</p>
+                          <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.serviceType}</p>
-                          <p className="text-sm text-gray-600">{service.description}</p>
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceType}</p>
+                          <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5 line-clamp-1 max-w-[150px]">{service.description}</p>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">{service.customerName || 'N/A'}</p>
-                          <p className="text-sm text-gray-600">{service.customerPhone}</p>
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.customerName || 'N/A'}</p>
+                          <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{service.customerPhone}</p>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="text-sm text-gray-900">{service.brand}</p>
-                          <p className="text-sm text-gray-600">{service.model}</p>
+                        <td className="p-4">
+                          <p className="text-sm text-[hsl(210,20%,90%)]">{service.brand}</p>
+                          <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{service.model}</p>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           {service.technicianName ? (
                             <div>
-                              <p className="font-medium text-gray-900">{service.technicianName}</p>
-                              <Badge variant="secondary" className="text-xs mt-1">
+                              <p className="font-medium text-[hsl(210,20%,90%)]">{service.technicianName}</p>
+                              <Badge variant="secondary" className="text-[10px] mt-1 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,75%)]">
                                 BU{String(service.providerId || '').padStart(5, '0')}
                               </Badge>
                             </div>
                           ) : (
-                            <Badge variant="outline">Not Assigned</Badge>
+                            <Badge variant="outline" className="text-[10px] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,60%)] bg-[rgba(255,255,255,0.02)]">Not Assigned</Badge>
                           )}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           {getStatusBadge(service.status)}
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-gray-900">₹{service.totalAmount || service.bookingFee}</p>
+                        <td className="p-4">
+                          <p className="font-medium text-[hsl(160,84%,65%)] font-mono">₹{service.totalAmount || service.bookingFee}</p>
                           {service.totalAmount && (
-                            <p className="text-sm text-gray-600">Booking: ₹{service.bookingFee}</p>
+                            <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">Booking: ₹{service.bookingFee}</p>
                           )}
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => downloadServiceInvoice(service)}
-                            className="flex items-center gap-2"
+                            className="flex items-center gap-1.5 h-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,80%)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white transition-all"
                           >
-                            <Download className="h-4 w-4" />
-                            Invoice
+                            <Download className="h-3.5 w-3.5" />
+                            <span className="text-xs">Invoice</span>
                           </Button>
                         </td>
-                        <td className="py-3 px-4">
-                          <p className="text-sm text-gray-600">
+                        <td className="p-4">
+                          <p className="text-sm text-[hsl(215,20%,70%)]">
                             {new Date(service.createdAt).toLocaleDateString()}
                           </p>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="p-4">
                           <div className="flex space-x-2">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => setSelectedService(service)}
+                              className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(217,91%,60%)] bg-[hsla(217,91%,60%,0.05)] hover:bg-[hsla(217,91%,60%,0.15)] transition-colors"
                             >
-                              View Details
+                              <span className="text-xs font-medium">View Details</span>
                             </Button>
                               {service.status === 'completed' && (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => window.open(`/api/invoices/generate/${service.id}`, '_blank')}
+                                className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(160,84%,60%)] bg-[hsla(160,84%,39%,0.05)] hover:bg-[hsla(160,84%,39%,0.15)] transition-colors"
                               >
-                                Invoice
+                                <span className="text-xs font-medium">Invoice</span>
                               </Button>
                             )}
                           </div>
@@ -357,78 +361,78 @@ Generated on: ${new Date().toLocaleString('en-IN')}
 
         {/* Service Details Modal */}
         <Dialog open={!!selectedService} onOpenChange={() => setSelectedService(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Service Request Details</DialogTitle>
+          <DialogContent className="max-w-2xl glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] max-h-[85vh] overflow-y-auto custom-scrollbar">
+            <DialogHeader className="border-b border-[rgba(255,255,255,0.06)] pb-4 sticky top-0 bg-[hsla(222,40%,10%,0.95)] backdrop-blur-md z-10">
+              <DialogTitle className="text-xl text-white">Service Request Details</DialogTitle>
             </DialogHeader>
             {selectedService && (
-              <div className="space-y-6">
+              <div className="space-y-6 py-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Service ID</p>
-                    <p className="text-lg font-semibold">{selectedService.serviceId || selectedService.id}</p>
+                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service ID</p>
+                    <p className="text-lg font-semibold text-white">{selectedService.serviceId || selectedService.id}</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Status</p>
+                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Status</p>
                     <div className="mt-1">{getStatusBadge(selectedService.status)}</div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Service Type</p>
-                    <p className="text-base">{selectedService.serviceType}</p>
+                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service Type</p>
+                    <p className="text-base text-white">{selectedService.serviceType}</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Booking Fee Status</p>
-                    <p className="text-base font-mono">{selectedService.bookingFeeStatus || 'N/A'}</p>
-                  </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-3">Customer Information</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Name</p>
-                      <p className="text-base">{selectedService.customerName || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Phone</p>
-                      <p className="text-base">{selectedService.customerPhone || 'N/A'}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-sm font-medium text-gray-600">Address</p>
-                      <p className="text-base">{selectedService.address}</p>
-                    </div>
+                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee Status</p>
+                    <p className="text-base font-mono text-[hsl(210,20%,85%)]">{selectedService.bookingFeeStatus || 'N/A'}</p>
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-3">Device Information</h4>
+                <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
+                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(217,91%,60%)] rounded-full"></span> Customer Information</h4>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Brand</p>
-                      <p className="text-base">{selectedService.brand}</p>
+                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Name</p>
+                      <p className="text-base text-white">{selectedService.customerName || 'N/A'}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Model</p>
-                      <p className="text-base">{selectedService.model}</p>
+                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Phone</p>
+                      <p className="text-base text-white">{selectedService.customerPhone || 'N/A'}</p>
                     </div>
-                    <div className="col-span-2">
-                      <p className="text-sm font-medium text-gray-600">Description</p>
-                      <p className="text-base">{selectedService.description}</p>
+                    <div className="col-span-2 bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Address</p>
+                      <p className="text-base text-white leading-relaxed">{selectedService.address}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
+                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(263,70%,60%)] rounded-full"></span> Device Information</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Brand</p>
+                      <p className="text-base text-white">{selectedService.brand}</p>
+                    </div>
+                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Model</p>
+                      <p className="text-base text-white">{selectedService.model}</p>
+                    </div>
+                    <div className="col-span-2 bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Description</p>
+                      <p className="text-base text-white leading-relaxed">{selectedService.description}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Customer Photos */}
                 {selectedService.photos && selectedService.photos.length > 0 && (
-                  <div className="border-t pt-4">
-                    <h4 className="font-medium text-gray-900 mb-3">Customer Photos ({selectedService.photos.length})</h4>
+                  <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
+                    <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(347,77%,60%)] rounded-full"></span> Customer Photos ({selectedService.photos.length})</h4>
                     <div className="flex flex-wrap gap-3">
                       {selectedService.photos.map((photoUrl: string, index: number) => (
                         <a key={index} href={photoUrl} target="_blank" rel="noopener noreferrer">
                           <img
                             src={photoUrl}
                             alt={`Issue photo ${index + 1}`}
-                            className="w-24 h-24 rounded-lg object-cover border border-gray-200 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer"
+                            className="w-24 h-24 rounded-lg object-cover border border-[rgba(255,255,255,0.1)] hover:border-[hsl(217,91%,60%)] hover:shadow-[0_0_15px_hsla(217,91%,60%,0.3)] transition-all cursor-pointer"
                           />
                         </a>
                       ))}
@@ -437,50 +441,50 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                 )}
 
                 {selectedService.technicianName && (
-                  <div className="border-t pt-4">
-                    <h4 className="font-medium text-gray-900 mb-3">Assigned Employee</h4>
+                  <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
+                    <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(38,92%,60%)] rounded-full"></span> Assigned Employee</h4>
                     <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Employee Name</p>
-                        <p className="text-base">{selectedService.technicianName}</p>
+                      <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                        <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Employee Name</p>
+                        <p className="text-base text-white">{selectedService.technicianName}</p>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Employee ID</p>
-                        <p className="text-base">BU{String(selectedService.providerId || '').padStart(5, '0')}</p>
+                      <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                        <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Employee ID</p>
+                        <p className="text-base font-mono text-[hsl(210,20%,85%)]">BU{String(selectedService.providerId || '').padStart(5, '0')}</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                <div className="border-t pt-4">
-                  <h4 className="font-medium text-gray-900 mb-3">Payment Information</h4>
+                <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
+                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(160,84%,60%)] rounded-full"></span> Payment Information</h4>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Booking Fee</p>
-                      <p className="text-base">₹{selectedService.bookingFee ?? 99}</p>
+                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee</p>
+                      <p className="text-base font-mono text-white">₹{selectedService.bookingFee ?? 99}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Total Amount</p>
-                      <p className="text-base font-semibold">{selectedService.totalAmount ? `₹${selectedService.totalAmount}` : 'Pending'}</p>
+                    <div className="bg-[hsla(160,84%,39%,0.1)] p-4 rounded-xl border border-[hsla(160,84%,39%,0.2)]">
+                      <p className="text-xs font-medium text-[hsl(160,84%,75%)] uppercase tracking-wider mb-1">Total Amount</p>
+                      <p className="text-lg font-bold font-mono text-[hsl(160,84%,65%)]">{selectedService.totalAmount ? `₹${selectedService.totalAmount}` : 'Pending'}</p>
                     </div>
                     {selectedService.commissionAmount && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Platform Commission</p>
-                        <p className="text-base text-green-700">₹{selectedService.commissionAmount}</p>
+                      <div className="col-span-2 bg-[hsla(217,91%,60%,0.1)] p-4 rounded-xl border border-[hsla(217,91%,60%,0.2)]">
+                        <p className="text-xs font-medium text-[hsl(217,91%,75%)] uppercase tracking-wider mb-1">Platform Commission</p>
+                        <p className="text-base font-mono font-medium text-[hsl(217,91%,65%)]">₹{selectedService.commissionAmount}</p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
+                <div className="border-t border-[rgba(255,255,255,0.06)] pt-6 mt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Created</p>
-                      <p className="text-base">{new Date(selectedService.createdAt).toLocaleDateString()}</p>
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Created</p>
+                      <p className="text-sm text-[hsl(215,20%,75%)]">{new Date(selectedService.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Last Updated</p>
-                      <p className="text-base">{new Date(selectedService.updatedAt).toLocaleDateString()}</p>
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Last Updated</p>
+                      <p className="text-sm text-[hsl(215,20%,75%)]">{new Date(selectedService.updatedAt).toLocaleDateString()}</p>
                     </div>
                   </div>
                 </div>

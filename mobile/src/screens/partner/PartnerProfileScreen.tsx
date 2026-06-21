@@ -16,10 +16,12 @@ import {
 } from 'react-native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe
 } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
+import { useLanguageStore } from '../../stores/languageStore';
 import * as Location from 'expo-location';
-import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
+import { useProfile, useUpdateProfile, usePublicConfig, usePartnerProfile, useUpdateUpiId } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -29,9 +31,13 @@ import { apiClient } from '../../api/client';
 
 export function PartnerProfileScreen() {
     const { data: profile, isLoading } = useProfile();
+    const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
+    const { mutate: updateUpiId, isPending: savingUpi } = useUpdateUpiId();
     const { logout, user } = useAuthStore();
     const { data: publicConfig } = usePublicConfig();
+    const { t } = useTranslation();
+    const { language, setLanguage } = useLanguageStore();
     
     const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
 
@@ -40,6 +46,7 @@ export function PartnerProfileScreen() {
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [homeAddress, setHomeAddress] = useState('');
+    const [upiId, setUpiId] = useState('');
     const [fetchingLocation, setFetchingLocation] = useState(false);
     // PHASE 3: Online/offline toggle (Task 3.4)
     const [isOnline, setIsOnline] = useState(user?.isOnline ?? false);
@@ -53,6 +60,12 @@ export function PartnerProfileScreen() {
             setHomeAddress(profile.homeAddress || '');
         }
     }, [profile]);
+
+    useEffect(() => {
+        if (partnerProfile) {
+            setUpiId(partnerProfile.upiId || '');
+        }
+    }, [partnerProfile]);
 
     const handleSave = () => {
         // Basic validation
@@ -141,7 +154,12 @@ export function PartnerProfileScreen() {
         }
     };
 
-    if (isLoading) {
+    const toggleLanguage = () => {
+        const newLang = language === 'en' ? 'kn' : 'en';
+        setLanguage(newLang);
+    };
+
+    if (isLoading || isPartnerLoading) {
         return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
     }
 
@@ -242,8 +260,52 @@ export function PartnerProfileScreen() {
                 )}
             </View>
 
-            {/* Help & Support */}
+            {/* Payout Details */}
             <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Payout Details (UPI)</Text>
+                
+                {editing ? (
+                    <View>
+                        <Input 
+                            label="UPI ID" 
+                            value={upiId} 
+                            onChangeText={setUpiId} 
+                            placeholder="e.g. yourname@upi"
+                            autoCapitalize="none"
+                        />
+                        <View style={styles.editActions}>
+                            <View style={{ flex: 1 }}>
+                                <Button 
+                                    title="Save UPI ID" 
+                                    onPress={() => {
+                                        updateUpiId(
+                                            { upiId }, 
+                                            { onSuccess: () => Alert.alert('Saved', 'UPI ID updated successfully.') }
+                                        );
+                                    }} 
+                                    loading={savingUpi} 
+                                    fullWidth={true} 
+                                />
+                            </View>
+                        </View>
+                    </View>
+                ) : (
+                    <View>
+                        <InfoRow icon={CheckCircle} label="UPI ID" value={partnerProfile?.upiId || 'Not set'} />
+                    </View>
+                )}
+            </View>
+
+            {/* Help & Support & Settings */}
+            <View style={styles.section}>
+                <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={toggleLanguage}>
+                    <View style={styles.menuLeft}>
+                        <Globe size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>{t('profile.language', 'Language')} ({language === 'en' ? 'English' : 'ಕನ್ನಡ'})</Text>
+                    </View>
+                    <Text style={{ ...typography.caption, color: colors.textSecondary }}>{t('profile.select_language', 'Tap to change')}</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.menuItem} onPress={() => {
                     Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
                         Alert.alert('Error', 'Make sure WhatsApp is installed on your device');

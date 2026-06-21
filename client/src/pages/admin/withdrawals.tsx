@@ -102,60 +102,61 @@ export default function WithdrawalsPage() {
   const withdrawals = data?.data || [];
 
   return (
-    <div className="p-8 w-full max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+      <div className="flex justify-between items-center mb-8 relative z-10 stagger-enter">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Withdrawals</h1>
-          <p className="text-muted-foreground mt-2">
+          <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Withdrawals</h1>
+          <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">
             Manage partner payout requests via RazorpayX.
           </p>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Payout Requests</CardTitle>
+      <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+        <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">Payout Requests</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex justify-center p-8">Loading...</div>
+            <div className="flex justify-center p-8 text-[hsl(215,20%,65%)]">Loading...</div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto custom-scrollbar">
+            <Table className="glass-table">
               <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Partner</TableHead>
-                  <TableHead>Amount (₹)</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.02)]">
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Date</TableHead>
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Partner</TableHead>
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Amount (₹)</TableHead>
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Method</TableHead>
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Details</TableHead>
+                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Status</TableHead>
+                  <TableHead className="text-right text-[hsl(215,20%,65%)] font-medium">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {withdrawals.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableRow className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)]">
+                    <TableCell colSpan={7} className="text-center text-[hsl(215,20%,50%)] py-8">
                       No withdrawal requests found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   withdrawals.map((w) => (
-                    <TableRow key={w.request.id}>
-                      <TableCell>
+                    <TableRow key={w.request.id} className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)] group transition-colors">
+                      <TableCell className="text-[hsl(210,20%,90%)]">
                         {format(new Date(w.request.createdAt), 'MMM dd, yyyy HH:mm')}
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{w.employee.fullName}</div>
-                        <div className="text-xs text-muted-foreground">{w.user.phone || w.user.email}</div>
+                        <div className="font-medium text-[hsl(210,20%,90%)]">{w.employee.fullName}</div>
+                        <div className="text-xs text-[hsl(215,20%,65%)]">{w.user.phone || w.user.email}</div>
                       </TableCell>
-                      <TableCell className="font-bold">
+                      <TableCell className="font-mono text-[hsl(210,20%,90%)] font-bold">
                         {w.request.amount}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="uppercase">{w.request.method}</Badge>
+                        <Badge variant="outline" className="uppercase border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] bg-[rgba(255,255,255,0.02)]">{w.request.method}</Badge>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
+                      <TableCell className="text-xs text-[hsl(215,20%,65%)]">
                         {w.request.method === 'bank' 
                           ? `A/C: ${w.employee.bankAccountNumber || 'N/A'}`
                           : `UPI: ${w.employee.upiId || 'N/A'}`}
@@ -166,11 +167,16 @@ export default function WithdrawalsPage() {
                           w.request.status === 'pending' ? 'secondary' :
                           w.request.status === 'processing' ? 'default' :
                           'destructive'
+                        } className={
+                          w.request.status === 'completed' ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)] border shadow-sm backdrop-blur-sm' :
+                          w.request.status === 'pending' ? 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,60%)] border-[hsla(38,92%,50%,0.3)] border shadow-sm backdrop-blur-sm' :
+                          w.request.status === 'processing' ? 'bg-[hsla(217,91%,60%,0.15)] text-[hsl(217,91%,70%)] border-[hsla(217,91%,60%,0.3)] border shadow-sm backdrop-blur-sm' :
+                          'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,60%)] border-[hsla(347,77%,50%,0.3)] border shadow-sm backdrop-blur-sm'
                         }>
                           {w.request.status}
                         </Badge>
                         {w.request.failureReason && (
-                          <div className="text-[10px] text-red-500 mt-1 max-w-[150px] truncate" title={w.request.failureReason}>
+                          <div className="text-[10px] text-[hsl(347,77%,60%)] mt-1 max-w-[150px] truncate" title={w.request.failureReason}>
                             {w.request.failureReason}
                           </div>
                         )}
@@ -181,7 +187,7 @@ export default function WithdrawalsPage() {
                             <Button 
                               size="sm" 
                               variant="outline"
-                              className="bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                              className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
                               onClick={() => setActionDialog({ isOpen: true, type: 'approve', request: w })}
                             >
                               Approve
@@ -189,7 +195,7 @@ export default function WithdrawalsPage() {
                             <Button 
                               size="sm" 
                               variant="outline"
-                              className="text-red-600 hover:bg-red-50"
+                              className="text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)] border-[hsla(347,77%,50%,0.3)] bg-[hsla(347,77%,50%,0.05)] transition-colors"
                               onClick={() => setActionDialog({ isOpen: true, type: 'reject', request: w })}
                             >
                               Reject
@@ -197,7 +203,7 @@ export default function WithdrawalsPage() {
                           </>
                         )}
                         {w.request.status === 'completed' && w.request.razorpayPayoutId && (
-                          <span className="text-xs text-muted-foreground">Payout ID: {w.request.razorpayPayoutId}</span>
+                          <span className="text-xs text-[hsl(215,20%,65%)] font-mono block mt-1">ID: {w.request.razorpayPayoutId}</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -205,17 +211,18 @@ export default function WithdrawalsPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       <AlertDialog open={actionDialog.isOpen} onOpenChange={(open) => !open && setActionDialog({ ...actionDialog, isOpen: false })}>
-        <AlertDialogContent>
+        <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
-            <AlertDialogTitle>
+            <AlertDialogTitle className="text-white">
               {actionDialog.type === 'approve' ? 'Approve Withdrawal?' : 'Reject Withdrawal?'}
             </AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
               {actionDialog.type === 'approve' 
                 ? `This will initiate a real payout of ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via RazorpayX. Are you sure?`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
@@ -223,10 +230,10 @@ export default function WithdrawalsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleAction}
-              className={actionDialog.type === 'reject' ? "bg-red-600 hover:bg-red-700" : ""}
+              className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
               {actionDialog.type === 'approve' 
                 ? (approveMutation.isPending ? "Approving..." : "Yes, Approve Payout") 

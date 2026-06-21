@@ -99,8 +99,9 @@ function Router() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-surface-0 noise-overlay">
       <Sidebar />
+      <div className="flex-1 overflow-y-auto h-screen">
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/dashboard" component={Dashboard} />
@@ -119,6 +120,7 @@ function Router() {
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
+      </div>
     </div>
   );
 }

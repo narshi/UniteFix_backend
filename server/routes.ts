@@ -42,6 +42,7 @@ import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
+import { registerPartnerProfileRoutes } from "./routes/partner-profile.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
@@ -169,6 +170,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register Truecaller Auth Routes (SDK 3.x)
   registerTruecallerAuthRoutes(app);
+
+  // Register Partner Profile Routes
+  registerPartnerProfileRoutes(app);
 
   // ==================== 3-STEP SIGNUP FLOW (Email OTP) ====================
 

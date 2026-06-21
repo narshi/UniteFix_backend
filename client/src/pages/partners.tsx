@@ -175,31 +175,31 @@ export default function PartnersPage() {
   ];
 
   return (
-    <div className="flex-1 p-8">
-      <div className="mb-8 flex justify-between items-center">
+    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+      <div className="mb-8 flex justify-between items-center relative z-10 stagger-enter">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Employees</h2>
-          <p className="text-gray-600">Manage employees, verification, and wallets</p>
+          <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Employees</h2>
+          <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage employees, verification, and wallets</p>
         </div>
         <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
           <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
+            <Button className="flex items-center gap-2 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] transition-all active:scale-[0.97]">
               <Plus className="w-4 h-4" /> Add Employee
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] overflow-y-auto max-h-[85vh] custom-scrollbar">
             <DialogHeader>
-              <DialogTitle>Register New Employee</DialogTitle>
+              <DialogTitle className="text-xl text-white">Register New Employee</DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
-                <Label>Employee Name *</Label>
-                <Input value={newPartner.partnerName} onChange={e => setNewPartner({ ...newPartner, partnerName: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Employee Name *</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.partnerName} onChange={e => setNewPartner({ ...newPartner, partnerName: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Employee Type</Label>
+                <Label className="text-[hsl(210,20%,85%)]">Employee Type</Label>
                 <Select value={newPartner.partnerType} onValueChange={v => setNewPartner({ ...newPartner, partnerType: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Individual">Individual</SelectItem>
                     <SelectItem value="Business">Business</SelectItem>
@@ -207,28 +207,28 @@ export default function PartnersPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Phone Number *</Label>
-                <Input value={newPartner.phone} onChange={e => setNewPartner({ ...newPartner, phone: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Phone Number *</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.phone} onChange={e => setNewPartner({ ...newPartner, phone: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Email *</Label>
-                <Input type="email" value={newPartner.email} onChange={e => setNewPartner({ ...newPartner, email: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Email *</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" type="email" value={newPartner.email} onChange={e => setNewPartner({ ...newPartner, email: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Pin Code *</Label>
-                <Input value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Pin Code *</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <Label>Password *</Label>
-                <Input type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Password *</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
               </div>
               <div className="col-span-2 space-y-2">
-                <Label>Address</Label>
-                <Input value={newPartner.address} onChange={e => setNewPartner({ ...newPartner, address: e.target.value })} />
+                <Label className="text-[hsl(210,20%,85%)]">Address</Label>
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.address} onChange={e => setNewPartner({ ...newPartner, address: e.target.value })} />
               </div>
               <div className="col-span-2 space-y-2">
-                <Label>Services Offered *</Label>
-                <div className="grid grid-cols-2 gap-2 border p-3 rounded-md h-40 overflow-y-auto">
+                <Label className="text-[hsl(210,20%,85%)]">Services Offered *</Label>
+                <div className="grid grid-cols-2 gap-2 border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 rounded-md h-40 overflow-y-auto custom-scrollbar">
                   {availableServices.map((service) => (
                     <div key={service} className="flex items-center space-x-2">
                       <input
@@ -242,28 +242,28 @@ export default function PartnersPage() {
                             setNewPartner({ ...newPartner, services: newPartner.services.filter(s => s !== service) });
                           }
                         }}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        className="h-4 w-4 rounded border-[rgba(255,255,255,0.2)] bg-[rgba(255,255,255,0.05)] text-[hsl(217,91%,60%)] focus:ring-[hsla(217,91%,60%,0.5)] focus:ring-offset-0"
                       />
-                      <label htmlFor={`service-${service}`} className="text-sm text-gray-700">{service}</label>
+                      <label htmlFor={`service-${service}`} className="text-sm text-[hsl(210,20%,80%)]">{service}</label>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button onClick={handleAddPartner}>Register Employee</Button>
+            <DialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4">
+              <Button onClick={handleAddPartner} className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] transition-all active:scale-[0.97]">Register Employee</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>Employee Directory</CardTitle>
-            <div className="flex gap-2">
+      <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <div className="flex justify-between items-center w-full">
+            <CardTitle className="text-xl text-white">Employee Directory</CardTitle>
+            <div className="flex gap-3">
               <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
-                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Verification</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -272,7 +272,7 @@ export default function PartnersPage() {
                 </SelectContent>
               </Select>
               <Select value={activeStatusFilter} onValueChange={setActiveStatusFilter}>
-                <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
@@ -281,122 +281,122 @@ export default function PartnersPage() {
               </Select>
               <Input
                 placeholder="Search name, phone, service..."
-                className="w-64"
+                className="w-64 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           {isLoading ? (
-            <div className="py-10 text-center text-gray-500 animate-pulse">Loading partners...</div>
+            <div className="py-10 text-center text-[hsl(215,20%,55%)] skeleton-shimmer">Loading partners...</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm glass-table">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-4 px-4">Employee Info</th>
-                    <th className="text-left py-4 px-4">Services</th>
-                    <th className="text-left py-4 px-4">Wallet</th>
-                    <th className="text-left py-4 px-4">Status</th>
-                    <th className="text-right py-4 px-4">Actions</th>
+                  <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Employee Info</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Services</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Wallet</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPartners.map((partner: any) => (
-                    <tr key={partner.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!partner.isActive ? 'opacity-60 bg-gray-50' : ''}`}>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center font-bold">
+                    <tr key={partner.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group ${!partner.isActive ? 'opacity-60 bg-[rgba(255,255,255,0.01)]' : ''}`}>
+                      <td className="p-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-gradient-to-br from-[hsl(263,70%,50%)] to-[hsl(217,91%,60%)] rounded-lg flex items-center justify-center font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
                             {partner.partnerName.charAt(0)}
                           </div>
                           <div>
-                            <p className="font-bold">{partner.partnerName}</p>
-                            <p className="text-xs text-gray-500">{partner.partnerId} • {partner.partnerType}</p>
-                            <p className="text-xs text-gray-400">{partner.phone || 'No phone'} • {partner.email || 'No email'}</p>
+                            <p className="font-bold text-[hsl(210,20%,90%)]">{partner.partnerName}</p>
+                            <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{partner.partnerId} <span className="mx-1">•</span> {partner.partnerType}</p>
+                            <p className="text-xs text-[hsl(215,20%,45%)] mt-0.5">{partner.phone || 'No phone'} <span className="mx-1">•</span> {partner.email || 'No email'}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-4 px-4">
-                        <div className="flex flex-wrap gap-1">
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-1.5">
                           {partner.services?.slice(0, 2).map((s: string) => (
-                            <Badge key={s} variant="outline" className="text-[10px]">{s}</Badge>
+                            <Badge key={s} variant="outline" className="text-[10px] bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,75%)]">{s}</Badge>
                           ))}
-                          {partner.services?.length > 2 && <span className="text-[10px] text-gray-400">+{partner.services.length - 2}</span>}
+                          {partner.services?.length > 2 && <span className="text-[10px] text-[hsl(215,20%,50%)] self-center ml-1">+{partner.services.length - 2}</span>}
                         </div>
                       </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-1">
-                          <Wallet className="w-4 h-4 text-emerald-500" />
-                          <span className="font-mono font-bold text-emerald-700 mr-2">₹{partner.walletBalance}</span>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="w-4 h-4 text-[hsl(160,84%,60%)]" />
+                          <span className="font-mono font-bold text-[hsl(160,84%,65%)] mr-3">₹{partner.walletBalance}</span>
 
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 text-gray-400 hover:text-blue-600"
+                            className="h-7 w-7 text-[hsl(215,20%,65%)] hover:text-white hover:bg-[rgba(255,255,255,0.05)] transition-colors"
                             title="Transaction History"
                             onClick={() => { setSelectedPartner(partner); setIsHistoryModalOpen(true); }}
                           >
-                            <History className="w-3 h-3" />
+                            <History className="w-3.5 h-3.5" />
                           </Button>
 
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 text-emerald-600 hover:bg-emerald-50"
+                            className="h-7 w-7 text-[hsl(160,84%,60%)] hover:bg-[hsla(160,84%,39%,0.15)] transition-colors"
                             title="Add Funds"
                             disabled={partner.verificationStatus === 'suspended'}
                             onClick={() => { setSelectedPartner(partner); setIsTopupModalOpen(true); }}
                           >
-                            <Plus className="w-3 h-3" />
+                            <Plus className="w-3.5 h-3.5" />
                           </Button>
 
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 text-red-600 hover:bg-red-50"
+                            className="h-7 w-7 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors"
                             title="Deduct Funds"
                             onClick={() => { setSelectedPartner(partner); setIsDeductModalOpen(true); }}
                           >
-                            <Minus className="w-3 h-3" />
+                            <Minus className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </td>
-                      <td className="py-4 px-4">
+                      <td className="p-4">
                         <Badge
                           variant={
                             partner.verificationStatus === 'verified' ? 'default' :
                               partner.verificationStatus === 'suspended' ? 'destructive' : 'secondary'
                           }
-                          className="flex items-center gap-1 w-fit"
+                          className={`flex items-center gap-1.5 w-fit ${partner.verificationStatus === 'verified' ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]' : partner.verificationStatus === 'suspended' ? 'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border-[hsla(347,77%,50%,0.3)] shadow-[0_0_10px_hsla(347,77%,50%,0.2)]' : 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)]'}`}
                         >
                           {partner.verificationStatus === 'verified' ? <CheckCircle className="w-3 h-3" /> :
                             partner.verificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          {partner.verificationStatus}
+                          <span className="capitalize">{partner.verificationStatus}</span>
                         </Badge>
                       </td>
-                      <td className="py-4 px-4 text-right">
-                        <div className="flex justify-end gap-1">
+                      <td className="p-4 text-right">
+                        <div className="flex justify-end gap-1.5">
                           {partner.verificationStatus === 'pending' && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button size="sm" variant="outline" className="h-8 text-green-600 gap-1" title="Verify this employee">
+                                <Button size="sm" variant="outline" className="h-8 text-[hsl(160,84%,60%)] border-[rgba(255,255,255,0.1)] hover:bg-[hsla(160,84%,39%,0.15)] gap-1.5 transition-all" title="Verify this employee">
                                   <ShieldCheck className="w-4 h-4" />
-                                  <span className="text-xs">Verify</span>
+                                  <span className="text-xs font-medium">Verify</span>
                                 </Button>
                               </AlertDialogTrigger>
-                              <AlertDialogContent>
+                              <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl">
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>Verify Employee?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This will approve <strong>{partner.partnerName}</strong> ({partner.email || partner.phone}) as a verified employee. They will be able to receive job assignments.
+                                  <AlertDialogTitle className="text-white">Verify Employee?</AlertDialogTitle>
+                                  <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
+                                    This will approve <strong className="text-white">{partner.partnerName}</strong> ({partner.email || partner.phone}) as a verified employee. They will be able to receive job assignments.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-4">
+                                  <AlertDialogCancel className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)]">Cancel</AlertDialogCancel>
                                   <AlertDialogAction
-                                    className="bg-green-600 hover:bg-green-700"
+                                    className="bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,34%)] text-white shadow-[0_4px_14px_hsla(160,84%,39%,0.3)]"
                                     onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'approve' })}
                                   >
                                     Approve & Verify
@@ -408,22 +408,22 @@ export default function PartnersPage() {
                           {partner.verificationStatus === 'verified' && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button size="sm" variant="outline" className="h-8 text-orange-600 gap-1" title="Suspend this employee">
+                                <Button size="sm" variant="outline" className="h-8 text-[hsl(38,92%,60%)] border-[rgba(255,255,255,0.1)] hover:bg-[hsla(38,92%,50%,0.15)] gap-1.5 transition-all" title="Suspend this employee">
                                   <Ban className="w-4 h-4" />
-                                  <span className="text-xs">Suspend</span>
+                                  <span className="text-xs font-medium">Suspend</span>
                                 </Button>
                               </AlertDialogTrigger>
-                              <AlertDialogContent>
+                              <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl">
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>Suspend Employee?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This will suspend <strong>{partner.partnerName}</strong>. They will not be able to receive new jobs until reactivated.
+                                  <AlertDialogTitle className="text-white">Suspend Employee?</AlertDialogTitle>
+                                  <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
+                                    This will suspend <strong className="text-white">{partner.partnerName}</strong>. They will not be able to receive new jobs until reactivated.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-4">
+                                  <AlertDialogCancel className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)]">Cancel</AlertDialogCancel>
                                   <AlertDialogAction
-                                    className="bg-orange-600 hover:bg-orange-700"
+                                    className="bg-[hsl(38,92%,55%)] hover:bg-[hsl(38,92%,50%)] text-white shadow-[0_4px_14px_hsla(38,92%,50%,0.3)]"
                                     onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'suspend' })}
                                   >
                                     Suspend
@@ -433,9 +433,9 @@ export default function PartnersPage() {
                             </AlertDialog>
                           )}
                           {partner.verificationStatus === 'suspended' && (
-                            <Button size="sm" variant="outline" className="h-8 text-blue-600 gap-1" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'activate' })}>
+                            <Button size="sm" variant="outline" className="h-8 text-[hsl(217,91%,65%)] border-[rgba(255,255,255,0.1)] hover:bg-[hsla(217,91%,60%,0.15)] gap-1.5 transition-all" onClick={() => updateStatusMutation.mutate({ partnerId: partner.id, action: 'activate' })}>
                               <ShieldCheck className="w-4 h-4" />
-                              <span className="text-xs">Reactivate</span>
+                              <span className="text-xs font-medium">Reactivate</span>
                             </Button>
                           )}
                           <Dialog open={selectedPartner?.id === partner.id && isAddModalOpen} onOpenChange={(open) => {
@@ -448,7 +448,7 @@ export default function PartnersPage() {
                               <Button 
                                 size="sm" 
                                 variant="ghost" 
-                                className="h-8 text-blue-600 hover:bg-blue-50"
+                                className="h-8 text-[hsl(215,20%,75%)] hover:text-white hover:bg-[rgba(255,255,255,0.05)] transition-colors"
                                 onClick={() => {
                                   setSelectedPartner(partner);
                                   setNewPartner({
@@ -475,18 +475,18 @@ export default function PartnersPage() {
 
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button size="sm" variant="ghost" className="h-8 text-red-500 hover:bg-red-50">
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors">
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </AlertDialogTrigger>
-                            <AlertDialogContent>
+                            <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl">
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Employee?</AlertDialogTitle>
-                                <AlertDialogDescription>This will permanently remove the employee profile and wallet history.</AlertDialogDescription>
+                                <AlertDialogTitle className="text-white">Delete Employee?</AlertDialogTitle>
+                                <AlertDialogDescription className="text-[hsl(215,20%,65%)]">This will permanently remove the employee profile and wallet history.</AlertDialogDescription>
                               </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => deletePartnerMutation.mutate(partner.id)} className="bg-red-600">Delete</AlertDialogAction>
+                              <AlertDialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-4">
+                                <AlertDialogCancel className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)]">Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => deletePartnerMutation.mutate(partner.id)} className="bg-[hsl(347,77%,55%)] hover:bg-[hsl(347,77%,50%)] text-white shadow-[0_4px_14px_hsla(347,77%,50%,0.3)]">Delete</AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
@@ -502,89 +502,89 @@ export default function PartnersPage() {
       </Card>
 
       <Dialog open={isTopupModalOpen} onOpenChange={setIsTopupModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl overflow-y-auto max-h-[85vh] custom-scrollbar">
           <DialogHeader>
-            <DialogTitle>Wallet Top-up</DialogTitle>
-            <DialogDescription>Add funds to {selectedPartner?.partnerName}'s wallet</DialogDescription>
+            <DialogTitle className="text-xl text-white">Wallet Top-up</DialogTitle>
+            <DialogDescription className="text-[hsl(215,20%,65%)]">Add funds to <span className="text-white font-medium">{selectedPartner?.partnerName}'s</span> wallet</DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+          <div className="py-4 space-y-5">
             <div className="space-y-2">
-              <Label>Amount (₹)</Label>
-              <Input type="number" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} placeholder="Enter amount to add" />
+              <Label className="text-[hsl(210,20%,85%)]">Amount (₹)</Label>
+              <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] text-lg h-12" type="number" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} placeholder="0.00" />
             </div>
-            <div className="bg-emerald-50 p-4 rounded-lg flex justify-between items-center text-emerald-800">
-              <span className="text-sm">Current Balance</span>
-              <span className="font-bold">₹{selectedPartner?.walletBalance}</span>
+            <div className="bg-[hsla(160,84%,39%,0.1)] border border-[hsla(160,84%,39%,0.2)] p-4 rounded-xl flex justify-between items-center shadow-inner">
+              <span className="text-sm text-[hsl(160,84%,75%)]">Current Balance</span>
+              <span className="font-bold text-xl text-[hsl(160,84%,65%)]">₹{selectedPartner?.walletBalance}</span>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsTopupModalOpen(false)}>Cancel</Button>
-            <Button onClick={() => topupMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(topupAmount) })}>Confirm Top-up</Button>
+          <DialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-2">
+            <Button className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)] transition-all active:scale-[0.97]" variant="outline" onClick={() => setIsTopupModalOpen(false)}>Cancel</Button>
+            <Button className="bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,34%)] text-white shadow-[0_4px_14px_hsla(160,84%,39%,0.3)] transition-all active:scale-[0.97]" onClick={() => topupMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(topupAmount) })}>Confirm Top-up</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isDeductModalOpen} onOpenChange={setIsDeductModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl overflow-y-auto max-h-[85vh] custom-scrollbar">
           <DialogHeader>
-            <DialogTitle>Deduct Funds</DialogTitle>
-            <DialogDescription>Deduct from {selectedPartner?.partnerName}'s wallet</DialogDescription>
+            <DialogTitle className="text-xl text-white">Deduct Funds</DialogTitle>
+            <DialogDescription className="text-[hsl(215,20%,65%)]">Deduct from <span className="text-white font-medium">{selectedPartner?.partnerName}'s</span> wallet</DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="bg-emerald-50 p-4 rounded-lg flex justify-between items-center text-emerald-800">
-              <span className="text-sm">Current Balance</span>
-              <span className="font-bold">₹{selectedPartner?.walletBalance}</span>
+          <div className="py-4 space-y-5">
+            <div className="bg-[hsla(160,84%,39%,0.1)] border border-[hsla(160,84%,39%,0.2)] p-4 rounded-xl flex justify-between items-center shadow-inner">
+              <span className="text-sm text-[hsl(160,84%,75%)]">Current Balance</span>
+              <span className="font-bold text-xl text-[hsl(160,84%,65%)]">₹{selectedPartner?.walletBalance}</span>
             </div>
             <div className="space-y-2">
-              <Label>Amount (₹)</Label>
-              <Input type="number" value={deductAmount} onChange={e => setDeductAmount(e.target.value)} placeholder="Amount to deduct" />
+              <Label className="text-[hsl(210,20%,85%)]">Amount (₹)</Label>
+              <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(347,77%,60%,0.3)] text-lg h-12" type="number" value={deductAmount} onChange={e => setDeductAmount(e.target.value)} placeholder="0.00" />
             </div>
             <div className="space-y-2">
-              <Label>Reason</Label>
-              <Input value={deductReason} onChange={e => setDeductReason(e.target.value)} placeholder="Reason for deduction" />
+              <Label className="text-[hsl(210,20%,85%)]">Reason</Label>
+              <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(347,77%,60%,0.3)]" value={deductReason} onChange={e => setDeductReason(e.target.value)} placeholder="Reason for deduction" />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeductModalOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deductMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(deductAmount), reason: deductReason })}>Confirm Deduction</Button>
+          <DialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-2">
+            <Button className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)] transition-all active:scale-[0.97]" variant="outline" onClick={() => setIsDeductModalOpen(false)}>Cancel</Button>
+            <Button className="bg-[hsl(347,77%,55%)] hover:bg-[hsl(347,77%,50%)] text-white shadow-[0_4px_14px_hsla(347,77%,50%,0.3)] transition-all active:scale-[0.97]" variant="destructive" onClick={() => deductMutation.mutate({ partnerId: selectedPartner.id, amount: parseFloat(deductAmount), reason: deductReason })}>Confirm Deduction</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Transaction History</DialogTitle>
-            <DialogDescription>{selectedPartner?.partnerName}</DialogDescription>
+        <DialogContent className="max-w-3xl glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl overflow-y-auto max-h-[85vh] custom-scrollbar">
+          <DialogHeader className="border-b border-[rgba(255,255,255,0.06)] pb-4">
+            <DialogTitle className="text-xl text-white">Transaction History</DialogTitle>
+            <DialogDescription className="text-[hsl(215,20%,65%)]">Wallet history for <span className="text-white font-medium">{selectedPartner?.partnerName}</span></DialogDescription>
           </DialogHeader>
-          <div className="py-4 max-h-[60vh] overflow-y-auto">
+          <div className="py-2 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-gray-500">
-                  <th className="text-left py-2">Date</th>
-                  <th className="text-left py-2">Type</th>
-                  <th className="text-left py-2">Description</th>
-                  <th className="text-right py-2">Amount</th>
-                  <th className="text-right py-2">Balance</th>
+              <thead className="sticky top-0 bg-[hsla(222,40%,10%,0.95)] backdrop-blur-md z-10">
+                <tr className="border-b border-[rgba(255,255,255,0.06)]">
+                  <th className="text-left py-3 text-[hsl(215,20%,60%)] font-medium">Date</th>
+                  <th className="text-left py-3 text-[hsl(215,20%,60%)] font-medium">Type</th>
+                  <th className="text-left py-3 text-[hsl(215,20%,60%)] font-medium">Description</th>
+                  <th className="text-right py-3 text-[hsl(215,20%,60%)] font-medium">Amount</th>
+                  <th className="text-right py-3 text-[hsl(215,20%,60%)] font-medium">Balance</th>
                 </tr>
               </thead>
               <tbody>
                 {transactions.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-4 text-gray-500">No transactions found</td></tr>
+                  <tr><td colSpan={5} className="text-center py-8 text-[hsl(215,20%,50%)]">No transactions found</td></tr>
                 ) : (
                   transactions.map((tx: any) => (
-                    <tr key={tx.id} className="border-b border-gray-100">
-                      <td className="py-2">{format(new Date(tx.createdAt), 'dd MMM yyyy HH:mm')}</td>
-                      <td className="py-2 capitalize">
-                        <Badge variant={tx.type === 'credit' || tx.type === 'topup' ? 'default' : 'secondary'} className={tx.type === 'debit' ? 'bg-red-100 text-red-800' : ''}>
+                    <tr key={tx.id} className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                      <td className="py-3 text-[hsl(210,20%,85%)]">{format(new Date(tx.createdAt), 'dd MMM yyyy HH:mm')}</td>
+                      <td className="py-3 capitalize">
+                        <Badge variant={tx.type === 'credit' || tx.type === 'topup' ? 'default' : 'secondary'} className={tx.type === 'debit' ? 'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border-[hsla(347,77%,50%,0.3)]' : 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]'}>
                           {tx.type}
                         </Badge>
                       </td>
-                      <td className="py-2 text-gray-600">{tx.description}</td>
-                      <td className={`py-2 text-right font-mono font-bold ${Number(tx.amount) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <td className="py-3 text-[hsl(215,20%,70%)]">{tx.description}</td>
+                      <td className={`py-3 text-right font-mono font-bold ${Number(tx.amount) > 0 ? 'text-[hsl(160,84%,65%)]' : 'text-[hsl(347,77%,65%)]'}`}>
                         {Number(tx.amount) > 0 ? '+' : ''}{tx.amount}
                       </td>
-                      <td className="py-2 text-right font-mono text-gray-600">₹{tx.balanceAfter}</td>
+                      <td className="py-3 text-right font-mono text-[hsl(215,20%,65%)]">₹{tx.balanceAfter}</td>
                     </tr>
                   ))
                 )}

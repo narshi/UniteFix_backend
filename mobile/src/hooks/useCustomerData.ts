@@ -16,8 +16,8 @@ export const queryKeys = {
     notifications: ['notifications'] as const,
     homeServices: ['homeServices'] as const,
     allServices: ['allServices'] as const,
-    categories: ['categories'] as const,
     publicConfig: ['publicConfig'] as const,
+    partnerProfile: ['partnerProfile'] as const,
 };
 
 // ==================== PROFILE ====================
@@ -38,6 +38,32 @@ export function useUpdateProfile() {
         mutationFn: customerApi.updateProfile,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+        },
+        onError: (error) => {
+            Alert.alert('Update Failed', getApiErrorMessage(error));
+        },
+    });
+}
+
+export function usePartnerProfile() {
+    return useQuery({
+        queryKey: queryKeys.partnerProfile,
+        queryFn: async () => {
+            const response = await customerApi.getPartnerProfile();
+            // The backend returns the object directly, not wrapped in a generic data.data wrapper
+            // because I didn't use `{ success: true, data: employee }` in the route, I just did `res.json(employee)`.
+            // Let's handle both just in case.
+            return response.data;
+        },
+    });
+}
+
+export function useUpdateUpiId() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: customerApi.updateUpiId,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.partnerProfile });
         },
         onError: (error) => {
             Alert.alert('Update Failed', getApiErrorMessage(error));

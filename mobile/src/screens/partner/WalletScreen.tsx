@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, DollarSign } from 'lucide-react-native';
 import { useWallet, useWithdraw } from '../../hooks/usePartnerData';
+import { usePartnerProfile } from '../../hooks/useCustomerData';
 import { WalletTransaction } from '../../api/partner.api';
 import { Button } from '../../components/ui/Button';
 import { colors } from '../../theme/colors';
@@ -49,13 +50,23 @@ function TransactionItem({ item }: { item: WalletTransaction }) {
 
 export function WalletScreen() {
     const { data: wallet, isLoading, refetch, isRefetching, isError } = useWallet();
+    const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
     const withdrawMutation = useWithdraw();
 
-    if (isLoading) {
+    if (isLoading || isPartnerLoading) {
         return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
     }
 
     const handleWithdraw = () => {
+        if (!partnerProfile?.upiId) {
+            Alert.alert(
+                'UPI ID Required',
+                'Please set up your UPI ID in your Profile before requesting a withdrawal.',
+                [{ text: 'OK' }]
+            );
+            return;
+        }
+
         const available = wallet?.availableBalance || 0;
         if (available < 500) {
             Alert.alert('Insufficient Balance', 'Minimum withdrawal amount is ₹500.');
@@ -68,7 +79,7 @@ export function WalletScreen() {
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Withdraw', 
-                    onPress: () => withdrawMutation.mutate({ amount: available, method: 'bank' }) 
+                    onPress: () => withdrawMutation.mutate({ amount: available, method: 'upi' }) 
                 }
             ]
         );
@@ -98,7 +109,7 @@ export function WalletScreen() {
                             </View>
                             <Text style={styles.availableAmount}>₹{wallet?.availableBalance || 0}</Text>
                             <Button 
-                                title="Withdraw to Bank" 
+                                title="Withdraw to UPI" 
                                 onPress={handleWithdraw} 
                                 variant="primary"
                                 loading={withdrawMutation.isPending}

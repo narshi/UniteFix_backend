@@ -164,82 +164,88 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex-1 p-8">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Settings</h2>
-        <p className="text-gray-600">Configure system settings and business rules</p>
+    <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+      <div className="mb-8 relative z-10 stagger-enter">
+        <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Settings</h2>
+        <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Configure system settings and business rules</p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 relative z-10 stagger-enter pb-24">
         {/* System Configuration */}
-        <Card>
-          <CardHeader>
-            <CardTitle>System Configuration</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">System Configuration</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             {loading ? (
-              <div className="animate-pulse space-y-3">
-                <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                <div className="h-10 bg-gray-200 rounded"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="animate-pulse space-y-3 skeleton-shimmer">
+                <div className="h-4 bg-[rgba(255,255,255,0.05)] rounded w-1/4"></div>
+                <div className="h-10 bg-[rgba(255,255,255,0.03)] rounded"></div>
+                <div className="h-4 bg-[rgba(255,255,255,0.05)] rounded w-1/4"></div>
+                <div className="h-10 bg-[rgba(255,255,255,0.03)] rounded"></div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="systemName">System Name</Label>
+                  <Label htmlFor="systemName" className="text-[hsl(215,20%,75%)]">System Name</Label>
                   <Input
                     id="systemName"
                     value={settings.systemName}
                     onChange={(e) => setSettings(prev => ({ ...prev, systemName: e.target.value }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="defaultBookingFee">Booking Fee (₹)</Label>
+                  <Label htmlFor="defaultBookingFee" className="text-[hsl(215,20%,75%)]">Booking Fee (₹)</Label>
                   <Input
                     id="defaultBookingFee"
                     type="number"
                     value={settings.defaultBookingFee}
                     onChange={(e) => setSettings(prev => ({ ...prev, defaultBookingFee: parseInt(e.target.value) || 0 }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Config: BASE_SERVICE_FEE</p>
+                  <p className="text-xs text-[hsl(215,20%,55%)] mt-1">Config: BASE_SERVICE_FEE</p>
                 </div>
                 <div>
-                  <Label htmlFor="platformFeePercent">Platform Fee (%)</Label>
+                  <Label htmlFor="platformFeePercent" className="text-[hsl(215,20%,75%)]">Platform Fee (%)</Label>
                   <Input
                     id="platformFeePercent"
                     type="number"
                     value={settings.platformFeePercent}
                     onChange={(e) => setSettings(prev => ({ ...prev, platformFeePercent: parseInt(e.target.value) || 0 }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Config: UNITEFIX_FEE_PERCENT</p>
+                  <p className="text-xs text-[hsl(215,20%,55%)] mt-1">Config: UNITEFIX_FEE_PERCENT</p>
                 </div>
                 <div>
-                  <Label htmlFor="gstPercentage">GST Rate (%)</Label>
+                  <Label htmlFor="gstPercentage" className="text-[hsl(215,20%,75%)]">GST Rate (%)</Label>
                   <Input
                     id="gstPercentage"
                     type="number"
                     value={settings.gstPercentage}
                     onChange={(e) => setSettings(prev => ({ ...prev, gstPercentage: parseInt(e.target.value) || 0 }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
-                  <p className="text-xs text-gray-500 mt-1">CGST + SGST combined</p>
+                  <p className="text-xs text-[hsl(215,20%,55%)] mt-1">CGST + SGST combined</p>
                 </div>
                 <div>
-                  <Label htmlFor="cancellationFee">Cancellation Fee (₹)</Label>
+                  <Label htmlFor="cancellationFee" className="text-[hsl(215,20%,75%)]">Cancellation Fee (₹)</Label>
                   <Input
                     id="cancellationFee"
                     type="number"
                     value={settings.cancellationFee}
                     onChange={(e) => setSettings(prev => ({ ...prev, cancellationFee: parseInt(e.target.value) || 0 }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="maxServiceStartDistance">Max Service Start Distance (m)</Label>
+                  <Label htmlFor="maxServiceStartDistance" className="text-[hsl(215,20%,75%)]">Max Service Start Distance (m)</Label>
                   <Input
                     id="maxServiceStartDistance"
                     type="number"
                     value={settings.maxServiceStartDistance}
                     onChange={(e) => setSettings(prev => ({ ...prev, maxServiceStartDistance: parseInt(e.target.value) || 0 }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                 </div>
               </div>
@@ -248,26 +254,28 @@ export default function SettingsPage() {
         </Card>
 
         {/* Location Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Location Settings</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Location Settings</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="serviceRegion">Service Region</Label>
+                <Label htmlFor="serviceRegion" className="text-[hsl(215,20%,75%)]">Service Region</Label>
                 <Input
                   id="serviceRegion"
                   value={settings.serviceRegion}
                   onChange={(e) => setSettings(prev => ({ ...prev, serviceRegion: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
               <div>
-                <Label htmlFor="allowedPinCodePrefix">Allowed Pin Code Prefix</Label>
+                <Label htmlFor="allowedPinCodePrefix" className="text-[hsl(215,20%,75%)]">Allowed Pin Code Prefix</Label>
                 <Input
                   id="allowedPinCodePrefix"
                   value={settings.allowedPinCodePrefix}
                   onChange={(e) => setSettings(prev => ({ ...prev, allowedPinCodePrefix: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
             </div>
@@ -275,16 +283,16 @@ export default function SettingsPage() {
         </Card>
 
         {/* Service Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Service Settings</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Service Settings</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                 <div>
-                  <Label htmlFor="enableOTPVerification">OTP Verification</Label>
-                  <p className="text-sm text-gray-600">Require OTP verification for service start</p>
+                  <Label htmlFor="enableOTPVerification" className="text-[hsl(215,20%,90%)]">OTP Verification</Label>
+                  <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Require OTP verification for service start</p>
                 </div>
                 <Switch
                   id="enableOTPVerification"
@@ -292,10 +300,10 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, enableOTPVerification: checked }))}
                 />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                 <div>
-                  <Label htmlFor="enableEmailNotifications">Email Notifications</Label>
-                  <p className="text-sm text-gray-600">Send email notifications to users</p>
+                  <Label htmlFor="enableEmailNotifications" className="text-[hsl(215,20%,90%)]">Email Notifications</Label>
+                  <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Send email notifications to users</p>
                 </div>
                 <Switch
                   id="enableEmailNotifications"
@@ -303,10 +311,10 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, enableEmailNotifications: checked }))}
                 />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                 <div>
-                  <Label htmlFor="enableSMSNotifications">SMS Notifications</Label>
-                  <p className="text-sm text-gray-600">Send SMS notifications to users</p>
+                  <Label htmlFor="enableSMSNotifications" className="text-[hsl(215,20%,90%)]">SMS Notifications</Label>
+                  <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Send SMS notifications to users</p>
                 </div>
                 <Switch
                   id="enableSMSNotifications"
@@ -314,10 +322,10 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, enableSMSNotifications: checked }))}
                 />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                 <div>
-                  <Label htmlFor="autoAssignPartners">Auto Assign Employees</Label>
-                  <p className="text-sm text-gray-600">Automatically assign available employees</p>
+                  <Label htmlFor="autoAssignPartners" className="text-[hsl(215,20%,90%)]">Auto Assign Employees</Label>
+                  <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Automatically assign available employees</p>
                 </div>
                 <Switch
                   id="autoAssignPartners"
@@ -325,10 +333,10 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) => setSettings(prev => ({ ...prev, autoAssignPartners: checked }))}
                 />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
                 <div>
-                  <Label htmlFor="partnerVerificationRequired">Employee Verification Required</Label>
-                  <p className="text-sm text-gray-600">Require employee verification before assignment</p>
+                  <Label htmlFor="partnerVerificationRequired" className="text-[hsl(215,20%,90%)]">Employee Verification Required</Label>
+                  <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Require employee verification before assignment</p>
                 </div>
                 <Switch
                   id="partnerVerificationRequired"
@@ -341,19 +349,19 @@ export default function SettingsPage() {
         </Card>
 
         {/* Payment Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Settings</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Payment Settings</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <Label htmlFor="paymentGateway">Payment Gateway</Label>
+                <Label htmlFor="paymentGateway" className="text-[hsl(215,20%,75%)]">Payment Gateway</Label>
                 <Select
                   value={settings.paymentGateway}
                   onValueChange={(value) => setSettings(prev => ({ ...prev, paymentGateway: value }))}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -364,22 +372,24 @@ export default function SettingsPage() {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="walletHoldDays">Wallet Hold Days</Label>
+                <Label htmlFor="walletHoldDays" className="text-[hsl(215,20%,75%)]">Wallet Hold Days</Label>
                 <Input
                   id="walletHoldDays"
                   type="number"
                   value={settings.walletHoldDays}
                   onChange={(e) => setSettings(prev => ({ ...prev, walletHoldDays: parseInt(e.target.value) || 0 }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
-                <p className="text-xs text-gray-500 mt-1">Days before partner earnings release</p>
+                <p className="text-xs text-[hsl(215,20%,55%)] mt-1">Days before partner earnings release</p>
               </div>
               <div>
-                <Label htmlFor="minWalletRedemption">Min Wallet Redemption (₹)</Label>
+                <Label htmlFor="minWalletRedemption" className="text-[hsl(215,20%,75%)]">Min Wallet Redemption (₹)</Label>
                 <Input
                   id="minWalletRedemption"
                   type="number"
                   value={settings.minWalletRedemption}
                   onChange={(e) => setSettings(prev => ({ ...prev, minWalletRedemption: parseInt(e.target.value) || 0 }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
             </div>
@@ -387,43 +397,47 @@ export default function SettingsPage() {
         </Card>
 
         {/* Company Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Company Information</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Company Information</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div>
-              <Label htmlFor="companyName">Company Name</Label>
+              <Label htmlFor="companyName" className="text-[hsl(215,20%,75%)]">Company Name</Label>
               <Input
                 id="companyName"
                 value={settings.companyName}
                 onChange={(e) => setSettings(prev => ({ ...prev, companyName: e.target.value }))}
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
               />
             </div>
             <div>
-              <Label htmlFor="companyAddress">Company Address</Label>
+              <Label htmlFor="companyAddress" className="text-[hsl(215,20%,75%)]">Company Address</Label>
               <Textarea
                 id="companyAddress"
                 value={settings.companyAddress}
                 onChange={(e) => setSettings(prev => ({ ...prev, companyAddress: e.target.value }))}
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all min-h-[80px]"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="gstNumber">GST Number</Label>
+                <Label htmlFor="gstNumber" className="text-[hsl(215,20%,75%)]">GST Number</Label>
                 <Input
                   id="gstNumber"
                   value={settings.gstNumber}
                   onChange={(e) => setSettings(prev => ({ ...prev, gstNumber: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
               <div>
-                <Label htmlFor="allowCancellationDays">Allow Cancellation (Days)</Label>
+                <Label htmlFor="allowCancellationDays" className="text-[hsl(215,20%,75%)]">Allow Cancellation (Days)</Label>
                 <Input
                   id="allowCancellationDays"
                   type="number"
                   value={settings.allowCancellationDays}
                   onChange={(e) => setSettings(prev => ({ ...prev, allowCancellationDays: parseInt(e.target.value) }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
             </div>
@@ -431,27 +445,29 @@ export default function SettingsPage() {
         </Card>
 
         {/* Contact Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Customer Support</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Customer Support</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="customerSupportEmail">Support Email</Label>
+                <Label htmlFor="customerSupportEmail" className="text-[hsl(215,20%,75%)]">Support Email</Label>
                 <Input
                   id="customerSupportEmail"
                   type="email"
                   value={settings.customerSupportEmail}
                   onChange={(e) => setSettings(prev => ({ ...prev, customerSupportEmail: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
               <div>
-                <Label htmlFor="customerSupportPhone">Support Phone</Label>
+                <Label htmlFor="customerSupportPhone" className="text-[hsl(215,20%,75%)]">Support Phone</Label>
                 <Input
                   id="customerSupportPhone"
                   value={settings.customerSupportPhone}
                   onChange={(e) => setSettings(prev => ({ ...prev, customerSupportPhone: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>
             </div>
@@ -459,40 +475,42 @@ export default function SettingsPage() {
         </Card>
 
         {/* Notification Templates */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Notification Templates</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Notification Templates</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             <div>
-              <Label htmlFor="welcomeMessage">Welcome Message</Label>
+              <Label htmlFor="welcomeMessage" className="text-[hsl(215,20%,75%)]">Welcome Message</Label>
               <Textarea
                 id="welcomeMessage"
                 value={settings.welcomeMessage}
                 onChange={(e) => setSettings(prev => ({ ...prev, welcomeMessage: e.target.value }))}
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all min-h-[80px]"
               />
             </div>
             <div>
-              <Label htmlFor="completionMessage">Service Completion Message</Label>
+              <Label htmlFor="completionMessage" className="text-[hsl(215,20%,75%)]">Service Completion Message</Label>
               <Textarea
                 id="completionMessage"
                 value={settings.completionMessage}
                 onChange={(e) => setSettings(prev => ({ ...prev, completionMessage: e.target.value }))}
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all min-h-[80px]"
               />
             </div>
           </CardContent>
         </Card>
 
         {/* Maintenance Mode */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Maintenance Mode</CardTitle>
+        <Card className="glass-card border-[rgba(255,255,255,0.08)]">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-[hsl(38,92%,60%)]">Maintenance Mode</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
+          <CardContent className="space-y-4 pt-6">
+            <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,255,255,0.04)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
               <div>
-                <Label htmlFor="maintenanceMode">Enable Maintenance Mode</Label>
-                <p className="text-sm text-gray-600">Put the system in maintenance mode</p>
+                <Label htmlFor="maintenanceMode" className="text-[hsl(215,20%,90%)]">Enable Maintenance Mode</Label>
+                <p className="text-sm text-[hsl(215,20%,60%)] mt-0.5">Put the system in maintenance mode</p>
               </div>
               <Switch
                 id="maintenanceMode"
@@ -502,20 +520,21 @@ export default function SettingsPage() {
             </div>
             {settings.maintenanceMode && (
               <div>
-                <Label htmlFor="maintenanceMessage">Maintenance Message</Label>
+                <Label htmlFor="maintenanceMessage" className="text-[hsl(215,20%,75%)]">Maintenance Message</Label>
                 <Textarea
                   id="maintenanceMessage"
                   value={settings.maintenanceMessage}
                   onChange={(e) => setSettings(prev => ({ ...prev, maintenanceMessage: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all min-h-[80px]"
                 />
               </div>
             )}
             {settings.maintenanceMode && (
-              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="p-4 bg-[hsla(38,92%,50%,0.1)] border border-[hsla(38,92%,50%,0.3)] rounded-lg">
                 <div className="flex items-center space-x-2">
-                  <Badge variant="destructive">MAINTENANCE MODE ACTIVE</Badge>
+                  <Badge className="bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white border-0">MAINTENANCE MODE ACTIVE</Badge>
                 </div>
-                <p className="text-sm text-orange-700 mt-2">
+                <p className="text-sm text-[hsl(38,92%,70%)] mt-2 font-medium">
                   The system is currently in maintenance mode. Users will see the maintenance message.
                 </p>
               </div>
@@ -524,11 +543,11 @@ export default function SettingsPage() {
         </Card>
 
         {/* Action Buttons */}
-        <div className="flex justify-end space-x-4">
-          <Button variant="outline" onClick={handleReset} disabled={saving}>
+        <div className="flex justify-end space-x-4 pt-4 mb-16">
+          <Button variant="outline" onClick={handleReset} disabled={saving} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">
             Reset to Defaults
           </Button>
-          <Button onClick={handleSave} disabled={saving || loading}>
+          <Button onClick={handleSave} disabled={saving || loading} className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95">
             {saving ? "Saving..." : "Save Settings"}
           </Button>
         </div>

@@ -20,16 +20,16 @@ export default function RevenueChart() {
 
   if (isLoading) {
     return (
-      <Card className="col-span-2">
+      <Card className="col-span-2 glass-card stagger-enter">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-white">
             <TrendingUp className="w-5 h-5" />
             Revenue Overview
           </CardTitle>
-          <CardDescription>Last 30 days revenue trend</CardDescription>
+          <CardDescription className="text-[hsl(215,20%,55%)]">Last 30 days revenue trend</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px] bg-gray-100 animate-pulse rounded-lg"></div>
+          <div className="h-[300px] skeleton-shimmer rounded-xl"></div>
         </CardContent>
       </Card>
     );
@@ -49,18 +49,20 @@ export default function RevenueChart() {
   const totalRevenue = chartData.reduce((sum, item) => sum + item.revenue, 0) / 100;
 
   return (
-    <Card className="col-span-2" data-testid="revenue-chart">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="col-span-2 glass-card" data-testid="revenue-chart">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-[rgba(255,255,255,0.06)] mb-6 pb-4">
         <div>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-emerald-600" />
+          <CardTitle className="flex items-center gap-2 text-white text-xl">
+            <div className="p-2 rounded-lg bg-[hsla(160,84%,39%,0.15)] border border-[hsla(160,84%,39%,0.3)]">
+              <TrendingUp className="w-5 h-5 text-[hsl(160,84%,65%)]" />
+            </div>
             Revenue Overview
           </CardTitle>
-          <CardDescription>Last 30 days revenue trend</CardDescription>
+          <CardDescription className="text-[hsl(215,20%,55%)] mt-1 tracking-wide">Last 30 days revenue trend</CardDescription>
         </div>
         <div className="text-right">
-          <p className="text-sm text-gray-500">Total Revenue</p>
-          <p className="text-2xl font-bold text-emerald-600">
+          <p className="text-sm font-medium text-[hsl(210,20%,75%)] tracking-wider uppercase mb-1">Total Revenue</p>
+          <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[hsl(160,84%,65%)] to-[hsl(160,84%,45%)] tracking-tight">
             ₹{totalRevenue.toLocaleString('en-IN')}
           </p>
         </div>
@@ -71,47 +73,56 @@ export default function RevenueChart() {
             <AreaChart data={formattedData}>
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="hsl(160,84%,45%)" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="hsl(160,84%,45%)" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
               <XAxis 
                 dataKey="date" 
-                stroke="#6b7280"
+                stroke="hsl(215,20%,55%)"
                 fontSize={12}
                 tickLine={false}
+                axisLine={false}
+                dy={10}
               />
               <YAxis 
-                stroke="#6b7280"
+                stroke="hsl(215,20%,55%)"
                 fontSize={12}
                 tickLine={false}
+                axisLine={false}
                 tickFormatter={(value) => `₹${value}`}
+                dx={-10}
               />
               <Tooltip 
                 contentStyle={{
-                  backgroundColor: '#fff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  backgroundColor: 'hsl(222,40%,10%)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '12px',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+                  color: 'white',
+                  backdropFilter: 'blur(16px)'
                 }}
+                itemStyle={{ color: 'hsl(160,84%,65%)', fontWeight: 'bold' }}
+                labelStyle={{ color: 'hsl(215,20%,65%)', marginBottom: '4px' }}
                 formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Revenue']}
               />
               <Area 
                 type="monotone" 
                 dataKey="revenue" 
-                stroke="#10b981" 
-                strokeWidth={2}
+                stroke="hsl(160,84%,55%)" 
+                strokeWidth={3}
                 fillOpacity={1}
                 fill="url(#colorRevenue)" 
+                activeDot={{ r: 6, strokeWidth: 0, fill: "hsl(160,84%,65%)" }}
               />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-[300px] flex items-center justify-center text-gray-500">
+          <div className="h-[300px] flex items-center justify-center text-[hsl(215,20%,55%)]">
             <div className="text-center">
-              <TrendingUp className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-              <p>No revenue data available yet</p>
+              <TrendingUp className="w-12 h-12 mx-auto mb-3 text-[hsl(215,20%,35%)]" />
+              <p className="font-medium text-[hsl(210,20%,85%)] mb-1">No revenue data available yet</p>
               <p className="text-sm">Revenue will appear as services are completed</p>
             </div>
           </div>

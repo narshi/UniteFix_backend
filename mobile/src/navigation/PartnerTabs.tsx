@@ -18,11 +18,13 @@ import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 
 import { Platform } from 'react-native';
 import { radii, spacing, shadows } from '../theme/spacing';
+import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator<PartnerTabParamList>();
 
 export function PartnerTabs() {
     const insets = useSafeAreaInsets();
+    const { t } = useTranslation();
     const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
 
     return (
@@ -61,7 +63,7 @@ export function PartnerTabs() {
                 name="IncomingTab"
                 component={IncomingServicesScreen}
                 options={{
-                    tabBarLabel: 'Incoming',
+                    tabBarLabel: t('tabs.incoming', 'Incoming'),
                     tabBarIcon: ({ color, size }) => <Inbox size={size} color={color} />,
                 }}
             />
@@ -69,7 +71,7 @@ export function PartnerTabs() {
                 name="HistoryTab"
                 component={PastServicesScreen}
                 options={{
-                    tabBarLabel: 'History',
+                    tabBarLabel: t('tabs.history', 'History'),
                     tabBarIcon: ({ color, size }) => <Clock size={size} color={color} />,
                 }}
             />
@@ -77,7 +79,7 @@ export function PartnerTabs() {
                 name="StartTab"
                 component={PlaceholderScreen}
                 options={{
-                    tabBarLabel: 'Start',
+                    tabBarLabel: t('tabs.start', 'Start'),
                     tabBarIcon: ({ color, size }) => <PlayCircle size={size} color={color} />,
                 }}
             />
@@ -85,7 +87,7 @@ export function PartnerTabs() {
                 name="WalletTab"
                 component={WalletScreen}
                 options={{
-                    tabBarLabel: 'Payments',
+                    tabBarLabel: t('tabs.payments', 'Payments'),
                     tabBarIcon: ({ color, size }) => <Wallet size={size} color={color} />,
                 }}
             />
@@ -93,7 +95,7 @@ export function PartnerTabs() {
                 name="ProfileTab"
                 component={PartnerProfileScreen}
                 options={{
-                    tabBarLabel: 'Profile',
+                    tabBarLabel: t('tabs.profile', 'Profile'),
                     tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
                 }}
             />

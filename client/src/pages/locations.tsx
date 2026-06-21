@@ -166,47 +166,47 @@ export default function LocationsPage() {
   };
 
   return (
-    <div className="flex-1 p-8">
+    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
       <div className="mb-8">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 relative z-10 stagger-enter">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Location Management</h1>
-            <p className="text-gray-500 mt-2">Manage serviceable areas and pin codes for Uttara Kannada region</p>
+            <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Location Management</h1>
+            <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage serviceable areas and pin codes for Uttara Kannada region</p>
           </div>
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90 text-white shadow-sm transition-all duration-200">
+              <Button className="flex items-center gap-2 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] transition-all active:scale-[0.97]">
                 <span className="material-icons text-sm mr-2" style={{ fontFamily: 'Material Icons' }}>add</span>
                 Add New Location
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] overflow-y-auto max-h-[85vh] custom-scrollbar">
               <DialogHeader>
-                <DialogTitle>Add New Serviceable Location</DialogTitle>
+                <DialogTitle className="text-xl text-white">Add New Serviceable Location</DialogTitle>
               </DialogHeader>
               <div className="grid gap-6 py-4">
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="pincode" className="text-right font-medium">Pin Code *</Label>
+                  <Label htmlFor="pincode" className="text-right font-medium text-[hsl(210,20%,85%)]">Pin Code *</Label>
                   <Input
                     id="pincode"
                     value={newLocation.pincode}
                     onChange={(e) => setNewLocation({ ...newLocation, pincode: e.target.value })}
-                    className="col-span-3"
+                    className="col-span-3 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]"
                     placeholder="e.g. 581341"
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="area" className="text-right font-medium">Area/Locality *</Label>
+                  <Label htmlFor="area" className="text-right font-medium text-[hsl(210,20%,85%)]">Area/Locality *</Label>
                   <Input
                     id="area"
                     value={newLocation.area}
                     onChange={(e) => setNewLocation({ ...newLocation, area: e.target.value })}
-                    className="col-span-3"
+                    className="col-span-3 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]"
                     placeholder="e.g. Karki"
                   />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="district" className="text-right font-medium">District *</Label>
+                  <Label htmlFor="district" className="text-right font-medium text-[hsl(210,20%,85%)]">District *</Label>
                   <div className="col-span-3">
                     <Select
                       value={newLocation.district}
@@ -219,7 +219,7 @@ export default function LocationsPage() {
                         });
                       }}
                     >
-                      <SelectTrigger className="mt-1">
+                      <SelectTrigger className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
                         <SelectValue placeholder="Select District" />
                       </SelectTrigger>
                       <SelectContent>
@@ -233,18 +233,18 @@ export default function LocationsPage() {
                   </div>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="state" className="text-right font-medium">State</Label>
+                  <Label htmlFor="state" className="text-right font-medium text-[hsl(210,20%,85%)]">State</Label>
                   <Input
                     id="state"
                     value={newLocation.state}
                     readOnly
-                    className="col-span-3 bg-muted/50"
+                    className="col-span-3 bg-[rgba(255,255,255,0.01)] border-[rgba(255,255,255,0.04)] text-[hsl(215,20%,65%)] cursor-not-allowed"
                   />
                 </div>
               </div>
               <Button
                 onClick={handleAddLocation}
-                className="w-full transition-all duration-200"
+                className="w-full transition-all duration-200 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)]"
                 disabled={addLocationMutation.isPending}
               >
                 {addLocationMutation.isPending ? "Adding..." : "Add Location"}
@@ -254,59 +254,61 @@ export default function LocationsPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="shadow-sm border border-gray-100 bg-white hover:shadow-md transition-shadow">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 relative z-10 stagger-enter">
+          <Card className="glass-card border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Locations</CardTitle>
-              <span className="material-icons text-gray-400 text-lg">place</span>
+              <CardTitle className="text-sm font-medium text-[hsl(215,20%,65%)]">Total Locations</CardTitle>
+              <span className="material-icons text-[hsl(217,91%,60%)] text-lg">place</span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-gray-900">{(stats as any)?.totalLocations || 0}</div>
+              <div className="text-2xl font-bold text-white">{(stats as any)?.totalLocations || 0}</div>
             </CardContent>
           </Card>
-          <Card className="shadow-sm border border-gray-100 bg-white hover:shadow-md transition-shadow">
+          <Card className="glass-card border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Active Locations</CardTitle>
-              <span className="material-icons text-green-500 text-lg">check_circle</span>
+              <CardTitle className="text-sm font-medium text-[hsl(215,20%,65%)]">Active Locations</CardTitle>
+              <span className="material-icons text-[hsl(160,84%,60%)] text-lg">check_circle</span>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{(stats as any)?.activeLocations || 0}</div>
+              <div className="text-2xl font-bold text-[hsl(160,84%,65%)]">{(stats as any)?.activeLocations || 0}</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-card border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inactive Locations</CardTitle>
+              <CardTitle className="text-sm font-medium text-[hsl(215,20%,65%)]">Inactive Locations</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">{(stats as any)?.inactiveLocations || 0}</div>
+              <div className="text-2xl font-bold text-[hsl(347,77%,65%)]">{(stats as any)?.inactiveLocations || 0}</div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="glass-card border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Districts Covered</CardTitle>
+              <CardTitle className="text-sm font-medium text-[hsl(215,20%,65%)]">Districts Covered</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{(stats as any)?.districtsCovered || 0}</div>
+              <div className="text-2xl font-bold text-white">{(stats as any)?.districtsCovered || 0}</div>
             </CardContent>
           </Card>
         </div>
 
         {/* Pin Code Tester */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Pin Code Validator</CardTitle>
+        <Card className="mb-8 glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+          <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">Pin Code Validator</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <div className="flex space-x-4">
               <Input
                 placeholder="Enter pin code to test"
                 value={testPinCode}
                 onChange={(e) => setTestPinCode(e.target.value)}
-                className="max-w-xs"
+                className="max-w-xs bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
               />
               <Button
                 onClick={handleTestPinCode}
                 disabled={testPinCodeMutation.isPending}
+                className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)] transition-all active:scale-[0.97]"
+                variant="outline"
               >
                 {testPinCodeMutation.isPending ? "Testing..." : "Test Pin Code"}
               </Button>
@@ -316,59 +318,59 @@ export default function LocationsPage() {
       </div>
 
       {/* Locations Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Serviceable Locations</CardTitle>
+      <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
+        <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">All Serviceable Locations</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           {isLoading ? (
-            <div className="space-y-4">
+            <div className="space-y-4 skeleton-shimmer">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="animate-pulse">
                   <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                    <div className="w-12 h-12 bg-[rgba(255,255,255,0.05)] rounded-xl border border-[rgba(255,255,255,0.08)]"></div>
                     <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                      <div className="h-4 bg-[rgba(255,255,255,0.05)] rounded-md w-3/4"></div>
+                      <div className="h-3 bg-[rgba(255,255,255,0.03)] rounded-md w-1/2"></div>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full glass-table">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4">Pin Code</th>
-                    <th className="text-left py-3 px-4">Area/Locality</th>
-                    <th className="text-left py-3 px-4">District</th>
-                    <th className="text-left py-3 px-4">State</th>
-                    <th className="text-left py-3 px-4">Status</th>
-                    <th className="text-left py-3 px-4">Actions</th>
+                  <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Pin Code</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Area/Locality</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">District</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">State</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(locations as any[])?.map((location: any) => (
-                    <tr key={location.pincode} className="border-b border-gray-100">
-                      <td className="py-3 px-4">
-                        <span className="font-medium text-gray-900">{location.pincode}</span>
+                    <tr key={location.pincode} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                      <td className="p-4">
+                        <span className="font-medium text-[hsl(210,20%,90%)]">{location.pincode}</span>
                       </td>
-                      <td className="py-3 px-4">
-                        <span className="text-gray-900">{location.area}</span>
+                      <td className="p-4">
+                        <span className="text-[hsl(210,20%,85%)]">{location.area}</span>
                       </td>
-                      <td className="py-3 px-4">
-                        <span className="text-gray-600">{location.district}</span>
+                      <td className="p-4">
+                        <span className="text-[hsl(215,20%,70%)]">{location.district}</span>
                       </td>
-                      <td className="py-3 px-4">
-                        <span className="text-gray-600">{location.state}</span>
+                      <td className="p-4">
+                        <span className="text-[hsl(215,20%,70%)]">{location.state}</span>
                       </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={location.isActive ? 'default' : 'destructive'}>
+                      <td className="p-4">
+                        <Badge variant={location.isActive ? 'default' : 'destructive'} className={location.isActive ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)] border' : 'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border-[hsla(347,77%,50%,0.3)] border'}>
                           {location.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
-                      <td className="py-3 px-4">
+                      <td className="p-4">
                         <Button
                           variant="outline"
                           size="sm"
@@ -377,15 +379,16 @@ export default function LocationsPage() {
                             isActive: !location.isActive
                           })}
                           disabled={toggleLocationMutation.isPending}
+                          className={`h-8 ${location.isActive ? 'border-[rgba(255,255,255,0.1)] text-[hsl(38,92%,60%)] bg-[hsla(38,92%,50%,0.05)] hover:bg-[hsla(38,92%,50%,0.15)]' : 'border-[rgba(255,255,255,0.1)] text-[hsl(160,84%,60%)] bg-[hsla(160,84%,39%,0.05)] hover:bg-[hsla(160,84%,39%,0.15)]'} transition-colors`}
                         >
-                          {location.isActive ? 'Deactivate' : 'Activate'}
+                          <span className="text-xs font-medium">{location.isActive ? 'Deactivate' : 'Activate'}</span>
                         </Button>
                       </td>
                     </tr>
                   ))}
                   {(!locations || (locations as any[]).length === 0) && (
                     <tr>
-                      <td colSpan={6} className="text-center py-8 text-gray-500">
+                      <td colSpan={6} className="text-center py-8 text-[hsl(215,20%,50%)]">
                         No locations found. Add your first serviceable location.
                       </td>
                     </tr>

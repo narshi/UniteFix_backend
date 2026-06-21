@@ -75,20 +75,24 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">
-            UniteFix Admin Login
+    <div className="min-h-screen flex items-center justify-center bg-transparent relative overflow-hidden">
+      {/* Background ambient effects */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-[hsla(217,91%,60%,0.15)] blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-[hsla(347,77%,50%,0.1)] blur-[120px] pointer-events-none" />
+
+      <Card className="w-full max-w-md glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter mx-4">
+        <CardHeader className="space-y-1 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl pb-6">
+          <CardTitle className="text-3xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">
+            UniteFix Admin
           </CardTitle>
-          <CardDescription className="text-center">
-            Sign in to access the admin dashboard
+          <CardDescription className="text-center text-[hsl(215,20%,65%)]">
+            Sign in to access the command center
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="pt-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="username">Username or Email</Label>
+              <Label htmlFor="username" className="text-[hsl(215,20%,75%)]">Username or Email</Label>
               <Input
                 id="username"
                 name="username"
@@ -97,10 +101,11 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
                 value={credentials.username}
                 onChange={handleInputChange}
                 required
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all h-12"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-[hsl(215,20%,75%)]">Password</Label>
               <Input
                 id="password"
                 name="password"
@@ -109,24 +114,25 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
                 value={credentials.password}
                 onChange={handleInputChange}
                 required
+                className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all h-12"
               />
             </div>
             <Button
               type="submit"
-              className="w-full"
+              className="w-full h-12 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95 text-lg font-medium mt-4"
               disabled={loginMutation.isPending}
             >
-              {loginMutation.isPending ? "Signing in..." : "Sign In"}
+              {loginMutation.isPending ? "Authenticating..." : "Enter Command Center"}
             </Button>
           </form>
 
-          <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-            <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-              Demo Admin Credentials:
+          <div className="mt-8 p-4 bg-[hsla(217,91%,60%,0.05)] border border-[hsla(217,91%,60%,0.15)] rounded-xl backdrop-blur-sm">
+            <p className="text-sm text-[hsl(217,91%,70%)] font-medium mb-1">
+              Demo Credentials:
             </p>
-            <p className="text-sm text-blue-600 dark:text-blue-400">
-              Username: admin<br />
-              Password: admin123
+            <p className="text-sm text-[hsl(215,20%,65%)] font-mono">
+              Username: <span className="text-white">admin</span><br />
+              Password: <span className="text-white">admin123</span>
             </p>
           </div>
         </CardContent>

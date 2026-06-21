@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { Alert } from 'react-native';
 import { PremiumAlertProvider, PremiumAlertService } from './src/components/ui/PremiumAlert';
+import './src/i18n';
 
 // --- GLOBAL ALERT INTERCEPTOR ---
 // Overrides the native generic OS alert across the entire application (zero-friction migration)

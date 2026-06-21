@@ -178,28 +178,28 @@ export default function QuickActions() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-      <div className="p-6 border-b border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
+    <div className="glass-card stagger-enter">
+      <div className="p-6 border-b border-[rgba(255,255,255,0.06)]">
+        <h3 className="text-lg font-semibold text-white tracking-tight">Quick Actions</h3>
       </div>
       <div className="p-6">
         <div className="space-y-4">
 
           {/* Location Validator */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Location Validator</h4>
+          <div className="border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-lg p-4 transition-colors hover:bg-[rgba(255,255,255,0.04)]">
+            <h4 className="font-medium text-[hsl(210,20%,85%)] mb-3">Location Validator</h4>
             <div className="space-y-3">
               <input
                 type="text"
                 placeholder="Enter Pin Code"
                 value={pinCode}
                 onChange={(e) => setPinCode(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2 text-sm text-[hsl(210,20%,92%)] placeholder:text-[hsl(215,20%,40%)] focus:outline-none focus:ring-2 focus:ring-[hsla(217,91%,60%,0.25)] focus:border-[hsl(217,91%,60%)] transition-all"
               />
               <button
                 onClick={handleValidatePinCode}
                 disabled={validatePinMutation.isPending}
-                className="w-full bg-blue-600 text-white py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="w-full bg-[hsl(217,91%,60%)] text-white py-2 rounded-lg text-sm font-medium hover:bg-[hsl(217,91%,55%)] shadow-lg shadow-[hsla(217,91%,60%,0.2)] disabled:opacity-40 transition-all active:scale-[0.97]"
               >
                 {validatePinMutation.isPending ? "Validating..." : "Validate Location"}
               </button>
@@ -207,20 +207,20 @@ export default function QuickActions() {
           </div>
 
           {/* OTP Simulator */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">OTP Simulator</h4>
+          <div className="border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-lg p-4 transition-colors hover:bg-[rgba(255,255,255,0.04)]">
+            <h4 className="font-medium text-[hsl(210,20%,85%)] mb-3">OTP Simulator</h4>
             <div className="space-y-3">
               <input
                 type="tel"
                 placeholder="Phone Number"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2 text-sm text-[hsl(210,20%,92%)] placeholder:text-[hsl(215,20%,40%)] focus:outline-none focus:ring-2 focus:ring-[hsla(38,92%,50%,0.25)] focus:border-[hsl(38,92%,50%)] transition-all"
               />
               <button
                 onClick={handleGenerateOTP}
                 disabled={generateOtpMutation.isPending}
-                className="w-full bg-orange-600 text-white py-2 rounded text-sm hover:bg-orange-700 disabled:opacity-50 transition-colors"
+                className="w-full bg-[hsl(38,92%,50%)] text-white py-2 rounded-lg text-sm font-medium hover:bg-[hsl(38,92%,45%)] shadow-lg shadow-[hsla(38,92%,50%,0.2)] disabled:opacity-40 transition-all active:scale-[0.97]"
               >
                 {generateOtpMutation.isPending ? "Sending..." : "Generate Test OTP"}
               </button>
@@ -228,17 +228,17 @@ export default function QuickActions() {
           </div>
 
           {/* Service Code Generator */}
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-3">Service Code</h4>
+          <div className="border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] rounded-lg p-4 transition-colors hover:bg-[rgba(255,255,255,0.04)]">
+            <h4 className="font-medium text-[hsl(210,20%,85%)] mb-3">Service Code</h4>
             <div className="space-y-3">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-blue-600">{generatedCode}</p>
-                <p className="text-xs text-gray-500">Current verification code</p>
+              <div className="text-center py-2 bg-[rgba(255,255,255,0.02)] rounded-lg border border-[rgba(255,255,255,0.04)]">
+                <p className="text-2xl font-bold text-[hsl(160,84%,60%)] tracking-wider">{generatedCode}</p>
+                <p className="text-xs text-[hsl(215,20%,55%)] mt-1">Current verification code</p>
               </div>
               <button
                 onClick={handleGenerateCode}
                 disabled={generateCodeMutation.isPending}
-                className="w-full bg-green-600 text-white py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50 transition-colors"
+                className="w-full bg-[hsl(160,84%,39%)] text-white py-2 rounded-lg text-sm font-medium hover:bg-[hsl(160,84%,34%)] shadow-lg shadow-[hsla(160,84%,39%,0.2)] disabled:opacity-40 transition-all active:scale-[0.97]"
               >
                 {generateCodeMutation.isPending ? "Generating..." : "Generate New Code"}
               </button>
