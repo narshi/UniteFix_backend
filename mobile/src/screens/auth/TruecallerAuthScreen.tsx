@@ -19,6 +19,7 @@ import { AuthStackParamList } from '../../types/navigation.types';
 import { useTruecallerAuth, truecallerEmitter } from '../../hooks/useTruecallerAuth';
 import { useAuthStore } from '../../stores/auth.store';
 import { authApi } from '../../api/auth.api';
+import { useTranslation } from 'react-i18next';
 import { isValidEmail } from '../../utils/validation';
 import { colors } from '../../theme/colors';
 import { fontSizes, fontWeights } from '../../theme/typography';
@@ -33,6 +34,7 @@ const TC_GREEN_DARK = '#0077CC';
 type FallbackStep = 'phone' | 'waiting_call' | 'profile_details' | 'verifying' | 'email_otp' | 'otp_verify';
 
 export function TruecallerAuthScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { role } = route.params;
   const { 
     isAvailable, 
@@ -62,6 +64,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  
+  const isUserExistingRef = useRef(false);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -99,8 +104,18 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       // TYPE_MISSED_CALL_RECEIVED (Code 4)
       if (event.requestCode === 4) {
         if (__DEV__) console.log('[TC_EVENT] Missed call detected!');
-        setFallbackStep('profile_details');
-        setIsAuthenticating(false);
+        if (isUserExistingRef.current) {
+          setFallbackStep('verifying');
+          try {
+            await verifyMissedCall('User', 'Name');
+          } catch (e: any) {
+            setAuthError(e.message || 'Call verification failed.');
+            setFallbackStep('email_otp');
+          }
+        } else {
+          setFallbackStep('profile_details');
+          setIsAuthenticating(false);
+        }
       }
 
       // TYPE_VERIFICATION_COMPLETE (Code 1) or TYPE_PROFILE_VERIFIED_BEFORE (Code 5)
@@ -217,24 +232,80 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     }
   };
 
-  /**
-   * 2. DROP CALL FLOW: Start Verification
-   *    If permissions are denied, falls through to email OTP.
-   */
-  const handleStartDropCall = async () => {
+  const handleVerifyPhoneClick = async () => {
     if (!isValidIndianPhone(phone)) {
       setAuthError('Please enter a valid 10-digit Indian mobile number');
       return;
     }
-
     setIsAuthenticating(true);
     setAuthError(null);
+    try {
+      const normalized = phone.replace(/[^0-9]/g, '');
+      const { data } = await authApi.checkPhone({ phone: normalized });
+      const isExisting = data.success && data.exists;
+      
+      isUserExistingRef.current = isExisting;
+      if (isExisting && data.email) setUserEmail(data.email);
+      
+      await handleStartDropCall(isExisting);
+    } catch (e: any) {
+      setAuthError(e?.response?.data?.message || 'Failed to verify phone');
+      setIsAuthenticating(false);
+    }
+  };
 
+  const handleVerifyWithEmailClick = async () => {
+    if (!isValidIndianPhone(phone)) {
+      setAuthError('Please enter a valid 10-digit Indian mobile number first');
+      return;
+    }
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const normalized = phone.replace(/[^0-9]/g, '');
+      const { data } = await authApi.checkPhone({ phone: normalized });
+      const isExisting = data.success && data.exists;
+      
+      isUserExistingRef.current = isExisting;
+      if (isExisting && data.email) {
+        setUserEmail(data.email);
+        const res = await authApi.requestFallbackOtp({ phone: normalized, role });
+        if (res.data.success) {
+          setFallbackStep('otp_verify');
+        } else {
+          setAuthError(res.data.message || 'Failed to send OTP');
+        }
+      } else {
+        setFallbackStep('email_otp');
+      }
+    } catch (e: any) {
+      setAuthError(e?.response?.data?.message || 'Failed to check phone');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  /**
+   * 2. DROP CALL FLOW: Start Verification
+   *    If permissions are denied, falls through to email OTP.
+   */
+  const handleStartDropCall = async (isExisting: boolean) => {
     const hasPermissions = await requestDropCallPermissions();
     if (!hasPermissions) {
       // Permissions denied → gracefully switch to email OTP
-      setFallbackStep('email_otp');
-      setAuthError('Phone permissions not available. Please verify via email OTP instead.');
+      if (isExisting) {
+        const normalized = phone.replace(/[^0-9]/g, '');
+        const res = await authApi.requestFallbackOtp({ phone: normalized, role });
+        if (res.data.success) {
+          setFallbackStep('otp_verify');
+          setAuthError('Phone permissions not available. OTP sent to registered email instead.');
+        } else {
+          setAuthError('Phone permissions not available and failed to send OTP.');
+        }
+      } else {
+        setFallbackStep('email_otp');
+        setAuthError('Phone permissions not available. Please verify via email OTP instead.');
+      }
       setIsAuthenticating(false);
       return;
     }
@@ -248,8 +319,16 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       const msg = (err.message || '').toLowerCase();
       // If the SDK rejects the phone (invalid, unsupported, etc.) → auto-fall to email OTP
       if (msg.includes('invalid') || msg.includes('phone') || msg.includes('unsupported') || msg.includes('not supported')) {
-        setFallbackStep('email_otp');
-        setAuthError('Missed call verification unavailable for this number. Please use email OTP instead.');
+        if (isExisting) {
+          const res = await authApi.requestFallbackOtp({ phone: phone.replace(/[^0-9]/g, ''), role });
+          if (res.data.success) {
+            setFallbackStep('otp_verify');
+            setAuthError('Missed call unavailable. OTP sent to registered email instead.');
+          }
+        } else {
+          setFallbackStep('email_otp');
+          setAuthError('Missed call verification unavailable for this number. Please use email OTP instead.');
+        }
       } else {
         setAuthError(err.message || 'Failed to start verification');
       }
@@ -331,13 +410,45 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         lastName: lastName.trim(),
       });
       if (data.success) {
-        setAuthSuccess(true);
-        await loginWithTruecaller(data);
+        setFallbackStep('otp_verify');
       } else {
-        setAuthError(data.message || 'Authentication failed');
+        setAuthError(data.message || 'Failed to send OTP');
       }
     } catch (err: any) {
       setAuthError(err?.response?.data?.message || err.message || 'Failed to authenticate. Please try again.');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  /**
+   * 6. OTP VERIFICATION
+   */
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length < 6) {
+      setAuthError('Please enter the 6-digit OTP');
+      return;
+    }
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const normalized = phone.replace(/[^0-9]/g, '');
+      const { data } = await authApi.verifyFallbackOtp({
+        phone: normalized,
+        email: email.trim().toLowerCase() || userEmail,
+        code: otp,
+        role,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      });
+      if (data.success) {
+        setAuthSuccess(true);
+        await loginWithTruecaller(data);
+      } else {
+        setAuthError(data.message || 'Verification failed');
+      }
+    } catch (err: any) {
+      setAuthError(err?.response?.data?.message || err.message || 'Failed to verify OTP');
     } finally {
       setIsAuthenticating(false);
     }
@@ -377,7 +488,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
             <View style={styles.shieldContainer}>
               <Shield size={32} color={colors.primary} strokeWidth={2} />
             </View>
-            <Text style={styles.title}>Verify Your Identity</Text>
+            <Text style={styles.title}>{t('auth.login_title')}</Text>
             <Text style={styles.subtitle}>
               Signing up as <Text style={styles.roleHighlight}>{roleLabel}</Text>
             </Text>
@@ -407,7 +518,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                   <View style={styles.tcIconContainer}>
                     <Phone size={22} color="#FFFFFF" strokeWidth={2.5} />
                   </View>
-                  <Text style={styles.truecallerButtonText}>Continue with Truecaller</Text>
+                  <Text style={styles.truecallerButtonText}>{t('auth.login_with_truecaller')}</Text>
                 </Pressable>
               )}
 
@@ -445,14 +556,15 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                       <Text style={styles.hintText}>We will verify this number via missed call or email.</Text>
                       <Pressable
                         style={[styles.submitButton, !isValidIndianPhone(phone) && styles.submitButtonDisabled]}
-                        onPress={handleStartDropCall}
-                        disabled={!isValidIndianPhone(phone)}
+                        onPress={handleVerifyPhoneClick}
+                        disabled={!isValidIndianPhone(phone) || isAuthenticating}
                       >
-                        <Text style={styles.submitButtonText}>Verify Number</Text>
+                        {isAuthenticating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>{t('auth.verify')}</Text>}
                       </Pressable>
                       <Pressable
                         style={styles.manualTriggerBtn}
-                        onPress={() => { setFallbackStep('email_otp'); }}
+                        onPress={handleVerifyWithEmailClick}
+                        disabled={isAuthenticating}
                       >
                         <Mail size={16} color={colors.textPrimary} />
                         <Text style={styles.manualTriggerText}>Or verify with Email</Text>
@@ -584,7 +696,45 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                       >
                         {isAuthenticating
                           ? <ActivityIndicator color="#fff" />
-                          : <Text style={styles.submitButtonText}>Submit</Text>
+                          : <Text style={styles.submitButtonText}>Send OTP</Text>
+                        }
+                      </Pressable>
+                    </>
+                  )}
+
+                  {/* OTP VERIFY STEP */}
+                  {fallbackStep === 'otp_verify' && (
+                    <>
+                      <View style={styles.emailOtpHeader}>
+                        <Shield size={28} color={colors.primary} />
+                        <Text style={styles.emailOtpTitle}>Enter OTP</Text>
+                        <Text style={styles.emailOtpSubtitle}>
+                          Please enter the 6-digit verification code sent to your email{userEmail ? ` (${userEmail})` : ''}.
+                        </Text>
+                      </View>
+
+                      <Text style={styles.inputLabel}>Verification Code</Text>
+                      <View style={styles.inputWrapper}>
+                        <View style={styles.inputIcon}><Shield size={20} color={colors.textSecondary} /></View>
+                        <TextInput
+                          style={[styles.input, { letterSpacing: 4, fontSize: fontSizes.xl }]}
+                          value={otp}
+                          onChangeText={(t) => { setOtp(t.replace(/[^0-9]/g, '')); setAuthError(null); }}
+                          placeholder="000000"
+                          placeholderTextColor={colors.textDisabled}
+                          keyboardType="number-pad"
+                          maxLength={6}
+                        />
+                      </View>
+
+                      <Pressable
+                        style={[styles.submitButton, otp.length < 6 && styles.submitButtonDisabled]}
+                        onPress={handleVerifyOtp}
+                        disabled={otp.length < 6 || isAuthenticating}
+                      >
+                        {isAuthenticating
+                          ? <ActivityIndicator color="#fff" />
+                          : <Text style={styles.submitButtonText}>Verify & Login</Text>
                         }
                       </Pressable>
                     </>

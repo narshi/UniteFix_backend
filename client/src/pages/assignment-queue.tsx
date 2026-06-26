@@ -134,9 +134,8 @@ export default function AssignmentQueuePage() {
   // Assign mutation
   const assignMutation = useMutation({
     mutationFn: async ({ requestId, employeeId }: { requestId: number; employeeId: number }) => {
-      return await apiRequest("POST", "/api/admin/requests/assign", {
-        request_id: requestId,
-        provider_id: employeeId,
+      return await apiRequest("POST", `/api/admin/services/${requestId}/assign`, {
+        technicianId: employeeId,
       });
     },
     onSuccess: () => {

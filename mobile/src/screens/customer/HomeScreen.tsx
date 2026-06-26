@@ -51,10 +51,10 @@ import { ServiceItem } from '../../api/customer.api';
 
 // Trust indicators data
 const TRUST_ITEMS = [
-    { icon: Shield, label: 'Verified Experts', color: colors.primary },
-    { icon: Star, label: '4.8★ Rated', color: colors.warning },
-    { icon: Clock, label: '60-min Response', color: colors.success },
-    { icon: Headphones, label: '24/7 Support', color: colors.info },
+    { icon: Shield, labelKey: 'home_extra.verified_experts', color: colors.primary },
+    { icon: Star, labelKey: 'home_extra.rated', color: colors.warning },
+    { icon: Clock, labelKey: 'home_extra.fast_response', color: colors.success },
+    { icon: Headphones, labelKey: 'home_extra.support_247', color: colors.info },
 ];
 
 export function HomeScreen() {
@@ -171,7 +171,7 @@ export function HomeScreen() {
                 >
                     <MapPin size={14} color={colors.primary} strokeWidth={2.5} />
                     <Text style={styles.locationText} numberOfLines={1}>
-                        {isFetchingLocation ? 'Detecting...' : (profile?.homeAddress || 'Set your location')}
+                        {isFetchingLocation ? t('home_extra.detecting') : (profile?.homeAddress || t('home_extra.set_location'))}
                     </Text>
                     <ChevronRight size={14} color="rgba(255,255,255,0.4)" />
                 </TouchableOpacity>
@@ -197,7 +197,7 @@ export function HomeScreen() {
                             <View style={[styles.trustIcon, { backgroundColor: item.color + '15' }]}>
                                 <item.icon size={16} color={item.color} strokeWidth={2.2} />
                             </View>
-                            <Text style={styles.trustLabel}>{item.label}</Text>
+                            <Text style={styles.trustLabel}>{t(item.labelKey)}</Text>
                         </View>
                     ))}
                 </View>
@@ -207,9 +207,9 @@ export function HomeScreen() {
                     <View style={styles.unserviceableCard}>
                         <MapPin size={24} color={colors.warning} />
                         <View style={styles.unserviceableContent}>
-                            <Text style={styles.unserviceableTitle}>Expanding to your area soon</Text>
+                            <Text style={styles.unserviceableTitle}>{t('home_extra.unserviceable_title')}</Text>
                             <Text style={styles.unserviceableSubtitle}>
-                                We'll notify you when services are available in your pincode.
+                                {t('home_extra.unserviceable_subtitle')}
                             </Text>
                         </View>
                     </View>
@@ -283,8 +283,8 @@ export function HomeScreen() {
                             <Wrench size={18} color={colors.primary} />
                         </View>
                         <View>
-                            <Text style={styles.bookingsTitle}>My Service Requests</Text>
-                            <Text style={styles.bookingsSubtitle}>View and track your bookings</Text>
+                            <Text style={styles.bookingsTitle}>{t('home_extra.my_service_requests')}</Text>
+                            <Text style={styles.bookingsSubtitle}>{t('home_extra.track_bookings')}</Text>
                         </View>
                     </View>
                     <ChevronRight size={18} color={colors.textDisabled} />

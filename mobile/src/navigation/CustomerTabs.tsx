@@ -113,7 +113,7 @@ export function CustomerTabs() {
                 name="ShopTab"
                 component={ShopScreen}
                 options={{
-                    tabBarLabel: 'Shop',
+                    tabBarLabel: t('tabs.shop', 'Shop'),
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={ShoppingBag} color={color} focused={focused} />
                     ),

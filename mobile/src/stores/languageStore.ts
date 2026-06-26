@@ -10,7 +10,7 @@ const secureStorage: StateStorage = {
     await SecureStore.setItemAsync(name, value);
   },
   removeItem: async (name: string): Promise<void> => {
-    await SecureStore.removeItemAsync(name);
+    await SecureStore.deleteItemAsync(name);
   },
 };
 

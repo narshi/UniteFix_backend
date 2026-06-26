@@ -15,7 +15,9 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { storage } from '../storage';
 import { TokenService } from '../services/token.service';
+import { NotificationService } from '../services/notification.service';
 import logger from '../lib/logger';
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -38,7 +40,7 @@ const phoneLoginSchema = z.object({
 
 const fallbackRequestSchema = z.object({
   phone: z.string().regex(/^(\+91)?[6-9]\d{9}$/, 'Valid Indian mobile number required'),
-  email: z.string().email('Valid email is required'),
+  email: z.string().email('Valid email is required').optional(),
   role: z.enum(['user', 'serviceman']),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
@@ -46,7 +48,7 @@ const fallbackRequestSchema = z.object({
 
 const fallbackVerifySchema = z.object({
   phone: z.string().regex(/^(\+91)?[6-9]\d{9}$/, 'Valid Indian mobile number required'),
-  email: z.string().email('Valid email is required'),
+  email: z.string().email('Valid email is required').optional(),
   code: z.string().min(6, 'Code must be 6 digits'),
   role: z.enum(['user', 'serviceman']),
   firstName: z.string().optional(),
@@ -62,6 +64,33 @@ function normalizeIndianPhone(phone: string): string {
   if (cleaned.length === 10 && /^[6-9]/.test(cleaned)) return '+91' + cleaned;
   return cleaned;
 }
+
+// ── Route: Check Phone (Fallback UX Streamlining) ─────────────────────
+
+router.post('/check-phone', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+    const normalizedPhone = normalizeIndianPhone(phone);
+    const user = await storage.getUserByPhone(normalizedPhone);
+    
+    if (user) {
+      res.json({
+        success: true,
+        exists: true,
+        email: user.email,
+        firstName: user.username?.split(' ')[0],
+        lastName: user.username?.split(' ').slice(1).join(' '),
+      });
+    } else {
+      res.json({ success: true, exists: false });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ── Route: Truecaller OAuth Verify ────────────────────────────────────
 
@@ -310,73 +339,64 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
   try {
     const { phone, email, role, firstName, lastName } = fallbackRequestSchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
-    const normalizedEmail = email.trim().toLowerCase();
 
-    // Direct Login / Registration (OTP bypass)
     let user = await storage.getUserByPhone(normalizedPhone);
-    let isNewUser = false;
+    let targetEmail = '';
 
-    if (!user) {
-      // Also check email to prevent duplicate accounts if phone changed
-      const existingEmail = await storage.getUserByEmail(normalizedEmail);
+    if (user) {
+      if (!user.email) {
+        if (!email) {
+          return res.status(400).json({ success: false, message: 'Existing profile has no email. Please provide an email.' });
+        }
+        targetEmail = email.trim().toLowerCase();
+        // Save the provided email
+        await storage.updateUser(user.id, { email: targetEmail });
+      } else {
+        targetEmail = user.email;
+      }
+    } else {
+      if (!email) {
+        return res.status(400).json({ success: false, message: 'Email is required for new users.' });
+      }
+      targetEmail = email.trim().toLowerCase();
+      const existingEmail = await storage.getUserByEmail(targetEmail);
       if (existingEmail) {
         return res.status(400).json({ success: false, message: 'Email is already registered with another phone number.' });
       }
-
-      isNewUser = true;
-      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
-      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || 'User';
-
-      user = await storage.createUser({
-        phone: normalizedPhone,
-        email: normalizedEmail,
-        password: null as any,
-        username: fullName,
-        role: userRole as any,
-        phoneVerified: false,
-        emailVerified: true,
-        isVerified: true,
-        isActive: userRole === 'user',
-      });
-
-      if (userRole === 'serviceman') {
-        await storage.createEmployee({
-          userId: user.id,
-          fullName,
-          partnerType: 'Individual',
-          services: [],
-          isActive: false,
-          isOnline: false,
-        });
-      } else {
-        await storage.createCustomer({ userId: user.id, fullName });
-      }
-    } else {
-      // Existing user — ensure email is updated/verified
-      if (!user.emailVerified || user.email !== normalizedEmail) {
-        await storage.updateUser(user.id, { email: normalizedEmail, emailVerified: true });
-      }
     }
 
-    const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
-    let profileData = null;
-    if (user.role === 'serviceman') {
-      const emp = await storage.getEmployeeByUserId(user.id);
-      profileData = { employee: emp };
-    } else {
-      const customer = await storage.getCustomerByUserId(user.id);
-      profileData = { customer };
-    }
+    // Generate 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    logger.info(`[FALLBACK_OTP_BYPASS] Direct login success: ${normalizedEmail} (${normalizedPhone})`);
+    // Save OTP
+    await storage.createOtpVerification({
+      phone: normalizedPhone,
+      email: targetEmail,
+      otp,
+      purpose: 'fallback_login',
+      expiresAt
+    });
+
+    const emailHtml = `
+      <div style="font-family: sans-serif; padding: 20px;">
+        <h2>UniteFix Authentication</h2>
+        <p>Your verification code is: <span style="font-size: 24px; font-weight: bold; color: #0095FF;">${otp}</span></p>
+        <p>This code will expire in 10 minutes.</p>
+      </div>
+    `;
+
+    try {
+      await NotificationService.sendEmail(targetEmail, 'UniteFix Verification Code', emailHtml);
+      logger.info(`[FALLBACK_OTP] OTP sent to ${targetEmail} for phone ${normalizedPhone}`);
+    } catch (err: any) {
+      logger.error('[EMAIL_FAILED]', { error: err?.message || String(err) });
+      return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please check your email address or SMTP configuration.' });
+    }
 
     res.json({
       success: true,
-      message: isNewUser ? 'Account created successfully' : 'Login successful',
-      isNewUser,
-      user: { ...user, password: undefined },
-      profile: profileData,
-      ...tokens,
+      message: 'OTP sent to your email successfully.',
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
@@ -391,20 +411,30 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
   try {
     const { phone, email, code, role, firstName, lastName } = fallbackVerifySchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
-    const normalizedEmail = email.trim().toLowerCase();
 
-    const isValid = await storage.verifyOtp(normalizedPhone, normalizedEmail, code, 'fallback_login');
+    // Look up user to find registered email if email wasn't provided (for existing users)
+    let user = await storage.getUserByPhone(normalizedPhone);
+    let targetEmail = '';
+
+    if (user && user.email) {
+      targetEmail = user.email;
+    } else if (email) {
+      targetEmail = email.trim().toLowerCase();
+    } else {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const isValid = await storage.verifyOtp(normalizedPhone, targetEmail, code, 'fallback_login');
     if (!isValid) {
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
     // OTP is valid, proceed to login/signup
-    let user = await storage.getUserByPhone(normalizedPhone);
     let isNewUser = false;
 
     if (!user) {
       // Also check email to prevent duplicate accounts if phone changed
-      const existingEmail = await storage.getUserByEmail(normalizedEmail);
+      const existingEmail = await storage.getUserByEmail(targetEmail);
       if (existingEmail) {
         return res.status(400).json({ success: false, message: 'Email is already registered with another phone number.' });
       }
@@ -415,11 +445,11 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
 
       user = await storage.createUser({
         phone: normalizedPhone,
-        email: normalizedEmail,
+        email: targetEmail,
         password: null as any,
         username: fullName,
         role: userRole as any,
-        phoneVerified: false, // Phone isn't strictly verified via SMS, but we trust it for now
+        phoneVerified: false, // Phone isn't strictly verified via SMS, but we trust it via Email
         emailVerified: true,
         isVerified: true,
         isActive: userRole === 'user',
@@ -438,9 +468,9 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
         await storage.createCustomer({ userId: user.id, fullName });
       }
     } else {
-      // Existing user — ensure email is updated/verified
-      if (!user.emailVerified || user.email !== normalizedEmail) {
-        await storage.updateUser(user.id, { email: normalizedEmail, emailVerified: true });
+      // Existing user — ensure email is verified
+      if (!user.emailVerified) {
+        await storage.updateUser(user.id, { emailVerified: true });
       }
     }
 

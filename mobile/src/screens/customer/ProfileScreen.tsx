@@ -185,30 +185,30 @@ export function ProfileScreen() {
                 </View>
                 <Text style={styles.displayName}>{displayName}</Text>
                 <Text style={styles.roleBadge}>
-                    {profile?.role === 'serviceman' ? '🔧 Employee' : '👤 Customer'}
+                    {profile?.role === 'serviceman' ? `🔧 ${t('profile.employee')}` : `👤 ${t('profile.customer')}`}
                 </Text>
                 {!editing && (
                     <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
                         <Edit3 size={16} color={colors.primary} />
-                        <Text style={styles.editBtnText}>Edit Profile</Text>
+                        <Text style={styles.editBtnText}>{t('profile.edit_profile')}</Text>
                     </TouchableOpacity>
                 )}
             </View>
 
             {/* Info / Edit sections */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Personal Information</Text>
+                <Text style={styles.sectionTitle}>{t('profile.personal_info')}</Text>
 
                 {editing ? (
                     <View style={styles.editForm}>
                         <Input
-                            label="Full Name"
+                            label={t('profile.full_name')}
                             value={username}
                             onChangeText={setUsername}
                             icon={<User size={18} color={colors.textSecondary} />}
                         />
                         <Input
-                            label="Email"
+                            label={t('profile.email')}
                             value={email}
                             onChangeText={setEmail}
                             keyboardType="email-address"
@@ -216,7 +216,7 @@ export function ProfileScreen() {
                             icon={<Mail size={18} color={colors.textSecondary} />}
                         />
                         <Input
-                            label="Phone (Read-only)"
+                            label={t('profile.phone_readonly')}
                             value={phone}
                             editable={false}
                             style={{ color: colors.textSecondary }}
@@ -224,7 +224,7 @@ export function ProfileScreen() {
                         />
                         <View style={{ position: 'relative' }}>
                             <Input
-                                label="Address"
+                                label={t('profile.address')}
                                 value={homeAddress}
                                 onChangeText={setHomeAddress}
                                 icon={<MapPin size={18} color={colors.textSecondary} />}
@@ -242,7 +242,7 @@ export function ProfileScreen() {
                             </TouchableOpacity>
                         </View>
                         <Input
-                            label="Pin Code"
+                            label={t('profile.pin_code')}
                             value={pinCode}
                             onChangeText={setPinCode}
                             keyboardType="number-pad"
@@ -250,32 +250,32 @@ export function ProfileScreen() {
                         />
                         <View style={styles.editActions}>
                             <TouchableOpacity style={styles.cancelEditBtn} onPress={() => setEditing(false)}>
-                                <Text style={styles.cancelEditText}>Cancel</Text>
+                                <Text style={styles.cancelEditText}>{t('common.cancel')}</Text>
                             </TouchableOpacity>
                             <View style={{ flex: 1 }}>
-                                <Button title="Save Changes" onPress={handleSave} loading={saving} fullWidth={true} />
+                                <Button title={t('common.save')} onPress={handleSave} loading={saving} fullWidth={true} />
                             </View>
                         </View>
                     </View>
                 ) : (
                     <View style={styles.infoList}>
-                        <InfoRow icon={User} label="Name" value={displayName} />
-                        <InfoRow icon={Mail} label="Email" value={profile?.email || 'Not set'} />
-                        <InfoRow icon={Phone} label="Phone" value={profile?.phone || 'Not set'} />
-                        <InfoRow icon={MapPin} label="Address" value={profile?.homeAddress || 'Not set'} />
-                        <InfoRow icon={Shield} label="Pin Code" value={profile?.pinCode || 'Not set'} />
+                        <InfoRow icon={User} label={t('profile.name')} value={displayName} />
+                        <InfoRow icon={Mail} label={t('profile.email')} value={profile?.email || 'Not set'} />
+                        <InfoRow icon={Phone} label={t('profile.phone')} value={profile?.phone || 'Not set'} />
+                        <InfoRow icon={MapPin} label={t('profile.address')} value={profile?.homeAddress || 'Not set'} />
+                        <InfoRow icon={Shield} label={t('profile.pin_code')} value={profile?.pinCode || 'Not set'} />
                     </View>
                 )}
             </View>
 
             {/* Account section */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>{t('profile.title', 'Account')}</Text>
+                <Text style={styles.sectionTitle}>{t('profile.settings')}</Text>
                 
                 <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={toggleLanguage}>
                     <View style={styles.menuLeft}>
                         <Globe size={20} color={colors.primary} />
-                        <Text style={styles.menuLabel}>{t('profile.language', 'Language')} ({language === 'en' ? 'English' : 'ಕನ್ನಡ'})</Text>
+                        <Text style={styles.menuLabel}>{t('profile.language')} ({language === 'en' ? 'English' : 'ಕನ್ನಡ'})</Text>
                     </View>
                     <Text style={{ ...typography.caption, color: colors.textSecondary }}>{t('profile.select_language', 'Tap to change')}</Text>
                 </TouchableOpacity>
@@ -287,15 +287,25 @@ export function ProfileScreen() {
                 }}>
                     <View style={styles.menuLeft}>
                         <MessageCircle size={20} color={colors.primary} />
-                        <Text style={styles.menuLabel}>Help & Support (WhatsApp)</Text>
+                        <Text style={styles.menuLabel}>{t('profile.support', 'Help & Support')}</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
 
+                {profile?.role === 'serviceman' && (
+                    <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} activeOpacity={0.7}>
+                        <View style={styles.menuLeft}>
+                            <Shield size={20} color={colors.primary} />
+                            <Text style={styles.menuLabel}>{t('profile.switch_to_partner')}</Text>
+                        </View>
+                        <ChevronRight size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                )}
+
                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />
-                        <Text style={[styles.menuLabel, { color: colors.error }]}>Log Out</Text>
+                        <Text style={[styles.menuLabel, { color: colors.error }]}>{t('profile.logout', 'Log Out')}</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

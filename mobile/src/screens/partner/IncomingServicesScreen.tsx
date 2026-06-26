@@ -21,19 +21,22 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { useTranslation } from 'react-i18next';
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-    pending: { bg: colors.warningLight, text: colors.warning, label: 'Pending' },
-    assigned: { bg: colors.infoLight, text: colors.info, label: 'New' },
-    accepted: { bg: colors.primarySurface, text: colors.primary, label: 'Accepted' },
-    in_progress: { bg: colors.primarySurface, text: colors.primary, label: 'In Progress' },
-    completed: { bg: colors.successLight, text: colors.success, label: 'Completed' },
-    cancelled: { bg: colors.errorLight, text: colors.error, label: 'Cancelled' },
-    denied: { bg: colors.errorLight, text: colors.error, label: 'Denied' },
-};
+export function getStatusConfig(t: any) {
+    return {
+        pending: { bg: colors.warningLight, text: colors.warning, label: t('partner.status_pending') },
+        assigned: { bg: colors.infoLight, text: colors.info, label: t('partner.status_new') },
+        accepted: { bg: colors.primarySurface, text: colors.primary, label: t('partner.status_accepted') },
+        in_progress: { bg: colors.primarySurface, text: colors.primary, label: t('partner.status_in_progress') },
+        completed: { bg: colors.successLight, text: colors.success, label: t('partner.status_completed') },
+        cancelled: { bg: colors.errorLight, text: colors.error, label: t('partner.status_cancelled') },
+        denied: { bg: colors.errorLight, text: colors.error, label: t('partner.status_denied') },
+    };
+}
 
-function AssignmentCard({ item, onPress }: { item: Assignment; onPress: () => void }) {
-    const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.pending;
+function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () => void, t: any }) {
+    const config = getStatusConfig(t)[item.status as keyof ReturnType<typeof getStatusConfig>] || getStatusConfig(t).pending;
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
     });
@@ -65,6 +68,7 @@ function AssignmentCard({ item, onPress }: { item: Assignment; onPress: () => vo
 }
 
 export function IncomingServicesScreen() {
+    const { t } = useTranslation();
     const { data: assignments, isLoading, refetch, isRefetching } = useAssignments();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
@@ -84,9 +88,9 @@ export function IncomingServicesScreen() {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Incoming Services</Text>
+                <Text style={styles.headerTitle}>{t('partner.incoming_services')}</Text>
                 <Text style={styles.headerSub}>
-                    {incoming.length} active assignment{incoming.length !== 1 ? 's' : ''}
+                    {incoming.length} {incoming.length === 1 ? t('partner.active_assignment') : t('partner.active_assignments')}
                 </Text>
             </View>
 
@@ -96,6 +100,7 @@ export function IncomingServicesScreen() {
                     <AssignmentCard
                         item={item}
                         onPress={() => navigation.navigate('AssignmentDetail', { assignment: item })}
+                        t={t}
                     />
                 )}
                 keyExtractor={(item) => item.id.toString()}
@@ -107,8 +112,8 @@ export function IncomingServicesScreen() {
                 ListEmptyComponent={
                     <EmptyState
                         icon={<Inbox size={36} color={colors.textDisabled} />}
-                        title="No incoming jobs"
-                        description="New service assignments will appear here. Stay ready!"
+                        title={t('partner.no_incoming')}
+                        description={t('partner.no_incoming_desc')}
                     />
                 }
             />

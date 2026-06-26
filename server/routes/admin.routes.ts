@@ -85,6 +85,23 @@ export function registerAdminRoutes(app: Express) {
     });
 
     /**
+     * GET /api/admin/assignment-queue
+     * Get pending service requests and available employees
+     */
+    app.get("/api/admin/assignment-queue", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+
+            const result = await AdminServiceManager.getAssignmentQueue();
+            res.json({ success: true, ...result });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/admin/services/:id/assign
      * Assign technician to service
      */

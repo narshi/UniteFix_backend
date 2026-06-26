@@ -1,29 +1,153 @@
 {
   "translation": {
     "tabs": {
-      "home": "ಮನೆ",
+      "home": "ಮುಖಪುಟ",
       "my_requests": "ನನ್ನ ವಿನಂತಿಗಳು",
       "profile": "ಪ್ರೊಫೈಲ್",
-      "assignments": "ಕಾರ್ಯಯೋಜನೆಗಳು",
-      "wallet": "ವಾಲೆಟ್"
+      "assignments": "ನೇಮಕಾತಿಗಳು",
+      "wallet": "ವ್ಯಾಲೆಟ್",
+      "shop": "ಅಂಗಡಿ",
+      "incoming": "ಹೊಸ ಸೇವೆಗಳು",
+      "history": "ಇತಿಹಾಸ"
     },
     "home": {
       "greeting": "ನಮಸ್ಕಾರ",
       "what_do_you_need": "ನಿಮಗೆ ಯಾವ ಸಹಾಯ ಬೇಕು?",
       "search_placeholder": "ಸೇವೆಗಳನ್ನು ಹುಡುಕಿ...",
-      "categories": "ವರ್ಗಗಳು"
+      "categories": "ವರ್ಗಗಳು",
+      "popular_services": "ಜನಪ್ರಿಯ ಸೇವೆಗಳು",
+      "view_all": "ಎಲ್ಲವನ್ನು ವೀಕ್ಷಿಸಿ",
+      "book_now": "ಈಗ ಬುಕ್ ಮಾಡಿ",
+      "coming_soon": "ಶೀಘ್ರದಲ್ಲಿ ಬರಲಿದೆ"
     },
     "profile": {
       "title": "ಪ್ರೊಫೈಲ್",
+      "personal_info": "ವೈಯಕ್ತಿಕ ಮಾಹಿತಿ",
+      "full_name": "ಪೂರ್ಣ ಹೆಸರು",
+      "email": "ಇಮೇಲ್",
+      "phone_readonly": "ಫೋನ್ (ಓದಲು ಮಾತ್ರ)",
+      "address": "ವಿಳಾಸ",
+      "pin_code": "ಪಿನ್ ಕೋಡ್",
+      "edit_profile": "ಪ್ರೊಫೈಲ್ ತಿದ್ದುಪಡಿ ಮಾಡಿ",
+      "save_changes": "ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ",
       "language": "ಭಾಷೆ",
-      "select_language": "ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ",
-      "logout": "ಲಾಗ್ ಔಟ್"
+      "select_language": "ಭಾಷೆಯನ್ನು ಆಯ್ಕೆ ಮಾಡಿ",
+      "logout": "ಲಾಗ್ ಔಟ್",
+      "settings": "ಸೆಟ್ಟಿಂಗ್ಸ್",
+      "support": "ಬೆಂಬಲ ಮತ್ತು ಸಹಾಯ",
+      "customer": "ಗ್ರಾಹಕ",
+      "employee": "ಉದ್ಯೋಗಿ",
+      "switch_to_partner": "ಪಾಲುದಾರರ ಮೋಡ್‌ಗೆ ಬದಲಾಯಿಸಿ",
+      "switch_to_customer": "ಗ್ರಾಹಕ ಮೋಡ್‌ಗೆ ಬದಲಾಯಿಸಿ"
+    },
+    "service_booking": {
+      "select_location": "ಸ್ಥಳವನ್ನು ಆಯ್ಕೆ ಮಾಡಿ",
+      "use_current_location": "ಪ್ರಸ್ತುತ ಸ್ಥಳವನ್ನು ಬಳಸಿ",
+      "enter_address": "ವಿಳಾಸವನ್ನು ನಮೂದಿಸಿ",
+      "describe_issue": "ಸಮಸ್ಯೆಯನ್ನು ವಿವರಿಸಿ",
+      "issue_placeholder": "ಉದಾ: AC ತಂಪಾಗುತ್ತಿಲ್ಲ...",
+      "add_photos": "ಫೋಟೋಗಳನ್ನು ಸೇರಿಸಿ (ಐಚ್ಛಿಕ)",
+      "urgency": "ತುರ್ತು",
+      "normal": "ಸಾಮಾನ್ಯ",
+      "urgent": "ತುರ್ತು",
+      "booking_fee": "ಬುಕಿಂಗ್ ಶುಲ್ಕ",
+      "pay_and_book": "ಪಾವತಿಸಿ ಮತ್ತು ಬುಕ್ ಮಾಡಿ",
+      "payment_failed": "ಪಾವತಿ ವಿಫಲವಾಗಿದೆ",
+      "booking_success": "ಬುಕಿಂಗ್ ಯಶಸ್ವಿಯಾಗಿದೆ!"
+    },
+    "home_extra": {
+      "unserviceable_title": "ಶೀಘ್ರದಲ್ಲೇ ನಿಮ್ಮ ಪ್ರದೇಶಕ್ಕೆ ಬರಲಿದ್ದೇವೆ",
+      "unserviceable_subtitle": "ನಿಮ್ಮ ಪಿನ್‌ಕೋಡ್‌ನಲ್ಲಿ ಸೇವೆಗಳು ಲಭ್ಯವಾದಾಗ ನಾವು ನಿಮಗೆ ತಿಳಿಸುತ್ತೇವೆ.",
+      "my_service_requests": "ನನ್ನ ಸೇವಾ ವಿನಂತಿಗಳು",
+      "track_bookings": "ನಿಮ್ಮ ಬುಕಿಂಗ್‌ಗಳನ್ನು ವೀಕ್ಷಿಸಿ ಮತ್ತು ಟ್ರ್ಯಾಕ್ ಮಾಡಿ",
+      "detecting": "ಪತ್ತೆಹಚ್ಚಲಾಗುತ್ತಿದೆ...",
+      "set_location": "ನಿಮ್ಮ ಸ್ಥಳವನ್ನು ಹೊಂದಿಸಿ",
+      "verified_experts": "ಪರಿಶೀಲಿಸಿದ ತಜ್ಞರು",
+      "rated": "4.8★ ರೇಟೆಡ್",
+      "fast_response": "60-ನಿಮಿಷದ ಪ್ರತಿಕ್ರಿಯೆ",
+      "support_247": "24/7 ಬೆಂಬಲ"
+    },
+    "shop": {
+      "coming_soon": "ಶೀಘ್ರದಲ್ಲಿ ಬರಲಿದೆ",
+      "subtitle1": "ನಮ್ಮ ಉತ್ಪನ್ನ ಮಾರುಕಟ್ಟೆಯನ್ನು ನವೀಕರಿಸಲಾಗುತ್ತಿದೆ.",
+      "subtitle2": "ಹೊಸ ಕೊಡುಗೆಗಳಿಗಾಗಿ ಕಾಯುತ್ತಿರಿ!",
+      "whats_coming": "🔧 ಏನು ಬರಲಿದೆ?",
+      "item1": "• ವಾರ್ಷಿಕ ನಿರ್ವಹಣೆ ಪ್ಯಾಕೇಜುಗಳು",
+      "item2": "• ಬಿಡಿಭಾಗಗಳು ಮತ್ತು ಪರಿಕರಗಳು",
+      "item3": "• ಉಪಕರಣಗಳು ಮತ್ತು ಸುರಕ್ಷತಾ ಉಪಕರಣಗಳು",
+      "banner": "ಈ ಮಧ್ಯೆ, ಮುಖಪುಟದಿಂದ ಸೇವೆಯನ್ನು ಬುಕ್ ಮಾಡಿ!"
+    },
+    "my_requests": {
+      "title": "ನನ್ನ ವಿನಂತಿಗಳು",
+      "active": "ಸಕ್ರಿಯ",
+      "completed": "ಪೂರ್ಣಗೊಂಡಿದೆ",
+      "cancelled": "ರದ್ದುಗೊಂಡಿದೆ",
+      "no_requests": "ಯಾವುದೇ ವಿನಂತಿಗಳಿಲ್ಲ",
+      "track_status": "ಸ್ಥಿತಿ ಟ್ರ್ಯಾಕ್ ಮಾಡಿ",
+      "view_details": "ವಿವರಗಳನ್ನು ವೀಕ್ಷಿಸಿ"
+    },
+    "request_detail": {
+      "request_id": "ವಿನಂತಿ ಐಡಿ",
+      "status": "ಸ್ಥಿತಿ",
+      "service_type": "ಸೇವೆಯ ಪ್ರಕಾರ",
+      "technician": "ತಂತ್ರಜ್ಞ",
+      "call_technician": "ಕರೆ ಮಾಡಿ",
+      "otp_for_service": "ಸೇವಾ OTP",
+      "share_otp_msg": "ತಂತ್ರಜ್ಞರು ಬಂದಾಗ ಈ OTP ಯನ್ನು ಹಂಚಿಕೊಳ್ಳಿ",
+      "cancel_request": "ವಿನಂತಿಯನ್ನು ರದ್ದುಗೊಳಿಸಿ",
+      "total_amount": "ಒಟ್ಟು ಮೊತ್ತ",
+      "pay_now": "ಈಗ ಪಾವತಿಸಿ"
+    },
+    "partner": {
+      "dashboard": "ಡ್ಯಾಶ್ಬೋರ್ಡ್",
+      "active_jobs": "ಸಕ್ರಿಯ ಕೆಲಸಗಳು",
+      "today_earnings": "ಇಂದಿನ ಸಂಪಾದನೆ",
+      "go_online": "ಆನ್‌ಲೈನ್‌ಗೆ ಹೋಗಿ",
+      "go_offline": "ಆಫ್‌ಲೈನ್‌ಗೆ ಹೋಗಿ",
+      "new_assignments": "ಹೊಸ ನೇಮಕಾತಿಗಳು",
+      "accept": "ಸ್ವೀಕರಿಸಿ",
+      "decline": "ತಿರಸ್ಕರಿಸಿ",
+      "mark_reached": "ತಲುಪಿದೆ ಎಂದು ಗುರುತಿಸಿ",
+      "enter_otp": "ಗ್ರಾಹಕರಿಂದ OTP ನಮೂದಿಸಿ",
+      "verify_otp": "OTP ಪರಿಶೀಲಿಸಿ",
+      "start_job": "ಕೆಲಸ ಪ್ರಾರಂಭಿಸಿ",
+      "complete_job": "ಕೆಲಸ ಮುಗಿಸಿ",
+      "wallet_balance": "ವ್ಯಾಲೆಟ್ ಬ್ಯಾಲೆನ್ಸ್",
+      "withdraw": "ಹಿಂಪಡೆಯಿರಿ",
+      "incoming_services": "ಹೊಸ ಸೇವೆಗಳು",
+      "active_assignment": "ಸಕ್ರಿಯ ಕೆಲಸ",
+      "active_assignments": "ಸಕ್ರಿಯ ಕೆಲಸಗಳು",
+      "no_incoming": "ಯಾವುದೇ ಹೊಸ ಕೆಲಸಗಳಿಲ್ಲ",
+      "no_incoming_desc": "ಹೊಸ ಸೇವಾ ನೇಮಕಾತಿಗಳು ಇಲ್ಲಿ ಕಾಣಿಸಿಕೊಳ್ಳುತ್ತವೆ. ಸಿದ್ಧರಾಗಿರಿ!",
+      "status_pending": "ಬಾಕಿ ಉಳಿದಿದೆ",
+      "status_new": "ಹೊಸ",
+      "status_accepted": "ಸ್ವೀಕರಿಸಲಾಗಿದೆ",
+      "status_in_progress": "ಪ್ರಗತಿಯಲ್ಲಿದೆ",
+      "status_completed": "ಪೂರ್ಣಗೊಂಡಿದೆ",
+      "status_cancelled": "ರದ್ದುಗೊಂಡಿದೆ",
+      "status_denied": "ತಿರಸ್ಕರಿಸಲಾಗಿದೆ"
+    },
+    "auth": {
+      "login_title": "ಲಾಗ್ ಇನ್ / ಸೈನ್ ಅಪ್",
+      "phone_number": "ಫೋನ್ ಸಂಖ್ಯೆ",
+      "get_otp": "OTP ಪಡೆಯಿರಿ",
+      "enter_otp": "OTP ನಮೂದಿಸಿ",
+      "verify": "ಪರಿಶೀಲಿಸಿ",
+      "resend_otp": "ಮತ್ತೆ OTP ಕಳುಹಿಸಿ",
+      "login_with_truecaller": "ಟ್ರೂಕಾಲರ್‌ನೊಂದಿಗೆ ಲಾಗಿನ್ ಮಾಡಿ"
     },
     "common": {
       "cancel": "ರದ್ದುಮಾಡಿ",
       "save": "ಉಳಿಸಿ",
       "submit": "ಸಲ್ಲಿಸಿ",
-      "close": "ಮುಚ್ಚಿ"
+      "close": "ಮುಚ್ಚಿ",
+      "confirm": "ಖಚಿತಪಡಿಸಿ",
+      "loading": "ಲೋಡ್ ಆಗುತ್ತಿದೆ...",
+      "error": "ದೋಷ",
+      "success": "ಯಶಸ್ಸು",
+      "retry": "ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ",
+      "yes": "ಹೌದು",
+      "no": "ಇಲ್ಲ"
     }
   }
 }

@@ -41,7 +41,7 @@ type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 export function AssignmentDetailScreen({ navigation, route }: Props) {
     const routeAssignment: Assignment = route.params?.assignment;
     const { data: assignmentsList } = useAssignments();
-    const assignment = assignmentsList?.find(a => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
+    const assignment = assignmentsList?.find((a: Assignment) => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
     
     const [otp, setOtp] = useState('');
     const [serviceCharge, setServiceCharge] = useState('');

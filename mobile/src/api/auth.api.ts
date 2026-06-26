@@ -61,6 +61,15 @@ export interface TokenRefreshResponse {
   expiresIn: number;
 }
 
+export interface CheckPhoneResponse {
+  success: boolean;
+  exists: boolean;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  message?: string;
+}
+
 // ── API Endpoints ─────────────────────────────────────────────────────
 
 export const authApi = {
@@ -83,13 +92,19 @@ export const authApi = {
   logout: () =>
     apiClient.post('/api/auth/logout'),
 
-  requestFallbackOtp: (data: { phone: string; email: string; role: 'user' | 'serviceman' }) =>
+  /**
+   * Check if a phone number exists
+   */
+  checkPhone: (data: { phone: string }) =>
+    apiClient.post<CheckPhoneResponse>('/api/auth/check-phone', data),
+
+  requestFallbackOtp: (data: { phone: string; email?: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string }) =>
     apiClient.post<AuthResponse>('/api/auth/fallback/request-otp', data),
 
   /**
    * FALLBACK AUTH: Verify OTP for non-Truecaller users
    */
-  verifyFallbackOtp: (data: { phone: string; email: string; code: string; role: 'user' | 'serviceman' }) =>
+  verifyFallbackOtp: (data: { phone: string; email?: string; code: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string }) =>
     apiClient.post<AuthResponse>('/api/auth/fallback/verify-otp', data),
 
   /**

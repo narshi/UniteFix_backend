@@ -58,7 +58,7 @@ export function WalletScreen() {
     }
 
     const handleWithdraw = () => {
-        if (!partnerProfile?.upiId) {
+        if (!(partnerProfile as any)?.upiId && !(partnerProfile as any)?.data?.upiId) {
             Alert.alert(
                 'UPI ID Required',
                 'Please set up your UPI ID in your Profile before requesting a withdrawal.',

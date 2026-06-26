@@ -87,7 +87,7 @@ export function PartnerTabs() {
                 name="WalletTab"
                 component={WalletScreen}
                 options={{
-                    tabBarLabel: t('tabs.payments', 'Payments'),
+                    tabBarLabel: t('tabs.wallet', 'Wallet'),
                     tabBarIcon: ({ color, size }) => <Wallet size={size} color={color} />,
                 }}
             />

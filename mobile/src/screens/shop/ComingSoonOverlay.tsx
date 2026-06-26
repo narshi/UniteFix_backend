@@ -9,8 +9,10 @@ import { ShoppingBag, Clock } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
+import { useTranslation } from 'react-i18next';
 
 export function ComingSoonOverlay() {
+    const { t } = useTranslation();
     return (
         <View style={styles.container}>
             <View style={styles.iconContainer}>
@@ -22,22 +24,22 @@ export function ComingSoonOverlay() {
                 </View>
             </View>
 
-            <Text style={styles.title}>Coming Soon</Text>
+            <Text style={styles.title}>{t('shop.coming_soon')}</Text>
             <Text style={styles.subtitle}>
-                Our product marketplace is being upgraded.{'\n'}
-                Stay tuned for exciting new offerings!
+                {t('shop.subtitle1')}{'\n'}
+                {t('shop.subtitle2')}
             </Text>
 
             <View style={styles.featureCard}>
-                <Text style={styles.featureTitle}>🔧 What's coming?</Text>
-                <Text style={styles.featureItem}>• Annual Maintenance Packages</Text>
-                <Text style={styles.featureItem}>• Spare Parts & Accessories</Text>
-                <Text style={styles.featureItem}>• Tools & Safety Equipment</Text>
+                <Text style={styles.featureTitle}>{t('shop.whats_coming')}</Text>
+                <Text style={styles.featureItem}>{t('shop.item1')}</Text>
+                <Text style={styles.featureItem}>{t('shop.item2')}</Text>
+                <Text style={styles.featureItem}>{t('shop.item3')}</Text>
             </View>
 
             <View style={styles.serviceBanner}>
                 <Text style={styles.bannerText}>
-                    Meanwhile, book a service from the Home tab!
+                    {t('shop.banner')}
                 </Text>
             </View>
         </View>

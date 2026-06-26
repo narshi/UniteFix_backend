@@ -63,7 +63,7 @@ export function PartnerProfileScreen() {
 
     useEffect(() => {
         if (partnerProfile) {
-            setUpiId(partnerProfile.upiId || '');
+            setUpiId((partnerProfile as any).upiId || (partnerProfile as any).data?.upiId || '');
         }
     }, [partnerProfile]);
 
@@ -270,7 +270,7 @@ export function PartnerProfileScreen() {
                             label="UPI ID" 
                             value={upiId} 
                             onChangeText={setUpiId} 
-                            placeholder="e.g. yourname@upi"
+                            placeholder={(partnerProfile as any).upiId || (partnerProfile as any).data?.upiId || "e.g. 9876543210@ybl"}
                             autoCapitalize="none"
                         />
                         <View style={styles.editActions}>
@@ -291,7 +291,7 @@ export function PartnerProfileScreen() {
                     </View>
                 ) : (
                     <View>
-                        <InfoRow icon={CheckCircle} label="UPI ID" value={partnerProfile?.upiId || 'Not set'} />
+                        <InfoRow icon={CheckCircle} label="UPI ID" value={(partnerProfile as any)?.upiId || (partnerProfile as any)?.data?.upiId || 'Not set'} />
                     </View>
                 )}
             </View>
