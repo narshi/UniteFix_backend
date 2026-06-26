@@ -54,16 +54,17 @@ export function PartnerProfileScreen() {
 
     useEffect(() => {
         if (profile) {
-            setUsername(profile.username || '');
-            setEmail(profile.email || '');
-            setPhone(profile.phone || '');
-            setHomeAddress(profile.homeAddress || '');
+            setUsername(profile.username ? String(profile.username) : '');
+            setEmail(profile.email ? String(profile.email) : '');
+            setPhone(profile.phone ? String(profile.phone) : '');
+            setHomeAddress(profile.homeAddress ? String(profile.homeAddress) : '');
         }
     }, [profile]);
 
     useEffect(() => {
         if (partnerProfile) {
-            setUpiId((partnerProfile as any).upiId || (partnerProfile as any).data?.upiId || '');
+            const fetchedUpiId = (partnerProfile as any).upiId || (partnerProfile as any).data?.upiId;
+            setUpiId(fetchedUpiId ? String(fetchedUpiId) : '');
         }
     }, [partnerProfile]);
 

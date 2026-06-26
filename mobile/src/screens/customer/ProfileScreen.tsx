@@ -59,11 +59,11 @@ export function ProfileScreen() {
 
     useEffect(() => {
         if (profile) {
-            setUsername(profile.username || '');
-            setEmail(profile.email || '');
-            setPhone(profile.phone || '');
-            setHomeAddress(profile.homeAddress || '');
-            setPinCode(profile.pinCode || '');
+            setUsername(profile.username ? String(profile.username) : '');
+            setEmail(profile.email ? String(profile.email) : '');
+            setPhone(profile.phone ? String(profile.phone) : '');
+            setHomeAddress(profile.homeAddress ? String(profile.homeAddress) : '');
+            setPinCode(profile.pinCode ? String(profile.pinCode) : '');
         }
     }, [profile]);
 
