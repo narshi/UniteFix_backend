@@ -156,6 +156,11 @@ export const customerApi = {
     rateService: (id: number, data: { rating: number; feedback: string }) =>
         apiClient.post(`/api/ratings/service/${id}`, data),
 
+    createBookingPayment: async (serviceId: number) => {
+        const response = await apiClient.post(`/api/customer/services/${serviceId}/create-booking-payment`);
+        return response.data;
+    },
+    
     // Payment
     getBillingDetails: (bookingId: number) =>
         apiClient.get<ApiResponse<any>>(`/api/v1/bookings/${bookingId}/billing`),

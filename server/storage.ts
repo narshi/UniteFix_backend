@@ -604,7 +604,7 @@ export class DatabaseStorage implements IStorage {
   async createServiceRequest(insertRequest: InsertServiceRequest): Promise<ServiceRequest> {
     const countResult = await db.select({ count: count() }).from(serviceRequests);
     const serviceId = `SR${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-    const handshakeOtp = crypto.randomInt(1000, 9999).toString();
+    const handshakeOtp = crypto.randomInt(100000, 999999).toString();
 
     const [request] = await db
       .insert(serviceRequests)
@@ -1916,7 +1916,7 @@ export class DatabaseStorage implements IStorage {
       } else if (newState === BookingState.ACCEPTED && !service.handshakeOtp) {
         // Fallback: Generate OTP if missing for older bookings
         const crypto = require('crypto');
-        statusUpdate.handshakeOtp = crypto.randomInt(1000, 9999).toString();
+        statusUpdate.handshakeOtp = crypto.randomInt(100000, 999999).toString();
       }
 
       const [updatedService] = await tx

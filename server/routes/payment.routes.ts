@@ -78,6 +78,39 @@ export function registerPaymentRoutes(app: Express) {
     });
 
     /**
+     * POST /api/customer/services/:id/create-booking-payment
+     * Customer retries booking payment.
+     */
+    app.post("/api/customer/services/:id/create-booking-payment", authenticateToken as any, async (req: Request, res: Response) => {
+        try {
+            const serviceId = parseInt(req.params.id);
+            const customerId = (req as any).user?.userId;
+
+            if (!customerId) {
+                return res.status(401).json({ error: "Unauthorized" });
+            }
+
+            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+
+            if (!booking) {
+                return res.status(404).json({ error: "Booking not found" });
+            }
+            if (booking.bookingFeeStatus === 'paid') {
+                return res.status(400).json({ error: "Booking fee already paid" });
+            }
+
+            const order = await PaymentService.createBookingOrder(booking.id, customerId);
+
+            res.json({
+                message: "Booking payment order created",
+                razorpayOrder: order,
+            });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/customer/services/:id/create-final-payment
      * Customer creates final payment order after bill has been submitted.
      * Reads the FROZEN pricing_snapshot to verify bill exists and get the correct amount.

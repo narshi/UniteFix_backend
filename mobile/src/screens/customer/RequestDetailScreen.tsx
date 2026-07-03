@@ -52,7 +52,8 @@ import {
     Bug,
 } from 'lucide-react-native';
 import { useCancelServiceRequest, useRateService, usePublicConfig } from '../../hooks/useCustomerData';
-import { ServiceRequest } from '../../api/customer.api';
+import { ServiceRequest, customerApi } from '../../api/customer.api';
+import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -175,6 +176,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const [rating, setRating] = useState(0);
     const [feedback, setFeedback] = useState('');
     const [showCancelModal, setShowCancelModal] = useState(false);
+    const [isPayingFee, setIsPayingFee] = useState(false);
 
     const { mutate: cancelRequest, isPending: cancelling } = useCancelServiceRequest();
     const { mutate: rateService, isPending: submittingRating } = useRateService();
@@ -255,6 +257,31 @@ export function RequestDetailScreen({ navigation, route }: Props) {
         navigation.navigate('FinalPayment', { request });
     };
 
+    const payBookingFee = async () => {
+        setIsPayingFee(true);
+        try {
+            const data = await customerApi.createBookingPayment(request.id);
+            if (data?.razorpayOrder) {
+                const paymentResponse = await openRazorpayCheckout({
+                    razorpayOrderId: data.razorpayOrder.orderId,
+                    razorpayKeyId: process.env.RAZORPAY_KEY_ID || data.razorpayOrder.razorpayKeyId,
+                    amount: data.razorpayOrder.amount,
+                    description: `₹${bookingFee} Booking Fee — Booking #${request.id}`,
+                });
+                
+                // Verify payment
+                await customerApi.verifyPayment(paymentResponse);
+                Alert.alert('Success', 'Booking fee paid successfully. We will assign a technician soon.', [
+                    { text: 'OK', onPress: () => navigation.goBack() }
+                ]);
+            }
+        } catch (err: any) {
+            handleRazorpayError(err);
+        } finally {
+            setIsPayingFee(false);
+        }
+    };
+
     const createdDate = new Date(request.createdAt).toLocaleDateString('en-IN', {
         day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
@@ -312,11 +339,29 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     </View>
 
                     {/* Booking Fee Badge */}
-                    <View style={styles.bookingFeeBadge}>
-                        <CreditCard size={14} color={colors.accent} />
-                        <Text style={styles.bookingFeeText}>₹{bookingFee} Booking Fee Paid</Text>
-                        <CheckCircle size={14} color={colors.accent} />
+                    <View style={[
+                        styles.bookingFeeBadge, 
+                        request.bookingFeeStatus === 'pending' ? { backgroundColor: colors.errorLight } : {}
+                    ]}>
+                        <CreditCard size={14} color={request.bookingFeeStatus === 'pending' ? colors.error : colors.accent} />
+                        <Text style={[
+                            styles.bookingFeeText,
+                            request.bookingFeeStatus === 'pending' ? { color: colors.errorDark } : {}
+                        ]}>
+                            ₹{bookingFee} Booking Fee {request.bookingFeeStatus === 'pending' ? 'Pending' : 'Paid'}
+                        </Text>
+                        {request.bookingFeeStatus === 'paid' && <CheckCircle size={14} color={colors.accent} />}
                     </View>
+
+                    {request.status === 'created' && request.bookingFeeStatus === 'pending' && (
+                        <Button
+                            title="Pay Booking Fee"
+                            variant="primary"
+                            onPress={payBookingFee}
+                            loading={isPayingFee}
+                            style={{ marginTop: spacing.md }}
+                        />
+                    )}
                 </View>
 
                 {/* Service Code Card — shown when status is accepted or reached */}
@@ -500,17 +545,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
-                {/* OTP Display */}
-                {request.otp && ['accepted', 'reached'].includes(request.status) && (
-                    <View style={styles.otpCard}>
-                        <Shield size={20} color={colors.primary} />
-                        <View style={{ marginLeft: spacing.md }}>
-                            <Text style={styles.otpLabel}>Handshake OTP</Text>
-                            <Text style={styles.otpValue}>{request.otp}</Text>
-                        </View>
-                        <Text style={styles.otpHint}>Share with technician</Text>
-                    </View>
-                )}
+
 
                 {/* Rating */}
                 {canRate && !showRating && (
