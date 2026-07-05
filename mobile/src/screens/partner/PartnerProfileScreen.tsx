@@ -271,7 +271,7 @@ export function PartnerProfileScreen() {
                             label="UPI ID" 
                             value={upiId} 
                             onChangeText={setUpiId} 
-                            placeholder={(partnerProfile as any).upiId || (partnerProfile as any).data?.upiId || "e.g. 9876543210@ybl"}
+                            placeholder={(partnerProfile as any)?.upiId || (partnerProfile as any)?.data?.upiId || "e.g. 9876543210@ybl"}
                             autoCapitalize="none"
                         />
                         <View style={styles.editActions}>

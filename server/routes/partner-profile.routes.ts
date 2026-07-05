@@ -15,7 +15,7 @@ export function registerPartnerProfileRoutes(app: Express) {
   partnerProfileRouter.get("/", requireAuth, async (req, res) => {
   try {
     const employee = await db.query.employees.findFirst({
-      where: eq(employees.userId, req.user!.id),
+      where: eq(employees.userId, (req as any).user!.userId),
     });
 
     if (!employee) {
@@ -40,7 +40,7 @@ partnerProfileRouter.put("/upi", requireAuth, async (req, res) => {
 
     // 1. Find employee
     const employee = await db.query.employees.findFirst({
-      where: eq(employees.userId, req.user!.id),
+      where: eq(employees.userId, (req as any).user!.userId),
     });
 
     if (!employee) {
