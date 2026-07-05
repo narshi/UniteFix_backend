@@ -28,6 +28,8 @@ interface District {
 
 export default function LocationsPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<LocationData | null>(null);
   const [newLocation, setNewLocation] = useState<LocationData>({
     pincode: '',
     area: '',
@@ -115,6 +117,32 @@ export default function LocationsPage() {
     }
   });
 
+  const editLocationMutation = useMutation({
+    mutationFn: async ({ originalPincode, data }: { originalPincode: string; data: LocationData }) => {
+      const selectedDistrict = districts?.find(d => d.name === data.district);
+      if (selectedDistrict?.pincodePrefix && data.pincode && !data.pincode.startsWith(selectedDistrict.pincodePrefix)) {
+        throw new Error(`Pincode for ${selectedDistrict.name} must start with ${selectedDistrict.pincodePrefix}`);
+      }
+      
+      const response = await apiRequest("PUT", `/api/admin/locations/${originalPincode}`, data);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/locations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/location-stats"] });
+      setIsEditModalOpen(false);
+      setEditingLocation(null);
+      toast({ title: "Location updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error updating location",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
   const testPinCodeMutation = useMutation({
     mutationFn: async (pinCode: string) => {
       const response = await apiRequest("POST", "/api/validate-pincode", { pinCode });
@@ -163,6 +191,35 @@ export default function LocationsPage() {
       return;
     }
     testPinCodeMutation.mutate(testPinCode);
+  };
+
+  const handleEditLocation = () => {
+    if (!editingLocation || !editingLocation.pincode || !editingLocation.area || !editingLocation.district) {
+      toast({
+        title: "Please fill all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const selectedDistrict = districts?.find(d => d.name === editingLocation.district);
+    if (selectedDistrict?.pincodePrefix && editingLocation.pincode && !editingLocation.pincode.startsWith(selectedDistrict.pincodePrefix)) {
+      toast({
+        title: "Invalid Pincode Region",
+        description: `Pincode for ${selectedDistrict.name} must start with ${selectedDistrict.pincodePrefix}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Assuming we somehow tracked the original pincode. For simplicity, we assume the editingLocation contains the original pincode in a custom field, or we just pass the original pincode separately. Wait, since editingLocation is state, we need its original pincode.
+    // I will modify this below.
+    editLocationMutation.mutate({ originalPincode: (editingLocation as any)._originalPincode, data: editingLocation });
+  };
+
+  const openEditModal = (location: LocationData) => {
+    setEditingLocation({ ...location, _originalPincode: location.pincode } as any);
+    setIsEditModalOpen(true);
   };
 
   return (
@@ -248,6 +305,82 @@ export default function LocationsPage() {
                 disabled={addLocationMutation.isPending}
               >
                 {addLocationMutation.isPending ? "Adding..." : "Add Location"}
+              </Button>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Modal */}
+          <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+            <DialogContent className="sm:max-w-[500px] glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] overflow-y-auto max-h-[85vh] custom-scrollbar">
+              <DialogHeader>
+                <DialogTitle className="text-xl text-white">Edit Serviceable Location</DialogTitle>
+              </DialogHeader>
+              {editingLocation && (
+                <div className="grid gap-6 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-pincode" className="text-right font-medium text-[hsl(210,20%,85%)]">Pin Code *</Label>
+                    <Input
+                      id="edit-pincode"
+                      value={editingLocation.pincode}
+                      onChange={(e) => setEditingLocation({ ...editingLocation, pincode: e.target.value })}
+                      className="col-span-3 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]"
+                      placeholder="e.g. 581341"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-area" className="text-right font-medium text-[hsl(210,20%,85%)]">Area/Locality *</Label>
+                    <Input
+                      id="edit-area"
+                      value={editingLocation.area}
+                      onChange={(e) => setEditingLocation({ ...editingLocation, area: e.target.value })}
+                      className="col-span-3 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]"
+                      placeholder="e.g. Karki"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-district" className="text-right font-medium text-[hsl(210,20%,85%)]">District *</Label>
+                    <div className="col-span-3">
+                      <Select
+                        value={editingLocation.district}
+                        onValueChange={(value) => {
+                          const district = districts?.find(d => d.name === value);
+                          setEditingLocation({
+                            ...editingLocation,
+                            district: value,
+                            state: district?.state || 'Karnataka'
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
+                          <SelectValue placeholder="Select District" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeDistricts.map((district) => (
+                            <SelectItem key={district.id} value={district.name}>
+                              {district.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit-state" className="text-right font-medium text-[hsl(210,20%,85%)]">State</Label>
+                    <Input
+                      id="edit-state"
+                      value={editingLocation.state}
+                      readOnly
+                      className="col-span-3 bg-[rgba(255,255,255,0.01)] border-[rgba(255,255,255,0.04)] text-[hsl(215,20%,65%)] cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              )}
+              <Button
+                onClick={handleEditLocation}
+                className="w-full transition-all duration-200 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)]"
+                disabled={editLocationMutation.isPending}
+              >
+                {editLocationMutation.isPending ? "Updating..." : "Update Location"}
               </Button>
             </DialogContent>
           </Dialog>
@@ -370,7 +503,16 @@ export default function LocationsPage() {
                           {location.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
-                      <td className="p-4">
+                      <td className="p-4 flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditModal(location)}
+                          className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(217,91%,60%)] bg-[hsla(217,91%,60%,0.05)] hover:bg-[hsla(217,91%,60%,0.15)] transition-colors"
+                        >
+                          <span className="text-xs font-medium material-icons text-sm mr-1">edit</span>
+                          <span className="text-xs font-medium">Edit</span>
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"

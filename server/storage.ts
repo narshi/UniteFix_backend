@@ -222,6 +222,7 @@ export interface IStorage {
   getServiceablePincode(pincode: string): Promise<ServiceablePincode | undefined>;
   getAllServiceablePincodes(): Promise<ServiceablePincode[]>;
   togglePincodeStatus(pincode: string): Promise<ServiceablePincode | undefined>;
+  updateServiceablePincode(originalPincode: string, data: Partial<InsertServiceablePincode>): Promise<ServiceablePincode | undefined>;
   isPincodeServiceable(pincode: string): Promise<boolean>;
 
   // Statistics for admin dashboard (optimized SQL aggregations)
@@ -1619,6 +1620,32 @@ export class DatabaseStorage implements IStorage {
       .update(serviceablePincodes)
       .set({ isActive: newStatus })
       .where(eq(serviceablePincodes.pincode, pincode))
+      .returning();
+    return result || undefined;
+  }
+
+  async updateServiceablePincode(originalPincode: string, data: Partial<InsertServiceablePincode>): Promise<ServiceablePincode | undefined> {
+    const existing = await this.getServiceablePincode(originalPincode);
+    if (!existing) return undefined;
+
+    // Resolve districtId if district name is provided and changed
+    let districtId = existing.districtId;
+    if (data.district && data.district !== existing.district) {
+      const districtRecord = await db.query.districts.findFirst({
+        where: eq(districts.name, data.district)
+      });
+      if (districtRecord) {
+        districtId = districtRecord.id;
+        if (districtRecord.pincodePrefix && data.pincode && !data.pincode.startsWith(districtRecord.pincodePrefix)) {
+          throw new Error(`Validation Error: Pincode must start with ${districtRecord.pincodePrefix} for ${data.district} region.`);
+        }
+      }
+    }
+
+    const [result] = await db
+      .update(serviceablePincodes)
+      .set({ ...data, districtId })
+      .where(eq(serviceablePincodes.pincode, originalPincode))
       .returning();
     return result || undefined;
   }

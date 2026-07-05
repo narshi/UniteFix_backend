@@ -1958,6 +1958,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.put("/api/admin/locations/:pinCode", async (req, res, next) => {
+    try {
+      const data = insertServiceablePincodeSchema.partial().parse(req.body);
+      const result = await storage.updateServiceablePincode(req.params.pinCode, data);
+      if (!result) {
+        return res.status(404).json({ message: "Pincode not found" });
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Create new location (serviceable pincode)
   app.post("/api/admin/locations", async (req, res, next) => {
     try {
