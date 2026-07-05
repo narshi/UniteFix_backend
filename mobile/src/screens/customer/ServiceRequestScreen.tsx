@@ -22,6 +22,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { useBookingDraftStore } from '../../stores/bookingDraft.store';
 import { useCreateServiceRequest, usePublicConfig } from '../../hooks/useCustomerData';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
@@ -39,10 +40,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceType = route.params?.serviceType || '';
     const serviceName = route.params?.serviceName || 'Service';
 
-    const [description, setDescription] = useState('');
+    const { description, setDescription, urgency, setUrgency, photos, setPhotos, clearDraft } = useBookingDraftStore();
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
-    const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
-    const [photos, setPhotos] = useState<string[]>([]);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [deviceLocation, setDeviceLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -175,6 +174,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                 },
                                 {
                                     onSuccess: async (response: any) => {
+                                        clearDraft();
                                         const paymentData = response?.data?.payment;
 
                                         if (paymentData?.razorpayOrderId && paymentData?.razorpayKeyId) {
