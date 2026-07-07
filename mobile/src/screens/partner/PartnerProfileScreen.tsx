@@ -63,7 +63,7 @@ export function PartnerProfileScreen() {
 
     useEffect(() => {
         if (partnerProfile) {
-            const fetchedUpiId = (partnerProfile as any).upiId || (partnerProfile as any).data?.upiId;
+            const fetchedUpiId = (partnerProfile as any)?.data?.upiId || (partnerProfile as any)?.upiId;
             setUpiId(fetchedUpiId ? String(fetchedUpiId) : '');
         }
     }, [partnerProfile]);
@@ -281,7 +281,10 @@ export function PartnerProfileScreen() {
                                     onPress={() => {
                                         updateUpiId(
                                             { upiId }, 
-                                            { onSuccess: () => Alert.alert('Saved', 'UPI ID updated successfully.') }
+                                            { onSuccess: () => { 
+                                                setEditing(false);
+                                                Alert.alert('Saved', 'UPI ID updated successfully.');
+                                            }}
                                         );
                                     }} 
                                     loading={savingUpi} 

@@ -77,8 +77,11 @@ apiClient.interceptors.response.use(
     async (error: AxiosError) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-        // Only attempt refresh on 403 (token expired), not 401 (no token)
-        if (error.response?.status === 403 && !originalRequest._retry) {
+        // Only attempt refresh on 403 when it looks like a token-expiry issue.
+        // Skip refresh for auth-rejection 403s (suspended, role mismatch, etc.)
+        const errorMessage = (error.response?.data as any)?.message || '';
+        const isAuthRejection = /suspend|restricted|required|not found|deactivat/i.test(errorMessage);
+        if (error.response?.status === 403 && !originalRequest._retry && !isAuthRejection) {
             if (isRefreshing) {
                 // Queue this request until refresh completes
                 return new Promise((resolve, reject) => {

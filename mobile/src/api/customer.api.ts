@@ -61,6 +61,7 @@ export interface ServiceRequest {
     totalCharge?: number;
     totalAmount?: number;
     pricingSnapshot?: any;
+    bookingFeeStatus?: string;
     // Technician
     servicemanName?: string;
     servicemanPhone?: string;
