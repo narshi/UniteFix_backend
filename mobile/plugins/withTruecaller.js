@@ -70,13 +70,9 @@ function withTruecallerManifest(config, clientId) {
       });
     }
 
-    // Add Drop Call Permissions
-    const permissionsToAdd = [
-      "android.permission.READ_PHONE_STATE",
-      "android.permission.READ_CALL_LOG",
-      "android.permission.ANSWER_PHONE_CALLS",
-      "android.permission.CALL_PHONE"
-    ];
+    // Add Drop Call Permissions (REMOVED due to Google Play Store Policy on Sensitive API access)
+    // We only use the standard OAuth App flow, not the missed call fallback
+    const permissionsToAdd = [];
 
     if (!cfg.modResults.manifest["uses-permission"]) {
         cfg.modResults.manifest["uses-permission"] = [];
