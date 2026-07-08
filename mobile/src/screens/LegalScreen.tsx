@@ -35,7 +35,7 @@ const LEGAL_DOCS = [
     id: 'privacy',
     title: 'Privacy Policy',
     description: 'How we collect, use, and protect your personal data including location, phone number, and payment information.',
-    url: 'https://unitefix.com/assets/terms-and-conditions.pdf',
+    url: 'https://unitefix.com/privacy-policy.html',
     icon: Shield,
     iconColor: '#10B981',
     iconBg: '#ECFDF5',
@@ -142,8 +142,8 @@ export function LegalScreen({ navigation }: LegalScreenProps) {
           <Text style={styles.contactDescription}>
             If you have any concerns about our policies or your data, please contact us at:
           </Text>
-          <Pressable onPress={() => Linking.openURL('mailto:admin@unitefix.com')}>
-            <Text style={styles.contactEmail}>admin@unitefix.com</Text>
+          <Pressable onPress={() => Linking.openURL('mailto:support@unitefix.com')}>
+            <Text style={styles.contactEmail}>support@unitefix.com</Text>
           </Pressable>
         </View>
 

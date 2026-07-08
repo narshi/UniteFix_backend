@@ -13,6 +13,7 @@ import {
     ActivityIndicator,
     Linking,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import {
     User,
     Mail,
@@ -40,6 +41,7 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
 
 export function ProfileScreen() {
+    const navigation = useNavigation<any>();
     const { data: profile, isLoading } = useProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
     const { logout, user } = useAuthStore();
@@ -301,6 +303,14 @@ export function ProfileScreen() {
                         <ChevronRight size={18} color={colors.textSecondary} />
                     </TouchableOpacity>
                 )}
+
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Legal')}>
+                    <View style={styles.menuLeft}>
+                        <Shield size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Legal & Policies</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
 
                 <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
                     <View style={styles.menuLeft}>

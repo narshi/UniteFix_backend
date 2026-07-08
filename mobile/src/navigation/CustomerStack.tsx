@@ -20,6 +20,7 @@ import { AllServicesScreen } from '../screens/customer/AllServicesScreen';
 import { FinalPaymentScreen } from '../screens/customer/FinalPaymentScreen';
 import { SavedAddressesScreen } from '../screens/customer/SavedAddressesScreen';
 import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
+import { LegalScreen } from '../screens/LegalScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -42,6 +43,7 @@ export function CustomerStack() {
             <Stack.Screen name="FinalPayment" component={FinalPaymentScreen} />
             <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
             <Stack.Screen name="MapAddressPicker" component={MapAddressPickerScreen} />
+            <Stack.Screen name="Legal" component={LegalScreen} />
         </Stack.Navigator>
     );
 }

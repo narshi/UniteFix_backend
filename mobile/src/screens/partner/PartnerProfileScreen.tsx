@@ -14,6 +14,7 @@ import {
     Linking,
     Switch,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
     Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe
@@ -30,6 +31,7 @@ import { Button, Input } from '../../components/ui';
 import { apiClient } from '../../api/client';
 
 export function PartnerProfileScreen() {
+    const navigation = useNavigation<any>();
     const { data: profile, isLoading } = useProfile();
     const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
@@ -325,7 +327,15 @@ export function PartnerProfileScreen() {
 
             {/* Account Actions */}
             <View style={[styles.section, { marginTop: spacing.md }]}>
-                <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Legal')}>
+                    <View style={styles.menuLeft}>
+                        <Shield size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Legal & Policies</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
                         <LogOut size={20} color={colors.error} />
                         <Text style={[styles.menuLabel, { color: colors.error }]}>Log Out</Text>
