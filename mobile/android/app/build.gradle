@@ -82,14 +82,6 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
-    def localProperties = new Properties()
-    def localPropertiesFile = rootProject.file('local.properties')
-    if (localPropertiesFile.exists()) {
-        localPropertiesFile.withReader('UTF-8') { reader ->
-            localProperties.load(reader)
-        }
-    }
-
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -104,8 +96,6 @@ android {
         versionName "1.0.6"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
-        
-        manifestPlaceholders = [MAPS_API_KEY: localProperties.getProperty('MAPS_API_KEY') ?: '']
     }
     signingConfigs {
         debug {
@@ -115,10 +105,12 @@ android {
             keyPassword 'android'
         }
         release {
-            storeFile file('unitefix-release.keystore')
-            storePassword localProperties.getProperty('UNITEFIX_RELEASE_STORE_PASSWORD') ?: ''
-            keyAlias localProperties.getProperty('UNITEFIX_RELEASE_KEY_ALIAS') ?: 'unitefix'
-            keyPassword localProperties.getProperty('UNITEFIX_RELEASE_KEY_PASSWORD') ?: ''
+            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
+                storeFile file(MYAPP_UPLOAD_STORE_FILE)
+                storePassword MYAPP_UPLOAD_STORE_PASSWORD
+                keyAlias MYAPP_UPLOAD_KEY_ALIAS
+                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+            }
         }
     }
     buildTypes {
@@ -126,6 +118,8 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
@@ -167,7 +161,7 @@ android {
 }
 
 dependencies {
-    implementation "com.truecaller.android.sdk:truecaller-sdk:3.3.0"
+    implementation "com.truecaller.android.sdk:truecaller-sdk:3.2.1"
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

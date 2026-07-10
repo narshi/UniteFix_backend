@@ -55,3 +55,7 @@ private keys/
 # Android Keystores — NEVER COMMIT production keystores!
 *.keystore
 !mobile/android/app/debug.keystore
+
+# Play Store Keys
+*.keystore
+*.pem
