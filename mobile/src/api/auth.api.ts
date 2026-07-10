@@ -102,6 +102,12 @@ export const authApi = {
     apiClient.post<AuthResponse>('/api/auth/fallback/request-otp', data),
 
   /**
+   * FALLBACK AUTH: Verify Firebase OTP ID Token
+   */
+  firebaseVerify: (data: { idToken: string; phone: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string }) =>
+    apiClient.post<AuthResponse>('/api/auth/fallback/firebase-verify', data),
+
+  /**
    * FALLBACK AUTH: Verify OTP for non-Truecaller users
    */
   verifyFallbackOtp: (data: { phone: string; email?: string; code: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string }) =>

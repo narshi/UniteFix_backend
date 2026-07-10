@@ -495,12 +495,80 @@ function withTruecallerMainApp(config) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Step 5: Patch MainActivity.kt to add ActivityResultLauncher for SDK 3.x
+// ─────────────────────────────────────────────────────────────────────
+function withTruecallerMainActivity(config) {
+  return withDangerousMod(config, [
+    "android",
+    async (cfg) => {
+      const pkg = cfg.android?.package || "com.unitefix.app";
+      const pkgPath = pkg.replace(/\./g, "/");
+      const mainActivityPath = path.join(
+        cfg.modRequest.platformProjectRoot,
+        "app",
+        "src",
+        "main",
+        "java",
+        pkgPath,
+        "MainActivity.kt"
+      );
+
+      if (!fs.existsSync(mainActivityPath)) {
+        console.warn("[withTruecaller] MainActivity.kt not found, skipping launcher injection");
+        return cfg;
+      }
+
+      let contents = fs.readFileSync(mainActivityPath, "utf-8");
+
+      // Skip if already patched
+      if (contents.includes("truecallerLauncher")) {
+        return cfg;
+      }
+
+      // Add imports after existing imports
+      const launcherImports = [
+        "import android.content.Intent",
+        "import androidx.activity.result.ActivityResultLauncher",
+        "import androidx.activity.result.contract.ActivityResultContracts",
+        "import com.truecaller.android.sdk.oAuth.TcSdk",
+      ];
+
+      for (const imp of launcherImports) {
+        if (!contents.includes(imp)) {
+          contents = contents.replace(
+            /^(package [^\n]+\n)/m,
+            `$1${imp}\n`
+          );
+        }
+      }
+
+      // Add the launcher field and registration inside onCreate
+      // Field declaration just inside the class body
+      contents = contents.replace(
+        /(class MainActivity[^{]*\{)/,
+        `$1\n    @JvmField var truecallerLauncher: ActivityResultLauncher<Intent>? = null\n`
+      );
+
+      // Register the launcher inside onCreate, before super.onCreate
+      contents = contents.replace(
+        /(override fun onCreate\(savedInstanceState: Bundle\?\)\s*\{)/,
+        `$1\n        truecallerLauncher = registerForActivityResult(\n            ActivityResultContracts.StartActivityForResult()\n        ) { result ->\n            try {\n                TcSdk.getInstance()?.onActivityResultObtained(this, result.resultCode, result.data)\n            } catch (e: Exception) { /* ignore */ }\n        }\n`
+      );
+
+      fs.writeFileSync(mainActivityPath, contents, "utf-8");
+      return cfg;
+    },
+  ]);
+}
+
 function withTruecaller(config, props = {}) {
   const clientId = props.clientId || "4gniidv8yotvmqym7nwgcfven6mk36mqep70ikeq8qs";
   config = withTruecallerGradle(config);
   config = withTruecallerManifest(config, clientId);
   config = withTruecallerNativeFiles(config);
   config = withTruecallerMainApp(config);
+  config = withTruecallerMainActivity(config);
   return config;
 }
 

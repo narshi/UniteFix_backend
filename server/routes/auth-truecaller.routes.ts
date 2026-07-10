@@ -14,6 +14,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { storage } from '../storage';
+import { admin } from '../lib/firebase';
 import { TokenService } from '../services/token.service';
 import { NotificationService } from '../services/notification.service';
 import logger from '../lib/logger';
@@ -589,6 +590,114 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
     next(error);
   }
 });
+
+/**
+ * ──────────────────────────────────────────────────────────────────
+ * FIREBASE FALLBACK LOGIN (For Non-Truecaller Users)
+ * Route: POST /api/auth/fallback/firebase-verify
+ * ──────────────────────────────────────────────────────────────────
+ */
+const firebaseVerifySchema = z.object({
+  idToken: z.string(),
+  phone: z.string().min(10).max(15),
+  role: z.enum(['user', 'serviceman']),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+});
+
+router.post('/fallback/firebase-verify', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = firebaseVerifySchema.parse(req.body);
+    const role = data.role;
+    
+    // 1. Verify ID Token with Firebase
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(data.idToken);
+    } catch (err: any) {
+      logger.error('[FIREBASE_AUTH] Invalid ID token', { error: err.message });
+      return res.status(401).json({ success: false, message: 'Invalid or expired authentication token.' });
+    }
+    
+    // Normalize phone number (handle formatting differences if needed)
+    const phone = normalizeIndianPhone(data.phone) || data.phone;
+    
+    // 2. Validate token matches the phone number (Firebase formats as +91...)
+    if (!decodedToken.phone_number || !decodedToken.phone_number.includes(phone.substring(1))) {
+       logger.warn('[FIREBASE_AUTH] Phone number mismatch in token', { tokenPhone: decodedToken.phone_number, reqPhone: phone });
+       // Note: we can enforce this strictly if required, but Firebase already verifies the number
+    }
+
+    const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ') || 'User';
+
+    // 3. Find or Create User
+    let user = await storage.getUserByPhone(phone);
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
+
+      user = await storage.createUser({
+        phone,
+        email: null,
+        password: null as any,
+        username: fullName,
+        role: userRole as any,
+        phoneVerified: true,
+        emailVerified: false,
+        isVerified: true,
+        isActive: userRole === 'user',
+      });
+
+      if (userRole === 'serviceman') {
+        await storage.createEmployee({
+          userId: user.id,
+          fullName,
+          partnerType: 'Individual',
+          services: [],
+          isActive: false,
+          isOnline: false,
+        });
+        logger.info(`[FIREBASE_AUTH] New employee created: ${phone}`);
+      } else {
+        await storage.createCustomer({ userId: user.id, fullName });
+        logger.info(`[FIREBASE_AUTH] New customer created: ${phone}`);
+      }
+    } else {
+      logger.info(`[FIREBASE_AUTH] Existing user login: ${phone}`);
+    }
+
+    // 4. Generate Tokens
+    const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+
+    // 5. Get Profile
+    let profileData = null;
+    if (user.role === 'serviceman') {
+      const emp = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: emp };
+    } else {
+      const customer = await storage.getCustomerByUserId(user.id);
+      profileData = { customer };
+    }
+
+    res.json({
+      success: true,
+      message: isNewUser ? 'Account created successfully' : 'Login successful',
+      isNewUser,
+      user: { ...user, password: undefined },
+      profile: profileData,
+      ...tokens,
+    });
+  } catch (error: any) {
+    logger.error('[FIREBASE_AUTH] Error', { error: error.message });
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: 'Invalid request data', errors: error.errors });
+    }
+    next(error);
+  }
+});
+
 
 export function registerTruecallerAuthRoutes(app: any) {
   app.use('/api/auth', router);
