@@ -71,6 +71,39 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     }
   }, [isAvailable, tcLoading]);
 
+  // Listen for Firebase auto-verification (Android specific)
+  useEffect(() => {
+    const subscriber = auth().onAuthStateChanged(async (user) => {
+      // If we have a user and we are in the middle of authenticating (e.g. OTP step)
+      if (user && otpStep === 'otp') {
+        try {
+          setIsAuthenticating(true);
+          const idToken = await user.getIdToken();
+          const normalized = phone.replace(/[^0-9]/g, '');
+
+          const { data } = await authApi.firebaseVerify({
+            idToken,
+            phone: normalized,
+            role,
+          });
+
+          if (data.success) {
+            setAuthSuccess(true);
+            await loginWithTruecaller(data);
+          } else {
+            setAuthError(data.message || 'Auto-verification failed');
+          }
+        } catch (err: any) {
+          if (__DEV__) console.error('[Firebase Auto-Verify]', err);
+          setAuthError(err?.response?.data?.message || err.message || 'Auto-verification failed');
+        } finally {
+          setIsAuthenticating(false);
+        }
+      }
+    });
+    return subscriber; // unsubscribe on unmount
+  }, [otpStep, phone, role]);
+
   const isValidIndianPhone = (num: string) => /^[6-9]\d{9}$/.test(num.replace(/[\s\-()]/g, ''));
 
   /**
