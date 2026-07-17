@@ -96,7 +96,7 @@ export function SplashScreen({ navigation }: Props) {
                 >
                     <View style={styles.logoGlow}>
                         <Image
-                            source={require('../../../assets/logo.jpg')}
+                            source={require('../../../assets/app_icon.png')}
                             style={styles.logo}
                             resizeMode="contain"
                         />
