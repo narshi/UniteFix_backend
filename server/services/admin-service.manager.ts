@@ -453,7 +453,7 @@ export class AdminServiceManager {
             );
 
         // Get active job counts per employee in a single query
-        const activeJobCounts = await db.execute(sql`
+        const activeJobCountsResult = await db.execute(sql`
             SELECT provider_id, COUNT(*) as active_count
             FROM service_requests
             WHERE provider_id IS NOT NULL
@@ -462,10 +462,10 @@ export class AdminServiceManager {
         `) as any;
 
         const jobCountMap = new Map<number, number>();
-        if (Array.isArray(activeJobCounts)) {
-            for (const row of activeJobCounts) {
-                jobCountMap.set(row.provider_id, parseInt(row.active_count));
-            }
+        // db.execute returns { rows: [...] } in Drizzle/node-postgres
+        const rows = Array.isArray(activeJobCountsResult) ? activeJobCountsResult : (activeJobCountsResult?.rows || []);
+        for (const row of rows) {
+            jobCountMap.set(row.provider_id, parseInt(row.active_count));
         }
 
         // Enrich employees with phone and active job count
