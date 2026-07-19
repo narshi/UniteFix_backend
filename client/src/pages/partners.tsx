@@ -169,10 +169,13 @@ export default function PartnersPage() {
     addPartnerMutation.mutate(newPartner);
   };
 
-  const availableServices = [
-    "AC Repair", "Laptop Repair", "Water Heater Repair", "Refrigerator Repair",
-    "Washing Machine Repair", "Microwave Repair", "TV Repair", "Mobile Phone Repair"
-  ];
+  // Dynamic expertise categories from service catalog
+  const { data: categoriesData } = useQuery({
+    queryKey: ["/api/services/categories"],
+  });
+  const availableServices = (categoriesData as any)?.data?.map((c: any) => c.name) 
+    || ["AC Repair", "Laptop Repair", "Water Heater Repair", "Refrigerator Repair",
+        "Washing Machine Repair", "Microwave Repair", "TV Repair", "Mobile Phone Repair"];
 
   return (
     <div className="flex-1 p-8 min-h-screen relative overflow-hidden">

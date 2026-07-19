@@ -97,5 +97,44 @@ export function registerPartnerProfileRoutes(app: Express) {
     }
   });
 
+  // PATCH /api/partner/profile/expertise - Update employee expertise/services
+  partnerProfileRouter.patch("/expertise", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.userId || (req as any).partner?.userId;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Authentication required" });
+      }
+
+      const { services } = req.body;
+
+      if (!Array.isArray(services) || services.length === 0) {
+        return res.status(400).json({ success: false, message: "At least one expertise is required" });
+      }
+
+      // Validate all entries are non-empty strings
+      const cleanedServices = services
+        .map((s: any) => (typeof s === 'string' ? s.trim() : ''))
+        .filter((s: string) => s.length > 0);
+
+      if (cleanedServices.length === 0) {
+        return res.status(400).json({ success: false, message: "At least one valid expertise is required" });
+      }
+
+      logger.info(`[PARTNER_PROFILE] PATCH expertise for userId=${userId}, services=[${cleanedServices.join(', ')}]`);
+
+      const employee = await getOrCreateEmployee(userId);
+
+      const [updated] = await db.update(employees)
+        .set({ services: cleanedServices, updatedAt: new Date() })
+        .where(eq(employees.id, employee.id))
+        .returning();
+
+      res.json({ success: true, message: "Expertise updated successfully", data: updated });
+    } catch (error: any) {
+      logger.error("Error updating expertise", { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, message: "Failed to update expertise" });
+    }
+  });
+
   app.use("/api/partner/profile", partnerProfileRouter);
 }

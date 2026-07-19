@@ -6,6 +6,7 @@ export type AuthStackParamList = {
     Splash: undefined;
     RoleSelection: undefined;
     TruecallerAuth: { role: 'user' | 'serviceman' };
+    ExpertiseSelection: { authData: any }; // Auth response passed from TruecallerAuth for deferred login
     EmployeePending: undefined;
     Legal: undefined;
 };

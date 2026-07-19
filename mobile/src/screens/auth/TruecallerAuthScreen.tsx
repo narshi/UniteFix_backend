@@ -40,6 +40,19 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   } = useTruecallerAuth();
   const loginWithTruecaller = useAuthStore((s) => s.loginWithTruecaller);
 
+  /**
+   * Route new employees to ExpertiseSelection before completing login.
+   * Returning users and customers go straight through.
+   */
+  const handleAuthSuccess = async (data: any) => {
+    if (data.isNewUser && role === 'serviceman') {
+      // Navigate to expertise selection — login deferred until after selection
+      navigation.replace('ExpertiseSelection', { authData: data });
+    } else {
+      await loginWithTruecaller(data);
+    }
+  };
+
   // UI state
   const [showOtpFlow, setShowOtpFlow] = useState(false);
   const [otpStep, setOtpStep] = useState<OtpStep>('phone');
@@ -90,7 +103,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
           if (data.success) {
             setAuthSuccess(true);
-            await loginWithTruecaller(data);
+            await handleAuthSuccess(data);
           } else {
             setAuthError(data.message || 'Auto-verification failed');
           }
@@ -127,7 +140,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       });
       if (data.success) {
         setAuthSuccess(true);
-        await loginWithTruecaller(data);
+        await handleAuthSuccess(data);
       } else {
         setAuthError(data.message || 'Verification failed');
       }
@@ -185,7 +198,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
       if (data.success) {
         setAuthSuccess(true);
-        await loginWithTruecaller(data);
+        await handleAuthSuccess(data);
       } else {
         setAuthError(data.message || 'Verification failed');
       }
