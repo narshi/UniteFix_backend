@@ -70,12 +70,12 @@ export const partnerApi = {
     denyAssignment: (id: number, reason?: string) =>
         apiClient.post(`/api/serviceman/requests/${id}/deny`, { reason }),
 
-    // Service flow
-    verifyHandshake: (serviceId: number, otp: string) =>
-        apiClient.post('/api/service/verify-handshake', { serviceId, otp }),
+    // Service flow (V2 Geofence Endpoints)
+    markArrived: (bookingId: number, latitude: number, longitude: number) =>
+        apiClient.patch(`/api/bookings/${bookingId}/arrive`, { latitude, longitude }),
 
-    startService: (serviceId: number, latitude?: number, longitude?: number) =>
-        apiClient.post('/api/service/start', { serviceId, providerLat: latitude, providerLong: longitude }),
+    startServiceWithOtp: (bookingId: number, otp: string) =>
+        apiClient.patch(`/api/bookings/${bookingId}/start`, { otp }),
 
     completeService: (serviceId: number) =>
         apiClient.post('/api/service/complete', { serviceId }),

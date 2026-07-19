@@ -79,26 +79,29 @@ export function useDenyAssignment() {
 
 // ==================== SERVICE FLOW ====================
 
-export function useVerifyHandshake() {
+export function useMarkArrived() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ serviceId, otp }: { serviceId: number; otp: string }) =>
-            partnerApi.verifyHandshake(serviceId, otp),
+        mutationFn: ({ bookingId, latitude, longitude }: { bookingId: number; latitude: number; longitude: number }) =>
+            partnerApi.markArrived(bookingId, latitude, longitude),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
-            Alert.alert('Verified!', 'OTP verified successfully.');
+            Alert.alert('Arrived', 'Location verified. Please ask the customer for the OTP to start the service.');
         },
-        onError: (e) => Alert.alert('OTP Error', getApiErrorMessage(e)),
+        onError: (e) => Alert.alert('Arrival Error', getApiErrorMessage(e)),
     });
 }
 
-export function useStartService() {
+export function useStartServiceWithOtp() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ serviceId, latitude, longitude }: { serviceId: number; latitude?: number; longitude?: number }) =>
-            partnerApi.startService(serviceId, latitude, longitude),
-        onSuccess: () => qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments }),
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
+        mutationFn: ({ bookingId, otp }: { bookingId: number; otp: string }) =>
+            partnerApi.startServiceWithOtp(bookingId, otp),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+            Alert.alert('Service Started', 'OTP verified successfully.');
+        },
+        onError: (e) => Alert.alert('Start Error', getApiErrorMessage(e)),
     });
 }
 

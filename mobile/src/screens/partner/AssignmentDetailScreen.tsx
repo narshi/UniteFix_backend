@@ -25,8 +25,8 @@ import {
     useAssignments,
     useAcceptAssignment,
     useDenyAssignment,
-    useVerifyHandshake,
-    useStartService,
+    useMarkArrived,
+    useStartServiceWithOtp,
     useCompleteService,
     useEnterServiceCharge,
 } from '../../hooks/usePartnerData';
@@ -53,8 +53,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     const { mutate: accept, isPending: accepting } = useAcceptAssignment();
     const { mutate: deny, isPending: denying } = useDenyAssignment();
-    const { mutate: verifyOtp, isPending: verifying } = useVerifyHandshake();
-    const { mutate: startSvc, isPending: starting } = useStartService();
+    const { mutate: markArrived, isPending: arriving } = useMarkArrived();
+    const { mutate: startService, isPending: starting } = useStartServiceWithOtp();
     const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
 
@@ -118,23 +118,23 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         ]);
     };
 
-    const handleVerifyOtp = () => {
+    const handleVerifyAndStart = () => {
         if (otp.length < 4) { Alert.alert('Invalid OTP', 'Enter the OTP from the customer.'); return; }
-        verifyOtp({ serviceId: assignment.serviceId || assignment.id, otp });
+        startService({ bookingId: assignment.serviceId || assignment.id, otp });
     };
 
-    const handleStart = async () => {
+    const handleArrive = async () => {
         try {
             setIsFetchingLocation(true);
             const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
-                Alert.alert('Permission Denied', 'Location permission is required to start the service.');
+                Alert.alert('Permission Denied', 'Location permission is required to verify arrival distance.');
                 setIsFetchingLocation(false);
                 return;
             }
             const location = await ExpoLocation.getCurrentPositionAsync({});
-            startSvc({ 
-                serviceId: assignment.serviceId || assignment.id,
+            markArrived({ 
+                bookingId: assignment.serviceId || assignment.id,
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude
             });
@@ -259,8 +259,21 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
                 {assignment.status === 'accepted' && (
                     <View style={styles.actionsCard}>
+                        <Text style={styles.sectionTitle}>Arrive at Location</Text>
+                        <Text style={styles.hintText}>Mark your arrival when you reach the customer's location. You must be nearby to proceed.</Text>
+                        <Button 
+                            title={isFetchingLocation ? "Getting Location..." : "📍 Mark as Arrived"} 
+                            onPress={handleArrive} 
+                            loading={arriving || isFetchingLocation} 
+                            style={styles.startBtn} 
+                        />
+                    </View>
+                )}
+
+                {assignment.status === 'reached' && (
+                    <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Verify Customer OTP</Text>
-                        <Text style={styles.hintText}>Ask the customer for their OTP before starting the service.</Text>
+                        <Text style={styles.hintText}>Ask the customer for their service OTP to begin the job.</Text>
                         <View style={styles.otpRow}>
                             <TextInput
                                 style={styles.otpInput}
@@ -271,9 +284,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 maxLength={6}
                                 placeholderTextColor={colors.textDisabled}
                             />
-                            <Button title="Verify" onPress={handleVerifyOtp} loading={verifying} style={styles.otpBtn} fullWidth={false} />
+                            <Button title="▶ Verify & Start" onPress={handleVerifyAndStart} loading={starting} style={styles.otpBtn} fullWidth={false} />
                         </View>
-                        <Button title={isFetchingLocation ? "Validating location..." : "▶ Start Service"} onPress={handleStart} loading={starting || isFetchingLocation} style={styles.startBtn} />
                     </View>
                 )}
 
