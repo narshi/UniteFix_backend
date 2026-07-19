@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -234,9 +235,11 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
 
           {/* Header */}
           <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.shieldContainer}>
-              <Shield size={32} color={colors.primary} strokeWidth={2} />
-            </View>
+            <Image
+              source={require('../../../assets/icon_trimmed.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <Text style={styles.title}>Verify Your Identity</Text>
             <Text style={styles.subtitle}>
               Signing up as <Text style={styles.roleHighlight}>{roleLabel}</Text>
@@ -404,6 +407,7 @@ const styles = StyleSheet.create({
   backButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', marginTop: 8 },
   header: { alignItems: 'center', marginTop: 20, marginBottom: 32 },
   shieldContainer: { width: 64, height: 64, borderRadius: 20, backgroundColor: colors.primarySurface, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  logoImage: { width: 72, height: 72, borderRadius: 18, marginBottom: 20 },
   title: { fontSize: fontSizes.xl, fontWeight: fontWeights.bold, color: colors.textPrimary, marginBottom: 8 },
   subtitle: { fontSize: fontSizes.base, color: colors.textSecondary },
   roleHighlight: { fontWeight: fontWeights.semibold, color: colors.primary },

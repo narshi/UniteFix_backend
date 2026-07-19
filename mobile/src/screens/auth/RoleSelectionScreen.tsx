@@ -114,9 +114,11 @@ export function RoleSelectionScreen({ navigation }: Props) {
         ]}
       >
         <View style={styles.logoContainer}>
-          <View style={styles.logoBadge}>
-            <Shield size={28} color={colors.background} strokeWidth={2.5} />
-          </View>
+          <Image
+            source={require('../../../assets/icon_trimmed.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.title}>Welcome to UniteFix</Text>
         <Text style={styles.subtitle}>How would you like to use the app?</Text>
@@ -266,18 +268,10 @@ const styles = StyleSheet.create({
   logoContainer: {
     marginBottom: 20,
   },
-  logoBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+  logoImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
   },
   title: {
     fontSize: fontSizes['2xl'],
