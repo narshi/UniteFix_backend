@@ -70,7 +70,10 @@ export class AdminServiceManager {
       ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
     `) as any;
 
-        const total = parseInt(countResult?.[0]?.count || "0");
+        const total = (() => {
+            const raw = Array.isArray(countResult) ? countResult : (countResult?.rows || []);
+            return parseInt(raw?.[0]?.count || "0");
+        })();
 
         // Get services with customer and technician details
         const services = await db
@@ -354,7 +357,8 @@ export class AdminServiceManager {
       ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
     `) as any;
 
-        const stats = statsResult?.[0];
+        const statsRaw = Array.isArray(statsResult) ? statsResult : (statsResult?.rows || []);
+        const stats = statsRaw?.[0];
         return stats;
     }
 
@@ -375,7 +379,8 @@ export class AdminServiceManager {
       FROM service_requests
       WHERE provider_id = ${technicianId}
     `) as any;
-        const metrics = metricsResult?.[0];
+        const metricsRaw = Array.isArray(metricsResult) ? metricsResult : (metricsResult?.rows || []);
+        const metrics = metricsRaw?.[0];
 
         // Get wallet balance
         const walletResult = await db.execute(sql`
@@ -383,7 +388,8 @@ export class AdminServiceManager {
       FROM partner_wallets
       WHERE partner_id = ${technicianId}
     `) as any;
-        const wallet = walletResult?.[0];
+        const walletRaw = Array.isArray(walletResult) ? walletResult : (walletResult?.rows || []);
+        const wallet = walletRaw?.[0];
 
         return {
             ...metrics,
