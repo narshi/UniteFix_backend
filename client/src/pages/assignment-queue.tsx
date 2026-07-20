@@ -74,7 +74,7 @@ export default function AssignmentQueuePage() {
 
   // Get unique service types for filter dropdown
   const serviceTypes = useMemo(() => {
-    const types = new Set(queue.map((r) => r.serviceType));
+    const types = new Set(queue.map((r) => r.serviceType).filter(Boolean));
     return Array.from(types).sort();
   }, [queue]);
 
@@ -266,9 +266,9 @@ export default function AssignmentQueuePage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
-                    {serviceTypes.map((type) => (
+                    {serviceTypes.map((type) => type ? (
                       <SelectItem key={type} value={type}>{type}</SelectItem>
-                    ))}
+                    ) : null)}
                   </SelectContent>
                 </Select>
               </div>
