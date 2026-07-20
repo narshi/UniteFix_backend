@@ -428,7 +428,8 @@ export class AdminProductService {
       SELECT value FROM platform_config
       WHERE key = 'PRODUCT_CONFIG.CATEGORIES'
     `) as any;
-        const config = configResult?.[0];
+        const configRows = Array.isArray(configResult) ? configResult : (configResult?.rows || []);
+        const config = configRows?.[0];
 
         if (!config) {
             // Default 3 categories

@@ -165,7 +165,8 @@ export function registerPaymentRoutes(app: Express) {
                 SELECT service_amount FROM service_charges 
                 WHERE service_request_id = ${serviceId}
             `) as any;
-            const serviceCharge = serviceChargeResult?.[0];
+            const scRows = Array.isArray(serviceChargeResult) ? serviceChargeResult : (serviceChargeResult?.rows || []);
+            const serviceCharge = scRows?.[0];
 
             if (!serviceCharge) {
                 return res.status(400).json({
@@ -310,7 +311,8 @@ export function registerPaymentRoutes(app: Express) {
         SELECT * FROM invoices 
         WHERE service_request_id = ${serviceId}
       `) as any;
-            const invoice = invoiceResult?.[0];
+            const invRows = Array.isArray(invoiceResult) ? invoiceResult : (invoiceResult?.rows || []);
+            const invoice = invRows?.[0];
 
             if (!invoice) {
                 return res.status(404).json({ error: "Invoice not found" });

@@ -197,7 +197,8 @@ export class PaymentService {
             SELECT booking_fee, pricing_snapshot, total_amount
             FROM service_requests WHERE id = ${serviceRequestId}
         `) as any;
-        const sr = srResult?.[0];
+        const srRows = Array.isArray(srResult) ? srResult : (srResult?.rows || []);
+        const sr = srRows?.[0];
 
         const defaultFee = await configService.get<number>("BUSINESS_CONFIG.BASE_SERVICE_FEE", 99);
         const bookingFee = (sr?.booking_fee !== undefined && sr?.booking_fee !== null) ? parseInt(sr.booking_fee) : defaultFee;
@@ -378,7 +379,8 @@ export class PaymentService {
             FROM service_requests
             WHERE id = ${serviceRequestId}
         `) as any;
-        const sr = srResult?.[0];
+        const srRows2 = Array.isArray(srResult) ? srResult : (srResult?.rows || []);
+        const sr = srRows2?.[0];
 
         if (!sr || !sr.total_amount) {
             throw new Error("Service billing not completed — totalAmount is missing");
