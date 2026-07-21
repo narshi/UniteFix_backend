@@ -427,7 +427,12 @@ export class AdminServiceManager {
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
-            .where(eq(serviceRequests.status, 'created'))
+            .where(
+                and(
+                    eq(serviceRequests.status, 'created'),
+                    eq(serviceRequests.bookingFeeStatus, 'paid')
+                )
+            )
             .orderBy(desc(serviceRequests.createdAt));
 
         // Calculate waiting hours for each request

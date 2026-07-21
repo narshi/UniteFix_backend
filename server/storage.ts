@@ -941,8 +941,9 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(serviceRequests)
       .where(
-        or(
-          eq(serviceRequests.status, 'created')
+        and(
+          eq(serviceRequests.status, 'created'),
+          eq(serviceRequests.bookingFeeStatus, 'paid')
         )
       )
       .orderBy(desc(serviceRequests.createdAt));
