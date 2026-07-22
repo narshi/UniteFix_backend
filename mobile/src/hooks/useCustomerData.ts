@@ -150,7 +150,8 @@ export function useCancelServiceRequest() {
 
             queryClient.setQueryData(queryKeys.serviceRequests, (old: any) => {
                 if (!old) return old;
-                return old.map((r: any) => r.id === id ? { ...r, status: 'cancelled' } : r);
+                // Remove from active list - it will be fetched in history instead if it's merely cancelled
+                return old.filter((r: any) => r.id !== id);
             });
 
             return { previousRequests, previousHistory };

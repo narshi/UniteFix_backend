@@ -1619,6 +1619,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: "Cannot cancel a completed service." });
       }
 
+      // Hard-delete unpaid bookings (e.g. if the user backed out of Razorpay)
+      if (service.status === 'created' && service.bookingFeeStatus === 'pending') {
+          await db.delete(serviceRequests).where(eq(serviceRequests.id, service.id));
+          return res.json({ 
+              success: true, 
+              message: "Unpaid booking removed successfully", 
+              data: { ...service, status: 'deleted' } 
+          });
+      }
+
       // Admin cancellation automatically triggers a refund of the booking fee
       let refundInitiated = false;
       if (isAdmin) {

@@ -203,17 +203,18 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                                 );
                                             } catch (err: any) {
                                                 handleRazorpayError(err);
-                                                // Booking is created but unpaid — user can retry
+                                                
+                                                // User backed out of payment — silently delete the draft booking
+                                                try {
+                                                    await customerApi.cancelServiceRequest(response.data.data.id);
+                                                } catch(cancelErr) {
+                                                    console.warn('Failed to cleanup unpaid booking', cancelErr);
+                                                }
+
                                                 Alert.alert(
-                                                    'Booking Created',
-                                                    'Your request is saved. Complete payment from My Requests to confirm.',
-                                                    [{ text: 'OK', onPress: () => navigation.reset({
-                                                        index: 0,
-                                                        routes: [{
-                                                            name: 'CustomerTabs',
-                                                            state: { routes: [{ name: 'BookingsTab' }] }
-                                                        }]
-                                                    }) }]
+                                                    'Payment Cancelled',
+                                                    'Your booking was not created because the payment was cancelled. Please try again.',
+                                                    [{ text: 'OK' }]
                                                 );
                                             }
                                         } else {
