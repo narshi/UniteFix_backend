@@ -2246,6 +2246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerUploadRoutes(app); // Image uploads (Cloudinary)
+  registerPaymentRoutes(app); // Register Razorpay and webhook routes
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);
