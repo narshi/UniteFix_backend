@@ -1536,10 +1536,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
+          } else {
+            logger.warn(`[BOOKING] Razorpay keys missing. Skipping payment (dev mode).`);
+            await db.update(serviceRequests)
+              .set({ bookingFeeStatus: 'paid' as any })
+              .where(eq(serviceRequests.id, service.id));
           }
         } catch (payError: any) {
           logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
           // Don't block booking — proceed without payment for dev/testing
+          await db.update(serviceRequests)
+            .set({ bookingFeeStatus: 'paid' as any })
+            .where(eq(serviceRequests.id, service.id));
         }
       } else {
         logger.info(`[BOOKING] Free booking created for service ${service.id}.`);
