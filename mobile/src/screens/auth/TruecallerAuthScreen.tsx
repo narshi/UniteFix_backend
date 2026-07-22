@@ -169,7 +169,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       setOtpStep('otp');
     } catch (err: any) {
       if (__DEV__) console.error('[Firebase OTP]', err);
-      setAuthError(err.message || 'Failed to send OTP. Please try again.');
+      // In release mode, surface the exact error code to the UI so we can debug it
+      const errorMessage = err?.code ? `[${err.code}] ${err.message}` : (err.message || 'Failed to send OTP. Please try again.');
+      setAuthError(errorMessage);
     } finally {
       setIsAuthenticating(false);
     }
