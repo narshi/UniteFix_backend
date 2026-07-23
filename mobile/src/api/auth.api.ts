@@ -47,6 +47,7 @@ export interface AuthResponse {
   success: boolean;
   message: string;
   isNewUser: boolean;
+  requiresProfile?: boolean;
   user: AuthUser;
   profile: any;
   accessToken: string;
@@ -104,7 +105,7 @@ export const authApi = {
   /**
    * FALLBACK AUTH: Verify Firebase OTP ID Token
    */
-  firebaseVerify: (data: { idToken: string; phone: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string }) =>
+  firebaseVerify: (data: { idToken: string; phone: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string; email?: string }) =>
     apiClient.post<AuthResponse>('/api/auth/fallback/firebase-verify', data),
 
   /**

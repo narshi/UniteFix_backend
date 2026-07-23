@@ -54,7 +54,7 @@ export default function PartnersPage() {
       partner.services?.some((service: string) => service.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesStatus = verificationStatusFilter === "all" ||
-      partner.verificationStatus === verificationStatusFilter;
+      partner.documentVerificationStatus === verificationStatusFilter;
 
     const matchesActiveStatus = activeStatusFilter === "all" ||
       (activeStatusFilter === "active" && partner.isActive) ||
@@ -232,7 +232,7 @@ export default function PartnersPage() {
               <div className="col-span-2 space-y-2">
                 <Label className="text-[hsl(210,20%,85%)]">Services Offered *</Label>
                 <div className="grid grid-cols-2 gap-2 border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 rounded-md h-40 overflow-y-auto custom-scrollbar">
-                  {availableServices.map((service) => (
+                  {availableServices.map((service: string) => (
                     <div key={service} className="flex items-center space-x-2">
                       <input
                         type="checkbox"
@@ -369,14 +369,14 @@ export default function PartnersPage() {
                       <td className="p-4">
                         <Badge
                           variant={
-                            partner.verificationStatus === 'verified' ? 'default' :
-                              partner.verificationStatus === 'suspended' ? 'destructive' : 'secondary'
+                            partner.documentVerificationStatus === 'verified' ? 'default' :
+                              partner.documentVerificationStatus === 'suspended' ? 'destructive' : 'secondary'
                           }
-                          className={`flex items-center gap-1.5 w-fit ${partner.verificationStatus === 'verified' ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]' : partner.verificationStatus === 'suspended' ? 'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border-[hsla(347,77%,50%,0.3)] shadow-[0_0_10px_hsla(347,77%,50%,0.2)]' : 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)]'}`}
+                          className={`flex items-center gap-1.5 w-fit ${partner.documentVerificationStatus === 'verified' ? 'bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-[hsla(160,84%,39%,0.3)]' : partner.documentVerificationStatus === 'suspended' ? 'bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border-[hsla(347,77%,50%,0.3)] shadow-[0_0_10px_hsla(347,77%,50%,0.2)]' : 'bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)]'}`}
                         >
-                          {partner.verificationStatus === 'verified' ? <CheckCircle className="w-3 h-3" /> :
-                            partner.verificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          <span className="capitalize">{partner.verificationStatus}</span>
+                          {partner.documentVerificationStatus === 'verified' ? <CheckCircle className="w-3 h-3" /> :
+                            partner.documentVerificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          <span className="capitalize">{partner.documentVerificationStatus}</span>
                         </Badge>
                       </td>
                       <td className="p-4 text-right">

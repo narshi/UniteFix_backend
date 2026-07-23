@@ -545,6 +545,11 @@ export class DatabaseStorage implements IStorage {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(employees.id, id))
       .returning();
+      
+    if (employee && updates.fullName) {
+      await db.update(users).set({ username: updates.fullName }).where(eq(users.id, employee.userId));
+    }
+    
     return employee || undefined;
   }
 
@@ -597,7 +602,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteServiceProvider(id: number): Promise<boolean> {
-    await db.delete(employees).where(eq(employees.id, id));
+    const [employee] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
+    if (employee) {
+      // Soft-delete the associated user record to prevent re-login recreating the profile
+      await db.update(users).set({ isActive: false, deletedAt: new Date() }).where(eq(users.id, employee.userId));
+      await db.delete(employees).where(eq(employees.id, id));
+    }
     return true;
   }
 

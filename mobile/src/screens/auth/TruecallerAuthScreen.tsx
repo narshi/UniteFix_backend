@@ -21,13 +21,13 @@ import { authApi } from '../../api/auth.api';
 import auth from '@react-native-firebase/auth';
 import { colors } from '../../theme/colors';
 import { fontSizes, fontWeights } from '../../theme/typography';
-import { Phone, Shield, ChevronLeft, CheckCircle, AlertCircle, Mail } from 'lucide-react-native';
+import { Phone, Shield, ChevronLeft, CheckCircle, AlertCircle, Mail, User } from 'lucide-react-native';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'TruecallerAuth'>;
 
 const TC_GREEN = '#0095FF';
 
-type OtpStep = 'phone' | 'otp';
+type OtpStep = 'phone' | 'otp' | 'profile';
 
 export function TruecallerAuthScreen({ navigation, route }: Props) {
   const { role } = route.params;
@@ -58,6 +58,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const [otpStep, setOtpStep] = useState<OtpStep>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [tempToken, setTempToken] = useState(''); // Store token for profile submission
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
@@ -101,7 +104,10 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
             role,
           });
 
-          if (data.success) {
+          if (data.requiresProfile) {
+            setTempToken(idToken);
+            setOtpStep('profile');
+          } else if (data.success) {
             setAuthSuccess(true);
             await handleAuthSuccess(data);
           } else {
@@ -198,7 +204,10 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         role,
       });
 
-      if (data.success) {
+      if (data.requiresProfile) {
+        setTempToken(idToken);
+        setOtpStep('profile');
+      } else if (data.success) {
         setAuthSuccess(true);
         await handleAuthSuccess(data);
       } else {
@@ -210,6 +219,47 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       } else {
         setAuthError(err?.response?.data?.message || err.message || 'OTP verification failed');
       }
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  /**
+   * 4. COMPLETE PROFILE (FOR NEW USERS)
+   */
+  const handleCompleteProfile = async () => {
+    if (!name.trim() || !email.trim()) {
+      setAuthError('Name and email are required');
+      return;
+    }
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError('Please enter a valid email');
+      return;
+    }
+
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const normalized = phone.replace(/[^0-9]/g, '');
+      // We pass the tempToken, phone, role, and now Name and Email back to firebaseVerify
+      // Since it's a POST request with body, we use authApi.firebaseVerify again
+      const { data } = await authApi.firebaseVerify({
+        idToken: tempToken,
+        phone: normalized,
+        role,
+        firstName: name,
+        email: email,
+      });
+
+      if (data.success && !data.requiresProfile) {
+        setAuthSuccess(true);
+        await handleAuthSuccess(data);
+      } else {
+        setAuthError(data.message || 'Profile creation failed');
+      }
+    } catch (err: any) {
+      setAuthError(err?.response?.data?.message || err.message || 'Profile creation failed');
     } finally {
       setIsAuthenticating(false);
     }
@@ -388,7 +438,52 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                         style={styles.resendBtn}
                         onPress={() => { setOtpStep('phone'); setOtp(''); setAuthError(null); }}
                       >
-                        <Text style={styles.resendText}>Didn't receive it? Resend OTP</Text>
+                        <Text style={styles.resendText}>Change Number</Text>
+                      </Pressable>
+                    </>
+                  )}
+
+                  {/* Step 3: Profile Input for New Users */}
+                  {otpStep === 'profile' && (
+                    <>
+                      <View style={styles.otpHeader}>
+                        <User size={28} color={colors.primary} />
+                        <Text style={styles.otpTitle}>Complete Profile</Text>
+                        <Text style={styles.otpSubtitle}>
+                          Please provide your details to finish registration.
+                        </Text>
+                      </View>
+
+                      <Text style={styles.inputLabel}>Full Name *</Text>
+                      <View style={styles.inputWrapper}>
+                        <TextInput
+                          style={styles.input}
+                          value={name}
+                          onChangeText={(t) => { setName(t); setAuthError(null); }}
+                          placeholder="John Doe"
+                          placeholderTextColor={colors.textDisabled}
+                        />
+                      </View>
+
+                      <Text style={[styles.inputLabel, { marginTop: 16 }]}>Email Address *</Text>
+                      <View style={styles.inputWrapper}>
+                        <TextInput
+                          style={styles.input}
+                          value={email}
+                          onChangeText={(t) => { setEmail(t); setAuthError(null); }}
+                          placeholder="john@example.com"
+                          placeholderTextColor={colors.textDisabled}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                        />
+                      </View>
+
+                      <Pressable
+                        style={[styles.submitButton, (!name.trim() || !email.trim()) && styles.submitButtonDisabled]}
+                        onPress={handleCompleteProfile}
+                        disabled={!name.trim() || !email.trim()}
+                      >
+                        <Text style={styles.submitButtonText}>Complete Signup</Text>
                       </Pressable>
                     </>
                   )}

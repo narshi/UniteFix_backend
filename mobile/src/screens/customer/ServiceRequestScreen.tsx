@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: spacing.xl,
         paddingTop: spacing.xl,
-        paddingBottom: spacing['3xl'],
+        paddingBottom: 120, // Increased padding to prevent camera button clipping
     },
     typeBadge: {
         alignSelf: 'flex-start',

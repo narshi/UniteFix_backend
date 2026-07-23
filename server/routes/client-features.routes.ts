@@ -401,6 +401,19 @@ export function registerClientFeatureRoutes(app: Express) {
                 }
             }
 
+            // Sync with employees table if the user is a serviceman
+            if (updatedUser?.role === 'serviceman') {
+                const employeeUpdates: any = { updatedAt: new Date() };
+                if (username !== undefined) employeeUpdates.fullName = username;
+                // If they update homeAddress or pinCode, we could update location too, 
+                // but at minimum we must keep fullName in sync
+                if (Object.keys(employeeUpdates).length > 1) {
+                    await db.update(employees)
+                        .set(employeeUpdates)
+                        .where(eq(employees.userId, userId));
+                }
+            }
+
             // Fetch final customer profile for response
             const [finalCustomer] = await db.select().from(customers).where(eq(customers.userId, userId)).limit(1);
 

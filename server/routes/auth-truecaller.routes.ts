@@ -182,8 +182,6 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
     let isNewUser = false;
 
     if (!user) {
-      // Also check by truecallerId (in case phone changed)
-      const users = await storage.getUserByEmail(email || '');
       // New user — create account
       isNewUser = true;
       const userRole = role === 'serviceman' ? 'serviceman' : 'user';
@@ -603,6 +601,7 @@ const firebaseVerifySchema = z.object({
   role: z.enum(['user', 'serviceman']),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  email: z.string().optional(),
 });
 
 router.post('/fallback/firebase-verify', async (req: Request, res: Response, next: NextFunction) => {
@@ -628,7 +627,7 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
        // Note: we can enforce this strictly if required, but Firebase already verifies the number
     }
 
-    const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ') || 'User';
+    const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
 
     // 3. Find or Create User
     let user = await storage.getUserByPhone(phone);
@@ -636,11 +635,32 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
 
     if (!user) {
       isNewUser = true;
+      
+      // Require Name and Email for new users
+      if (!fullName || !data.email) {
+          return res.json({ 
+              success: true, 
+              requiresProfile: true, 
+              isNewUser: true,
+              message: "Please provide your name and email to complete registration."
+          });
+      }
+
+      if (data.email) {
+        const existingEmailUser = await storage.getUserByEmail(data.email);
+        if (existingEmailUser) {
+          return res.status(400).json({ 
+            success: false, 
+            message: 'This email is already associated with another account.' 
+          });
+        }
+      }
+
       const userRole = role === 'serviceman' ? 'serviceman' : 'user';
 
       user = await storage.createUser({
         phone,
-        email: null,
+        email: data.email || null,
         password: null as any,
         username: fullName,
         role: userRole as any,

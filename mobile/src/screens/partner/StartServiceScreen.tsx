@@ -80,7 +80,10 @@ export function StartServiceScreen({ navigation, route }: Props) {
             });
             const { latitude, longitude } = location.coords;
 
-            const { data } = await apiClient.patch(`/api/v1/bookings/${bookingId}/arrive`, {
+            // Use the numeric ID for backend route matching
+            const numericId = route.params?.bookingId || route.params?.id || bookingId;
+
+            const { data } = await apiClient.patch(`/api/v1/bookings/${numericId}/arrive`, {
                 latitude,
                 longitude,
             });

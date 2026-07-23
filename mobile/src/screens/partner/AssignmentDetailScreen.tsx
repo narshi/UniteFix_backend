@@ -134,7 +134,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
             }
             const location = await ExpoLocation.getCurrentPositionAsync({});
             markArrived({ 
-                bookingId: assignment.serviceId || assignment.id,
+                bookingId: assignment.id,
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude
             });
