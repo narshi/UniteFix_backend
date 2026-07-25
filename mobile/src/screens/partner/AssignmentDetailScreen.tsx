@@ -120,7 +120,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     const handleVerifyAndStart = () => {
         if (otp.length < 4) { Alert.alert('Invalid OTP', 'Enter the OTP from the customer.'); return; }
-        startService({ bookingId: assignment.serviceId || assignment.id, otp });
+        startService({ bookingId: assignment.id, otp });
     };
 
     const handleArrive = async () => {
@@ -160,7 +160,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const handleComplete = () => {
         Alert.alert('Complete Service', 'Mark this service as done?', [
             { text: 'Cancel' },
-            { text: 'Complete', onPress: () => complete(assignment.serviceId || assignment.id, { onSuccess: () => navigation.goBack() }) },
+            { text: 'Complete', onPress: () => complete(assignment.id, { onSuccess: () => navigation.goBack() }) },
         ]);
     };
 
