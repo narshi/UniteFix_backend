@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -60,10 +60,8 @@ export default function PartnerAssignmentModal({
 
   const assignPartnerMutation = useMutation({
     mutationFn: async (partnerId: number) => {
-      const { apiRequest } = await import("@/lib/queryClient");
-      return await apiRequest("POST", `/api/admin/requests/assign`, {
-        request_id: service.id,
-        provider_id: partnerId,
+      return await apiRequest("POST", `/api/admin/services/${service.id}/assign`, {
+        technicianId: partnerId,
       });
     },
     onSuccess: () => {

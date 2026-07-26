@@ -1186,59 +1186,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Assign provider to service request
-  app.post("/api/admin/requests/assign", async (req, res, next) => {
-    try {
-      const { request_id, provider_id } = req.body;
-
-      if (!request_id || !provider_id) {
-        return res.status(400).json({ success: false, message: "request_id and provider_id required" });
-      }
-
-      const service = await storage.assignProviderToService(request_id, provider_id);
-
-      if (!service) {
-        return res.status(404).json({ success: false, message: "Service request not found" });
-      }
-
-      res.json({ success: true, message: "Provider assigned successfully", data: service });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Update service status
-  app.patch("/api/admin/services/:id/status", async (req, res, next) => {
-    try {
-      const { status } = req.body;
-      const service = await storage.updateServiceRequestStatus(parseInt(req.params.id), status);
-
-      if (!service) {
-        return res.status(404).json({ success: false, message: "Service not found" });
-      }
-
-      res.json({ success: true, data: service });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Assign partner (backward compatibility)
-  app.post("/api/admin/services/:id/assign", async (req, res, next) => {
-    try {
-      const { partnerId } = req.body;
-      const service = await storage.assignProviderToService(parseInt(req.params.id), partnerId);
-
-      if (!service) {
-        return res.status(404).json({ message: "Service not found" });
-      }
-
-      res.json(service);
-    } catch (error) {
-      next(error);
-    }
-  });
-
   // ==================== UTILS ====================
 
   app.post("/api/utils/validate-pincode", async (req, res, next) => {

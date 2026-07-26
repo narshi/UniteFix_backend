@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
-import { Search, Download, Filter } from "lucide-react";
+import { Search, Download, Filter, RefreshCw } from "lucide-react";
+import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
 
 export default function ServicesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedService, setSelectedService] = useState<any>(null);
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   
   const { data: services = [], isLoading } = useQuery({
     queryKey: ["/api/admin/services"],
@@ -330,14 +332,27 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                         </td>
                         <td className="p-4">
                           <div className="flex space-x-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedService(service)}
-                              className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(217,91%,60%)] bg-[hsla(217,91%,60%,0.05)] hover:bg-[hsla(217,91%,60%,0.15)] transition-colors"
-                            >
-                              <span className="text-xs font-medium">View Details</span>
-                            </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedService(service)}
+                                className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(217,91%,60%)] bg-[hsla(217,91%,60%,0.05)] hover:bg-[hsla(217,91%,60%,0.15)] transition-colors"
+                              >
+                                <span className="text-xs font-medium">View Details</span>
+                              </Button>
+                              {['assigned', 'accepted'].includes(service.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedService(service);
+                                    setIsAssignModalOpen(true);
+                                  }}
+                                  className="h-8 border-[hsla(38,92%,60%,0.3)] text-[hsl(38,92%,60%)] bg-[hsla(38,92%,60%,0.05)] hover:bg-[hsla(38,92%,60%,0.15)] transition-colors"
+                                >
+                                  <span className="text-xs font-medium">Reassign</span>
+                                </Button>
+                              )}
                               {service.status === 'completed' && (
                               <Button
                                 size="sm"
@@ -440,17 +455,30 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </div>
                 )}
 
-                {selectedService.technicianName && (
+                {(selectedService.technicianName || ['assigned', 'accepted'].includes(selectedService.status)) && (
                   <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
-                    <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(38,92%,60%)] rounded-full"></span> Assigned Employee</h4>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="font-medium text-white flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(38,92%,60%)] rounded-full"></span> Assigned Employee</h4>
+                      {['assigned', 'accepted'].includes(selectedService.status) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs border-[hsla(217,91%,60%,0.3)] text-[hsl(217,91%,70%)] hover:bg-[hsla(217,91%,60%,0.1)] hover:text-white"
+                          onClick={() => setIsAssignModalOpen(true)}
+                        >
+                          <RefreshCw className="w-3 h-3 mr-2" />
+                          Reassign
+                        </Button>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                         <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Employee Name</p>
-                        <p className="text-base text-white">{selectedService.technicianName}</p>
+                        <p className="text-base text-white">{selectedService.technicianName || <span className="text-red-400">Data Corrupted - Please Reassign</span>}</p>
                       </div>
                       <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                         <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Employee ID</p>
-                        <p className="text-base font-mono text-[hsl(210,20%,85%)]">BU{String(selectedService.providerId || '').padStart(5, '0')}</p>
+                        <p className="text-base font-mono text-[hsl(210,20%,85%)]">{selectedService.providerId ? `BU${String(selectedService.providerId).padStart(5, '0')}` : 'N/A'}</p>
                       </div>
                     </div>
                   </div>
@@ -492,6 +520,12 @@ Generated on: ${new Date().toLocaleString('en-IN')}
             )}
           </DialogContent>
         </Dialog>
+
+        <PartnerAssignmentModal
+          isOpen={isAssignModalOpen}
+          onClose={() => setIsAssignModalOpen(false)}
+          service={selectedService}
+        />
       </div>
   );
 }
