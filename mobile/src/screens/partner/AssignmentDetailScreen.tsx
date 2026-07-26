@@ -175,8 +175,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     return (
         <KeyboardAvoidingView 
             style={styles.container} 
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 20}
         >
             <ScreenHeader title="Assignment" onBack={() => navigation.goBack()} />
 

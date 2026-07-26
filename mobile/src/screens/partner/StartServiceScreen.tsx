@@ -140,7 +140,7 @@ export function StartServiceScreen({ navigation, route }: Props) {
     return (
         <KeyboardAvoidingView
             style={styles.container}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         >
             {/* Header */}
             <View style={styles.header}>
@@ -382,9 +382,9 @@ const styles = StyleSheet.create({
     },
     otpInput: {
         width: '100%', maxWidth: 320, height: 64, borderWidth: 2, borderColor: colors.border,
-        borderRadius: radii.lg, fontSize: 32, fontWeight: '700',
+        borderRadius: radii.lg, fontSize: 24, fontWeight: '700',
         color: colors.textPrimary, backgroundColor: colors.background,
-        letterSpacing: 12, textAlign: 'center',
+        letterSpacing: 8, textAlign: 'center',
     },
     otpInputError: { borderColor: colors.error },
     otpErrorText: {
