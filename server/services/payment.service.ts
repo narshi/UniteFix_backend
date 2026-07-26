@@ -195,6 +195,7 @@ export class PaymentService {
                 fixed_amount: true,
                 payment_amount: amountPaise,
                 description: `Payment for Service #${serviceRequestId}`,
+                close_by: Math.floor(Date.now() / 1000) + 12 * 60, // Razorpay requires minimum 12 mins
                 notes: {
                     service_request_id: serviceRequestId.toString(),
                 }

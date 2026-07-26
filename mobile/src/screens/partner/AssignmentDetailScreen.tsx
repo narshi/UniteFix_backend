@@ -67,6 +67,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: generateQr, isPending: generatingQr } = useGenerateRazorpayQR();
     const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
     const [qrError, setQrError] = useState(false);
+    const [qrExpiresAt, setQrExpiresAt] = useState<number | null>(null);
+    const [qrTimeLeft, setQrTimeLeft] = useState(0);
 
     // Parse customerLocation from WKT string or fallback to geocode
     useEffect(() => {
@@ -99,22 +101,48 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     }, [assignment?.address, assignment?.customerLocation]);
 
     // Generate dynamic QR Code automatically when entering pending_payment state
-    useEffect(() => {
-        if (assignment?.status === 'pending_payment' && !qrCodeUrl && !qrError) {
-            generateQr(assignment.id, {
-                onSuccess: (data) => {
-                    if (data?.qrImageUrl) {
-                        setQrCodeUrl(data.qrImageUrl);
-                    } else {
-                        setQrError(true);
-                    }
-                },
-                onError: () => {
+    const handleGenerateQr = () => {
+        setQrError(false);
+        setQrExpiresAt(null);
+        setQrCodeUrl(null);
+        generateQr(assignment.id, {
+            onSuccess: (data) => {
+                if (data?.qrImageUrl) {
+                    setQrCodeUrl(data.qrImageUrl);
+                    // Set expiration to 5 minutes from now
+                    setQrExpiresAt(Date.now() + 5 * 60 * 1000);
+                    setQrTimeLeft(5 * 60);
+                } else {
                     setQrError(true);
                 }
-            });
+            },
+            onError: () => {
+                setQrError(true);
+            }
+        });
+    };
+
+    useEffect(() => {
+        if (assignment?.status === 'pending_payment' && !qrCodeUrl && !qrError && !generatingQr) {
+            handleGenerateQr();
         }
-    }, [assignment?.status, assignment?.id, qrCodeUrl, qrError, generateQr]);
+    }, [assignment?.status]);
+
+    // Timer countdown effect
+    useEffect(() => {
+        if (!qrExpiresAt) return;
+
+        const interval = setInterval(() => {
+            const left = Math.max(0, Math.floor((qrExpiresAt - Date.now()) / 1000));
+            setQrTimeLeft(left);
+            
+            if (left <= 0) {
+                clearInterval(interval);
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [qrExpiresAt]);
 
     // Early return AFTER all hooks (React Rules of Hooks)
     if (!assignment) { navigation.goBack(); return null; }
@@ -381,7 +409,12 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                         <QrCode size={20} color="#000" />
                                         <Text style={{ ...typography.h4, color: '#000' }}>Scan to Pay via UPI</Text>
                                     </View>
-                                    {qrCodeUrl ? (
+                                    {qrExpiresAt && qrTimeLeft <= 0 ? (
+                                        <View style={{ alignItems: 'center', justifyContent: 'center', width: 180, height: 180, backgroundColor: '#f5f5f5', borderRadius: radii.md }}>
+                                            <Text style={{ ...typography.body, color: colors.error, marginBottom: spacing.md, fontWeight: 'bold' }}>QR Expired</Text>
+                                            <Button title="Regenerate QR" onPress={handleGenerateQr} loading={generatingQr} disabled={generatingQr} />
+                                        </View>
+                                    ) : qrCodeUrl ? (
                                         <Image
                                             source={{ uri: qrCodeUrl }}
                                             style={{ width: 180, height: 180 }}
@@ -395,10 +428,14 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                             backgroundColor="white"
                                         />
                                     ) : (
-                                        <ActivityIndicator size="large" color={colors.primary} />
+                                        <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
+                                            <ActivityIndicator size="large" color={colors.primary} />
+                                        </View>
                                     )}
                                     <Text style={{ ...typography.caption, color: '#666', marginTop: spacing.md, textAlign: 'center' }}>
-                                        Customer can scan this QR with GPay, PhonePe, or Paytm
+                                        {qrExpiresAt && qrTimeLeft > 0 
+                                            ? `Expires in ${Math.floor(qrTimeLeft / 60).toString().padStart(2, '0')}:${(qrTimeLeft % 60).toString().padStart(2, '0')}` 
+                                            : "Customer can scan this QR with GPay, PhonePe, or Paytm"}
                                     </Text>
                                 </View>
 
