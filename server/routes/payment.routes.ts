@@ -218,6 +218,39 @@ export function registerPaymentRoutes(app: Express) {
     });
 
     /**
+     * POST /api/partner/services/:id/generate-qr
+     * Partner generates a dynamic Razorpay QR for customer to scan
+     */
+    app.post("/api/partner/services/:id/generate-qr", authenticatePartner as any, async (req: Request, res: Response) => {
+        try {
+            const serviceId = parseInt(req.params.id);
+            const partnerId = (req as any).user?.userId;
+
+            if (!partnerId) return res.status(401).json({ error: "Unauthorized" });
+
+            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+
+            if (!booking) return res.status(404).json({ error: "Booking not found" });
+            if (booking.providerId !== partnerId) return res.status(403).json({ error: "Not assigned to this booking" });
+
+            const snapshot = booking.pricingSnapshot as any;
+            let finalAmount = 0;
+            if (snapshot && snapshot.finalTotal !== undefined) {
+                finalAmount = snapshot.finalTotal;
+            } else {
+                return res.status(400).json({ error: "Bill not submitted yet." });
+            }
+
+            // Generate Razorpay QR Code
+            const qrImageUrl = await PaymentService.createDynamicQRCode(serviceId, finalAmount);
+
+            res.json({ success: true, data: { qrImageUrl } });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/webhooks/razorpay
      * Razorpay webhook handler
      * Verifies signature and updates payment status

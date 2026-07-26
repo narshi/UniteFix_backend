@@ -173,6 +173,42 @@ export class PaymentService {
     }
 
     /**
+     * Create a dynamic Razorpay QR Code for a specific service and amount
+     */
+    static async createDynamicQRCode(serviceRequestId: number, amount: number): Promise<string> {
+        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+            throw new Error("Razorpay credentials not configured");
+        }
+
+        const razorpay = new Razorpay({
+            key_id: process.env.RAZORPAY_KEY_ID,
+            key_secret: process.env.RAZORPAY_KEY_SECRET,
+        });
+
+        const amountPaise = Math.round(amount * 100);
+
+        try {
+            const qrCode = await razorpay.qrCode.create({
+                type: "upi_qr",
+                name: "UniteFix Services",
+                usage: "single_use",
+                fixed_amount: true,
+                payment_amount: amountPaise,
+                description: `Payment for Service #${serviceRequestId}`,
+                notes: {
+                    service_request_id: serviceRequestId.toString(),
+                }
+            });
+
+            // Return the image URL to display to the user
+            return qrCode.image_url;
+        } catch (error: any) {
+            logger.error(`[RAZORPAY] Failed to create QR code: ${error.message}`);
+            throw new Error(`Failed to generate payment QR Code: ${error.message}`);
+        }
+    }
+
+    /**
      * @deprecated PHASE 2 COMPAT SHIM — reads frozen snapshot first, safe for continued use.
      * Callers: createFinalPaymentOrder (only).
      * The canonical billing formula lives in server/services/billing-engine.ts.
@@ -318,6 +354,46 @@ export class PaymentService {
             return {
                 success: true,
                 message: `Payment ${paymentId} captured successfully`,
+            };
+        }
+        
+        if (event === "qr_code.credited") {
+            const qrEntity = payload.qr_code.entity;
+            const paymentEntity = payload.payment.entity;
+            const notes = qrEntity.notes || paymentEntity.notes;
+            const serviceId = notes?.service_request_id;
+            
+            if (serviceId) {
+                try {
+                    const { storage } = await import('../storage');
+                    
+                    // Record capture event via Drizzle ORM
+                    await PaymentTrackingService.recordPaymentEvent({
+                        razorpayOrderId: `qr_${qrEntity.id}`,
+                        razorpayPaymentId: paymentEntity.id,
+                        amount: paymentEntity.amount, // stored as paise
+                        currency: 'INR',
+                        eventType: 'payment_captured',
+                        status: 'captured',
+                        method: paymentEntity.method,
+                        metadata: { ...paymentEntity, qr_code_id: qrEntity.id },
+                    });
+
+                    await storage.updateServiceRequestStatus(
+                        parseInt(serviceId),
+                        BookingState.COMPLETED,
+                    );
+                    await storage.updateServiceRequest(parseInt(serviceId), {
+                        paymentMethod: 'razorpay' as any,
+                    });
+                    logger.info(`[WEBHOOK] Dynamic QR payment transitioned booking ${serviceId} to COMPLETED`);
+                } catch (err: any) {
+                    logger.warn(`[WEBHOOK] QR Code COMPLETED transition failed: ${err.message}`);
+                }
+            }
+            return {
+                success: true,
+                message: `QR Code payment captured successfully`,
             };
         }
 

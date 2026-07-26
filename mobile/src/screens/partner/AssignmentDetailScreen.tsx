@@ -14,6 +14,8 @@ import {
     Linking,
     Platform,
     KeyboardAvoidingView,
+    Image,
+    ActivityIndicator,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as ExpoLocation from 'expo-location';
@@ -32,6 +34,7 @@ import {
     useStartServiceWithOtp,
     useCompleteService,
     useEnterServiceCharge,
+    useGenerateRazorpayQR
 } from '../../hooks/usePartnerData';
 import { Assignment, partnerApi } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
@@ -61,6 +64,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: startService, isPending: starting } = useStartServiceWithOtp();
     const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
+    const { mutate: generateQr } = useGenerateRazorpayQR();
+    const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
 
     // Parse customerLocation from WKT string or fallback to geocode
     useEffect(() => {
@@ -91,6 +96,19 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 .catch((err) => { if (__DEV__) console.log('[MAP] Geocode failed:', err.message); });
         }
     }, [assignment?.address, assignment?.customerLocation]);
+
+    // Generate dynamic QR Code automatically when entering pending_payment state
+    useEffect(() => {
+        if (assignment?.status === 'pending_payment' && !qrCodeUrl) {
+            generateQr(assignment.id, {
+                onSuccess: (data) => {
+                    if (data?.qrImageUrl) {
+                        setQrCodeUrl(data.qrImageUrl);
+                    }
+                }
+            });
+        }
+    }, [assignment?.status, assignment?.id, qrCodeUrl]);
 
     // Early return AFTER all hooks (React Rules of Hooks)
     if (!assignment) { navigation.goBack(); return null; }
@@ -357,12 +375,15 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                         <QrCode size={20} color="#000" />
                                         <Text style={{ ...typography.h4, color: '#000' }}>Scan to Pay via UPI</Text>
                                     </View>
-                                    <QRCode
-                                        value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
-                                        size={180}
-                                        color="black"
-                                        backgroundColor="white"
-                                    />
+                                    {qrCodeUrl ? (
+                                        <Image
+                                            source={{ uri: qrCodeUrl }}
+                                            style={{ width: 180, height: 180 }}
+                                            resizeMode="contain"
+                                        />
+                                    ) : (
+                                        <ActivityIndicator size="large" color={colors.primary} />
+                                    )}
                                     <Text style={{ ...typography.caption, color: '#666', marginTop: spacing.md, textAlign: 'center' }}>
                                         Customer can scan this QR with GPay, PhonePe, or Paytm
                                     </Text>

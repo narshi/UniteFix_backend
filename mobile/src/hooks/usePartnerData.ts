@@ -152,3 +152,15 @@ export function useWithdraw() {
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
 }
+
+export function useGenerateRazorpayQR() {
+    return useMutation({
+        mutationFn: async (serviceId: number) => {
+            const { data } = await api.post(`/api/partner/services/${serviceId}/generate-qr`);
+            return data.data; // { qrImageUrl }
+        },
+        onError: (e) => {
+            // Optional: Alert.alert('Error', getApiErrorMessage(e));
+        }
+    });
+}
