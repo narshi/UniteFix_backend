@@ -18,6 +18,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { TokenService } from "./services/token.service";
+import { configService } from "./services/config.service";
 import logger from "./lib/logger";
 import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pagination";
 // PHASE 7: Import modular route registrations
@@ -56,7 +57,7 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 // PHASE 5: COMMISSION_RATE removed — billing now uses 15% UniteFix fee from config
-const MAX_SERVICE_START_DISTANCE = 200; // PHASE 4: Updated to 200m (was 500m)
+
 
 // Geo-fencing: use shared utility
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
@@ -1336,10 +1337,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             custLng
           );
 
-          if (distance > MAX_SERVICE_START_DISTANCE) {
+          const maxDistStr = await configService.get("OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE");
+          const maxDistance = maxDistStr ? parseInt(maxDistStr as string, 10) : 200;
+
+          if (distance > maxDistance) {
             return res.status(403).json({
               success: false,
-              message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${MAX_SERVICE_START_DISTANCE}m)`
+              message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${maxDistance}m)`
             });
           }
         }
