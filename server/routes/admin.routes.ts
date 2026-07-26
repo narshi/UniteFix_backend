@@ -13,6 +13,8 @@ import { AdminServiceManager } from "../services/admin-service.manager";
 import { AdminOrderManager, DelhiveryService } from "../services/admin-order.manager";
 import { storage } from "../storage";
 import { SupportTicketService } from "../services/support.service";
+import { db } from "../db";
+import { platformConfig } from "@shared/schema";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -563,15 +565,27 @@ export function registerAdminRoutes(app: Express) {
 
             // Verify config exists and is editable
             const existing = await storage.getPlatformConfig(key);
-            if (!existing) {
-                return res.status(404).json({ error: `Config key "${key}" not found` });
-            }
-            if (existing.isEditable === false) {
-                return res.status(403).json({ error: `Config key "${key}" is not editable` });
-            }
-
             const adminUserId = (req as any).admin?.userId || (req as any).user?.userId || 0;
-            await storage.updatePlatformConfig(key, String(value), adminUserId);
+
+            if (!existing) {
+                // Insert it if it's missing (e.g. newly added configs)
+                const categoryMatch = key.split('.')[0] || 'BUSINESS_CONFIG';
+                const valueType = typeof value === 'boolean' ? 'boolean' : (typeof value === 'number' || !isNaN(Number(value)) ? 'number' : 'string');
+                await db.insert(platformConfig).values({
+                    key,
+                    value: String(value),
+                    valueType: valueType,
+                    category: categoryMatch,
+                    description: `Auto-created config: ${key}`,
+                    isEditable: true,
+                    updatedBy: adminUserId
+                });
+            } else {
+                if (existing.isEditable === false) {
+                    return res.status(403).json({ error: `Config key "${key}" is not editable` });
+                }
+                await storage.updatePlatformConfig(key, String(value), adminUserId);
+            }
 
             res.json({ success: true, message: `Config "${key}" updated to "${value}"` });
         } catch (error: any) {
