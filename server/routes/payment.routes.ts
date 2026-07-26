@@ -237,8 +237,14 @@ export function registerPaymentRoutes(app: Express) {
             let finalAmount = 0;
             if (snapshot && snapshot.finalTotal !== undefined) {
                 finalAmount = snapshot.finalTotal;
+            } else if (booking.totalAmount !== null) {
+                finalAmount = parseInt(booking.totalAmount);
             } else {
                 return res.status(400).json({ error: "Bill not submitted yet." });
+            }
+            
+            if (finalAmount <= 0) {
+                return res.status(400).json({ error: "Amount must be greater than 0" });
             }
 
             // Generate Razorpay QR Code

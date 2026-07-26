@@ -64,8 +64,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: startService, isPending: starting } = useStartServiceWithOtp();
     const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
-    const { mutate: generateQr } = useGenerateRazorpayQR();
+    const { mutate: generateQr, isPending: generatingQr } = useGenerateRazorpayQR();
     const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+    const [qrError, setQrError] = useState(false);
 
     // Parse customerLocation from WKT string or fallback to geocode
     useEffect(() => {
@@ -99,16 +100,21 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     // Generate dynamic QR Code automatically when entering pending_payment state
     useEffect(() => {
-        if (assignment?.status === 'pending_payment' && !qrCodeUrl) {
+        if (assignment?.status === 'pending_payment' && !qrCodeUrl && !qrError) {
             generateQr(assignment.id, {
                 onSuccess: (data) => {
                     if (data?.qrImageUrl) {
                         setQrCodeUrl(data.qrImageUrl);
+                    } else {
+                        setQrError(true);
                     }
+                },
+                onError: () => {
+                    setQrError(true);
                 }
             });
         }
-    }, [assignment?.status, assignment?.id, qrCodeUrl]);
+    }, [assignment?.status, assignment?.id, qrCodeUrl, qrError, generateQr]);
 
     // Early return AFTER all hooks (React Rules of Hooks)
     if (!assignment) { navigation.goBack(); return null; }
@@ -380,6 +386,13 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                             source={{ uri: qrCodeUrl }}
                                             style={{ width: 180, height: 180 }}
                                             resizeMode="contain"
+                                        />
+                                    ) : qrError ? (
+                                        <QRCode
+                                            value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                            size={180}
+                                            color="black"
+                                            backgroundColor="white"
                                         />
                                     ) : (
                                         <ActivityIndicator size="large" color={colors.primary} />

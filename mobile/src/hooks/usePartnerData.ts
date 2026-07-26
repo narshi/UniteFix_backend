@@ -160,7 +160,7 @@ export function useGenerateRazorpayQR() {
             return data.data; // { qrImageUrl }
         },
         onError: (e) => {
-            // Optional: Alert.alert('Error', getApiErrorMessage(e));
+            Alert.alert('QR Generation Failed', getApiErrorMessage(e));
         }
     });
 }
