@@ -329,6 +329,14 @@ export default function AssignmentQueuePage() {
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">
                             {req.brand} {req.model}
                           </p>
+                          {req.createdAt && (
+                            <p className="text-[10px] text-[hsl(215,20%,45%)] mt-1 flex items-center justify-end gap-1">
+                              <Clock className="w-3 h-3" />
+                              {new Date(req.createdAt).toLocaleString(undefined, {
+                                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                              })}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>

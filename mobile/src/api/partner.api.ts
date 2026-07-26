@@ -32,6 +32,7 @@ export interface Assignment {
     latitude?: number;
     longitude?: number;
     customerLocation?: string;
+    paymentMethod?: string;
 }
 
 export interface WalletSummary {

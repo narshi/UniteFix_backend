@@ -142,6 +142,11 @@ export function registerPaymentRoutes(app: Express) {
 
             // If snapshot has billing data, use the frozen finalTotal directly
             if (snapshot && snapshot.finalTotal !== undefined && snapshot.subtotal) {
+                // Update paymentMethod to 'online' to lock the cash button on the partner app side
+                await db.update(serviceRequests)
+                    .set({ paymentMethod: 'online' })
+                    .where(eq(serviceRequests.id, serviceId));
+
                 // createFinalPaymentOrder internally calls calculateInvoice which
                 // now reads the snapshot first — pass subtotal as serviceCharge for compatibility
                 const result = await PaymentService.createFinalPaymentOrder(
@@ -186,6 +191,27 @@ export function registerPaymentRoutes(app: Express) {
                 },
                 invoice: result.invoice,
             });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/customer/services/:id/cancel-final-payment
+     * Customer cancels the Razorpay payment modal, unlock cash payment
+     */
+    app.post("/api/customer/services/:id/cancel-final-payment", authenticateToken as any, async (req: Request, res: Response) => {
+        try {
+            const serviceId = parseInt(req.params.id);
+            const customerId = (req as any).user?.userId;
+
+            if (!customerId) return res.status(401).json({ error: "Unauthorized" });
+
+            await db.update(serviceRequests)
+                .set({ paymentMethod: 'pending' })
+                .where(eq(serviceRequests.id, serviceId));
+
+            res.json({ success: true, message: "Payment method reverted to pending" });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }

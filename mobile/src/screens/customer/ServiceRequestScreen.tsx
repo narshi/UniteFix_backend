@@ -16,6 +16,7 @@ import {
     TextInput,
     Image,
     ActivityIndicator,
+    ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -82,53 +83,68 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         return Object.keys(newErrors).length === 0;
     };
 
+    const launchCamera = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Camera permission is required to take photos.');
+            return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            quality: 0.7,
+            allowsEditing: true,
+        });
+        if (!result.canceled && result.assets[0]) {
+            setPhotos((prev) => [...prev, result.assets[0].uri]);
+        }
+    };
+
+    const launchGallery = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Denied', 'Gallery permission is required to select photos.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.7,
+            allowsMultipleSelection: true,
+            selectionLimit: MAX_PHOTOS - photos.length,
+        });
+        if (!result.canceled && result.assets.length > 0) {
+            const newUris = result.assets.map((a) => a.uri);
+            setPhotos((prev) => [...prev, ...newUris].slice(0, MAX_PHOTOS));
+        }
+    };
+
     const handlePickPhotos = () => {
         if (photos.length >= MAX_PHOTOS) {
             Alert.alert('Limit Reached', `You can add up to ${MAX_PHOTOS} photos.`);
             return;
         }
 
-        Alert.alert('Add Photo', 'Choose an option', [
-            {
-                text: 'Camera',
-                onPress: async () => {
-                    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-                    if (status !== 'granted') {
-                        Alert.alert('Permission Denied', 'Camera permission is required to take photos.');
-                        return;
-                    }
-                    const result = await ImagePicker.launchCameraAsync({
-                        mediaTypes: ['images'],
-                        quality: 0.7,
-                        allowsEditing: true,
-                    });
-                    if (!result.canceled && result.assets[0]) {
-                        setPhotos((prev) => [...prev, result.assets[0].uri]);
-                    }
+        if (Platform.OS === 'ios') {
+            ActionSheetIOS.showActionSheetWithOptions(
+                {
+                    options: ['Cancel', 'Camera', 'Gallery'],
+                    cancelButtonIndex: 0,
                 },
-            },
-            {
-                text: 'Gallery',
-                onPress: async () => {
-                    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (status !== 'granted') {
-                        Alert.alert('Permission Denied', 'Gallery permission is required to select photos.');
-                        return;
-                    }
-                    const result = await ImagePicker.launchImageLibraryAsync({
-                        mediaTypes: ['images'],
-                        quality: 0.7,
-                        allowsMultipleSelection: true,
-                        selectionLimit: MAX_PHOTOS - photos.length,
-                    });
-                    if (!result.canceled && result.assets.length > 0) {
-                        const newUris = result.assets.map((a) => a.uri);
-                        setPhotos((prev) => [...prev, ...newUris].slice(0, MAX_PHOTOS));
-                    }
-                },
-            },
-            { text: 'Cancel', style: 'cancel' },
-        ]);
+                (buttonIndex) => {
+                    if (buttonIndex === 1) launchCamera();
+                    else if (buttonIndex === 2) launchGallery();
+                }
+            );
+        } else {
+            Alert.alert(
+                'Add Photo',
+                'Tap outside to cancel',
+                [
+                    { text: 'Gallery', onPress: launchGallery },
+                    { text: 'Camera', onPress: launchCamera },
+                ],
+                { cancelable: true }
+            );
+        }
     };
 
     const removePhoto = (index: number) => {

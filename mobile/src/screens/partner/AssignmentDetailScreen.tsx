@@ -13,6 +13,7 @@ import {
     TextInput,
     Linking,
     Platform,
+    KeyboardAvoidingView,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as ExpoLocation from 'expo-location';
@@ -169,10 +170,14 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     });
 
     return (
-        <View style={styles.container}>
+        <KeyboardAvoidingView 
+            style={styles.container} 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+        >
             <ScreenHeader title="Assignment" onBack={() => navigation.goBack()} />
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {/* Service info card */}
                 <View style={styles.card}>
                     <Text style={styles.serviceType}>{assignment.serviceType.replace(/_/g, ' ')}</Text>
@@ -335,16 +340,25 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             Customer needs to pay ₹{assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}. If they have no network or phone charge, you can collect cash.
                         </Text>
 
-                        <View style={styles.cashWarningCard}>
-                            <Banknote size={18} color={colors.warning} />
-                            <Text style={styles.cashWarningText}>
-                                UniteFix fee will be deducted from your wallet when you confirm cash collection.
-                            </Text>
-                        </View>
+                        {assignment.paymentMethod === 'online' ? (
+                            <View style={[styles.cashWarningCard, { borderLeftColor: colors.primary, backgroundColor: colors.primarySurface }]}>
+                                <CheckCircle size={18} color={colors.primary} />
+                                <Text style={[styles.cashWarningText, { color: colors.primary }]}>
+                                    Customer is processing online payment... Cash collection is temporarily disabled.
+                                </Text>
+                            </View>
+                        ) : (
+                            <>
+                                <View style={styles.cashWarningCard}>
+                                    <Banknote size={18} color={colors.warning} />
+                                    <Text style={styles.cashWarningText}>
+                                        UniteFix fee will be deducted from your wallet when you confirm cash collection.
+                                    </Text>
+                                </View>
 
-                        <Button
-                            title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}`}
-                            onPress={() => {
+                                <Button
+                                    title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}`}
+                                    onPress={() => {
                                 const amount = assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0;
                                 Alert.alert(
                                     'Confirm Cash Collection',
@@ -379,6 +393,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             loading={collectingCash}
                             disabled={collectingCash}
                         />
+                            </>
+                        )}
                     </View>
                 )}
 
@@ -405,7 +421,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
             </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 

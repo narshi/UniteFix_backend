@@ -315,19 +315,23 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           )}
                         </td>
                         <td className="p-4">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => downloadServiceInvoice(service)}
-                            className="flex items-center gap-1.5 h-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,80%)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white transition-all"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            <span className="text-xs">Invoice</span>
-                          </Button>
+                          {service.status === 'completed' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => downloadServiceInvoice(service)}
+                              className="flex items-center gap-1.5 h-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,80%)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white transition-all"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              <span className="text-xs">Invoice</span>
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-[hsl(215,20%,50%)]">Not available</span>
+                          )}
                         </td>
                         <td className="p-4">
                           <p className="text-sm text-[hsl(215,20%,70%)]">
-                            {new Date(service.createdAt).toLocaleDateString()}
+                            {new Date(service.createdAt).toLocaleDateString()} {new Date(service.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </td>
                         <td className="p-4">

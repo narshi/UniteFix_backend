@@ -108,6 +108,13 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 setPaymentState('success');
             }
         } catch (err: any) {
+            // Unlock cash payment on backend
+            try {
+                await apiClient.post(`/api/customer/services/${request.id}/cancel-final-payment`);
+            } catch (unlockErr) {
+                console.warn('Failed to unlock payment method', unlockErr);
+            }
+
             if (err?.code === 2) {
                 // User cancelled
                 setPaymentState('idle');
