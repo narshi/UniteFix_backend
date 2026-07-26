@@ -16,6 +16,7 @@ import {
     KeyboardAvoidingView,
     Image,
     ActivityIndicator,
+    Modal,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as ExpoLocation from 'expo-location';
@@ -69,6 +70,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [qrError, setQrError] = useState(false);
     const [qrExpiresAt, setQrExpiresAt] = useState<number | null>(null);
     const [qrTimeLeft, setQrTimeLeft] = useState(0);
+    const [isQrModalVisible, setQrModalVisible] = useState(false);
 
     // Parse customerLocation from WKT string or fallback to geocode
     useEffect(() => {
@@ -414,23 +416,27 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                             <Text style={{ ...typography.body, color: colors.error, marginBottom: spacing.md, fontWeight: 'bold' }}>QR Expired</Text>
                                             <Button title="Regenerate QR" onPress={handleGenerateQr} loading={generatingQr} disabled={generatingQr} />
                                         </View>
-                                    ) : qrCodeUrl ? (
-                                        <Image
-                                            source={{ uri: qrCodeUrl }}
-                                            style={{ width: 180, height: 180 }}
-                                            resizeMode="contain"
-                                        />
-                                    ) : qrError ? (
-                                        <QRCode
-                                            value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
-                                            size={180}
-                                            color="black"
-                                            backgroundColor="white"
-                                        />
                                     ) : (
-                                        <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
-                                            <ActivityIndicator size="large" color={colors.primary} />
-                                        </View>
+                                        <TouchableOpacity activeOpacity={0.8} onPress={() => setQrModalVisible(true)}>
+                                            {qrCodeUrl ? (
+                                                <Image
+                                                    source={{ uri: qrCodeUrl }}
+                                                    style={{ width: 180, height: 180 }}
+                                                    resizeMode="contain"
+                                                />
+                                            ) : qrError ? (
+                                                <QRCode
+                                                    value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                                    size={180}
+                                                    color="black"
+                                                    backgroundColor="white"
+                                                />
+                                            ) : (
+                                                <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
+                                                    <ActivityIndicator size="large" color={colors.primary} />
+                                                </View>
+                                            )}
+                                        </TouchableOpacity>
                                     )}
                                     <Text style={{ ...typography.caption, color: '#666', marginTop: spacing.md, textAlign: 'center' }}>
                                         {qrExpiresAt && qrTimeLeft > 0 
@@ -438,6 +444,37 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                             : "Customer can scan this QR with GPay, PhonePe, or Paytm"}
                                     </Text>
                                 </View>
+                                
+                                {/* Zoomed QR Modal */}
+                                <Modal visible={isQrModalVisible} transparent={true} animationType="fade" onRequestClose={() => setQrModalVisible(false)}>
+                                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl }}>
+                                        <TouchableOpacity style={{ position: 'absolute', top: 60, right: 30, padding: 10 }} onPress={() => setQrModalVisible(false)}>
+                                            <XCircle size={32} color="#fff" />
+                                        </TouchableOpacity>
+                                        <View style={{ backgroundColor: '#fff', padding: spacing.xl, borderRadius: radii.lg, alignItems: 'center' }}>
+                                            {qrCodeUrl ? (
+                                                <Image
+                                                    source={{ uri: qrCodeUrl }}
+                                                    style={{ width: 300, height: 300 }}
+                                                    resizeMode="contain"
+                                                />
+                                            ) : qrError && (
+                                                <QRCode
+                                                    value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                                    size={300}
+                                                    color="black"
+                                                    backgroundColor="white"
+                                                />
+                                            )}
+                                            <Text style={{ ...typography.h4, color: '#000', marginTop: spacing.lg, textAlign: 'center' }}>
+                                                Scan to Pay ₹{assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}
+                                            </Text>
+                                            <Text style={{ ...typography.caption, color: '#666', marginTop: spacing.sm, textAlign: 'center' }}>
+                                                {qrExpiresAt && qrTimeLeft > 0 ? `Expires in ${Math.floor(qrTimeLeft / 60).toString().padStart(2, '0')}:${(qrTimeLeft % 60).toString().padStart(2, '0')}` : ""}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </Modal>
 
                                 <View style={styles.cashWarningCard}>
                                     <Banknote size={18} color={colors.warning} />
