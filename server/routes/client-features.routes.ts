@@ -85,6 +85,7 @@ export function registerClientFeatureRoutes(app: Express) {
             const platformFeePercent = await configService.get('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT', 15);
             const supportWindowHours = await configService.get('BUSINESS_CONFIG.SUPPORT_WINDOW_HOURS', 48);
             const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
+            const companyUpiId = await configService.get('BUSINESS_CONFIG.COMPANY_UPI_ID', 'yourmerchant@upi');
 
             res.json({
                 success: true,
@@ -95,6 +96,7 @@ export function registerClientFeatureRoutes(app: Express) {
                     platformFeePercent: Number(platformFeePercent),
                     supportWindowHours: Number(supportWindowHours),
                     whatsappNumber: whatsappNumber,
+                    companyUpiId: String(companyUpiId),
                 }
             });
         } catch (error) {

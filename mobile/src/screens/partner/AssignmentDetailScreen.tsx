@@ -20,8 +20,10 @@ import * as ExpoLocation from 'expo-location';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
     ArrowLeft, User, Phone, MapPin, Calendar, Navigation2,
-    CheckCircle, XCircle, Play, DollarSign, KeyRound, Banknote,
+    CheckCircle, XCircle, Play, DollarSign, KeyRound, Banknote, QrCode
 } from 'lucide-react-native';
+import QRCode from 'react-native-qrcode-svg';
+import { usePublicConfig } from '../../hooks/useCustomerData';
 import {
     useAssignments,
     useAcceptAssignment,
@@ -43,6 +45,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const routeAssignment: Assignment = route.params?.assignment;
     const { data: assignmentsList } = useAssignments();
     const assignment = assignmentsList?.find((a: Assignment) => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
+    const { data: publicConfig } = usePublicConfig();
     
     const [otp, setOtp] = useState('');
     const [serviceCharge, setServiceCharge] = useState('');
@@ -349,6 +352,22 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             </View>
                         ) : (
                             <>
+                                <View style={{ alignItems: 'center', marginBottom: spacing.lg, padding: spacing.lg, backgroundColor: '#fff', borderRadius: radii.md, borderWidth: 1, borderColor: colors.divider }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
+                                        <QrCode size={20} color="#000" />
+                                        <Text style={{ ...typography.h4, color: '#000' }}>Scan to Pay via UPI</Text>
+                                    </View>
+                                    <QRCode
+                                        value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                        size={180}
+                                        color="black"
+                                        backgroundColor="white"
+                                    />
+                                    <Text style={{ ...typography.caption, color: '#666', marginTop: spacing.md, textAlign: 'center' }}>
+                                        Customer can scan this QR with GPay, PhonePe, or Paytm
+                                    </Text>
+                                </View>
+
                                 <View style={styles.cashWarningCard}>
                                     <Banknote size={18} color={colors.warning} />
                                     <Text style={styles.cashWarningText}>

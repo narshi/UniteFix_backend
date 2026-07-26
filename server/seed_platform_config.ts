@@ -36,6 +36,7 @@ async function seedPlatformConfig() {
         { key: 'BUSINESS_CONFIG.GST_PERCENTAGE', value: '18', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'GST percentage', isEditable: false },
         { key: 'BUSINESS_CONFIG.WALLET_HOLD_DAYS', value: '7', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'Days to hold earnings before release', isEditable: true },
         { key: 'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', value: '500', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'Minimum withdrawal amount', isEditable: true },
+        { key: 'BUSINESS_CONFIG.COMPANY_UPI_ID', value: 'yourmerchant@upi', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Company UPI ID for QR Code', isEditable: true },
 
         // Operational
         { key: 'OPERATIONAL_CONFIG.INVENTORY_OWNER_PARTNER_ID', value: 'UNITEFIX_PLATFORM', valueType: 'string', category: 'OPERATIONAL_CONFIG', description: 'Platform-owned inventory identifier', isEditable: false },

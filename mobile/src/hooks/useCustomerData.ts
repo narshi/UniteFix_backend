@@ -102,6 +102,7 @@ export function useServiceRequests() {
             const response = await customerApi.getMyServiceRequests();
             return response.data.data;
         },
+        refetchInterval: 5_000,
     });
 }
 
@@ -120,6 +121,7 @@ export function useServiceHistory() {
             }
             return undefined;
         },
+        refetchInterval: 10_000,
     });
 }
 

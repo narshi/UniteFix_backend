@@ -37,6 +37,7 @@ export default function SettingsPage() {
     
     // Payment Settings
     paymentGateway: "razorpay",
+    companyUpiId: "yourmerchant@upi",
     
     // Business Rules
     allowCancellationDays: 1,
@@ -70,6 +71,7 @@ export default function SettingsPage() {
     'BUSINESS_CONFIG.CANCELLATION_FEE': { field: 'cancellationFee', parse: Number },
     'BUSINESS_CONFIG.WALLET_HOLD_DAYS': { field: 'walletHoldDays', parse: Number },
     'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION': { field: 'minWalletRedemption', parse: Number },
+    'BUSINESS_CONFIG.COMPANY_UPI_ID': { field: 'companyUpiId', parse: String },
     'OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE': { field: 'maxServiceStartDistance', parse: Number },
     'OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS': { field: 'partnerAcceptTimeoutHours', parse: Number },
     'OPERATIONAL_CONFIG.ENABLE_AUTO_ASSIGNMENT': { field: 'autoAssignPartners', parse: (v) => v === 'true' },
@@ -428,6 +430,16 @@ export default function SettingsPage() {
                   value={settings.gstNumber}
                   onChange={(e) => setSettings(prev => ({ ...prev, gstNumber: e.target.value }))}
                   className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                />
+              </div>
+              <div>
+                <Label htmlFor="companyUpiId" className="text-[hsl(215,20%,75%)]">Company UPI ID (for QR)</Label>
+                <Input
+                  id="companyUpiId"
+                  value={settings.companyUpiId}
+                  onChange={(e) => setSettings(prev => ({ ...prev, companyUpiId: e.target.value }))}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                  placeholder="yourmerchant@upi"
                 />
               </div>
               <div>

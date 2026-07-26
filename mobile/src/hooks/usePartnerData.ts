@@ -29,7 +29,7 @@ export function useAssignments() {
             if (payload && Array.isArray((payload as any).data)) return (payload as any).data;
             return []; // Fallback to empty array
         },
-        refetchInterval: 30_000,
+        refetchInterval: 5_000,
     });
 }
 
@@ -50,6 +50,7 @@ export function useAssignmentHistory() {
             }
             return undefined;
         },
+        refetchInterval: 10_000,
     });
 }
 
