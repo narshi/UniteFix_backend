@@ -227,6 +227,9 @@ export function registerPaymentRoutes(app: Express) {
             const serviceId = parseInt(req.params.id);
             const partnerId = (req as any).partner?.partnerId;
 
+            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+            if (!booking) return res.status(404).json({ error: "Booking not found" });
+
             if (!partnerId) {
                 // Try fetching it if it wasn't populated
                 const userId = (req as any).user?.userId;
@@ -234,12 +237,8 @@ export function registerPaymentRoutes(app: Express) {
                 const [provider] = await db.select().from(employees).where(eq(employees.userId, userId)).limit(1);
                 if (!provider) return res.status(403).json({ error: "Provider not found" });
                 
-                const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
-                if (!booking) return res.status(404).json({ error: "Booking not found" });
                 if (booking.providerId !== provider.id) return res.status(403).json({ error: "Not assigned to this booking" });
             } else {
-                const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
-                if (!booking) return res.status(404).json({ error: "Booking not found" });
                 if (booking.providerId !== partnerId) return res.status(403).json({ error: "Not assigned to this booking" });
             }
 
