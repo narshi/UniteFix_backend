@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { partnerApi } from '../api/partner.api';
 import { Alert } from 'react-native';
-import { getApiErrorMessage } from '../api/client';
+import { getApiErrorMessage, apiClient } from '../api/client';
 
 export const partnerQueryKeys = {
     assignments: ['partner.assignments'] as const,
@@ -156,7 +156,7 @@ export function useWithdraw() {
 export function useGenerateRazorpayQR() {
     return useMutation({
         mutationFn: async (serviceId: number) => {
-            const { data } = await api.post(`/api/partner/services/${serviceId}/generate-qr`);
+            const { data } = await apiClient.post(`/api/partner/services/${serviceId}/generate-qr`);
             return data.data; // { qrImageUrl }
         },
         onError: (e) => {
