@@ -153,7 +153,12 @@ export function StartServiceScreen({ navigation, route }: Props) {
                 <View style={{ width: 36 }} />
             </View>
 
-            <View style={styles.content}>
+            <ScrollView 
+                style={{ flex: 1 }} 
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
                 {/* ── PHASE A: Arrival ──────────────────────────────── */}
                 {phase === 'arrive' && (
                     <>
@@ -254,7 +259,7 @@ export function StartServiceScreen({ navigation, route }: Props) {
                         </View>
                     </>
                 )}
-            </View>
+            </ScrollView>
 
             {/* Bottom action button */}
             <View style={styles.bottomBar}>
@@ -312,7 +317,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center', alignItems: 'center',
     },
     headerTitle: { ...typography.h4, color: colors.textPrimary },
-    content: { flex: 1, padding: spacing.xl },
+    content: { flexGrow: 1, padding: spacing.xl },
 
     // Step indicator
     stepIndicator: {
