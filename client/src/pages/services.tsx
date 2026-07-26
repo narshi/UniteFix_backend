@@ -269,7 +269,6 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Assigned Employee</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Download Invoice</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Created</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Actions</th>
                     </tr>
@@ -312,21 +311,6 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           <p className="font-medium text-[hsl(160,84%,65%)] font-mono">₹{service.totalAmount || service.bookingFee}</p>
                           {service.totalAmount && (
                             <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">Booking: ₹{service.bookingFee}</p>
-                          )}
-                        </td>
-                        <td className="p-4">
-                          {service.status === 'completed' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => downloadServiceInvoice(service)}
-                              className="flex items-center gap-1.5 h-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,80%)] hover:bg-[rgba(255,255,255,0.08)] hover:text-white transition-all"
-                            >
-                              <Download className="h-3.5 w-3.5" />
-                              <span className="text-xs">Invoice</span>
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-[hsl(215,20%,50%)]">Not available</span>
                           )}
                         </td>
                         <td className="p-4">

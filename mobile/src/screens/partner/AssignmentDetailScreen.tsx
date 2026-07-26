@@ -390,6 +390,22 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
+                {/* ✅ COMPLETED — Payment received success state */}
+                {assignment.status === 'completed' && (
+                    <View style={[styles.actionsCard, { borderColor: '#22c55e', borderWidth: 1, backgroundColor: 'rgba(34,197,94,0.05)' }]}>
+                        <View style={{ alignItems: 'center', paddingVertical: spacing.xl }}>
+                            <CheckCircle size={48} color="#22c55e" />
+                            <Text style={{ ...typography.h3, color: '#22c55e', marginTop: spacing.md }}>Payment Received!</Text>
+                            <Text style={{ ...typography.body, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' }}>
+                                Service completed successfully. ₹{assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0} has been collected.
+                            </Text>
+                            <Text style={{ ...typography.caption, color: colors.textDisabled, marginTop: spacing.md }}>
+                                Payment method: {assignment.paymentMethod === 'razorpay' ? '💳 Online (UPI/QR)' : assignment.paymentMethod === 'cash' ? '💵 Cash' : '💳 Online'}
+                            </Text>
+                        </View>
+                    </View>
+                )}
+
                 {assignment.status === 'pending_payment' && (
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Awaiting Payment</Text>
@@ -476,50 +492,55 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                     </View>
                                 </Modal>
 
-                                <View style={styles.cashWarningCard}>
-                                    <Banknote size={18} color={colors.warning} />
-                                    <Text style={styles.cashWarningText}>
-                                        UniteFix fee will be deducted from your wallet when you confirm cash collection.
-                                    </Text>
-                                </View>
+                                {/* Show Collect Cash ONLY when QR has expired or failed */}
+                                {(qrError || (qrExpiresAt && qrTimeLeft <= 0)) && (
+                                    <>
+                                        <View style={styles.cashWarningCard}>
+                                            <Banknote size={18} color={colors.warning} />
+                                            <Text style={styles.cashWarningText}>
+                                                UniteFix fee will be deducted from your wallet when you confirm cash collection.
+                                            </Text>
+                                        </View>
 
-                                <Button
-                                    title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}`}
-                                    onPress={() => {
-                                const amount = assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0;
-                                Alert.alert(
-                                    'Confirm Cash Collection',
-                                    `You are confirming that the customer paid ₹${amount} in cash.\n\nUniteFix platform fee will be deducted from your wallet.\n\nThis cannot be undone.`,
-                                    [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                            text: 'Confirm Cash Received',
-                                            style: 'default',
-                                            onPress: async () => {
-                                                setCollectingCash(true);
-                                                try {
-                                                    const { data } = await partnerApi.collectCash(assignment.id, amount);
-                                                    if (data?.success) {
-                                                        Alert.alert(
-                                                            '✅ Cash Payment Recorded',
-                                                            `Service completed! ₹${data.data?.platformFeeDeducted || 0} platform fee deducted from wallet.`,
-                                                            [{ text: 'OK', onPress: () => navigation.goBack() }]
-                                                        );
-                                                    }
-                                                } catch (err: any) {
-                                                    const msg = err?.response?.data?.message || 'Failed to record cash payment.';
-                                                    Alert.alert('Error', msg);
-                                                } finally {
-                                                    setCollectingCash(false);
-                                                }
-                                            },
-                                        },
-                                    ]
-                                );
-                            }}
-                            loading={collectingCash}
-                            disabled={collectingCash}
-                        />
+                                        <Button
+                                            title={collectingCash ? 'Processing...' : `💵 Collect Cash — ₹${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}`}
+                                            onPress={() => {
+                                        const amount = assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0;
+                                        Alert.alert(
+                                            'Confirm Cash Collection',
+                                            `You are confirming that the customer paid ₹${amount} in cash.\n\nUniteFix platform fee will be deducted from your wallet.\n\nThis cannot be undone.`,
+                                            [
+                                                { text: 'Cancel', style: 'cancel' },
+                                                {
+                                                    text: 'Confirm Cash Received',
+                                                    style: 'default',
+                                                    onPress: async () => {
+                                                        setCollectingCash(true);
+                                                        try {
+                                                            const { data } = await partnerApi.collectCash(assignment.id, amount);
+                                                            if (data?.success) {
+                                                                Alert.alert(
+                                                                    '✅ Cash Payment Recorded',
+                                                                    `Service completed! ₹${data.data?.platformFeeDeducted || 0} platform fee deducted from wallet.`,
+                                                                    [{ text: 'OK', onPress: () => navigation.goBack() }]
+                                                                );
+                                                            }
+                                                        } catch (err: any) {
+                                                            const msg = err?.response?.data?.message || 'Failed to record cash payment.';
+                                                            Alert.alert('Error', msg);
+                                                        } finally {
+                                                            setCollectingCash(false);
+                                                        }
+                                                    },
+                                                },
+                                            ]
+                                        );
+                                    }}
+                                    loading={collectingCash}
+                                    disabled={collectingCash}
+                                />
+                                    </>
+                                )}
                             </>
                         )}
                     </View>
