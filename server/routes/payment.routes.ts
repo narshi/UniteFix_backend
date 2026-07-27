@@ -247,7 +247,8 @@ export function registerPaymentRoutes(app: Express) {
             if (snapshot && snapshot.finalTotal !== undefined) {
                 finalAmount = snapshot.finalTotal;
             } else if (booking.totalAmount !== null) {
-                finalAmount = parseInt(booking.totalAmount);
+                // totalAmount is an integer column — already a number, not a string.
+                finalAmount = booking.totalAmount;
             } else {
                 return res.status(400).json({ error: "Bill not submitted yet." });
             }

@@ -15,7 +15,18 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Security headers — CSP enabled in production, disabled in dev (Vite needs inline scripts)
 app.use(helmet({
-  contentSecurityPolicy: isProduction ? undefined : false,
+  contentSecurityPolicy: isProduction
+    ? {
+      useDefaults: true,
+      directives: {
+        // Helmet's default img-src is ["'self'", "data:"], which blocked every
+        // remotely-hosted image in the admin dashboard: Cloudinary avatars and
+        // KYC documents, and external product catalog images. They render as
+        // broken images in production without this.
+        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+      },
+    }
+    : false,
 }));
 
 // CORS — allow admin dashboard + React Native app
