@@ -74,8 +74,9 @@ export function SplashScreen({ navigation }: Props) {
             if (isAuthenticated) {
                 if (__DEV__) console.log('[Splash] Authenticated — RootNavigator will switch stacks');
             } else {
-                if (__DEV__) console.log('[Splash] Not authenticated — navigating to RoleSelection');
-                navigation.replace('RoleSelection');
+                // Land on the signup/login fork rather than assuming signup.
+                if (__DEV__) console.log('[Splash] Not authenticated — navigating to AuthLanding');
+                navigation.replace('AuthLanding');
             }
         }, MIN_SPLASH_MS);
 

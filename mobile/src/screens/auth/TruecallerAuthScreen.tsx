@@ -30,7 +30,8 @@ const TC_GREEN = '#0095FF';
 type OtpStep = 'phone' | 'otp' | 'profile';
 
 export function TruecallerAuthScreen({ navigation, route }: Props) {
-  const { role } = route.params;
+  const { role, mode } = route.params;
+  const isSignup = mode === 'signup';
   const {
     isAvailable,
     isLoading: tcLoading,
@@ -41,16 +42,22 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const loginWithTruecaller = useAuthStore((s) => s.loginWithTruecaller);
 
   /**
-   * Route new employees to ExpertiseSelection before completing login.
-   * Returning users and customers go straight through.
+   * Complete the session immediately. Onboarding is no longer sequenced from
+   * here: RootNavigator renders the onboarding stack whenever the account still
+   * has outstanding steps, so a signup that is interrupted resumes correctly
+   * instead of stranding a half-created account outside the app.
    */
   const handleAuthSuccess = async (data: any) => {
-    if (data.isNewUser && role === 'serviceman') {
-      // Navigate to expertise selection — login deferred until after selection
-      navigation.replace('ExpertiseSelection', { authData: data });
-    } else {
-      await loginWithTruecaller(data);
+    await loginWithTruecaller(data);
+  };
+
+  /** Maps the server's explicit login/signup rejections to actionable copy. */
+  const describeAuthFailure = (err: any): string => {
+    const payload = err?.response?.data;
+    if (payload?.code === 'ACCOUNT_NOT_FOUND') {
+      return 'No UniteFix account found for this number. Please create an account first.';
     }
+    return payload?.message || err?.message || 'Authentication failed';
   };
 
   // UI state
@@ -102,6 +109,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
             idToken,
             phone: normalized,
             role,
+            mode,
           });
 
           if (data.requiresProfile) {
@@ -115,7 +123,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
           }
         } catch (err: any) {
           if (__DEV__) console.error('[Firebase Auto-Verify]', err);
-          setAuthError(err?.response?.data?.message || err.message || 'Auto-verification failed');
+          setAuthError(describeAuthFailure(err));
         } finally {
           setIsAuthenticating(false);
         }
@@ -143,6 +151,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         authorizationCode: result.authorizationCode,
         codeVerifier: result.codeVerifier,
         role,
+        mode,
       });
       if (data.success) {
         setAuthSuccess(true);
@@ -151,8 +160,13 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         setAuthError(data.message || 'Verification failed');
       }
     } catch (err: any) {
-      setAuthError(err?.response?.data?.message || err.message || 'Authentication failed');
-      setShowOtpFlow(true);
+      const message = describeAuthFailure(err);
+      setAuthError(message);
+      // An unregistered number on login is a dead end here — sending the user
+      // to the OTP form would just fail the same way.
+      if (err?.response?.data?.code !== 'ACCOUNT_NOT_FOUND') {
+        setShowOtpFlow(true);
+      }
     } finally {
       setIsAuthenticating(false);
     }
@@ -169,7 +183,19 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     setIsAuthenticating(true);
     setAuthError(null);
     try {
-      const fullPhone = '+91' + phone.replace(/[^0-9]/g, '');
+      const normalized = phone.replace(/[^0-9]/g, '');
+
+      // On login, confirm the number is registered before spending an SMS —
+      // otherwise the user waits for a code only to be rejected after entering it.
+      if (!isSignup) {
+        const { data: check } = await authApi.checkPhone({ phone: normalized });
+        if (check?.success && check.exists === false) {
+          setAuthError('No UniteFix account found for this number. Please create an account first.');
+          return;
+        }
+      }
+
+      const fullPhone = '+91' + normalized;
       const confirmation = await auth().signInWithPhoneNumber(fullPhone);
       confirmationRef.current = confirmation;
       setOtpStep('otp');
@@ -202,6 +228,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         idToken,
         phone: normalized,
         role,
+        mode,
       });
 
       if (data.requiresProfile) {
@@ -217,7 +244,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       if (err.code === 'auth/invalid-verification-code') {
         setAuthError('Invalid OTP. Please check and try again.');
       } else {
-        setAuthError(err?.response?.data?.message || err.message || 'OTP verification failed');
+        setAuthError(describeAuthFailure(err));
       }
     } finally {
       setIsAuthenticating(false);
@@ -248,6 +275,7 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         idToken: tempToken,
         phone: normalized,
         role,
+        mode,
         firstName: name,
         email: email,
       });
@@ -305,9 +333,13 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
               style={styles.logoImage}
               resizeMode="contain"
             />
-            <Text style={styles.title}>Verify Your Identity</Text>
+            <Text style={styles.title}>{isSignup ? 'Create Your Account' : 'Welcome Back'}</Text>
             <Text style={styles.subtitle}>
-              Signing up as <Text style={styles.roleHighlight}>{roleLabel}</Text>
+              {isSignup ? (
+                <>Signing up as <Text style={styles.roleHighlight}>{roleLabel}</Text></>
+              ) : (
+                'Log in with your registered mobile number'
+              )}
             </Text>
           </Animated.View>
 
@@ -340,7 +372,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                   <View style={styles.tcIconContainer}>
                     <Phone size={22} color="#FFFFFF" strokeWidth={2.5} />
                   </View>
-                  <Text style={styles.truecallerButtonText}>Continue with Truecaller</Text>
+                  <Text style={styles.truecallerButtonText}>
+                    {isSignup ? 'Sign up with Truecaller' : 'Log in with Truecaller'}
+                  </Text>
                 </Pressable>
               )}
 
@@ -431,7 +465,9 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                         onPress={handleVerifyOtp}
                         disabled={otp.length < 6}
                       >
-                        <Text style={styles.submitButtonText}>Verify & Login</Text>
+                        <Text style={styles.submitButtonText}>
+                          {isSignup ? 'Verify & Continue' : 'Verify & Log In'}
+                        </Text>
                       </Pressable>
 
                       <Pressable

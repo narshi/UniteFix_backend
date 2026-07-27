@@ -9,10 +9,17 @@ import { apiClient } from './client';
 
 // ── Request Types ─────────────────────────────────────────────────────
 
+/**
+ * Signup and login share a verification step but are distinct intents.
+ * The server refuses to create an account when mode is 'login'.
+ */
+export type AuthMode = 'login' | 'signup';
+
 export interface TruecallerVerifyRequest {
   authorizationCode: string;
   codeVerifier: string;
   role: 'user' | 'serviceman';
+  mode: AuthMode;
 }
 
 export interface EmailVerifyRequest {
@@ -41,12 +48,27 @@ export interface AuthUser {
   employeeId: number | null;
   documentVerificationStatus: 'pending' | 'verified' | 'rejected' | 'suspended' | null;
   isOnline: boolean | null;
+  /**
+   * Mandatory-onboarding gate. Derived server-side from stored data (name +
+   * address + pincode, plus skills for technicians) rather than a flag, so an
+   * interrupted signup resumes instead of leaking into the app half-configured.
+   */
+  onboardingCompleted: boolean;
+  homeAddress?: string | null;
+  pinCode?: string | null;
 }
+
+export type OnboardingStep = 'profile' | 'location' | 'skills';
 
 export interface AuthResponse {
   success: boolean;
   message: string;
   isNewUser: boolean;
+  /** True when signup was requested but the number already had an account. */
+  alreadyRegistered?: boolean;
+  /** False until profile + location (+ skills for technicians) are supplied. */
+  onboardingCompleted?: boolean;
+  pendingOnboardingSteps?: OnboardingStep[];
   requiresProfile?: boolean;
   user: AuthUser;
   profile: any;
@@ -105,7 +127,7 @@ export const authApi = {
   /**
    * FALLBACK AUTH: Verify Firebase OTP ID Token
    */
-  firebaseVerify: (data: { idToken: string; phone: string; role: 'user' | 'serviceman'; firstName?: string; lastName?: string; email?: string }) =>
+  firebaseVerify: (data: { idToken: string; phone: string; role: 'user' | 'serviceman'; mode?: AuthMode; firstName?: string; lastName?: string; email?: string }) =>
     apiClient.post<AuthResponse>('/api/auth/fallback/firebase-verify', data),
 
   /**

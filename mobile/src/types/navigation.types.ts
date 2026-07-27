@@ -2,13 +2,28 @@
  * Navigation type definitions
  */
 
+export type AuthMode = 'login' | 'signup';
+
 export type AuthStackParamList = {
     Splash: undefined;
-    RoleSelection: undefined;
-    TruecallerAuth: { role: 'user' | 'serviceman' };
-    ExpertiseSelection: { authData: any }; // Auth response passed from TruecallerAuth for deferred login
+    /** Explicit fork: create a new account vs sign in to an existing one. */
+    AuthLanding: undefined;
+    /** Role is only chosen when signing up; on login the server supplies it. */
+    RoleSelection: { mode: AuthMode };
+    TruecallerAuth: { role: 'user' | 'serviceman'; mode: AuthMode };
     EmployeePending: undefined;
     Legal: undefined;
+};
+
+/**
+ * Mandatory post-signup onboarding. Rendered by RootNavigator whenever an
+ * authenticated account still has outstanding steps, so quitting the app
+ * mid-onboarding resumes here rather than dropping into the product.
+ */
+export type OnboardingStackParamList = {
+    OnboardingProfile: undefined;
+    OnboardingLocation: undefined;
+    ExpertiseSelection: undefined;
 };
 
 

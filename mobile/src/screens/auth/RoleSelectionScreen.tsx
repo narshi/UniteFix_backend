@@ -60,7 +60,10 @@ const ROLES: RoleOption[] = [
   },
 ];
 
-export function RoleSelectionScreen({ navigation }: Props) {
+export function RoleSelectionScreen({ navigation, route }: Props) {
+  // Only reached during signup — login skips this and takes the role from the
+  // server, since an existing account's role is not the client's to choose.
+  const mode = route.params?.mode ?? 'signup';
   const [selectedRole, setSelectedRole] = useState<'user' | 'serviceman' | null>(null);
 
   // Animations
@@ -99,7 +102,7 @@ export function RoleSelectionScreen({ navigation }: Props) {
 
   const handleContinue = () => {
     if (!selectedRole) return;
-    navigation.navigate('TruecallerAuth', { role: selectedRole });
+    navigation.navigate('TruecallerAuth', { role: selectedRole, mode });
   };
 
   return (
