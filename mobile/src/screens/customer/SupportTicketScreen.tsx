@@ -27,6 +27,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'SupportTicket'>;
 
@@ -47,6 +48,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }>
 };
 
 export function SupportTicketScreen({ navigation }: Props) {
+    const { headerTop } = useScreenInsets();
     const qc = useQueryClient();
 
     const [mode, setMode] = useState<'list' | 'create'>('list');
@@ -57,7 +59,9 @@ export function SupportTicketScreen({ navigation }: Props) {
     const { data: ticketsData, isLoading, refetch, isRefetching } = useQuery({
         queryKey: ['support-tickets'],
         queryFn: async () => {
-            const res = await apiClient.get('/api/client/support-tickets');
+            // Server route is /api/client/tickets (client-features.routes.ts).
+            // The old '/api/client/support-tickets' path never existed and 404'd.
+            const res = await apiClient.get('/api/client/tickets');
             return (res.data as any)?.tickets || (res.data as any)?.data || [];
         },
     });
@@ -66,7 +70,7 @@ export function SupportTicketScreen({ navigation }: Props) {
     // Create ticket
     const { mutate: createTicket, isPending } = useMutation({
         mutationFn: (data: { subject: string; description: string }) =>
-            apiClient.post('/api/client/support-tickets', data),
+            apiClient.post('/api/client/tickets', data),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['support-tickets'] });
             setMode('list');
@@ -111,7 +115,7 @@ export function SupportTicketScreen({ navigation }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity
                     onPress={() => mode === 'create' ? setMode('list') : navigation.goBack()}
                     style={styles.backBtn}
@@ -199,8 +203,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
