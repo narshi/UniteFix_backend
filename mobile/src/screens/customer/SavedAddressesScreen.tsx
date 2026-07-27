@@ -2,18 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { ArrowLeft, MapPin, Plus, Trash2 } from 'lucide-react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { colors } from '../../theme/colors';
 import { customerApi, SavedAddress } from '../../api/customer.api';
+import { getApiErrorMessage } from '../../api/client';
+import { queryKeys } from '../../hooks/useCustomerData';
 import { Button } from '../../components/ui/Button';
+import { useScreenInsets } from '../../theme/layout';
 
 type ParamList = {
     SavedAddresses: { fromCheckout?: boolean };
 };
 
 export function SavedAddressesScreen() {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'SavedAddresses'>>();
     const fromCheckout = route.params?.fromCheckout;
+    const queryClient = useQueryClient();
 
     const [addresses, setAddresses] = useState<SavedAddress[]>([]);
     const [loading, setLoading] = useState(true);
@@ -44,9 +50,20 @@ export function SavedAddressesScreen() {
                 text: 'Delete',
                 style: 'destructive',
                 onPress: async () => {
+                    const previous = addresses;
                     const newAddresses = addresses.filter((_, i) => i !== index);
                     setAddresses(newAddresses);
-                    await customerApi.updateProfile({ savedAddresses: newAddresses });
+                    try {
+                        await customerApi.updateProfile({ savedAddresses: newAddresses });
+                        // Other screens read the address list through useProfile();
+                        // without this they keep serving the deleted address.
+                        queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+                    } catch (err) {
+                        // The row was removed optimistically — restore it so the list
+                        // does not claim a deletion the server never accepted.
+                        setAddresses(previous);
+                        Alert.alert('Delete Failed', getApiErrorMessage(err));
+                    }
                 }
             }
         ]);
@@ -86,7 +103,7 @@ export function SavedAddressesScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -102,7 +119,7 @@ export function SavedAddressesScreen() {
                     data={addresses}
                     keyExtractor={(item, index) => index.toString()}
                     renderItem={renderItem}
-                    contentContainerStyle={styles.listContent}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: bottomPad + 96 }]}
                     ListEmptyComponent={
                         <View style={styles.emptyContainer}>
                             <MapPin size={64} color={colors.textDisabled} />
@@ -113,7 +130,7 @@ export function SavedAddressesScreen() {
                 />
             )}
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: bottomPad }]}>
                 <Button 
                     title="Add New Address"
                     onPress={() => navigation.navigate('MapAddressPicker')}
@@ -131,7 +148,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         padding: 16,
-        paddingTop: 50,
         backgroundColor: colors.surface,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
@@ -179,7 +195,6 @@ const styles = StyleSheet.create({
         left: 0,
         right: 0,
         padding: 16,
-        paddingBottom: 32,
         backgroundColor: colors.surface,
         borderTopWidth: 1,
         borderTopColor: colors.border,

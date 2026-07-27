@@ -10,7 +10,9 @@ import { ArrowLeft, MapPin, Search, X, Navigation } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { useQueryClient } from '@tanstack/react-query';
 import { customerApi, SavedAddress } from '../../api/customer.api';
+import { queryKeys } from '../../hooks/useCustomerData';
 import { Button } from '../../components/ui/Button';
 
 // ── Google Places API key (same key used for Maps) ──
@@ -30,6 +32,7 @@ type ParamList = {
 };
 
 export function MapAddressPickerScreen() {
+    const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
 
@@ -220,6 +223,9 @@ export function MapAddressPickerScreen() {
             const updatedAddresses = [...existingAddresses, newAddress];
 
             await customerApi.updateProfile({ savedAddresses: updatedAddresses });
+            // This write bypasses the useUpdateProfile mutation, so nothing would
+            // otherwise invalidate the cached profile that other screens read.
+            queryClient.invalidateQueries({ queryKey: queryKeys.profile });
             Alert.alert('Success', 'Address saved successfully!', [
                 { text: 'OK', onPress: () => navigation.goBack() }
             ]);
