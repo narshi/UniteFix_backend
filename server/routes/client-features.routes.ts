@@ -25,10 +25,11 @@ import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 import { storage } from "../storage";
-import { ConfigService } from "../services/config.service";
-
-// Config service instance
-const configService = new ConfigService();
+// Use the shared singleton. A local `new ConfigService()` here carried its own
+// 5-minute cache, so /api/config/public and BillingEngine could disagree about
+// the booking fee after an admin edit — the app quoting one price and billing
+// freezing another.
+import { configService } from "../services/config.service";
 
 // Auth middleware aliases — import from canonical auth.middleware.ts
 // authenticateToken protects customer routes

@@ -15,6 +15,7 @@ import { storage } from "../storage";
 import { SupportTicketService } from "../services/support.service";
 import { db } from "../db";
 import { platformConfig } from "@shared/schema";
+import { configService } from "../services/config.service";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -586,6 +587,12 @@ export function registerAdminRoutes(app: Express) {
                 }
                 await storage.updatePlatformConfig(key, String(value), adminUserId);
             }
+
+            // ConfigService caches every key for 5 minutes. Writing straight to
+            // storage left both the public config endpoint and BillingEngine
+            // serving the previous value long after the admin saw "saved" — the
+            // app could quote one booking fee while billing froze another.
+            configService.invalidate(key);
 
             res.json({ success: true, message: `Config "${key}" updated to "${value}"` });
         } catch (error: any) {
