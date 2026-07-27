@@ -149,5 +149,11 @@
       "yes": "Yes",
       "no": "No"
     }
+  },
+  "common": {
+    "something_went_wrong": "Could not load assignments",
+    "check_connection": "Check your internet connection and try again.",
+    "retry": "Retry",
+    "unavailable": "Unavailable"
   }
 }

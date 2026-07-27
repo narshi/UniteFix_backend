@@ -6,7 +6,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Inbox, Clock, PlayCircle, Wallet, User } from 'lucide-react-native';
+import { Inbox, Clock, Wallet, User } from 'lucide-react-native';
 import { PartnerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
 
@@ -14,10 +14,10 @@ import { IncomingServicesScreen } from '../screens/partner/IncomingServicesScree
 import { PastServicesScreen } from '../screens/partner/PastServicesScreen';
 import { WalletScreen } from '../screens/partner/WalletScreen';
 import { PartnerProfileScreen } from '../screens/partner/PartnerProfileScreen';
-import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 
 import { Platform } from 'react-native';
 import { radii, spacing, shadows } from '../theme/spacing';
+import { TAB_BAR_HEIGHT, TAB_BAR_GAP } from '../theme/layout';
 import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator<PartnerTabParamList>();
@@ -25,7 +25,7 @@ const Tab = createBottomTabNavigator<PartnerTabParamList>();
 export function PartnerTabs() {
     const insets = useSafeAreaInsets();
     const { t } = useTranslation();
-    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
+    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, TAB_BAR_GAP) : insets.bottom + TAB_BAR_GAP;
 
     return (
         <Tab.Navigator
@@ -37,11 +37,11 @@ export function PartnerTabs() {
                 tabBarStyle: {
                     position: 'absolute',
                     bottom: tabBarBottom,
-                    left: spacing.base,
-                    right: spacing.base,
+                    left: spacing.xl,
+                    right: spacing.xl,
                     backgroundColor: colors.background,
                     borderRadius: radii['2xl'],
-                    height: 64,
+                    height: TAB_BAR_HEIGHT,
                     paddingBottom: 0,
                     borderTopWidth: 0,
                     ...shadows.lg,
@@ -75,14 +75,9 @@ export function PartnerTabs() {
                     tabBarIcon: ({ color, size }) => <Clock size={size} color={color} />,
                 }}
             />
-            <Tab.Screen
-                name="StartTab"
-                component={PlaceholderScreen}
-                options={{
-                    tabBarLabel: t('tabs.start', 'Start'),
-                    tabBarIcon: ({ color, size }) => <PlayCircle size={size} color={color} />,
-                }}
-            />
+            {/* The "Start" tab rendered a 🚧 placeholder in production. Starting a
+                job is done from AssignmentDetail → StartService, so the dead tab
+                was removed rather than shipping a construction screen. */}
             <Tab.Screen
                 name="WalletTab"
                 component={WalletScreen}

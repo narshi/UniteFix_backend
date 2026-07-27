@@ -23,7 +23,6 @@ export type CustomerTabParamList = {
 export type PartnerTabParamList = {
     IncomingTab: undefined;
     HistoryTab: undefined;
-    StartTab: undefined;
     WalletTab: undefined;
     ProfileTab: undefined;
 };

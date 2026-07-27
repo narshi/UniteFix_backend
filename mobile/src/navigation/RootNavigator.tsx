@@ -27,7 +27,6 @@ import {
     addNotificationResponseListener,
 } from '../services/notifications';
 import { colors } from '../theme/colors';
-import { GlobalAlertProvider } from '../components/ui/GlobalAlert';
 
 const RootStack = createNativeStackNavigator();
 
@@ -122,8 +121,8 @@ export function RootNavigator() {
                         <RootStack.Screen name="CustomerMain" component={CustomerStack} />
                     )}
                 </RootStack.Navigator>
-                {/* Premium Global Alert Component */}
-                <GlobalAlertProvider />
+                {/* Alerts are rendered by <PremiumAlertProvider /> in App.tsx,
+                    which also intercepts every Alert.alert call app-wide. */}
             </NavigationContainer>
         </ErrorBoundary>
     );

@@ -16,6 +16,7 @@ import { Home, ClipboardList, ShoppingBag, User } from 'lucide-react-native';
 import { CustomerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
 import { radii, spacing, shadows } from '../theme/spacing';
+import { TAB_BAR_HEIGHT, TAB_BAR_GAP } from '../theme/layout';
 
 import { HomeScreen } from '../screens/customer/HomeScreen';
 import { MyRequestsScreen } from '../screens/customer/MyRequestsScreen';
@@ -55,7 +56,7 @@ export function CustomerTabs() {
     const { t } = useTranslation();
     // On Android, use the actual system nav bar inset + visual margin;
     // on iOS, the safe area inset already accounts for the home indicator.
-    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : insets.bottom + 12;
+    const tabBarBottom = Platform.OS === 'ios' ? Math.max(insets.bottom, TAB_BAR_GAP) : insets.bottom + TAB_BAR_GAP;
 
     return (
         <Tab.Navigator
@@ -71,7 +72,7 @@ export function CustomerTabs() {
                     right: spacing.xl,
                     backgroundColor: colors.background,
                     borderRadius: radii['2xl'],
-                    height: 64,
+                    height: TAB_BAR_HEIGHT,
                     paddingBottom: 0,
                     borderTopWidth: 0,
                     ...shadows.lg,

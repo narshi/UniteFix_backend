@@ -104,7 +104,12 @@ export const PremiumAlertProvider = () => {
         }
     }, [state.visible]);
 
-    const handleClose = () => {
+    /**
+     * @param notifyDismiss mirrors the platform Alert contract — `onDismiss` fires
+     * only when the dialog is dismissed WITHOUT a button press (back button /
+     * tap-outside), never in addition to a button's own onPress handler.
+     */
+    const handleClose = (notifyDismiss = false) => {
         Animated.parallel([
             Animated.timing(scaleAnim, {
                 toValue: 0.8,
@@ -117,15 +122,16 @@ export const PremiumAlertProvider = () => {
                 useNativeDriver: true
             })
         ]).start(() => {
+            const onDismiss = state.options?.onDismiss;
             PremiumAlertService.hide();
-            if (state.options?.onDismiss) {
-                state.options.onDismiss();
+            if (notifyDismiss && onDismiss) {
+                onDismiss();
             }
         });
     };
 
     const handleButtonPress = (btn: AlertButton) => {
-        handleClose();
+        handleClose(false);
         if (btn.onPress) {
             // small delay to let animation finish before executing logic
             setTimeout(() => {
@@ -159,11 +165,12 @@ export const PremiumAlertProvider = () => {
     return (
         <Modal
             transparent
+            statusBarTranslucent
             visible={state.visible}
             animationType="none"
             onRequestClose={() => {
                 if (state.options?.cancelable) {
-                    handleClose();
+                    handleClose(true);
                 }
             }}
         >
@@ -180,16 +187,24 @@ export const PremiumAlertProvider = () => {
                         <Text style={styles.messageText}>{state.message}</Text>
                     )}
 
-                    <View style={styles.buttonContainer}>
+                    {/* 1–2 buttons sit side by side; 3+ stack vertically.
+                        Previously every button in a 3+ set got width:'100%' inside a
+                        row container, so they overflowed the dialog and rendered
+                        off-screen. */}
+                    <View style={[
+                        styles.buttonContainer,
+                        state.buttons.length > 2 && styles.buttonContainerStacked,
+                    ]}>
                         {state.buttons.map((btn, index) => {
                             const isDestructive = btn.style === 'destructive';
                             const isCancel = btn.style === 'cancel';
-                            
-                            // If multiple buttons, make them side by side
-                            const buttonStyle = state.buttons.length === 2 ? styles.buttonFlex : styles.buttonFull;
+
+                            const buttonStyle = state.buttons.length === 2
+                                ? styles.buttonFlex
+                                : styles.buttonFull;
 
                             return (
-                                <TouchableOpacity 
+                                <TouchableOpacity
                                     key={index}
                                     style={[
                                         styles.button,
@@ -199,12 +214,15 @@ export const PremiumAlertProvider = () => {
                                     ]}
                                     onPress={() => handleButtonPress(btn)}
                                 >
-                                    <Text style={[
-                                        styles.buttonText,
-                                        isDestructive && styles.buttonTextDestructive,
-                                        isCancel && styles.buttonTextCancel
-                                    ]}>
-                                        {btn.text}
+                                    <Text
+                                        numberOfLines={1}
+                                        style={[
+                                            styles.buttonText,
+                                            isDestructive && styles.buttonTextDestructive,
+                                            isCancel && styles.buttonTextCancel
+                                        ]}
+                                    >
+                                        {btn.text || 'OK'}
                                     </Text>
                                 </TouchableOpacity>
                             );
@@ -264,6 +282,9 @@ const styles = StyleSheet.create({
         width: '100%',
         gap: spacing.md,
         justifyContent: 'center',
+    },
+    buttonContainerStacked: {
+        flexDirection: 'column',
     },
     button: {
         backgroundColor: colors.primary,

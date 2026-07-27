@@ -9,11 +9,12 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { useScreenInsets } from '../../theme/layout';
 
 interface ScreenHeaderProps {
     title: string;
@@ -24,9 +25,16 @@ interface ScreenHeaderProps {
 
 export function ScreenHeader({ title, onBack, rightAction, variant = 'default' }: ScreenHeaderProps) {
     const isTransparent = variant === 'transparent';
+    const { headerTop } = useScreenInsets();
 
     return (
-        <View style={[styles.container, isTransparent && styles.transparent]}>
+        <View
+            style={[
+                styles.container,
+                { paddingTop: headerTop },
+                isTransparent && styles.transparent,
+            ]}
+        >
             <TouchableOpacity
                 onPress={onBack}
                 style={styles.backBtn}
@@ -48,7 +56,6 @@ const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.base,
         paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
