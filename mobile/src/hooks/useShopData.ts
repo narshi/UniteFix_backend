@@ -107,10 +107,16 @@ export function useCheckout() {
 }
 
 export function useRequestReturn() {
+    const qc = useQueryClient();
     return useMutation({
         mutationFn: ({ orderId, data }: { orderId: number; data: { reason: string; type: 'return' | 'exchange' } }) =>
             shopApi.requestReturn(orderId, data),
-        onSuccess: () => Alert.alert('Return Requested', 'Your return request has been submitted.'),
+        onSuccess: () => {
+            // Without this the orders list kept showing the pre-return status
+            // until the screen was remounted.
+            qc.invalidateQueries({ queryKey: ['shop.myOrders'] });
+            Alert.alert('Return Requested', 'Your return request has been submitted.');
+        },
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
 }

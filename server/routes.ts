@@ -29,9 +29,9 @@ import { registerProductRoutes } from "./routes/product.routes";
 // import { registerOtpRoutes } from "./routes/otp.routes";
 import { registerClientFeatureRoutes } from "./routes/client-features.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
-import { ConfigService } from "./services/config.service";
-
-const configService = new ConfigService();
+// NOTE: use the shared `configService` singleton imported above. A second
+// `new ConfigService()` here shadowed it and carried its own cache, so config
+// updates applied through one instance were invisible to the other.
 
 import { NotificationService } from "./services/notification.service";
 import { registerNotificationRoutes } from "./routes/notification.routes";
@@ -2192,7 +2192,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerNotificationRoutes(app);
   registerReturnRoutes(app);
   registerCatalogRoutes(app);
-  registerTruecallerAuthRoutes(app);
+  // registerTruecallerAuthRoutes is already called earlier (see above); calling it
+  // twice mounted the same router at /api/auth a second time, so every auth
+  // request walked a duplicate set of handlers that could never match.
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
