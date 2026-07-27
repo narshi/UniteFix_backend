@@ -39,6 +39,7 @@ export function MapAddressPickerScreen() {
     const [region, setRegion] = useState<Region | null>(null);
     const [markerCoordinate, setMarkerCoordinate] = useState<{ latitude: number, longitude: number } | null>(null);
     const [addressText, setAddressText] = useState('');
+    const [postalCode, setPostalCode] = useState('');
     const [label, setLabel] = useState('Home');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -93,6 +94,10 @@ export function MapAddressPickerScreen() {
                 if (place.region) parts.push(place.region);
                 if (place.postalCode) parts.push(place.postalCode);
                 setAddressText(parts.join(', '));
+                // Keep the postal code as a discrete field too — it was previously
+                // only concatenated into the address string and then lost, so every
+                // saved address had no pinCode and bookings fell back to '000000'.
+                if (place.postalCode) setPostalCode(place.postalCode);
             }
         } catch (err) {
             console.log("Geocode error", err);
@@ -150,7 +155,9 @@ export function MapAddressPickerScreen() {
         setPredictions([]);
 
         try {
-            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address&key=${GOOGLE_API_KEY}`;
+            // address_component is requested so the postal code can be stored as a
+            // discrete field; picking from search previously left pinCode unset.
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address,address_component&key=${GOOGLE_API_KEY}`;
             const response = await fetch(url);
             const json = await response.json();
 
@@ -166,6 +173,11 @@ export function MapAddressPickerScreen() {
                 setMarkerCoordinate({ latitude: lat, longitude: lng });
                 mapRef.current?.animateToRegion(newRegion, 1000);
                 setAddressText(json.result.formatted_address || prediction.description);
+
+                const postal = (json.result.address_components || []).find(
+                    (c: any) => Array.isArray(c.types) && c.types.includes('postal_code'),
+                );
+                setPostalCode(postal?.long_name || '');
             }
         } catch (error) {
             console.error('Place Details error:', error);
@@ -200,6 +212,9 @@ export function MapAddressPickerScreen() {
                 address: addressText,
                 lat: markerCoordinate.latitude,
                 long: markerCoordinate.longitude,
+                // Persist the pincode so bookings made from this address send the
+                // real value instead of the '000000' placeholder.
+                ...(postalCode ? { pinCode: postalCode } : {}),
             };
 
             const updatedAddresses = [...existingAddresses, newAddress];
