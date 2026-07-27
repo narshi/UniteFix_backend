@@ -166,9 +166,19 @@ export const customerApi = {
     getBillingDetails: (bookingId: number) =>
         apiClient.get<ApiResponse<any>>(`/api/v1/bookings/${bookingId}/billing`),
 
+    /**
+     * NOT IMPLEMENTED SERVER-SIDE — no /bookings/:id/create-payment-order route exists.
+     * Currently unused; calling it returns 404. Use
+     * POST /api/customer/services/:id/create-final-payment instead.
+     */
     createPaymentOrder: (bookingId: number) =>
         apiClient.post<ApiResponse<{ paymentLink: string; orderId: string }>>(`/api/v1/bookings/${bookingId}/create-payment-order`),
 
+    /**
+     * NOT IMPLEMENTED SERVER-SIDE — no /bookings/:id/payment-status route exists.
+     * Currently unused; calling it returns 404. Booking status is available on the
+     * booking itself via GET /api/services/my-requests.
+     */
     getPaymentStatus: (bookingId: number) =>
         apiClient.get<ApiResponse<{ paid: boolean; status: string }>>(`/api/v1/bookings/${bookingId}/payment-status`),
 
@@ -180,8 +190,9 @@ export const customerApi = {
     getNotifications: () =>
         apiClient.get<ApiResponse<Notification[]>>('/api/notifications'),
 
+    // Server registers this as PUT (notification.routes.ts); PATCH 404'd.
     markNotificationRead: (id: number) =>
-        apiClient.patch(`/api/notifications/${id}/read`),
+        apiClient.put(`/api/notifications/${id}/read`),
 
     // Pincode validation
     validatePincode: (pinCode: string) =>
@@ -194,11 +205,26 @@ export const customerApi = {
     getAllCategories: () =>
         apiClient.get<ApiResponse<ServiceCategory[]>>('/api/services/categories'),
 
-    // Platform Config
+    // Platform Config — shape mirrors GET /api/config/public in client-features.routes.ts
     getPublicConfig: () =>
-        apiClient.get<ApiResponse<{ bookingFee: number; gstRate: number; cancelFee: number; supportWindowHours: number; whatsappNumber: string }>>('/api/config/public'),
+        apiClient.get<ApiResponse<{
+            bookingFee: number;
+            gstRate: number;
+            cancelFee: number;
+            platformFeePercent: number;
+            supportWindowHours: number;
+            whatsappNumber: string;
+            companyUpiId: string;
+        }>>('/api/config/public'),
 
-    // OTP
+    /**
+     * OTP
+     * NOT IMPLEMENTED SERVER-SIDE — /api/otp/generate does not exist (the server
+     * exposes /api/otp/send and /api/otp/verify, which are auth OTPs for
+     * phone/email, not the service handshake code). The handshake OTP is minted
+     * server-side on booking creation/acceptance and read from the booking's
+     * `handshakeOtp` field. Currently unused; calling it returns 404.
+     */
     generateOTP: (serviceId: number) =>
         apiClient.post(`/api/otp/generate`, { serviceId }),
 

@@ -93,11 +93,17 @@ export const partnerApi = {
         }),
 
     validateOtp: (serviceId: number, otp: string) =>
+        // NOT IMPLEMENTED SERVER-SIDE — no /api/technician/* namespace exists.
+        // Currently unused; calling it returns 404. OTP verification goes through
+        // PATCH /api/bookings/:id/start (geofence.routes.ts).
         apiClient.post(`/api/technician/services/${serviceId}/validate-otp`, { otp }),
 
     // Location
+    // The server destructures { lat, long } (routes.ts POST
+    // /api/serviceman/location/update). Sending { latitude, longitude } made both
+    // undefined and the handler rejected the request with 400.
     updateLocation: (latitude: number, longitude: number) =>
-        apiClient.post('/api/serviceman/location/update', { latitude, longitude }),
+        apiClient.post('/api/serviceman/location/update', { lat: latitude, long: longitude }),
 
     // Wallet (V2 API calls)
     getWallet: async (): Promise<WalletSummary> => {
