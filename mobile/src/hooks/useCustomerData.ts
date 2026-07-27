@@ -50,9 +50,10 @@ export function usePartnerProfile() {
         queryKey: queryKeys.partnerProfile,
         queryFn: async () => {
             const response = await customerApi.getPartnerProfile();
-            // The backend returns the object directly, not wrapped in a generic data.data wrapper
-            // because I didn't use `{ success: true, data: employee }` in the route, I just did `res.json(employee)`.
-            // Let's handle both just in case.
+            // NOTE: partner-profile.routes.ts DOES respond `{ success: true, data: employee }`,
+            // so `response.data` is the envelope and the employee row sits at
+            // `response.data.data`. Callers therefore read `x?.data?.field ?? x?.field`.
+            // Returning the envelope unchanged to avoid breaking those call sites.
             return response.data;
         },
     });

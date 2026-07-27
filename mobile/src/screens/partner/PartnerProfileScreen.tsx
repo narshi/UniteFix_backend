@@ -22,15 +22,19 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
 import * as Location from 'expo-location';
-import { useProfile, useUpdateProfile, usePublicConfig, usePartnerProfile, useUpdateUpiId } from '../../hooks/useCustomerData';
+import { useProfile, useUpdateProfile, usePublicConfig, usePartnerProfile, useUpdateUpiId, queryKeys } from '../../hooks/useCustomerData';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
 import { apiClient } from '../../api/client';
+import { useScreenInsets } from '../../theme/layout';
 
 export function PartnerProfileScreen() {
+    const queryClient = useQueryClient();
+    const { headerTop, tabContent } = useScreenInsets();
     const navigation = useNavigation<any>();
     const { data: profile, isLoading } = useProfile();
     const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
@@ -67,6 +71,16 @@ export function PartnerProfileScreen() {
         if (partnerProfile) {
             const fetchedUpiId = (partnerProfile as any)?.data?.upiId || (partnerProfile as any)?.upiId;
             setUpiId(fetchedUpiId ? String(fetchedUpiId) : '');
+
+            // isOnline was seeded from the auth store, which is only written at
+            // login and then persisted to SecureStore. On relaunch the switch
+            // showed login-time state rather than the database, so a partner the
+            // server still considers online could see the toggle sitting at OFF.
+            const fetchedIsOnline =
+                (partnerProfile as any)?.data?.isOnline ?? (partnerProfile as any)?.isOnline;
+            if (typeof fetchedIsOnline === 'boolean') {
+                setIsOnline(fetchedIsOnline);
+            }
         }
     }, [partnerProfile]);
 
@@ -148,6 +162,8 @@ export function PartnerProfileScreen() {
             const { data } = await apiClient.patch('/api/partner/availability', { isOnline: value });
             if (data?.success) {
                 setIsOnline(data.data.isOnline);
+                // Keep the cached employee row in step with the new availability.
+                queryClient.invalidateQueries({ queryKey: queryKeys.partnerProfile });
             }
         } catch (err: any) {
             const msg = err?.response?.data?.message || 'Failed to update availability';
@@ -169,9 +185,9 @@ export function PartnerProfileScreen() {
     const displayName = profile?.username || user?.username || 'Employee';
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent }]} showsVerticalScrollIndicator={false}>
             {/* Profile header */}
-            <View style={styles.profileHeader}>
+            <View style={[styles.profileHeader, { paddingTop: headerTop }]}>
                 <View style={styles.avatarLarge}>
                     <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
                 </View>
@@ -372,9 +388,9 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    scrollContent: { paddingBottom: 120 },
+    scrollContent: {},
     profileHeader: {
-        alignItems: 'center', paddingTop: 60, paddingBottom: spacing.xl,
+        alignItems: 'center', paddingBottom: spacing.xl,
         backgroundColor: colors.background, borderBottomLeftRadius: radii['2xl'],
         borderBottomRightRadius: radii['2xl'], ...shadows.sm,
     },
