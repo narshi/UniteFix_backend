@@ -14,7 +14,6 @@ import {
     TouchableOpacity,
     Animated,
     Linking,
-    Platform,
     Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -38,6 +37,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { usePublicConfig } from '../../hooks/useCustomerData';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'ServiceHistoryDetail'>;
 
@@ -60,6 +60,7 @@ function formatDateTime(dateStr?: string | null): string {
 }
 
 export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
+    const { headerTop } = useScreenInsets();
     const assignment: Assignment = route.params?.assignment;
 
     // Animations
@@ -128,7 +129,7 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <Animated.View style={[styles.header, { opacity: headerAnim }]}>
+            <Animated.View style={[styles.header, { paddingTop: headerTop }, { opacity: headerAnim }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -313,8 +314,7 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
+        flexDirection: 'row', alignItems: 'center',
         paddingBottom: spacing.base, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
         borderBottomWidth: 1, borderBottomColor: colors.divider,

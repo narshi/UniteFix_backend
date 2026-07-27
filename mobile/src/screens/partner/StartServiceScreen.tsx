@@ -21,6 +21,7 @@ import {
     TextInput,
     KeyboardAvoidingView,
     Platform,
+    ScrollView,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -33,6 +34,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'StartService'>;
 
@@ -43,6 +45,7 @@ type LocationStatus = 'checking' | 'granted' | 'denied' | 'error';
 type ArrivalStatus = 'idle' | 'checking' | 'arrived' | 'too_far' | 'error';
 
 export function StartServiceScreen({ navigation, route }: Props) {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const bookingId = route.params?.serviceId || route.params?.bookingId;
 
     // ── Phase state ──────────────────────────────────────────
@@ -143,7 +146,7 @@ export function StartServiceScreen({ navigation, route }: Props) {
             behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         >
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -262,7 +265,7 @@ export function StartServiceScreen({ navigation, route }: Props) {
             </ScrollView>
 
             {/* Bottom action button */}
-            <View style={styles.bottomBar}>
+            <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
                 {phase === 'arrive' ? (
                     <Button
                         title={
@@ -308,8 +311,7 @@ function StatusCard({
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: {
@@ -393,8 +395,7 @@ const styles = StyleSheet.create({
 
     // Bottom bar
     bottomBar: {
-        padding: spacing.xl, paddingBottom: spacing['2xl'],
-        backgroundColor: colors.background,
+        padding: spacing.xl, backgroundColor: colors.background,
         borderTopWidth: 1, borderTopColor: colors.divider,
     },
 });

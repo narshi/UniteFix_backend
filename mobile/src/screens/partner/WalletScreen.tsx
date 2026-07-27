@@ -21,6 +21,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { useScreenInsets } from '../../theme/layout';
 
 function TransactionItem({ item }: { item: WalletTransaction }) {
     const isCredit = item.type === 'credit';
@@ -49,6 +50,7 @@ function TransactionItem({ item }: { item: WalletTransaction }) {
 }
 
 export function WalletScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const { data: wallet, isLoading, refetch, isRefetching, isError } = useWallet();
     const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
     const withdrawMutation = useWithdraw();
@@ -88,7 +90,7 @@ export function WalletScreen() {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <Text style={styles.headerTitle}>Payments</Text>
             </View>
 
@@ -96,7 +98,7 @@ export function WalletScreen() {
                 data={wallet?.recentTransactions || []}
                 renderItem={({ item }) => <TransactionItem item={item} />}
                 keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingBottom: tabContent }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />}
                 ListHeaderComponent={
@@ -163,12 +165,11 @@ export function WalletScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        paddingTop: 54, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
+    header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
-    listContent: { padding: spacing.xl, paddingBottom: 140 },
+    listContent: { padding: spacing.xl },
     availableCard: {
         backgroundColor: colors.primaryLight, borderRadius: radii.xl, padding: spacing.xl,
         marginBottom: spacing.md, borderWidth: 1, borderColor: colors.primary + '30',

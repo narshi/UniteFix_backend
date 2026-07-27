@@ -24,6 +24,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'InvoiceView'>;
 
@@ -41,6 +42,7 @@ interface Invoice {
 }
 
 export function InvoiceViewScreen({ navigation, route }: Props) {
+    const { headerTop } = useScreenInsets();
     const serviceId = route.params?.serviceId;
 
     const { data, isLoading } = useQuery({
@@ -83,7 +85,7 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
     if (!invoice) {
         return (
             <View style={styles.container}>
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: headerTop }]}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                         <ArrowLeft size={22} color={colors.textPrimary} />
                     </TouchableOpacity>
@@ -102,7 +104,7 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -210,8 +212,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },

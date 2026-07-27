@@ -42,10 +42,12 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, ScreenHeader } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 
 export function AssignmentDetailScreen({ navigation, route }: Props) {
+    const { headerTop } = useScreenInsets();
     const routeAssignment: Assignment = route.params?.assignment;
     const { data: assignmentsList } = useAssignments();
     const assignment = assignmentsList?.find((a: Assignment) => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
@@ -462,9 +464,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 </View>
                                 
                                 {/* Zoomed QR Modal */}
-                                <Modal visible={isQrModalVisible} transparent={true} animationType="fade" onRequestClose={() => setQrModalVisible(false)}>
+                                <Modal visible={isQrModalVisible} transparent={true} statusBarTranslucent animationType="fade" onRequestClose={() => setQrModalVisible(false)}>
                                     <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl }}>
-                                        <TouchableOpacity style={{ position: 'absolute', top: 60, right: 30, padding: 10 }} onPress={() => setQrModalVisible(false)}>
+                                        <TouchableOpacity style={{ position: 'absolute', top: headerTop, right: 30, padding: 10 }} onPress={() => setQrModalVisible(false)}>
                                             <XCircle size={32} color="#fff" />
                                         </TouchableOpacity>
                                         <View style={{ backgroundColor: '#fff', padding: spacing.xl, borderRadius: radii.lg, alignItems: 'center' }}>
@@ -575,13 +577,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
-    },
-    backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
+    // NOTE: header/backBtn/headerTitle styles removed — this screen uses <ScreenHeader />.
     scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     card: { backgroundColor: colors.background, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
     serviceType: { ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.xs },

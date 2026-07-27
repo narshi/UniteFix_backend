@@ -14,7 +14,6 @@ import {
     TouchableOpacity,
     RefreshControl,
     ActivityIndicator,
-    Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -25,6 +24,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { useScreenInsets } from '../../theme/layout';
 
 function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) {
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
@@ -64,6 +64,7 @@ function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) 
 }
 
 export function PastServicesScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const {
         data: historyPages,
         isLoading,
@@ -91,7 +92,7 @@ export function PastServicesScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <Text style={styles.headerTitle}>Past Services</Text>
                 <Text style={styles.headerSub}>{totalCount} completed</Text>
             </View>
@@ -105,7 +106,7 @@ export function PastServicesScreen() {
                     />
                 )}
                 keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingBottom: tabContent }]}
                 showsVerticalScrollIndicator={false}
                 onEndReached={handleEndReached}
                 onEndReachedThreshold={0.3}
@@ -136,13 +137,12 @@ export function PastServicesScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        paddingTop: Platform.OS === 'ios' ? 56 : 44, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
+    header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: 140 },
+    listContent: { padding: spacing.xl },
     card: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         backgroundColor: colors.background, borderRadius: radii.xl,

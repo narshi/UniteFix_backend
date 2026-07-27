@@ -31,6 +31,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'SubmitBill'>;
 
@@ -40,6 +41,7 @@ const DEFAULT_GST_PERCENT = 18;
 const DEFAULT_BOOKING_FEE = 99;
 
 export function SubmitBillScreen({ navigation, route }: Props) {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const bookingId = route.params?.bookingId || route.params?.serviceId;
 
     const [partsInput, setPartsInput] = useState('');
@@ -129,7 +131,7 @@ export function SubmitBillScreen({ navigation, route }: Props) {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -224,7 +226,7 @@ export function SubmitBillScreen({ navigation, route }: Props) {
             </ScrollView>
 
             {/* Submit Button */}
-            <View style={styles.bottomBar}>
+            <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
                 <Button
                     title={submitting ? 'Submitting...' : `Submit Bill — ₹${billing.finalTotal.toFixed(2)}`}
                     onPress={handleSubmit}
@@ -256,8 +258,7 @@ function BreakdownRow({
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: {
@@ -318,8 +319,7 @@ const styles = StyleSheet.create({
 
     // Bottom bar
     bottomBar: {
-        padding: spacing.xl, paddingBottom: spacing['2xl'],
-        backgroundColor: colors.background,
+        padding: spacing.xl, backgroundColor: colors.background,
         borderTopWidth: 1, borderTopColor: colors.divider,
     },
 });

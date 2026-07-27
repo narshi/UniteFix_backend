@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, Calendar, ChevronRight, Inbox } from 'lucide-react-native';
+import { MapPin, Calendar, ChevronRight, Inbox, WifiOff } from 'lucide-react-native';
 import { useAssignments } from '../../hooks/usePartnerData';
 import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
@@ -22,6 +22,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useTranslation } from 'react-i18next';
+import { useScreenInsets } from '../../theme/layout';
 
 export function getStatusConfig(t: any) {
     return {
@@ -70,8 +71,9 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
 }
 
 export function IncomingServicesScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const { t } = useTranslation();
-    const { data: assignments, isLoading, refetch, isRefetching } = useAssignments();
+    const { data: assignments, isLoading, isError, refetch, isRefetching } = useAssignments();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
     // Show incoming (non-completed, non-denied) first
@@ -79,23 +81,37 @@ export function IncomingServicesScreen() {
         (a: Assignment) => !['completed', 'cancelled', 'denied'].includes(a.status)
     );
 
-    if (isLoading) {
+    // Header stays mounted while loading so the screen doesn't flash between
+    // a bare spinner and the full layout.
+    const renderBody = () => {
+        if (isLoading) {
+            return (
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            );
+        }
+
+        // Without this branch a failed request fell through to the empty state,
+        // telling partners they had no jobs when the request had actually failed.
+        if (isError) {
+            return (
+                <View style={styles.center}>
+                    <EmptyState
+                        icon={<WifiOff size={36} color={colors.error} />}
+                        title={t('common.something_went_wrong', 'Could not load assignments')}
+                        description={t(
+                            'common.check_connection',
+                            'Check your internet connection and try again.',
+                        )}
+                        actionLabel={t('common.retry', 'Retry')}
+                        onAction={() => refetch()}
+                    />
+                </View>
+            );
+        }
+
         return (
-            <View style={styles.center}>
-                <ActivityIndicator size="large" color={colors.primary} />
-            </View>
-        );
-    }
-
-    return (
-        <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>{t('partner.incoming_services')}</Text>
-                <Text style={styles.headerSub}>
-                    {incoming.length} {incoming.length === 1 ? t('partner.active_assignment') : t('partner.active_assignments')}
-                </Text>
-            </View>
-
             <FlatList
                 data={incoming}
                 renderItem={({ item }) => (
@@ -106,7 +122,7 @@ export function IncomingServicesScreen() {
                     />
                 )}
                 keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={[styles.listContent, { paddingBottom: tabContent }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />
@@ -119,6 +135,21 @@ export function IncomingServicesScreen() {
                     />
                 }
             />
+        );
+    };
+
+    return (
+        <View style={styles.container}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
+                <Text style={styles.headerTitle}>{t('partner.incoming_services')}</Text>
+                <Text style={styles.headerSub}>
+                    {isError
+                        ? t('common.unavailable', 'Unavailable')
+                        : `${incoming.length} ${incoming.length === 1 ? t('partner.active_assignment') : t('partner.active_assignments')}`}
+                </Text>
+            </View>
+
+            {renderBody()}
         </View>
     );
 }
@@ -126,13 +157,12 @@ export function IncomingServicesScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        paddingTop: 54, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
+    header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: 140 },
+    listContent: { padding: spacing.xl },
     card: {
         backgroundColor: colors.background, borderRadius: radii.xl,
         padding: spacing.lg, marginBottom: spacing.md,

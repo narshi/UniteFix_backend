@@ -21,7 +21,6 @@ import {
   TouchableOpacity,
   Linking,
   StatusBar,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Clock, ShieldCheck, ShieldX, MessageCircle, LogOut, RefreshCw } from 'lucide-react-native';
