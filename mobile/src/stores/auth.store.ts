@@ -11,6 +11,7 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { authApi, AuthUser, AuthResponse } from '../api/auth.api';
+import { customerApi } from '../api/customer.api';
 
 // ── Storage Keys ──────────────────────────────────────────────────────
 const KEYS = {
@@ -40,6 +41,12 @@ interface AuthState {
   recordActivity: () => void;
   updateUser: (updates: Partial<AuthUser>) => void;
   setTokens: (accessToken: string, refreshToken: string) => Promise<void>;
+  /**
+   * Re-reads onboarding completeness from the server and persists it.
+   * Called after each onboarding step so RootNavigator can move the user on
+   * as soon as the final requirement is satisfied.
+   */
+  refreshOnboardingStatus: () => Promise<boolean>;
 }
 
 // ── Secure Storage Helpers ────────────────────────────────────────────
@@ -134,6 +141,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       employeeId: profile?.employee?.id ?? null,
       documentVerificationStatus: profile?.employee?.documentVerificationStatus ?? null,
       isOnline: profile?.employee?.isOnline ?? null,
+      // Older servers omit this; treating a missing value as "complete" keeps
+      // existing sessions out of the onboarding stack.
+      onboardingCompleted: response.onboardingCompleted ?? true,
     };
 
     await Promise.all([
@@ -225,5 +235,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updated = { ...current, ...updates };
     set({ user: updated });
     secureSet(KEYS.USER, JSON.stringify(updated));
+  },
+
+  /**
+   * Pull the authoritative onboarding state from the server.
+   * GET /api/client/profile derives it from the stored data, so this also picks
+   * up the name/address written by the step that just completed.
+   */
+  refreshOnboardingStatus: async () => {
+    const current = get().user;
+    if (!current) return false;
+
+    try {
+      const { data } = await customerApi.getProfile();
+      const profile: any = data?.data ?? {};
+
+      const updated: AuthUser = {
+        ...current,
+        username: profile.username ?? current.username,
+        email: profile.email ?? current.email,
+        homeAddress: profile.homeAddress ?? current.homeAddress,
+        pinCode: profile.pinCode ?? current.pinCode,
+        onboardingCompleted: profile.onboardingCompleted ?? current.onboardingCompleted,
+      };
+
+      set({ user: updated });
+      await secureSet(KEYS.USER, JSON.stringify(updated));
+      return updated.onboardingCompleted;
+    } catch (err) {
+      if (__DEV__) console.warn('[AUTH_STORE] Onboarding status refresh failed:', err);
+      return current.onboardingCompleted;
+    }
   },
 }));

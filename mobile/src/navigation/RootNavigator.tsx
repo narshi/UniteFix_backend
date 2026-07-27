@@ -18,6 +18,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { AuthStack } from './AuthStack';
 import { CustomerStack } from './CustomerStack';
 import { PartnerStack } from './PartnerStack';
+import { OnboardingStack } from './OnboardingStack';
 import { EmployeePendingScreen } from '../screens/partner/EmployeePendingScreen';
 import { linkingConfig } from './linking';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -42,8 +43,15 @@ function LoadingScreen() {
  * Determines which screen/stack to show based on auth + verification state.
  * This is the single source of truth for navigation branching.
  */
-function getNavigationBranch(user: any): 'auth' | 'customer' | 'employee_verified' | 'employee_pending' {
+function getNavigationBranch(
+    user: any,
+): 'auth' | 'onboarding' | 'customer' | 'employee_verified' | 'employee_pending' {
     if (!user) return 'auth';
+
+    // Mandatory setup outranks every other branch: a signup that has not supplied
+    // profile details, a location (and skills, for technicians) cannot use the
+    // app. Derived from stored data, so an interrupted signup resumes here.
+    if (user.onboardingCompleted === false) return 'onboarding';
 
     if (user.role === 'serviceman') {
         // PHASE 3: Verification gate — only 'verified' employees get full access
@@ -110,6 +118,9 @@ export function RootNavigator() {
                 <RootStack.Navigator screenOptions={{ headerShown: false }}>
                     {branch === 'auth' && (
                         <RootStack.Screen name="Auth" component={AuthStack} />
+                    )}
+                    {branch === 'onboarding' && (
+                        <RootStack.Screen name="Onboarding" component={OnboardingStack} />
                     )}
                     {branch === 'employee_verified' && (
                         <RootStack.Screen name="EmployeeMain" component={PartnerStack} />

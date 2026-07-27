@@ -1,11 +1,11 @@
 /**
- * ExpertiseSelectionScreen — Mandatory expertise selection for new employees
+ * ExpertiseSelectionScreen — Mandatory skills step for new technicians.
  *
- * Shown after phone verification, before the pending screen.
- * User must select at least 1 expertise category.
- * Supports multi-select + "Others" with custom text input.
+ * Final step of the onboarding stack (technicians only). The user must select at
+ * least one expertise category; multi-select plus "Others" free text.
  *
- * Flow: TruecallerAuth → ExpertiseSelection → loginWithTruecaller() → EmployeePending
+ * Flow: OnboardingProfile → OnboardingLocation → ExpertiseSelection
+ *       → RootNavigator switches to the partner app / pending-verification screen
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -19,21 +19,17 @@ import {
   ActivityIndicator,
   Animated,
   Image,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AuthStackParamList } from '../../types/navigation.types';
 import { colors } from '../../theme/colors';
 import { fontSizes, fontWeights } from '../../theme/typography';
 import { Check, ChevronLeft, Briefcase, Plus, X } from 'lucide-react-native';
 import { useAuthStore } from '../../stores/auth.store';
 import { apiClient } from '../../api/client';
 import { useScreenInsets } from '../../theme/layout';
-
-type Props = NativeStackScreenProps<AuthStackParamList, 'ExpertiseSelection'>;
+import { useNavigation } from '@react-navigation/native';
 
 interface ServiceCategory {
   id: number;
@@ -42,10 +38,13 @@ interface ServiceCategory {
   isActive: boolean;
 }
 
-export function ExpertiseSelectionScreen({ navigation, route }: Props) {
+export function ExpertiseSelectionScreen() {
   const { bottomBar: bottomPad } = useScreenInsets();
-  const { authData } = route.params;
-  const loginWithTruecaller = useAuthStore((s) => s.loginWithTruecaller);
+  // The session already exists by the time this screen renders — it is the last
+  // step of the onboarding stack, not a deferred-login gate, so the normal
+  // apiClient interceptor supplies the token.
+  const refreshOnboardingStatus = useAuthStore((s) => s.refreshOnboardingStatus);
+  const navigation = useNavigation<any>();
 
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -132,29 +131,20 @@ export function ExpertiseSelectionScreen({ navigation, route }: Props) {
     setIsSaving(true);
     setError(null);
     try {
-      // Use the access token from auth data directly (not yet in store)
-      await apiClient.patch(
-        '/api/partner/profile/expertise',
-        { services },
-        { headers: { Authorization: `Bearer ${authData.accessToken}` } }
-      );
+      await apiClient.patch('/api/partner/profile/expertise', { services });
 
-      // Now complete the login flow — this triggers RootNavigator to show EmployeePending
-      await loginWithTruecaller(authData);
+      // Skills are the last mandatory step: once the server reports onboarding
+      // complete, RootNavigator swaps this stack for the partner app (or the
+      // pending-verification screen).
+      await refreshOnboardingStatus();
     } catch (err: any) {
       console.error('[EXPERTISE] Save failed:', err?.message);
-      // Even if the expertise save fails, complete login so user isn't stuck
-      Alert.alert(
-        'Note',
-        'Your expertise will be saved when you next update your profile.',
-        [
-          {
-            text: 'Continue',
-            onPress: async () => {
-              await loginWithTruecaller(authData);
-            },
-          },
-        ]
+      // Skills are mandatory, so a failed save must not silently pass — keep the
+      // user here and let them retry rather than dropping them into the app
+      // with an empty skill list that blocks job assignment.
+      setError(
+        err?.response?.data?.message ||
+        'Could not save your expertise. Please check your connection and try again.'
       );
     } finally {
       setIsSaving(false);
@@ -174,14 +164,17 @@ export function ExpertiseSelectionScreen({ navigation, route }: Props) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Back Button */}
-          <Pressable
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-            hitSlop={12}
-          >
-            <ChevronLeft size={24} color={colors.textPrimary} />
-          </Pressable>
+          {/* Back Button — hidden when this is the resumed entry point, since
+              there is no earlier onboarding screen to return to. */}
+          {navigation.canGoBack() && (
+            <Pressable
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={12}
+            >
+              <ChevronLeft size={24} color={colors.textPrimary} />
+            </Pressable>
+          )}
 
           {/* Header */}
           <Animated.View style={[styles.header, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
