@@ -19,8 +19,8 @@ import {
     TouchableOpacity,
     RefreshControl,
     StatusBar,
-    Platform,
     Animated,
+    Alert,
 } from 'react-native';
 import {
     Wrench,
@@ -48,6 +48,7 @@ import { useTranslation } from 'react-i18next';
 import { ServiceCard } from '../../components/services/ServiceCard';
 import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
+import { useScreenInsets } from '../../theme/layout';
 
 // Trust indicators data
 const TRUST_ITEMS = [
@@ -58,16 +59,31 @@ const TRUST_ITEMS = [
 ];
 
 export function HomeScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const { user } = useAuthStore();
-    const { data: profile, isLoading: isProfileLoading, refetch: refetchProfile } = useProfile();
-    const { data: homeServices, isLoading: isServicesLoading, refetch: refetchServices } = useHomeServices();
+    const {
+        data: profile,
+        isLoading: isProfileLoading,
+        isRefetching: isProfileRefetching,
+        refetch: refetchProfile,
+    } = useProfile();
+    const {
+        data: homeServices,
+        isLoading: isServicesLoading,
+        isRefetching: isServicesRefetching,
+        refetch: refetchServices,
+    } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const { t } = useTranslation();
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
     const [isServiceable, setIsServiceable] = React.useState<boolean | null>(null);
 
+    // `isLoading` drives skeletons on first paint; `isRefetching` drives the
+    // pull-to-refresh spinner. Binding the spinner to isLoading made it appear
+    // on initial mount alongside the skeletons.
     const isLoading = isProfileLoading || isServicesLoading;
+    const isRefreshing = isProfileRefetching || isServicesRefetching;
 
     const onRefresh = React.useCallback(() => {
         refetchProfile();
@@ -120,20 +136,12 @@ export function HomeScreen() {
         }
     }, [profile?.pinCode]);
 
-    // Get time-based greeting
-    const getGreeting = () => {
-        const hour = new Date().getHours();
-        if (hour < 12) return 'Good morning';
-        if (hour < 17) return 'Good afternoon';
-        return 'Good evening';
-    };
-
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={colors.backgroundDark} />
 
             {/* Hero Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <View style={styles.headerTop}>
                     <View style={styles.headerLeft}>
                         {isLoading ? (
@@ -179,11 +187,11 @@ export function HomeScreen() {
 
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
-                        refreshing={isLoading}
+                        refreshing={isRefreshing}
                         onRefresh={onRefresh}
                         colors={[colors.primary]}
                         tintColor={colors.primary}
@@ -238,21 +246,15 @@ export function HomeScreen() {
                                                 service={service}
                                                 onPress={() => {
                                                     if (service.status === 'COMING_SOON') {
-                                                        import('react-native').then(({ Alert }) => {
-                                                            Alert.alert(
-                                                                "Coming Soon",
-                                                                "This service is launching soon in your area.",
-                                                                [{ text: "OK" }]
-                                                            );
-                                                        });
+                                                        Alert.alert(
+                                                            'Coming Soon',
+                                                            'This service is launching soon in your area.',
+                                                        );
                                                     } else if (service.status === 'MAINTENANCE') {
-                                                        import('react-native').then(({ Alert }) => {
-                                                            Alert.alert(
-                                                                "Under Maintenance",
-                                                                "This service is temporarily under maintenance.",
-                                                                [{ text: "OK" }]
-                                                            );
-                                                        });
+                                                        Alert.alert(
+                                                            'Under Maintenance',
+                                                            'This service is temporarily under maintenance.',
+                                                        );
                                                     } else {
                                                         navigation.navigate('ServiceRequest', { serviceType: service.name });
                                                     }
@@ -303,7 +305,6 @@ const styles = StyleSheet.create({
     // Hero Header
     header: {
         backgroundColor: colors.backgroundDark,
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.xl,
         borderBottomLeftRadius: radii['2xl'],
@@ -375,7 +376,6 @@ const styles = StyleSheet.create({
     scrollContent: {
         paddingHorizontal: spacing.xl,
         paddingTop: spacing.xl,
-        paddingBottom: 140, // Floating tab bar + safe area inset
     },
 
     // Trust Row

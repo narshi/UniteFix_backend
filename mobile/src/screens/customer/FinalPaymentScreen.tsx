@@ -37,10 +37,12 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../api/client';
 import { usePublicConfig } from '../../hooks/useCustomerData';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'FinalPayment'>;
 
 export function FinalPaymentScreen({ navigation, route }: Props) {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const request = route.params?.request;
     const [paymentState, setPaymentState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [billingData, setBillingData] = useState<any>(null);
@@ -174,7 +176,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -182,7 +184,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
                 {/* Amount Hero */}
                 <View style={styles.amountCard}>
                     <Text style={styles.amountLabel}>Total Due</Text>
@@ -253,7 +255,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
             </ScrollView>
 
             {/* Fixed Bottom CTA */}
-            <View style={styles.ctaContainer}>
+            <View style={[styles.ctaContainer, { paddingBottom: bottomPad }]}>
                 <Button
                     title={paymentState === 'failed' ? 'Retry Payment' : `Pay ₹${total}`}
                     onPress={handlePayment}
@@ -288,8 +290,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
+        flexDirection: 'row', alignItems: 'center',
         paddingBottom: spacing.base, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
         borderBottomWidth: 1, borderBottomColor: colors.divider,
@@ -347,8 +348,7 @@ const styles = StyleSheet.create({
         position: 'absolute', bottom: 0, left: 0, right: 0,
         backgroundColor: colors.background,
         paddingHorizontal: spacing.xl,
-        paddingTop: spacing.lg,
-        paddingBottom: Platform.OS === 'ios' ? spacing['3xl'] : spacing.xl,
+        paddingTop: spacing.lg,
         borderTopWidth: 1, borderTopColor: colors.divider,
         ...shadows.lg,
     },

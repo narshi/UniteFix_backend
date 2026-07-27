@@ -59,6 +59,7 @@ import { ServiceRequest } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
+import { useScreenInsets } from '../../theme/layout';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -980,6 +981,7 @@ const sectionStyles = StyleSheet.create({
 // ==================== MAIN SCREEN ====================
 
 export function MyRequestsScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const { data: requests, isLoading, refetch, isRefetching } = useServiceRequests();
     const {
         data: historyPages,
@@ -1092,7 +1094,7 @@ export function MyRequestsScreen() {
     if (isLoading && historyLoading) {
         return (
             <View style={styles.container}>
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: headerTop }]}>
                     <Text style={styles.headerTitle}>My Bookings</Text>
                 </View>
                 <View style={styles.segmentPlaceholder} />
@@ -1108,7 +1110,7 @@ export function MyRequestsScreen() {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <Text style={styles.headerTitle}>My Bookings</Text>
                 <Text style={styles.headerSub}>
                     {activeRequests.length} active · {totalPast} past
@@ -1132,7 +1134,7 @@ export function MyRequestsScreen() {
                     data={activeGroupedData}
                     renderItem={renderActiveItem}
                     keyExtractor={keyExtractor}
-                    contentContainerStyle={styles.listContent}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: tabContent }]}
                     showsVerticalScrollIndicator={false}
                     initialNumToRender={8}
                     maxToRenderPerBatch={8}
@@ -1165,7 +1167,7 @@ export function MyRequestsScreen() {
                     data={pastGroupedData}
                     renderItem={renderPastItem}
                     keyExtractor={keyExtractor}
-                    contentContainerStyle={styles.listContent}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: tabContent }]}
                     showsVerticalScrollIndicator={false}
                     onEndReached={handleEndReached}
                     onEndReachedThreshold={0.3}
@@ -1230,7 +1232,6 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
     },
     header: {
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.md,
         paddingHorizontal: spacing.xl,
         backgroundColor: colors.background,
@@ -1256,7 +1257,6 @@ const styles = StyleSheet.create({
     },
     listContent: {
         paddingHorizontal: spacing.xl,
-        paddingTop: spacing.xs,
-        paddingBottom: 140, // Floating tab bar + safe area inset
+        paddingTop: spacing.xs,
     },
 });

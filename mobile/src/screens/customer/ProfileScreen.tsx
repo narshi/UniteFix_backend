@@ -39,8 +39,10 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 export function ProfileScreen() {
+    const { headerTop, tabContent } = useScreenInsets();
     const navigation = useNavigation<any>();
     const { data: profile, isLoading } = useProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
@@ -175,11 +177,11 @@ export function ProfileScreen() {
     return (
         <ScrollView
             style={styles.container}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent }]}
             showsVerticalScrollIndicator={false}
         >
             {/* Profile header */}
-            <View style={styles.profileHeader}>
+            <View style={[styles.profileHeader, { paddingTop: headerTop }]}>
                 <View style={styles.avatarLarge}>
                     <Text style={styles.avatarLargeText}>
                         {displayName.charAt(0).toUpperCase()}
@@ -349,10 +351,9 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    scrollContent: { paddingBottom: 140 },
+    scrollContent: {},
     profileHeader: {
-        alignItems: 'center',
-        paddingTop: 60,
+        alignItems: 'center',
         paddingBottom: spacing.xl,
         backgroundColor: colors.background,
         borderBottomLeftRadius: radii['2xl'],
