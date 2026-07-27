@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus, Minus, History } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
+import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 
 export default function PartnersPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -39,7 +40,7 @@ export default function PartnersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: partnersResponse, isLoading } = useQuery<any>({
+  const { data: partnersResponse, isLoading, isError, refetch } = useQuery<any>({
     queryKey: ["/api/admin/servicemen/list"],
   });
 
@@ -178,7 +179,7 @@ export default function PartnersPage() {
         "Washing Machine Repair", "Microwave Repair", "TV Repair", "Mobile Phone Repair"];
 
   return (
-    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+    <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
       <div className="mb-8 flex justify-between items-center relative z-10 stagger-enter">
         <div>
           <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Employees</h2>
@@ -261,12 +262,12 @@ export default function PartnersPage() {
       </div>
 
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
           <div className="flex justify-between items-center w-full">
             <CardTitle className="text-xl text-white">Employee Directory</CardTitle>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
               <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
-                <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full sm:w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Verification</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -275,7 +276,7 @@ export default function PartnersPage() {
                 </SelectContent>
               </Select>
               <Select value={activeStatusFilter} onValueChange={setActiveStatusFilter}>
-                <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full sm:w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
@@ -307,7 +308,11 @@ export default function PartnersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPartners.map((partner: any) => (
+                  {isError && <TableErrorState colSpan={5} onRetry={() => refetch()} message="Could not load employees." />}
+                    {!isError && filteredPartners.length === 0 && (
+                      <TableEmptyState colSpan={5} icon="handyman" title={partners.length === 0 ? "No employees yet" : "No matching employees"} description={partners.length === 0 ? "Partners who sign up in the app will appear here for verification." : "Try a different search term or filter."} />
+                    )}
+                    {!isError && filteredPartners.map((partner: any) => (
                     <tr key={partner.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group ${!partner.isActive ? 'opacity-60 bg-[rgba(255,255,255,0.01)]' : ''}`}>
                       <td className="p-4">
                         <div className="flex items-center gap-4">

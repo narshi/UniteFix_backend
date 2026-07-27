@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 
 export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -18,7 +19,7 @@ export default function UsersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: usersResponse, isLoading } = useQuery<any>({
+  const { data: usersResponse, isLoading, isError, refetch } = useQuery<any>({
     queryKey: ["/api/admin/users"],
   });
 
@@ -60,25 +61,25 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+    <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
       <div className="mb-8 relative z-10 stagger-enter">
         <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Customer Management</h2>
         <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage all registered customers. Employees are managed in the Employees section.</p>
       </div>
 
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
           <CardTitle className="text-xl text-white">All Users</CardTitle>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="deactivated">Deactivated</SelectItem>
               </SelectContent>
             </Select>
-            <div className="relative w-64">
+            <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
               <Input
                 placeholder="Search users..."
@@ -116,7 +117,20 @@ export default function UsersPage() {
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {filteredUsers?.map((user: any, index: number) => (
+                  {isError && <TableErrorState colSpan={6} onRetry={() => refetch()} message="Could not load customers." />}
+                  {!isError && filteredUsers.length === 0 && (
+                    <TableEmptyState
+                      colSpan={6}
+                      icon="person_search"
+                      title={users.length === 0 ? "No customers yet" : "No matching customers"}
+                      description={
+                        users.length === 0
+                          ? "Customers will appear here once they sign up in the mobile app."
+                          : "Try a different search term or clear the status filter."
+                      }
+                    />
+                  )}
+                  {!isError && filteredUsers.map((user: any, index: number) => (
                     <tr key={`${user.id}-${index}`} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                       <td className="p-4">
                         <div className="flex items-center space-x-4">
@@ -206,12 +220,12 @@ export default function UsersPage() {
                   />
                 ) : (
                   <div className="w-16 h-16 bg-gradient-to-br from-[hsl(217,91%,60%)] to-[hsl(263,70%,50%)] text-white rounded-full flex items-center justify-center text-2xl font-bold shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-                    {selectedUser.username.charAt(0).toUpperCase()}
+                    {selectedUser.username?.charAt(0).toUpperCase() || "U"}
                   </div>
                 )}
-                <div>
-                  <h3 className="text-lg font-bold text-white tracking-tight">{selectedUser.username}</h3>
-                  <Badge variant="outline" className="text-[10px] mt-1 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,75%)]">{selectedUser.role.toUpperCase()}</Badge>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-white tracking-tight truncate">{selectedUser.username || "Unnamed user"}</h3>
+                  <Badge variant="outline" className="text-[10px] mt-1 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,75%)]">{(selectedUser.role || "user").toUpperCase()}</Badge>
                 </div>
               </div>
 
@@ -238,7 +252,7 @@ export default function UsersPage() {
                   <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">
                     <Calendar className="w-4 h-4 text-[hsl(215,20%,65%)]" />
                   </div>
-                  <span>Joined: {new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                  <span>Joined: {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : "N/A"}</span>
                 </div>
                 <div className="flex items-center space-x-3 text-sm text-[hsl(210,20%,85%)]">
                   <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center shrink-0">

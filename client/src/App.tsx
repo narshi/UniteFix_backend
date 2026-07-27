@@ -25,6 +25,7 @@ import Sidebar from "@/components/admin/sidebar";
 function Router() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const checkAuthentication = () => {
     const token = localStorage.getItem("adminToken");
@@ -100,26 +101,41 @@ function Router() {
 
   return (
     <div className="min-h-screen flex bg-surface-0 noise-overlay">
-      <Sidebar />
-      <div className="flex-1 overflow-y-auto h-screen">
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/users" component={UsersPage} />
-        <Route path="/services" component={ServicesPage} />
-        <Route path="/orders" component={OrdersPage} />
-        <Route path="/partners" component={PartnersPage} />
-        <Route path="/payments" component={PaymentsPage} />
-        <Route path="/locations" component={LocationsPage} />
-        <Route path="/admin/districts" component={DistrictsPage} />
-        <Route path="/admin/inventory" component={InventoryPage} />
-        <Route path="/admin/withdrawals" component={WithdrawalsPage} />
-        <Route path="/admin/developer" component={DeveloperPage} />
-        <Route path="/admin/catalog" component={ServiceCatalogPage} />
-        <Route path="/admin/assignments" component={AssignmentQueuePage} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route component={NotFound} />
-      </Switch>
+      <Sidebar open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
+      <div className="flex-1 min-w-0 overflow-y-auto h-screen">
+        {/* Mobile/tablet top bar — the sidebar is a drawer below `lg` */}
+        <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 border-b border-[rgba(255,255,255,0.06)] bg-[hsla(222,47%,6%,0.85)] backdrop-blur-md">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-[hsl(210,20%,80%)] hover:text-white p-2 -ml-2 rounded-lg hover:bg-[rgba(255,255,255,0.06)] transition-colors"
+            aria-label="Open navigation"
+          >
+            <span className="material-icons" style={{ fontFamily: "Material Icons" }}>menu</span>
+          </button>
+          <span className="font-bold tracking-tight text-white">
+            Unite<span className="gradient-text">Fix</span>
+          </span>
+        </header>
+
+        <Switch>
+          <Route path="/" component={Dashboard} />
+          <Route path="/dashboard" component={Dashboard} />
+          <Route path="/users" component={UsersPage} />
+          <Route path="/services" component={ServicesPage} />
+          <Route path="/orders" component={OrdersPage} />
+          <Route path="/partners" component={PartnersPage} />
+          <Route path="/payments" component={PaymentsPage} />
+          <Route path="/locations" component={LocationsPage} />
+          <Route path="/admin/districts" component={DistrictsPage} />
+          <Route path="/admin/inventory" component={InventoryPage} />
+          <Route path="/admin/withdrawals" component={WithdrawalsPage} />
+          <Route path="/admin/developer" component={DeveloperPage} />
+          <Route path="/admin/catalog" component={ServiceCatalogPage} />
+          <Route path="/admin/assignments" component={AssignmentQueuePage} />
+          <Route path="/settings" component={SettingsPage} />
+          <Route component={NotFound} />
+        </Switch>
       </div>
     </div>
   );

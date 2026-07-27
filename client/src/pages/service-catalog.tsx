@@ -164,13 +164,13 @@ export default function ServiceCatalogPage() {
   });
 
   return (
-    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+    <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
       <div className="flex justify-between items-start mb-8 relative z-10 stagger-enter">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Service Catalog</h2>
           <p className="text-[hsl(215,20%,65%)] mt-1 font-medium tracking-wide">Manage categories, services, and their visibility on the platform.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
           <Button onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true); }} variant="outline" className="flex items-center gap-2 border-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.05)] text-[hsl(210,20%,85%)] shadow-sm transition-all active:scale-[0.97]">
             <Plus className="w-4 h-4" /> Add Category
           </Button>
@@ -247,7 +247,7 @@ export default function ServiceCatalogPage() {
                   <CardTitle className="text-xl text-white">Services</CardTitle>
                   <CardDescription className="text-[hsl(215,20%,55%)] font-medium">Total <span className="text-[hsl(217,91%,65%)]">{filteredServices.length}</span> services found</CardDescription>
                 </div>
-                <div className="relative w-64">
+                <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
                   <Input
                     placeholder="Search services..."

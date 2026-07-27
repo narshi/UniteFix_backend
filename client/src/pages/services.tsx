@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState } from "react";
 import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
+import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 
 export default function ServicesPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -15,7 +16,7 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   
-  const { data: services = [], isLoading } = useQuery({
+  const { data: services = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["/api/admin/services"],
     select: (data: any) => {
       if (Array.isArray(data)) return data;
@@ -199,14 +200,14 @@ Generated on: ${new Date().toLocaleString('en-IN')}
   };
 
   return (
-      <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+      <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
         <div className="mb-8 relative z-10 stagger-enter">
           <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Service Requests</h2>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Monitor and manage all service requests</p>
         </div>
 
         <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
             <div className="flex justify-between items-center w-full">
               <CardTitle className="text-xl text-white">All Service Requests</CardTitle>
               <div className="flex space-x-3">
@@ -274,7 +275,11 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredServices.map((service: any) => (
+                    {isError && <TableErrorState colSpan={9} onRetry={() => refetch()} message="Could not load service requests." />}
+                    {!isError && filteredServices.length === 0 && (
+                      <TableEmptyState colSpan={9} icon="build" title={services.length === 0 ? "No service requests yet" : "No matching service requests"} description={services.length === 0 ? "Bookings created in the mobile app will appear here." : "Try a different search term or filter."} />
+                    )}
+                    {!isError && filteredServices.map((service: any) => (
                       <tr key={service.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                         <td className="p-4">
                           <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceId || service.id}</p>

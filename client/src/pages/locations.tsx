@@ -223,7 +223,7 @@ export default function LocationsPage() {
   };
 
   return (
-    <div className="flex-1 p-8 min-h-screen relative overflow-hidden">
+    <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
       <div className="mb-8">
         <div className="flex justify-between items-center mb-8 relative z-10 stagger-enter">
           <div>

@@ -107,7 +107,7 @@ export default function Dashboard() {
   };
 
   return (
-      <main className="flex-1 p-8">
+      <main className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0">
         <div className="mb-8 stagger-enter">
           <div className="flex justify-between items-center mb-8">
             <div>

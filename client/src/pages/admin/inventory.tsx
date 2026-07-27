@@ -210,7 +210,7 @@ export default function InventoryPage() {
     };
 
     return (
-        <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+        <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden bg-transparent">
             <div className="flex flex-col md:flex-row w-full justify-between items-start md:items-center mb-8 gap-4 relative z-10 stagger-enter">
                 <div>
                     <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Inventory Management</h1>

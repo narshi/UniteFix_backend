@@ -402,7 +402,7 @@ class UniteFIxAPI {
   };
 
   return (
-    <div className="flex-1 p-8">
+    <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0">
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Developer Documentation</h2>
         <p className="text-gray-600">Complete API documentation and testing interface for UniteFix platform</p>

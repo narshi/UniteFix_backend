@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import { Search, Download, Filter, Package } from "lucide-react";
+import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 
 export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -20,7 +21,7 @@ export default function OrdersPage() {
     'Microwave', 'Television', 'Mobile Phone', 'Tablet', 'Other'
   ];
   
-  const { data: orders = [], isLoading } = useQuery({
+  const { data: orders = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["/api/admin/orders"],
     select: (data) => Array.isArray(data) ? data : []
   });
@@ -116,14 +117,14 @@ export default function OrdersPage() {
   };
 
   return (
-      <div className="flex-1 p-8 min-h-screen relative overflow-hidden bg-transparent">
+      <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden bg-transparent">
         <div className="mb-8 relative z-10 stagger-enter">
           <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Product Orders</h2>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Monitor and manage all product orders</p>
         </div>
 
         <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
             <div className="flex justify-between items-center w-full">
               <CardTitle className="text-xl text-white">All Product Orders</CardTitle>
               <div className="flex space-x-3">
@@ -202,7 +203,11 @@ export default function OrdersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders?.map((order: any) => (
+                    {isError && <TableErrorState colSpan={8} onRetry={() => refetch()} message="Could not load orders." />}
+                    {!isError && filteredOrders.length === 0 && (
+                      <TableEmptyState colSpan={8} icon="shopping_cart" title={orders.length === 0 ? "No product orders yet" : "No matching orders"} description={orders.length === 0 ? "Product ordering is currently paused in the mobile app." : "Try a different search term or filter."} />
+                    )}
+                    {!isError && filteredOrders?.map((order: any) => (
                       <tr key={order.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                         <td className="p-4">
                           <p className="font-medium text-[hsl(210,20%,90%)]">{order.orderId}</p>
