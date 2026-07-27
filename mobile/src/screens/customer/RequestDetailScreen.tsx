@@ -19,7 +19,6 @@ import {
     TouchableOpacity,
     Animated,
     Linking,
-    Platform,
     Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -51,13 +50,14 @@ import {
     Sparkles,
     Bug,
 } from 'lucide-react-native';
-import { useCancelServiceRequest, useRateService, usePublicConfig } from '../../hooks/useCustomerData';
+import { useCancelServiceRequest, useRateService, usePublicConfig, useServiceRequests } from '../../hooks/useCustomerData';
 import { ServiceRequest, customerApi } from '../../api/customer.api';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
 
@@ -171,7 +171,17 @@ function ConfirmModal({
 }
 
 export function RequestDetailScreen({ navigation, route }: Props) {
-    const request: ServiceRequest = route.params?.request;
+    const { headerTop } = useScreenInsets();
+    // route.params.request is a snapshot frozen at navigation time. Re-read the
+    // booking from the live (5s-polled) list so status, handshakeOtp, technician
+    // details and payment state stay in sync while this screen is open — the
+    // same pattern AssignmentDetailScreen already uses on the partner side.
+    const routeRequest: ServiceRequest = route.params?.request;
+    const { data: liveRequests } = useServiceRequests();
+    const request: ServiceRequest =
+        (liveRequests as ServiceRequest[] | undefined)?.find(
+            (r) => r.id === routeRequest?.id || (!!r.serviceId && r.serviceId === routeRequest?.serviceId),
+        ) || routeRequest;
     const [showRating, setShowRating] = useState(false);
     const [rating, setRating] = useState(0);
     const [feedback, setFeedback] = useState('');
@@ -289,7 +299,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     return (
         <View style={styles.container}>
             {/* Premium Header */}
-            <Animated.View style={[styles.header, { opacity: headerAnim }]}>
+            <Animated.View style={[styles.header, { paddingTop: headerTop }, { opacity: headerAnim }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -649,7 +659,6 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: Platform.OS === 'ios' ? 56 : 44,
         paddingBottom: spacing.base,
         paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
