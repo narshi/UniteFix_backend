@@ -18,6 +18,7 @@ import { admin } from '../lib/firebase';
 import { TokenService } from '../services/token.service';
 import { NotificationService } from '../services/notification.service';
 import logger from '../lib/logger';
+import { getPendingOnboardingSteps } from '../lib/onboarding';
 import crypto from 'crypto';
 
 const router = Router();
@@ -28,10 +29,19 @@ const TRUECALLER_USERINFO_URL = 'https://oauth-account-noneu.truecaller.com/v1/u
 
 // ── Validation Schemas ────────────────────────────────────────────────
 
+/**
+ * Signup and login are distinct intents even though they share a verification
+ * step. `mode` lets the server refuse to silently create an account when the
+ * user believed they were logging in. Defaults to 'signup' so older clients
+ * keep their previous find-or-create behaviour.
+ */
+const authModeSchema = z.enum(['login', 'signup']).optional().default('signup');
+
 const truecallerVerifySchema = z.object({
   authorizationCode: z.string().min(1, 'Authorization code is required'),
   codeVerifier: z.string().min(1, 'Code verifier is required'),
   role: z.enum(['user', 'serviceman']),
+  mode: authModeSchema,
 });
 
 const phoneLoginSchema = z.object({
@@ -54,6 +64,7 @@ const fallbackVerifySchema = z.object({
   role: z.enum(['user', 'serviceman']),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  mode: authModeSchema,
 });
 
 // ── Indian Phone Validation Helper ────────────────────────────────────
@@ -97,7 +108,7 @@ router.post('/check-phone', async (req: Request, res: Response, next: NextFuncti
 
 router.post('/truecaller/verify', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { authorizationCode, codeVerifier, role } = truecallerVerifySchema.parse(req.body);
+    const { authorizationCode, codeVerifier, role, mode } = truecallerVerifySchema.parse(req.body);
 
     if (!TRUECALLER_CLIENT_ID) {
       logger.error('[TC_AUTH] TRUECALLER_CLIENT_ID not configured');
@@ -181,6 +192,16 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
     let user = await storage.getUserByPhone(phone);
     let isNewUser = false;
 
+    // Explicit login must not create an account behind the user's back.
+    if (!user && mode === 'login') {
+      logger.info(`[TC_AUTH] Login attempted for unregistered phone ${phone}`);
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No UniteFix account found for this number. Please sign up first.',
+      });
+    }
+
     if (!user) {
       // New user — create account
       isNewUser = true;
@@ -235,18 +256,26 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
 
     // Step 6: Get role-specific profile data
     let profileData = null;
+    let employeeRecord = null;
     if (user.role === 'serviceman') {
-      const emp = await storage.getEmployeeByUserId(user.id);
-      profileData = { employee: emp };
+      employeeRecord = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: employeeRecord };
     } else {
       const customer = await storage.getCustomerByUserId(user.id);
       profileData = { customer };
     }
 
+    const pendingOnboarding = getPendingOnboardingSteps(user, employeeRecord);
+
     res.json({
       success: true,
       message: isNewUser ? 'Account created successfully' : 'Login successful',
       isNewUser,
+      // Set when the caller asked to sign up but the number already had an
+      // account — the client greets them instead of claiming a new signup.
+      alreadyRegistered: !isNewUser && mode === 'signup',
+      onboardingCompleted: pendingOnboarding.length === 0,
+      pendingOnboardingSteps: pendingOnboarding,
       user: { ...user, password: undefined },
       profile: profileData,
       ...tokens,
@@ -408,11 +437,20 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
 
 router.post('/fallback/verify-otp', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { phone, email, code, role, firstName, lastName } = fallbackVerifySchema.parse(req.body);
+    const { phone, email, code, role, firstName, lastName, mode } = fallbackVerifySchema.parse(req.body);
     const normalizedPhone = normalizeIndianPhone(phone);
 
     // Look up user to find registered email if email wasn't provided (for existing users)
     let user = await storage.getUserByPhone(normalizedPhone);
+
+    // Explicit login must not create an account behind the user's back.
+    if (!user && mode === 'login') {
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No UniteFix account found for this number. Please sign up first.',
+      });
+    }
     let targetEmail = '';
 
     if (user && user.email) {
@@ -475,18 +513,24 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
 
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
     let profileData = null;
+    let employeeRecord = null;
     if (user.role === 'serviceman') {
-      const emp = await storage.getEmployeeByUserId(user.id);
-      profileData = { employee: emp };
+      employeeRecord = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: employeeRecord };
     } else {
       const customer = await storage.getCustomerByUserId(user.id);
       profileData = { customer };
     }
 
+    const pendingOnboarding = getPendingOnboardingSteps(user, employeeRecord);
+
     res.json({
       success: true,
       message: isNewUser ? 'Account created successfully' : 'Login successful',
       isNewUser,
+      alreadyRegistered: !isNewUser && mode === 'signup',
+      onboardingCompleted: pendingOnboarding.length === 0,
+      pendingOnboardingSteps: pendingOnboarding,
       user: { ...user, password: undefined },
       profile: profileData,
       ...tokens,
@@ -602,12 +646,14 @@ const firebaseVerifySchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   email: z.string().optional(),
+  mode: authModeSchema,
 });
 
 router.post('/fallback/firebase-verify', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = firebaseVerifySchema.parse(req.body);
     const role = data.role;
+    const mode = data.mode;
     
     // 1. Verify ID Token with Firebase
     let decodedToken;
@@ -633,9 +679,18 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
     let user = await storage.getUserByPhone(phone);
     let isNewUser = false;
 
+    // Explicit login must not create an account behind the user's back.
+    if (!user && mode === 'login') {
+      return res.status(404).json({
+        success: false,
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No UniteFix account found for this number. Please sign up first.',
+      });
+    }
+
     if (!user) {
       isNewUser = true;
-      
+
       // Require Name and Email for new users
       if (!fullName || !data.email) {
           return res.json({ 

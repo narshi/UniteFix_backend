@@ -25,6 +25,7 @@ import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 import { storage } from "../storage";
+import { getPendingOnboardingSteps } from "../lib/onboarding";
 // Use the shared singleton. A local `new ConfigService()` here carried its own
 // 5-minute cache, so /api/config/public and BillingEngine could disagree about
 // the booking fee after an admin edit — the app quoting one price and billing
@@ -328,7 +329,7 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const userId = (req as any).user!.userId;
             const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-            
+
             // Fetch customer profile to get savedAddresses
             const [customer] = await db.select().from(customers).where(eq(customers.userId, userId)).limit(1);
 
@@ -336,12 +337,25 @@ export function registerClientFeatureRoutes(app: Express) {
                 return res.status(404).json({ success: false, message: "User not found" });
             }
 
+            // Technicians additionally need at least one declared skill, so the
+            // employee row is required to answer "is this account onboarded?".
+            let employeeRecord = null;
+            if (user.role === 'serviceman') {
+                const [emp] = await db.select().from(employees)
+                    .where(eq(employees.userId, userId)).limit(1);
+                employeeRecord = emp || null;
+            }
+
+            const pendingOnboarding = getPendingOnboardingSteps(user, employeeRecord);
+
             res.json({
                 success: true,
-                data: { 
-                    ...user, 
+                data: {
+                    ...user,
                     password: undefined,
-                    savedAddresses: customer?.savedAddresses || [] 
+                    savedAddresses: customer?.savedAddresses || [],
+                    onboardingCompleted: pendingOnboarding.length === 0,
+                    pendingOnboardingSteps: pendingOnboarding,
                 },
             });
         } catch (error) {
