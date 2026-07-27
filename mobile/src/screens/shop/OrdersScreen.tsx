@@ -23,6 +23,7 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 // For now, this screen fetches from the same mechanism
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
+import { useScreenInsets } from '../../theme/layout';
 
 function useMyOrders() {
     return useQuery({
@@ -83,6 +84,7 @@ function OrderCard({ item, onPress }: { item: any; onPress: () => void }) {
 }
 
 export function OrdersScreen() {
+    const { headerTop } = useScreenInsets();
     const { data: orders, isLoading, refetch, isRefetching } = useMyOrders();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
@@ -92,7 +94,7 @@ export function OrdersScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <Text style={styles.headerTitle}>My Orders</Text>
                 <Text style={styles.headerSub}>{(orders || []).length} orders</Text>
             </View>
@@ -124,8 +126,7 @@ export function OrdersScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        paddingTop: 54, paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
+    header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     headerTitle: { ...typography.h2, color: colors.textPrimary },

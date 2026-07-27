@@ -19,10 +19,12 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'ProductDetail'>;
 
 export function ProductDetailScreen({ navigation, route }: Props) {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const product: Product = route.params?.product;
     const { mutate: addToCart, isPending } = useAddToCart();
 
@@ -35,7 +37,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -45,7 +47,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
                 {/* Image */}
                 <View style={styles.imageContainer}>
                     {product.imageUrl ? (
@@ -96,7 +98,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
             </ScrollView>
 
             {/* Bottom bar */}
-            <View style={styles.bottomBar}>
+            <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
                 <View style={styles.bottomPrice}>
                     <Text style={styles.bottomPriceLabel}>Price</Text>
                     <Text style={styles.bottomPriceValue}>₹{product.price}</Text>
@@ -116,8 +118,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
@@ -149,7 +150,7 @@ const styles = StyleSheet.create({
         position: 'absolute', bottom: 0, left: 0, right: 0,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: colors.background, paddingVertical: spacing.md,
-        paddingHorizontal: spacing.xl, paddingBottom: spacing.xl,
+        paddingHorizontal: spacing.xl,
         borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md,
     },
     bottomPrice: {},

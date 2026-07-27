@@ -24,10 +24,12 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { apiClient } from '../../api/client';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'Checkout'>;
 
 export function CheckoutScreen({ navigation }: Props) {
+    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const { data: cartData, isLoading } = useCart();
     const { mutate: checkout, isPending } = useCheckout();
 
@@ -104,7 +106,7 @@ export function CheckoutScreen({ navigation }: Props) {
     return (
         <View style={styles.container}>
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: headerTop }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -112,7 +114,7 @@ export function CheckoutScreen({ navigation }: Props) {
                 <View style={{ width: 36 }} />
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
                 {/* Delivery Address */}
                 <View style={styles.card}>
                     <View style={styles.cardHeader}>
@@ -219,7 +221,7 @@ export function CheckoutScreen({ navigation }: Props) {
             </ScrollView>
 
             {/* Bottom CTA */}
-            <View style={styles.bottomBar}>
+            <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
                 <View>
                     <Text style={styles.bottomLabel}>Total Amount</Text>
                     <Text style={styles.bottomAmount}>₹{total}</Text>
@@ -239,8 +241,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingTop: 50, paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
@@ -280,7 +281,7 @@ const styles = StyleSheet.create({
         position: 'absolute', bottom: 0, left: 0, right: 0,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: colors.background, padding: spacing.xl,
-        paddingBottom: spacing.xl, borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md,
+        borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md,
     },
     bottomLabel: { ...typography.small, color: colors.textSecondary },
     bottomAmount: { ...typography.h3, color: colors.textPrimary },

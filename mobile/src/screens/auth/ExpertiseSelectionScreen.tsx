@@ -31,6 +31,7 @@ import { fontSizes, fontWeights } from '../../theme/typography';
 import { Check, ChevronLeft, Briefcase, Plus, X } from 'lucide-react-native';
 import { useAuthStore } from '../../stores/auth.store';
 import { apiClient } from '../../api/client';
+import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'ExpertiseSelection'>;
 
@@ -42,6 +43,7 @@ interface ServiceCategory {
 }
 
 export function ExpertiseSelectionScreen({ navigation, route }: Props) {
+  const { bottomBar: bottomPad } = useScreenInsets();
   const { authData } = route.params;
   const loginWithTruecaller = useAuthStore((s) => s.loginWithTruecaller);
 
@@ -279,7 +281,7 @@ export function ExpertiseSelectionScreen({ navigation, route }: Props) {
 
         {/* Bottom CTA */}
         {!isLoading && (
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
             <Pressable
               style={[styles.continueButton, selectedCount === 0 && styles.continueButtonDisabled]}
               onPress={handleContinue}
@@ -379,7 +381,7 @@ const styles = StyleSheet.create({
   },
   errorText: { fontSize: fontSizes.sm, color: colors.error, textAlign: 'center' },
   bottomBar: {
-    paddingHorizontal: 24, paddingBottom: 16, paddingTop: 8,
+    paddingHorizontal: 24, paddingTop: 8,
     backgroundColor: colors.background,
     borderTopWidth: 1, borderTopColor: colors.divider,
   },
