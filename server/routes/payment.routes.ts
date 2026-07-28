@@ -300,7 +300,28 @@ export function registerPaymentRoutes(app: Express) {
             );
 
             if (!isValid) {
-                logger.warn('[WEBHOOK] Razorpay signature verification failed');
+                // Diagnostic: distinguishes the two causes of a 401 without ever
+                // logging the secret or a usable signature.
+                //   rawBodyMatches=false, stringifyMatches=true  -> body capture problem
+                //   both false                                   -> the configured
+                //     RAZORPAY_WEBHOOK_SECRET does not match the dashboard secret
+                const stringifyMatches = PaymentService.verifyWebhookSignature(
+                    JSON.stringify(req.body), signature, webhookSecret,
+                );
+                logger.warn('[WEBHOOK] Razorpay signature verification failed', {
+                    rawBodyMatches: false,
+                    stringifyMatches,
+                    likelyCause: stringifyMatches
+                        ? 'raw-body capture (deploy fix)'
+                        : 'RAZORPAY_WEBHOOK_SECRET mismatch with Razorpay dashboard',
+                    rawBodyBytes: req.rawBody.length,
+                    stringifyBytes: Buffer.byteLength(JSON.stringify(req.body)),
+                    contentType: req.headers['content-type'],
+                    receivedSigLength: signature.length,
+                    // Fingerprints only — not reversible into a valid signature.
+                    secretFingerprint: crypto.createHash('sha256')
+                        .update(webhookSecret).digest('hex').slice(0, 8),
+                });
                 return res.status(401).json({ error: "Invalid signature" });
             }
 
