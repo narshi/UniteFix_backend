@@ -16,6 +16,7 @@ import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
 import { PaymentTrackingService } from "../services/payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
+import logger from "../lib/logger";
 import { 
     paymentTransactions,
     invoices,
@@ -284,15 +285,22 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(400).json({ error: "Missing signature" });
             }
 
-            // Verify signature
-            const webhookBody = JSON.stringify(req.body);
+            // Hash the exact bytes Razorpay signed. req.rawBody is captured by the
+            // express.json verify hook; JSON.stringify(req.body) re-serialises and
+            // will not byte-match, so it failed every signature check with 401.
+            if (!req.rawBody) {
+                console.error('[WEBHOOK] rawBody missing — cannot verify signature');
+                return res.status(500).json({ error: "Webhook body capture unavailable" });
+            }
+
             const isValid = PaymentService.verifyWebhookSignature(
-                webhookBody,
+                req.rawBody.toString('utf8'),
                 signature,
                 webhookSecret
             );
 
             if (!isValid) {
+                logger.warn('[WEBHOOK] Razorpay signature verification failed');
                 return res.status(401).json({ error: "Invalid signature" });
             }
 
@@ -322,9 +330,20 @@ export function registerPaymentRoutes(app: Express) {
             const signature = req.headers["x-razorpay-signature"] as string;
             if (!signature) return res.status(400).json({ error: "Missing signature" });
 
-            const webhookBody = JSON.stringify(req.body);
-            const isValid = PaymentService.verifyWebhookSignature(webhookBody, signature, webhookSecret);
-            if (!isValid) return res.status(401).json({ error: "Invalid signature" });
+            // Same raw-bytes requirement as the Razorpay webhook above.
+            if (!req.rawBody) {
+                console.error('[WEBHOOK] rawBody missing — cannot verify signature');
+                return res.status(500).json({ error: "Webhook body capture unavailable" });
+            }
+            const isValid = PaymentService.verifyWebhookSignature(
+                req.rawBody.toString('utf8'),
+                signature,
+                webhookSecret,
+            );
+            if (!isValid) {
+                logger.warn('[WEBHOOK] RazorpayX signature verification failed');
+                return res.status(401).json({ error: "Invalid signature" });
+            }
 
             const { event, payload } = req.body;
             

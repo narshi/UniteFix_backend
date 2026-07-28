@@ -13,6 +13,12 @@ declare global {
     namespace Express {
         interface Request {
             requestId?: string;
+            /**
+             * Untouched request bytes, captured by the express.json `verify` hook
+             * in server/index.ts. Required for webhook HMAC verification, which
+             * must hash exactly what the provider signed.
+             */
+            rawBody?: Buffer;
         }
     }
 }

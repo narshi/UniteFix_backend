@@ -54,7 +54,20 @@ app.use(cors({
 app.use(requestIdMiddleware);
 
 // P0: Body size limit to prevent DoS via large payloads
-app.use(express.json({ limit: '1mb' }));
+//
+// `verify` stashes the untouched request bytes on the request object. Razorpay
+// signs the exact payload it sends, so webhook signature checks MUST hash those
+// bytes. Re-serialising with JSON.stringify(req.body) produces different output
+// (key order, spacing, unicode escaping, number formatting) and the HMAC can
+// never match — which made every webhook fail signature verification with 401.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    if (buf && buf.length) {
+      (req as express.Request).rawBody = Buffer.from(buf);
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
 // P1: Health check endpoint (before auth/logging middleware)

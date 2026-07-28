@@ -290,10 +290,17 @@ export class PaymentService {
     ): boolean {
         const expectedSignature = crypto
             .createHmac("sha256", secret)
-            .update(webhookBody)
+            .update(webhookBody, "utf8")
             .digest("hex");
 
-        return expectedSignature === signature;
+        // Constant-time compare — a plain === leaks how much of the signature
+        // matched via timing. timingSafeEqual throws on length mismatch, so
+        // guard that first.
+        const expected = Buffer.from(expectedSignature, "utf8");
+        const received = Buffer.from(signature || "", "utf8");
+        if (expected.length !== received.length) return false;
+
+        return crypto.timingSafeEqual(expected, received);
     }
 
     /**
@@ -417,7 +424,12 @@ export class PaymentService {
             };
         }
 
-        return { success: false, message: "Unhandled event type" };
+        // Acknowledged with 200 so Razorpay does not retry, but logged so it is
+        // visible which events are actually arriving. Note `qr_code.created`
+        // fires when the QR is generated, NOT when it is paid — the event that
+        // completes a booking is `qr_code.credited`.
+        logger.info(`[WEBHOOK] Ignoring unhandled event type: ${event}`);
+        return { success: false, message: `Unhandled event type: ${event}` };
     }
 
     /**
