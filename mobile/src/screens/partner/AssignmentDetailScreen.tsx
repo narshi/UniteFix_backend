@@ -35,8 +35,12 @@ import {
     useStartServiceWithOtp,
     useCompleteService,
     useEnterServiceCharge,
-    useGenerateRazorpayQR
+    useGenerateRazorpayQR,
+    useQrPaymentStatus
 } from '../../hooks/usePartnerData';
+
+/** Must stay in sync with close_by in PaymentService.createDynamicQRCode. */
+const QR_VALIDITY_MS = 12 * 60 * 1000;
 import { Assignment, partnerApi } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -113,9 +117,12 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
             onSuccess: (data) => {
                 if (data?.qrImageUrl) {
                     setQrCodeUrl(data.qrImageUrl);
-                    // Set expiration to 5 minutes from now
-                    setQrExpiresAt(Date.now() + 5 * 60 * 1000);
-                    setQrTimeLeft(5 * 60);
+                    // Must match the server's close_by (12 min). The old 5-minute
+                    // countdown told the partner the QR had expired while it was
+                    // still payable, so a customer paying at minute 6 looked like
+                    // a failure.
+                    setQrExpiresAt(Date.now() + QR_VALIDITY_MS);
+                    setQrTimeLeft(QR_VALIDITY_MS / 1000);
                 } else {
                     setQrError(true);
                 }
@@ -131,6 +138,24 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
             handleGenerateQr();
         }
     }, [assignment?.status]);
+
+    // The customer pays from their own UPI app, so nothing reports back to this
+    // screen. Ask Razorpay directly instead of waiting on the webhook — otherwise
+    // a paid booking sits in pending_payment with no way for the partner to tell.
+    const { data: qrStatus } = useQrPaymentStatus(
+        assignment?.id,
+        assignment?.status === 'pending_payment' && !!qrCodeUrl,
+    );
+
+    useEffect(() => {
+        if (!qrStatus?.paid) return;
+        setQrModalVisible(false);
+        Alert.alert(
+            '✅ Payment Received',
+            'The customer\'s payment has been confirmed. This job is now complete.',
+            [{ text: 'Done', onPress: () => navigation.goBack() }],
+        );
+    }, [qrStatus?.paid]);
 
     // Timer countdown effect
     useEffect(() => {

@@ -175,7 +175,10 @@ export class PaymentService {
     /**
      * Create a dynamic Razorpay QR Code for a specific service and amount
      */
-    static async createDynamicQRCode(serviceRequestId: number, amount: number): Promise<string> {
+    static async createDynamicQRCode(
+        serviceRequestId: number,
+        amount: number,
+    ): Promise<{ imageUrl: string; qrCodeId: string }> {
         if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
             throw new Error("Razorpay credentials not configured");
         }
@@ -201,12 +204,102 @@ export class PaymentService {
                 }
             });
 
-            // Return the image URL to display to the user
-            return qrCode.image_url;
+            // Record the QR id NOW. The customer pays from their own UPI app, so
+            // neither the partner nor the customer app is in the payment loop —
+            // without this there is no key to ask Razorpay "was this QR paid?",
+            // and completion depends entirely on the webhook arriving.
+            await PaymentTrackingService.recordPaymentEvent({
+                serviceRequestId,
+                razorpayOrderId: `qr_${qrCode.id}`,
+                amount: amountPaise,
+                currency: 'INR',
+                eventType: 'order_created',
+                status: 'pending',
+                metadata: { paymentType: 'qr_dynamic', qrCodeId: qrCode.id },
+            });
+
+            return { imageUrl: qrCode.image_url, qrCodeId: qrCode.id };
         } catch (error: any) {
             logger.error(`[RAZORPAY] Failed to create QR code: ${error.message}`);
             throw new Error(`Failed to generate payment QR Code: ${error.message}`);
         }
+    }
+
+    /**
+     * Ask Razorpay directly whether a QR has been paid.
+     *
+     * This is the authoritative fallback for QR collection. Card and in-app UPI
+     * both confirm through /api/payments/verify because the paying app returns a
+     * payment id to the client; a scanned QR has no such return path, so without
+     * this the flow has a single point of failure in the webhook.
+     */
+    static async fetchQrPaymentStatus(qrCodeId: string): Promise<{
+        paid: boolean;
+        amountReceivedPaise: number;
+        payment?: { id: string; amount: number; method?: string };
+    }> {
+        const razorpay = await this.getRazorpayInstance();
+
+        const payments: any = await razorpay.qrCode.fetchAllPayments(qrCodeId, {} as any);
+        const items: any[] = payments?.items || [];
+        const captured = items.find((p) => p.status === 'captured' || p.status === 'authorized');
+
+        if (!captured) {
+            return { paid: false, amountReceivedPaise: 0 };
+        }
+
+        return {
+            paid: true,
+            amountReceivedPaise: captured.amount,
+            payment: { id: captured.id, amount: captured.amount, method: captured.method },
+        };
+    }
+
+    /**
+     * Complete a booking paid by dynamic QR. Shared by the webhook and the
+     * partner-app polling fallback, so both routes behave identically.
+     *
+     * Idempotent: only acts while the booking is awaiting payment. Re-running it
+     * after completion is a no-op, which matters because the webhook and a poll
+     * can legitimately land at the same moment.
+     */
+    static async settleQrPayment(
+        serviceRequestId: number,
+        payment: { id: string; amount: number; method?: string },
+        qrCodeId: string,
+    ): Promise<{ settled: boolean; alreadySettled: boolean }> {
+        const { storage } = await import('../storage');
+
+        const booking = await storage.getServiceRequest(serviceRequestId);
+        if (!booking) throw new Error('Booking not found');
+
+        if (booking.status === BookingState.COMPLETED) {
+            return { settled: false, alreadySettled: true };
+        }
+        if (booking.status !== BookingState.PENDING_PAYMENT) {
+            logger.warn(
+                `[QR] Ignoring settlement for booking ${serviceRequestId} in state '${booking.status}'`,
+            );
+            return { settled: false, alreadySettled: false };
+        }
+
+        await PaymentTrackingService.recordPaymentEvent({
+            serviceRequestId,
+            razorpayOrderId: `qr_${qrCodeId}`,
+            razorpayPaymentId: payment.id,
+            amount: payment.amount,
+            currency: 'INR',
+            eventType: 'payment_captured',
+            status: 'captured',
+            method: payment.method,
+            metadata: { qr_code_id: qrCodeId, paymentType: 'qr_dynamic' },
+        });
+
+        await storage.updateServiceRequestStatus(serviceRequestId, BookingState.COMPLETED);
+        await storage.updateServiceRequest(serviceRequestId, { paymentMethod: 'razorpay' as any });
+
+        logger.info(`[QR] Booking ${serviceRequestId} settled via QR payment ${payment.id}`);
+        return { settled: true, alreadySettled: false };
     }
 
     /**
@@ -373,28 +466,17 @@ export class PaymentService {
             
             if (serviceId) {
                 try {
-                    const { storage } = await import('../storage');
-                    
-                    // Record capture event via Drizzle ORM
-                    await PaymentTrackingService.recordPaymentEvent({
-                        razorpayOrderId: `qr_${qrEntity.id}`,
-                        razorpayPaymentId: paymentEntity.id,
-                        amount: paymentEntity.amount, // stored as paise
-                        currency: 'INR',
-                        eventType: 'payment_captured',
-                        status: 'captured',
-                        method: paymentEntity.method,
-                        metadata: { ...paymentEntity, qr_code_id: qrEntity.id },
-                    });
-
-                    await storage.updateServiceRequestStatus(
+                    // Same code path as the partner-app polling fallback, so a
+                    // webhook and a poll arriving together cannot double-settle.
+                    await this.settleQrPayment(
                         parseInt(serviceId),
-                        BookingState.COMPLETED,
+                        {
+                            id: paymentEntity.id,
+                            amount: paymentEntity.amount, // paise
+                            method: paymentEntity.method,
+                        },
+                        qrEntity.id,
                     );
-                    await storage.updateServiceRequest(parseInt(serviceId), {
-                        paymentMethod: 'razorpay' as any,
-                    });
-                    logger.info(`[WEBHOOK] Dynamic QR payment transitioned booking ${serviceId} to COMPLETED`);
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] QR Code COMPLETED transition failed: ${err.message}`);
                 }

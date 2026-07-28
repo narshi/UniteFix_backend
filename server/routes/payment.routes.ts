@@ -8,7 +8,7 @@
 import type { Express, Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and, desc } from "drizzle-orm";
 import crypto from "crypto";
 import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
 import { mobileLimiter } from "../middleware/rate-limit";
@@ -259,11 +259,84 @@ export function registerPaymentRoutes(app: Express) {
             }
 
             // Generate Razorpay QR Code
-            const qrImageUrl = await PaymentService.createDynamicQRCode(serviceId, finalAmount);
+            const { imageUrl, qrCodeId } = await PaymentService.createDynamicQRCode(serviceId, finalAmount);
 
-            res.json({ success: true, data: { qrImageUrl } });
+            // qrCodeId lets the app poll qr-status below, so collection does not
+            // depend on the webhook arriving.
+            res.json({ success: true, data: { qrImageUrl: imageUrl, qrCodeId } });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
+        }
+    });
+
+    /**
+     * GET /api/partner/services/:id/qr-status
+     *
+     * Authoritative check on whether a dynamic QR has been paid, asked directly
+     * of Razorpay. A scanned QR is paid from the customer's own UPI app, so no
+     * client receives a payment id the way card/in-app UPI does — without this
+     * the booking can only be completed by the webhook, and stays stuck in
+     * pending_payment whenever webhook delivery fails.
+     *
+     * Settles the booking when payment is confirmed, using the same idempotent
+     * path as the webhook.
+     */
+    app.get("/api/partner/services/:id/qr-status", authenticatePartner as any, async (req: Request, res: Response) => {
+        try {
+            const serviceId = parseInt(req.params.id);
+            if (Number.isNaN(serviceId)) {
+                return res.status(400).json({ success: false, message: "Invalid service id" });
+            }
+
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, serviceId)).limit(1);
+            if (!booking) {
+                return res.status(404).json({ success: false, message: "Booking not found" });
+            }
+
+            const partnerId = (req as any).partner?.partnerId;
+            if (booking.providerId !== partnerId) {
+                return res.status(403).json({ success: false, message: "Not assigned to this booking" });
+            }
+
+            // Already done (webhook may have won the race).
+            if (booking.status === BookingState.COMPLETED) {
+                return res.json({ success: true, data: { paid: true, status: booking.status } });
+            }
+
+            // Most recent QR issued for this booking.
+            const [qrTxn] = await db.select().from(paymentTransactions)
+                .where(and(
+                    eq(paymentTransactions.serviceRequestId, serviceId),
+                    sql`${paymentTransactions.razorpayOrderId} LIKE 'qr_%'`,
+                ))
+                .orderBy(desc(paymentTransactions.createdAt))
+                .limit(1);
+
+            const qrCodeId = (qrTxn?.metadata as any)?.qrCodeId
+                || qrTxn?.razorpayOrderId?.replace(/^qr_/, '');
+
+            if (!qrCodeId) {
+                return res.json({
+                    success: true,
+                    data: { paid: false, status: booking.status, reason: 'no_qr_generated' },
+                });
+            }
+
+            const result = await PaymentService.fetchQrPaymentStatus(qrCodeId);
+
+            if (result.paid && result.payment) {
+                await PaymentService.settleQrPayment(serviceId, result.payment, qrCodeId);
+                return res.json({
+                    success: true,
+                    data: { paid: true, status: BookingState.COMPLETED, amount: result.amountReceivedPaise / 100 },
+                });
+            }
+
+            res.json({ success: true, data: { paid: false, status: booking.status } });
+        } catch (error: any) {
+            logger.error(`[QR_STATUS] ${error.message}`);
+            res.status(500).json({ success: false, message: error.message });
         }
     });
 

@@ -157,10 +157,43 @@ export function useGenerateRazorpayQR() {
     return useMutation({
         mutationFn: async (serviceId: number) => {
             const { data } = await apiClient.post(`/api/partner/services/${serviceId}/generate-qr`);
-            return data.data; // { qrImageUrl }
+            return data.data; // { qrImageUrl, qrCodeId }
         },
         onError: (e) => {
             Alert.alert('QR Generation Failed', getApiErrorMessage(e));
         }
+    });
+}
+
+/**
+ * Poll Razorpay (via our backend) for the outcome of a dynamic QR.
+ *
+ * A scanned QR is paid from the customer's own UPI app, so unlike card or
+ * in-app UPI no payment id ever comes back to a client. Without this the
+ * booking can only be completed by the webhook, and stays in pending_payment
+ * whenever webhook delivery fails.
+ *
+ * `enabled` should be true only while a QR is actually on screen.
+ */
+export function useQrPaymentStatus(serviceId: number | undefined, enabled: boolean) {
+    const qc = useQueryClient();
+    return useQuery({
+        queryKey: ['partner.qrStatus', serviceId],
+        queryFn: async () => {
+            const { data } = await apiClient.get(`/api/partner/services/${serviceId}/qr-status`);
+            const result = data?.data ?? {};
+            if (result.paid) {
+                // Booking just moved to COMPLETED — refresh the assignment list
+                // and wallet so the partner sees it immediately.
+                qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+                qc.invalidateQueries({ queryKey: partnerQueryKeys.wallet });
+            }
+            return result as { paid: boolean; status?: string; amount?: number };
+        },
+        enabled: !!serviceId && enabled,
+        refetchInterval: (query) => (query.state.data?.paid ? false : 5000),
+        // A transient failure here must not look like "not paid" — keep the last
+        // known value and let the next tick retry.
+        retry: 1,
     });
 }
