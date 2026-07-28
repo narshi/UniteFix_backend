@@ -133,7 +133,9 @@ export function SavedAddressesScreen() {
             <View style={[styles.footer, { paddingBottom: bottomPad }]}>
                 <Button 
                     title="Add New Address"
-                    onPress={() => navigation.navigate('MapAddressPicker')}
+                    // Carry the booking context through so the picker can return the
+                    // new address to ServiceRequest rather than dead-ending here.
+                    onPress={() => navigation.navigate('MapAddressPicker', { fromCheckout })}
                     icon={<Plus size={20} color="#fff" />}
                     fullWidth
                 />

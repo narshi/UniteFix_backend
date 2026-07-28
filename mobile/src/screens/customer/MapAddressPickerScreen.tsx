@@ -28,13 +28,17 @@ interface PlacePrediction {
 }
 
 type ParamList = {
-    MapAddressPicker: { editAddressIndex?: number };
+    // `fromCheckout` is forwarded by SavedAddressesScreen when the picker was
+    // opened mid-booking, so the newly created address can be handed straight
+    // back to ServiceRequest instead of being stranded one screen away.
+    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean };
 };
 
 export function MapAddressPickerScreen() {
     const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
+    const fromCheckout = route.params?.fromCheckout;
 
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,8 +230,26 @@ export function MapAddressPickerScreen() {
             // This write bypasses the useUpdateProfile mutation, so nothing would
             // otherwise invalidate the cached profile that other screens read.
             queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+
             Alert.alert('Success', 'Address saved successfully!', [
-                { text: 'OK', onPress: () => navigation.goBack() }
+                {
+                    text: 'OK',
+                    onPress: () => {
+                        // goBack() only returns to SavedAddresses, leaving the booking
+                        // screen without the address the user just created — they had
+                        // to find and tap it again. Hand it back directly instead.
+                        // 'ServiceRequest' is the name registered in CustomerStack.
+                        if (fromCheckout) {
+                            navigation.navigate({
+                                name: 'ServiceRequest',
+                                params: { selectedAddress: newAddress },
+                                merge: true,
+                            });
+                        } else {
+                            navigation.goBack();
+                        }
+                    },
+                },
             ]);
         } catch (error) {
             Alert.alert('Error', 'Failed to save address');

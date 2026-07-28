@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { customerApi, CreateServiceRequest } from '../api/customer.api';
 import { Alert } from 'react-native';
 import { getApiErrorMessage } from '../api/client';
+// getState() rather than the hook: this runs inside a mutation callback, not render.
+import { useAuthStore } from '../stores/auth.store';
 
 // ==================== QUERY KEYS ====================
 
@@ -36,8 +38,26 @@ export function useUpdateProfile() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: customerApi.updateProfile,
-        onSuccess: () => {
+        onSuccess: (response) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+
+            // React Query only owns the `profile` query. The Zustand store holds a
+            // second copy of the same identity fields, persisted to SecureStore and
+            // rehydrated on launch, and it was never updated here — so after editing
+            // a name the store (and anything reading it, including the cached session
+            // restored on next launch) kept serving the old value.
+            //
+            // Sync from the PATCH response rather than refetching: the server returns
+            // the updated row, so this needs no extra round-trip.
+            const updated: any = response?.data?.data;
+            if (updated) {
+                useAuthStore.getState().updateUser({
+                    username: updated.username ?? null,
+                    email: updated.email ?? null,
+                    homeAddress: updated.homeAddress ?? null,
+                    pinCode: updated.pinCode ?? null,
+                });
+            }
         },
         onError: (error) => {
             Alert.alert('Update Failed', getApiErrorMessage(error));
