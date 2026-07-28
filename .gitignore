@@ -59,3 +59,7 @@ private keys/
 # Play Store Keys
 *.keystore
 *.pem
+
+# Database snapshots — contain user PII and payment records
+prod-snapshot-*.json
+*-snapshot-*.json
