@@ -6,7 +6,7 @@
 
 import { db } from "../db";
 import {
-    employees, walletTransactions,
+    employees, walletTransactions, users,
     type Employee, type InsertEmployee,
     type WalletTransaction,
 } from "@shared/schema";
@@ -128,8 +128,32 @@ export async function getProvidersSortedByDistance(
         ;
 }
 
+/**
+ * Soft delete — see StorageService.deleteServiceProvider for the full rationale.
+ * A hard DELETE here violates the eight foreign keys pointing at employees.id
+ * and would destroy the wallet/invoice audit trail.
+ */
 export async function deleteServiceProvider(id: number): Promise<boolean> {
-    await db.delete(employees).where(eq(employees.id, id));
+    const [employee] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
+    if (!employee) return false;
+
+    await db.transaction(async (tx) => {
+        await tx
+            .update(users)
+            .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+            .where(eq(users.id, employee.userId));
+
+        await tx
+            .update(employees)
+            .set({
+                isActive: false,
+                isOnline: false,
+                documentVerificationStatus: 'suspended',
+                updatedAt: new Date(),
+            })
+            .where(eq(employees.id, id));
+    });
+
     return true;
 }
 

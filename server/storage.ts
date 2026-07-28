@@ -87,7 +87,7 @@ import {
   Notification
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne, isNull } from "drizzle-orm";
 import crypto from "crypto";
 // PHASE 2: State machine imports
 import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
@@ -506,36 +506,64 @@ export class DatabaseStorage implements IStorage {
     return employee || undefined;
   }
 
+  /**
+   * Admin-facing employee listings exclude soft-deleted accounts (the linked
+   * user row carries `deletedAt`). Without this an employee the admin just
+   * deleted would still be listed, making the delete look like it failed.
+   */
   async getAllServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
-    return await db.select().from(employees).orderBy(desc(employees.createdAt)).limit(limit).offset(offset);
+    const rows = await db
+      .select()
+      .from(employees)
+      .innerJoin(users, eq(employees.userId, users.id))
+      .where(isNull(users.deletedAt))
+      .orderBy(desc(employees.createdAt))
+      .limit(limit)
+      .offset(offset);
+    return rows.map((r) => r.employees);
   }
 
   async getVerifiedServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
-    return await db
+    const rows = await db
       .select()
       .from(employees)
-      .where(eq(employees.documentVerificationStatus, 'verified'))
+      .innerJoin(users, eq(employees.userId, users.id))
+      .where(and(
+        eq(employees.documentVerificationStatus, 'verified'),
+        isNull(users.deletedAt),
+      ))
       .orderBy(desc(employees.createdAt))
       .limit(limit)
       .offset(offset);
+    return rows.map((r) => r.employees);
   }
 
   async getPendingServiceProviders(limit: number = 100, offset: number = 0): Promise<Employee[]> {
-    return await db
+    const rows = await db
       .select()
       .from(employees)
-      .where(eq(employees.documentVerificationStatus, 'pending'))
+      .innerJoin(users, eq(employees.userId, users.id))
+      .where(and(
+        eq(employees.documentVerificationStatus, 'pending'),
+        isNull(users.deletedAt),
+      ))
       .orderBy(desc(employees.createdAt))
       .limit(limit)
       .offset(offset);
+    return rows.map((r) => r.employees);
   }
 
+  /** Counts must apply the same soft-delete filter or pagination totals drift. */
   async countServiceProviders(status?: string): Promise<number> {
-    let query = db.select({ count: count() }).from(employees);
+    const conditions = [isNull(users.deletedAt)];
     if (status) {
-      query = query.where(eq(employees.documentVerificationStatus, status as any)) as any;
+      conditions.push(eq(employees.documentVerificationStatus, status as any));
     }
-    const [result] = await query;
+    const [result] = await db
+      .select({ count: count() })
+      .from(employees)
+      .innerJoin(users, eq(employees.userId, users.id))
+      .where(and(...conditions));
     return result?.count ?? 0;
   }
 
@@ -601,13 +629,47 @@ export class DatabaseStorage implements IStorage {
     return employeesWithDistance.sort((a, b) => a.distance - b.distance);
   }
 
+  /**
+   * Deactivate an employee. This is a SOFT delete by design.
+   *
+   * `employees.id` is referenced by service_requests (providerId,
+   * cashCollectedBy), invoices, ratings, partner_wallets, withdrawal_requests
+   * and both wallet ledgers. None of those foreign keys declare ON DELETE
+   * behaviour, so Postgres defaults to NO ACTION and a hard DELETE raises a
+   * foreign-key violation (23503) for any partner who has ever been assigned a
+   * job, rated, or paid — which is effectively all of them, since
+   * partner_wallets holds exactly one row per partner.
+   *
+   * Removing the row would also destroy the financial audit trail (wallet
+   * ledger, invoices) that the payout and dispute flows depend on.
+   *
+   * Both updates run in one transaction: previously the user was deactivated
+   * first and the employee delete then failed, leaving the partner locked out
+   * of an account the admin had been told was NOT deleted.
+   */
   async deleteServiceProvider(id: number): Promise<boolean> {
     const [employee] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
-    if (employee) {
-      // Soft-delete the associated user record to prevent re-login recreating the profile
-      await db.update(users).set({ isActive: false, deletedAt: new Date() }).where(eq(users.id, employee.userId));
-      await db.delete(employees).where(eq(employees.id, id));
-    }
+    if (!employee) return false;
+
+    await db.transaction(async (tx) => {
+      // Block re-login and stop a fresh profile being auto-created on next auth.
+      await tx
+        .update(users)
+        .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(users.id, employee.userId));
+
+      // Take them out of assignment eligibility (isOnline && isActive && verified).
+      await tx
+        .update(employees)
+        .set({
+          isActive: false,
+          isOnline: false,
+          documentVerificationStatus: 'suspended',
+          updatedAt: new Date(),
+        })
+        .where(eq(employees.id, id));
+    });
+
     return true;
   }
 

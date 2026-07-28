@@ -972,8 +972,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/servicemen/:id", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
-      await storage.deleteServiceProvider(id);
-      res.json({ success: true, message: "Provider deleted successfully" });
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ success: false, message: "Invalid employee id" });
+      }
+
+      const deleted = await storage.deleteServiceProvider(id);
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: "Employee not found" });
+      }
+
+      res.json({ success: true, message: "Employee deleted successfully" });
     } catch (error) {
       next(error);
     }
@@ -1121,8 +1129,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
     try {
-      await storage.deleteServiceProvider(parseInt(req.params.id));
-      res.json({ message: "Partner deleted" });
+      const deleted = await storage.deleteServiceProvider(parseInt(req.params.id));
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: "Partner not found" });
+      }
+      res.json({ success: true, message: "Partner deleted" });
     } catch (error) {
       next(error);
     }
