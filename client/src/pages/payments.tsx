@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StuckPayments } from "@/components/admin/stuck-payments";
 
 export default function PaymentsPage() {
   const { data: invoices, isLoading } = useQuery<any[]>({
@@ -13,6 +14,9 @@ export default function PaymentsPage() {
         <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Payments & Invoices</h2>
         <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage all payments and invoice records</p>
       </div>
+
+      {/* Safety net for QR payments that were made but never settled. */}
+      <StuckPayments />
 
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
         <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">

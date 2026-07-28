@@ -341,6 +341,146 @@ export function registerPaymentRoutes(app: Express) {
     });
 
     /**
+     * GET /api/admin/payments/stuck
+     *
+     * Bookings sitting in pending_payment — the safety net for a QR that was paid
+     * but never settled (webhook lost AND the partner closed the app before the
+     * poll confirmed it). Admin-authenticated via the /api/admin middleware.
+     */
+    app.get("/api/admin/payments/stuck", async (req: Request, res: Response) => {
+        try {
+            const rows = await db
+                .select({
+                    id: serviceRequests.id,
+                    serviceId: serviceRequests.serviceId,
+                    serviceType: serviceRequests.serviceType,
+                    status: serviceRequests.status,
+                    pricingSnapshot: serviceRequests.pricingSnapshot,
+                    totalAmount: serviceRequests.totalAmount,
+                    updatedAt: serviceRequests.updatedAt,
+                    customerName: users.username,
+                    customerPhone: users.phone,
+                    partnerName: employees.fullName,
+                })
+                .from(serviceRequests)
+                .leftJoin(users, eq(serviceRequests.userId, users.id))
+                .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
+                .where(eq(serviceRequests.status, BookingState.PENDING_PAYMENT as any))
+                .orderBy(desc(serviceRequests.updatedAt));
+
+            // Attach the QR id (if one was issued) so the UI can link to Razorpay.
+            const enriched = await Promise.all(rows.map(async (r) => {
+                const [qrTxn] = await db.select().from(paymentTransactions)
+                    .where(and(
+                        eq(paymentTransactions.serviceRequestId, r.id),
+                        sql`${paymentTransactions.razorpayOrderId} LIKE 'qr_%'`,
+                    ))
+                    .orderBy(desc(paymentTransactions.createdAt))
+                    .limit(1);
+
+                const snapshot = r.pricingSnapshot as any;
+                return {
+                    ...r,
+                    amountDue: snapshot?.finalTotal ?? r.totalAmount ?? 0,
+                    qrCodeId: (qrTxn?.metadata as any)?.qrCodeId
+                        || qrTxn?.razorpayOrderId?.replace(/^qr_/, '') || null,
+                    waitingSinceMinutes: r.updatedAt
+                        ? Math.floor((Date.now() - new Date(r.updatedAt).getTime()) / 60000)
+                        : null,
+                };
+            }));
+
+            res.json({ success: true, data: enriched });
+        } catch (error: any) {
+            logger.error(`[ADMIN_STUCK] ${error.message}`);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    /**
+     * POST /api/admin/services/:id/reconcile-payment
+     *
+     * Asks Razorpay whether this booking's QR was actually paid and settles it if
+     * so. Same idempotent path as the webhook and the partner poll — it will not
+     * double-credit, and it refuses to invent a payment that Razorpay has no
+     * record of.
+     */
+    app.post("/api/admin/services/:id/reconcile-payment", async (req: Request, res: Response) => {
+        try {
+            const serviceId = parseInt(req.params.id);
+            if (Number.isNaN(serviceId)) {
+                return res.status(400).json({ success: false, message: "Invalid service id" });
+            }
+
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, serviceId)).limit(1);
+            if (!booking) {
+                return res.status(404).json({ success: false, message: "Booking not found" });
+            }
+
+            if (booking.status === BookingState.COMPLETED) {
+                return res.json({
+                    success: true,
+                    data: { paid: true, settled: false, message: "Already completed" },
+                });
+            }
+
+            const [qrTxn] = await db.select().from(paymentTransactions)
+                .where(and(
+                    eq(paymentTransactions.serviceRequestId, serviceId),
+                    sql`${paymentTransactions.razorpayOrderId} LIKE 'qr_%'`,
+                ))
+                .orderBy(desc(paymentTransactions.createdAt))
+                .limit(1);
+
+            const qrCodeId = (qrTxn?.metadata as any)?.qrCodeId
+                || qrTxn?.razorpayOrderId?.replace(/^qr_/, '');
+
+            if (!qrCodeId) {
+                return res.json({
+                    success: true,
+                    data: {
+                        paid: false, settled: false,
+                        message: "No QR was generated for this booking — nothing to reconcile.",
+                    },
+                });
+            }
+
+            const result = await PaymentService.fetchQrPaymentStatus(qrCodeId);
+
+            if (!result.paid || !result.payment) {
+                return res.json({
+                    success: true,
+                    data: {
+                        paid: false, settled: false, qrCodeId,
+                        message: "Razorpay has no captured payment for this QR.",
+                    },
+                });
+            }
+
+            const settlement = await PaymentService.settleQrPayment(serviceId, result.payment, qrCodeId);
+            logger.info(`[ADMIN_RECONCILE] Booking ${serviceId} reconciled by admin`);
+
+            res.json({
+                success: true,
+                data: {
+                    paid: true,
+                    settled: settlement.settled,
+                    qrCodeId,
+                    paymentId: result.payment.id,
+                    amount: result.amountReceivedPaise / 100,
+                    message: settlement.settled
+                        ? "Payment confirmed — booking marked completed."
+                        : "Payment confirmed; booking was already settled.",
+                },
+            });
+        } catch (error: any) {
+            logger.error(`[ADMIN_RECONCILE] ${error.message}`);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    /**
      * POST /api/webhooks/razorpay
      * Razorpay webhook handler
      * Verifies signature and updates payment status
