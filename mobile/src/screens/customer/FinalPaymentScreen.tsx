@@ -8,7 +8,7 @@
  * - Animated transitions
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -19,6 +19,7 @@ import {
     Platform,
     ActivityIndicator,
     Alert,
+    BackHandler,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { openRazorpayCheckout } from '../../services/razorpay';
@@ -36,13 +37,16 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../api/client';
-import { usePublicConfig } from '../../hooks/useCustomerData';
+import { usePublicConfig, queryKeys } from '../../hooks/useCustomerData';
+import { useQueryClient } from '@tanstack/react-query';
+import { useFocusEffect } from '@react-navigation/native';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'FinalPayment'>;
 
 export function FinalPaymentScreen({ navigation, route }: Props) {
     const { headerTop, bottomBar: bottomPad } = useScreenInsets();
+    const queryClient = useQueryClient();
     const request = route.params?.request;
     const [paymentState, setPaymentState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [billingData, setBillingData] = useState<any>(null);
@@ -74,6 +78,42 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
             setLoadingBill(false);
         }
     };
+
+    /**
+     * End of the service journey: drop every screen in the stack and land on Home.
+     *
+     * The booking, its history entry and the profile totals all changed as a
+     * result of this payment, so the caches are invalidated before navigating —
+     * otherwise Home and Bookings would briefly show the pre-payment state.
+     */
+    const finishAndGoHome = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.serviceRequests });
+        queryClient.invalidateQueries({ queryKey: queryKeys.serviceHistory });
+        queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+
+        navigation.reset({
+            index: 0,
+            routes: [
+                {
+                    name: 'CustomerTabs',
+                    state: { index: 0, routes: [{ name: 'HomeTab' }] },
+                },
+            ],
+        });
+    }, [navigation, queryClient]);
+
+    // On the success screen the hardware back button must not drop the user back
+    // into the payment screen for a booking they have already paid for.
+    useFocusEffect(
+        useCallback(() => {
+            if (paymentState !== 'success') return;
+            const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+                finishAndGoHome();
+                return true; // handled — suppress default back
+            });
+            return () => sub.remove();
+        }, [paymentState, finishAndGoHome]),
+    );
 
     const handlePayment = async () => {
         setPaymentState('loading');
@@ -155,18 +195,8 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                     Your service booking is now complete. Thank you for choosing UniteFix!
                 </Text>
                 <Button
-                    title="Back to Bookings"
-                    onPress={() => navigation.reset({
-                        index: 0,
-                        routes: [
-                            {
-                                name: 'CustomerTabs',
-                                state: {
-                                    routes: [{ name: 'BookingsTab' }],
-                                },
-                            },
-                        ],
-                    })}
+                    title="Done"
+                    onPress={finishAndGoHome}
                     style={{ marginTop: spacing['2xl'] }}
                 />
             </View>
@@ -290,7 +320,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center',
+        flexDirection: 'row', alignItems: 'center',
         paddingBottom: spacing.base, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
         borderBottomWidth: 1, borderBottomColor: colors.divider,
@@ -348,7 +378,7 @@ const styles = StyleSheet.create({
         position: 'absolute', bottom: 0, left: 0, right: 0,
         backgroundColor: colors.background,
         paddingHorizontal: spacing.xl,
-        paddingTop: spacing.lg,
+        paddingTop: spacing.lg,
         borderTopWidth: 1, borderTopColor: colors.divider,
         ...shadows.lg,
     },

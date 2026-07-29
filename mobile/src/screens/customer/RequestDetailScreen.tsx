@@ -10,7 +10,7 @@
  * - Star rating with animation
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -50,7 +50,8 @@ import {
     Sparkles,
     Bug,
 } from 'lucide-react-native';
-import { useCancelServiceRequest, useRateService, usePublicConfig, useServiceRequests } from '../../hooks/useCustomerData';
+import { useCancelServiceRequest, useRateService, usePublicConfig, useServiceRequests, queryKeys } from '../../hooks/useCustomerData';
+import { useQueryClient } from '@tanstack/react-query';
 import { ServiceRequest, customerApi } from '../../api/customer.api';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
@@ -172,6 +173,7 @@ function ConfirmModal({
 
 export function RequestDetailScreen({ navigation, route }: Props) {
     const { headerTop } = useScreenInsets();
+    const queryClient = useQueryClient();
     // route.params.request is a snapshot frozen at navigation time. Re-read the
     // booking from the live (5s-polled) list so status, handshakeOtp, technician
     // details and payment state stay in sync while this screen is open — the
@@ -266,6 +268,26 @@ export function RequestDetailScreen({ navigation, route }: Props) {
         // Navigate to payment screen
         navigation.navigate('FinalPayment', { request });
     };
+
+    /**
+     * Close out a finished booking: clear the stack and land on Home.
+     * Mirrors the Done action on FinalPaymentScreen so both routes out of a
+     * completed job behave identically.
+     */
+    const finishAndGoHome = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.serviceRequests });
+        queryClient.invalidateQueries({ queryKey: queryKeys.serviceHistory });
+
+        navigation.reset({
+            index: 0,
+            routes: [
+                {
+                    name: 'CustomerTabs',
+                    state: { index: 0, routes: [{ name: 'HomeTab' }] },
+                },
+            ],
+        });
+    }, [navigation, queryClient]);
 
     const payBookingFee = async () => {
         setIsPayingFee(true);
@@ -564,6 +586,18 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         variant="outline"
                         onPress={() => setShowRating(true)}
                         icon={<Star size={18} color={colors.primary} />}
+                        style={{ marginBottom: spacing.lg }}
+                    />
+                )}
+
+                {/* Clean exit once the job is paid and closed. The booking may have
+                    been settled by the customer in-app, by QR, or in cash — in the
+                    latter two nothing else returns the customer to the app's start. */}
+                {request.status === 'completed' && !showRating && (
+                    <Button
+                        title="Done"
+                        onPress={finishAndGoHome}
+                        icon={<CheckCircle size={18} color={colors.textInverse} />}
                         style={{ marginBottom: spacing.lg }}
                     />
                 )}
