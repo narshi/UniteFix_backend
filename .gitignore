@@ -63,3 +63,8 @@ private keys/
 # Database snapshots — contain user PII and payment records
 prod-snapshot-*.json
 *-snapshot-*.json
+
+# Firebase configs
+google-services.json
+mobile/google-services.json
+unitefix/
