@@ -629,6 +629,101 @@ export class PaymentService {
      * PHASE 5: Refund booking charge (₹99) on cancellation from CREATED state
      * AI_CONTEXT §5.G: Only from CREATED state
      */
+    /**
+     * Refund a customer for a booking — booking fee, final payment, or both.
+     *
+     * Dispute resolution previously called refundBookingCharge(), which can only
+     * ever reverse the ₹99 fee and ignores any admin-entered amount. A dispute
+     * over a ₹5,000 job therefore could not be settled in the customer's favour.
+     *
+     * @param amountRupees Optional partial amount. Omit for a full refund of
+     *   everything the customer has paid on this booking.
+     */
+    static async refundBookingPayments(
+        serviceRequestId: number,
+        amountRupees?: number,
+        reason = 'Dispute resolved in customer favour',
+    ): Promise<{ refunds: Array<{ refundId: string; amountRupees: number }>; totalRefunded: number }> {
+        const razorpay = await this.getRazorpayInstance();
+
+        // Every captured payment on this booking, newest first. The final service
+        // payment is refunded before the booking fee so a partial refund comes out
+        // of the larger amount first.
+        const captured = await db.select({
+            id: paymentTransactions.id,
+            razorpayPaymentId: paymentTransactions.razorpayPaymentId,
+            razorpayOrderId: paymentTransactions.razorpayOrderId,
+            amount: paymentTransactions.amount,
+        })
+            .from(paymentTransactions)
+            .where(and(
+                eq(paymentTransactions.serviceRequestId, serviceRequestId),
+                eq(paymentTransactions.status, 'captured'),
+            ))
+            .orderBy(desc(paymentTransactions.amount));
+
+        const refundable = captured.filter((c) => c.razorpayPaymentId && c.amount > 0);
+        if (refundable.length === 0) {
+            throw new Error(
+                `No captured payments found for service request ${serviceRequestId} — nothing to refund.`,
+            );
+        }
+
+        // Never refund more than was actually collected.
+        const totalCapturedPaise = refundable.reduce((sum, c) => sum + c.amount, 0);
+        let remainingPaise = amountRupees != null
+            ? Math.round(amountRupees * 100)
+            : totalCapturedPaise;
+
+        if (remainingPaise <= 0) {
+            throw new Error('Refund amount must be greater than zero.');
+        }
+        if (remainingPaise > totalCapturedPaise) {
+            throw new Error(
+                `Refund of ₹${remainingPaise / 100} exceeds the ₹${totalCapturedPaise / 100} captured on this booking.`,
+            );
+        }
+
+        const results: Array<{ refundId: string; amountRupees: number }> = [];
+
+        for (const payment of refundable) {
+            if (remainingPaise <= 0) break;
+
+            // Split across payments when a partial refund spans more than one.
+            const slicePaise = Math.min(remainingPaise, payment.amount);
+
+            const refund = await razorpay.payments.refund(payment.razorpayPaymentId!, {
+                amount: slicePaise,
+                notes: { service_request_id: serviceRequestId.toString(), reason },
+            });
+
+            await PaymentTrackingService.recordPaymentEvent({
+                serviceRequestId,
+                razorpayOrderId: payment.razorpayOrderId || undefined,
+                razorpayPaymentId: payment.razorpayPaymentId!,
+                amount: slicePaise,
+                currency: 'INR',
+                eventType: 'refund_initiated',
+                status: 'refunded',
+                metadata: { refundId: refund.id, reason, partial: slicePaise < payment.amount },
+            });
+
+            // Only mark the source row refunded when the whole of it was returned.
+            if (slicePaise === payment.amount) {
+                await db.update(paymentTransactions)
+                    .set({ status: 'refunded', updatedAt: new Date() })
+                    .where(eq(paymentTransactions.id, payment.id));
+            }
+
+            results.push({ refundId: refund.id, amountRupees: slicePaise / 100 });
+            remainingPaise -= slicePaise;
+        }
+
+        const totalRefunded = results.reduce((s, r) => s + r.amountRupees, 0);
+        logger.info(`[REFUND] SR ${serviceRequestId}: ₹${totalRefunded} refunded across ${results.length} payment(s)`);
+        return { refunds: results, totalRefunded };
+    }
+
     static async refundBookingCharge(
         serviceRequestId: number,
     ): Promise<{ refundId: string; amountRupees: number; alreadyRefunded?: boolean }> {

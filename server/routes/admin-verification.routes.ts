@@ -327,14 +327,34 @@ export function registerAdminVerificationRoutes(app: Express) {
             }
 
             let actionsTaken: string[] = [];
+            let refundOutcome: { success: boolean; amount?: number; error?: string } | null = null;
 
             if (resolution === 'refund_customer' || resolution === 'split') {
-                // Initiate refund (best-effort via Razorpay)
+                // Refunds every captured payment on the booking, not just the ₹99
+                // fee, and honours the admin-entered refundAmount for a partial
+                // settlement. Previously this called refundBookingCharge(), which
+                // ignored refundAmount and could only ever reverse the fee — so a
+                // dispute over a large job could not be settled in the customer's
+                // favour at all.
                 try {
-                    await PaymentService.refundBookingCharge(bookingId);
-                    actionsTaken.push('Booking fee refund initiated');
+                    const parsedAmount = refundAmount != null ? Number(refundAmount) : undefined;
+                    if (parsedAmount != null && (!Number.isFinite(parsedAmount) || parsedAmount <= 0)) {
+                        throw new Error('refundAmount must be a positive number');
+                    }
+
+                    const result = await PaymentService.refundBookingPayments(
+                        bookingId,
+                        parsedAmount,
+                        `Dispute resolved (${resolution}) by admin #${adminId}: ${remarks}`,
+                    );
+                    refundOutcome = { success: true, amount: result.totalRefunded };
+                    actionsTaken.push(`Refunded ₹${result.totalRefunded} to customer`);
                 } catch (err: any) {
-                    actionsTaken.push(`Refund failed: ${err.message}`);
+                    // Surfaced rather than swallowed — an admin must not be told a
+                    // dispute was settled financially when no money moved.
+                    refundOutcome = { success: false, error: err.message };
+                    actionsTaken.push(`REFUND FAILED — manual refund required: ${err.message}`);
+                    logger.error(`[DISPUTE] Refund failed for booking ${bookingId}: ${err.message}`);
                 }
             }
 
@@ -389,6 +409,9 @@ export function registerAdminVerificationRoutes(app: Express) {
                     resolution,
                     actionsTaken,
                     remarks,
+                    // Explicit so the dashboard can flag a dispute that was closed
+                    // without the money actually moving.
+                    refund: refundOutcome,
                 },
             });
         } catch (error) {
