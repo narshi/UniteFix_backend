@@ -41,6 +41,7 @@ import {
     IndianRupee,
     AlertTriangle,
     KeyRound,
+    Receipt,
     Copy,
     Snowflake,
     Droplets,
@@ -189,6 +190,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const [feedback, setFeedback] = useState('');
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [isPayingFee, setIsPayingFee] = useState(false);
+    const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
     const { mutate: cancelRequest, isPending: cancelling } = useCancelServiceRequest();
     const { mutate: rateService, isPending: submittingRating } = useRateService();
@@ -288,6 +290,45 @@ export function RequestDetailScreen({ navigation, route }: Props) {
             ],
         });
     }, [navigation, queryClient]);
+
+    /**
+     * Open the invoice PDF for this booking.
+     *
+     * Invoices are keyed by their own id, so the booking's invoice is found by
+     * matching serviceRequestId. The server issues a short-lived signed URL that
+     * the OS PDF/browser handler can open directly — no native file-system or
+     * sharing module needed, which keeps this off the prebuild path.
+     */
+    const handleDownloadInvoice = async () => {
+        setDownloadingInvoice(true);
+        try {
+            const { data } = await customerApi.getMyInvoices();
+            const invoice = (data?.data || []).find((inv) => inv.serviceRequestId === request.id);
+
+            if (!invoice) {
+                Alert.alert(
+                    'Invoice Not Ready',
+                    'The invoice for this booking is still being generated. Please try again shortly.',
+                );
+                return;
+            }
+
+            const { data: linkData } = await customerApi.getInvoiceDownloadLink(invoice.invoiceId);
+            const url = linkData?.data?.url;
+            if (!url) throw new Error('Could not create a download link');
+
+            const canOpen = await Linking.canOpenURL(url);
+            if (!canOpen) throw new Error('No app available to open the invoice');
+            await Linking.openURL(url);
+        } catch (err: any) {
+            Alert.alert(
+                'Download Failed',
+                err?.response?.data?.message || err?.message || 'Could not open the invoice.',
+            );
+        } finally {
+            setDownloadingInvoice(false);
+        }
+    };
 
     const payBookingFee = async () => {
         setIsPayingFee(true);
@@ -587,6 +628,19 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         onPress={() => setShowRating(true)}
                         icon={<Star size={18} color={colors.primary} />}
                         style={{ marginBottom: spacing.lg }}
+                    />
+                )}
+
+                {/* Offered before Done so the invoice is reachable without having
+                    to navigate back into a finished booking. */}
+                {request.status === 'completed' && !showRating && (
+                    <Button
+                        title="Download Invoice"
+                        variant="outline"
+                        onPress={handleDownloadInvoice}
+                        loading={downloadingInvoice}
+                        icon={<Receipt size={18} color={colors.primary} />}
+                        style={{ marginBottom: spacing.md }}
                     />
                 )}
 

@@ -186,6 +186,25 @@ export const customerApi = {
     getSupportLink: (bookingId: number) =>
         apiClient.get<ApiResponse<{ whatsappUrl: string }>>(`/api/v1/bookings/${bookingId}/support-link`),
 
+    // Invoices
+    getMyInvoices: () =>
+        apiClient.get<ApiResponse<Array<{
+            id: number;
+            invoiceId: string;
+            serviceRequestId: number | null;
+            totalAmount: number;
+            createdAt: string;
+        }>>>('/api/client/invoices'),
+
+    /**
+     * Short-lived (5 min) URL for the invoice PDF. Opened with Linking, so it
+     * works without bundling native file-system/sharing modules.
+     */
+    getInvoiceDownloadLink: (invoiceId: string) =>
+        apiClient.post<ApiResponse<{ url: string; expiresInSeconds: number }>>(
+            `/api/client/invoices/${encodeURIComponent(invoiceId)}/download-link`,
+        ),
+
     // Notifications
     getNotifications: () =>
         apiClient.get<ApiResponse<Notification[]>>('/api/notifications'),

@@ -12,6 +12,7 @@
 
 import type { Express, Request, Response, NextFunction } from "express";
 import multer from "multer";
+import jwt from "jsonwebtoken";
 import { uploadImageBuffer } from "../services/cloudinary.service";
 import { db } from "../db";
 import { eq, and, desc, sql, avg, count } from "drizzle-orm";
@@ -833,10 +834,91 @@ export function registerClientFeatureRoutes(app: Express) {
      * GET /api/client/invoices/:invoiceId/download
      * Download invoice as PDF
      */
-    app.get("/api/client/invoices/:invoiceId/download", authenticateToken, async (req: Request, res, next) => {
+    /**
+     * POST /api/client/invoices/:invoiceId/download-link
+     *
+     * Returns a short-lived URL for the invoice PDF.
+     *
+     * The mobile app opens the PDF with the OS handler via Linking, and a browser
+     * cannot send the Authorization header. Rather than pulling expo-file-system
+     * and expo-sharing in as native dependencies (a prebuild for a once-per-job
+     * action), issue a 5-minute token scoped to this single invoice and this
+     * single user. Same pattern as the existing password-reset token.
+     */
+    app.post("/api/client/invoices/:invoiceId/download-link", authenticateToken, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
             const invoiceIdStr = req.params.invoiceId;
+
+            const [invoice] = await db.select()
+                .from(invoices)
+                .where(and(
+                    eq(invoices.invoiceId, invoiceIdStr),
+                    eq(invoices.userId, userId),
+                ))
+                .limit(1);
+
+            if (!invoice) {
+                return res.status(404).json({ success: false, message: "Invoice not found" });
+            }
+
+            const token = jwt.sign(
+                { invoiceId: invoiceIdStr, userId, purpose: 'invoice_download' },
+                process.env.JWT_SECRET as string,
+                { expiresIn: '5m' },
+            );
+
+            const base = process.env.PUBLIC_BASE_URL
+                || `${req.protocol}://${req.get('host')}`;
+
+            res.json({
+                success: true,
+                data: {
+                    url: `${base}/api/client/invoices/${encodeURIComponent(invoiceIdStr)}/download?token=${token}`,
+                    expiresInSeconds: 300,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    app.get("/api/client/invoices/:invoiceId/download", async (req: Request, res, next) => {
+        try {
+            const invoiceIdStr = req.params.invoiceId;
+
+            // Accept either a normal Bearer session or a short-lived download
+            // token, so the same URL works from the app and from a browser.
+            let userId: number | null = null;
+
+            const queryToken = req.query.token as string | undefined;
+            if (queryToken) {
+                try {
+                    const decoded: any = jwt.verify(queryToken, process.env.JWT_SECRET as string);
+                    if (decoded.purpose !== 'invoice_download' || decoded.invoiceId !== invoiceIdStr) {
+                        return res.status(403).json({ success: false, message: "Invalid download token" });
+                    }
+                    userId = decoded.userId;
+                } catch {
+                    return res.status(403).json({ success: false, message: "Download link has expired. Please try again." });
+                }
+            } else {
+                const authHeader = req.headers['authorization'];
+                const bearer = authHeader && authHeader.split(' ')[1];
+                if (!bearer) {
+                    return res.status(401).json({ success: false, message: "Access token required" });
+                }
+                try {
+                    const decoded: any = jwt.verify(bearer, process.env.JWT_SECRET as string);
+                    userId = decoded.userId;
+                } catch {
+                    return res.status(403).json({ success: false, message: "Invalid or expired token" });
+                }
+            }
+
+            if (!userId) {
+                return res.status(401).json({ success: false, message: "Access token required" });
+            }
 
             const [invoice] = await db.select()
                 .from(invoices)
