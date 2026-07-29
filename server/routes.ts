@@ -63,7 +63,7 @@ const JWT_SECRET: string = process.env.JWT_SECRET;
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
 // Import canonical auth middleware (single source of truth)
-import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner } from "./middleware/auth.middleware";
+import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny } from "./middleware/auth.middleware";
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -157,6 +157,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     next();
   });
+
+  // ==================== RATE LIMITING ====================
+  // MUST come before any route registration. Express matches middleware and
+  // routes in registration order, so these previously sat at the bottom of this
+  // function — after every auth route had already been mounted — and could never
+  // fire. Brute-force protection on the Truecaller/OTP/reset paths was therefore
+  // absent entirely, and unlimited OTP requests could reset the 5-attempt
+  // lockout by simply asking for a fresh code.
+  app.use("/api/auth", authLimiter);
+  app.use("/api/otp", authLimiter); // Protect OTP generation strongly
+  app.use("/api/admin/auth", authLimiter); // Admin login protection
+
+  app.use("/api/admin", adminLimiter);
+  app.use("/api/serviceman", partnerLimiter);
+  app.use("/api/partner", partnerLimiter); // Wallet/Earnings APIs
+  app.use("/api/business", partnerLimiter); // Partner onboarding
+
+  app.use("/api/client", mobileLimiter);
+  app.use("/api/services", mobileLimiter); // Service creation
+  app.use("/api/products", mobileLimiter); // Product listing
+  app.use("/api/orders", mobileLimiter);   // Order placement
+  app.use("/api/cart", mobileLimiter);     // Cart management
+  app.use("/api/catalog", mobileLimiter);  // Product catalog
+
+  // Public/Default
+  app.use("/api/public", publicLimiter);
 
   // ==================== AUTHENTICATION ROUTES ====================
 
@@ -356,9 +382,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Signup with referral code support (legacy — kept for backward compatibility)
-  app.post("/api/auth/signup", async (req, res, next) => {
+  app.post("/api/auth/signup", authLimiter, async (req, res, next) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+      // SECURITY: this route previously did insertUserSchema.parse(req.body) and
+      // spread the result straight into createUser. That schema includes `role`,
+      // `isVerified`, `isActive` and `phoneVerified`, so an unauthenticated
+      // caller could POST { role: "admin" } and receive an admin JWT — full
+      // access to every /api/admin route.
+      //
+      // Only ever accept the fields a signing-up user is allowed to set, and
+      // derive role server-side exactly as /api/auth/signup/complete does.
+      const parsed = insertUserSchema.parse(req.body);
+      const requestedRole = (req.body as any)?.role;
+      const userData = {
+        phone: parsed.phone,
+        email: parsed.email,
+        username: parsed.username,
+        password: parsed.password,
+        pinCode: parsed.pinCode,
+        homeAddress: parsed.homeAddress,
+        // Clamped: 'admin' is not reachable from this endpoint.
+        role: (requestedRole === 'serviceman' ? 'serviceman' : 'user') as 'user' | 'serviceman',
+        // Trust markers are set by the server, never by the client.
+        phoneVerified: false,
+        emailVerified: false,
+        isVerified: false,
+        isActive: requestedRole === 'serviceman' ? false : true,
+      };
 
       // Check if pincode is serviceable
       const isServiceable = await storage.isPincodeServiceable(userData.pinCode || '');
@@ -488,7 +538,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Logout — revoke all refresh tokens for user
-  app.post("/api/auth/logout", authenticateToken, async (req: any, res, next) => {
+  // authenticateAny, not authenticateToken: the latter is customer-only, so a
+  // partner's logout 403'd. The mobile client swallowed that error and cleared
+  // local state, leaving their refresh token valid server-side for 30 days —
+  // a lost or resold device kept a resumable session.
+  app.post("/api/auth/logout", authenticateAny, async (req: any, res, next) => {
     try {
       const userId = req.user?.userId;
       if (userId) {
@@ -633,8 +687,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `<h1>Password Reset</h1><p>Your OTP for password reset is: <strong>${otp}</strong></p><p>This OTP will expire in 10 minutes.</p>`
         );
       } else {
-        // Fallback for phone (log to console as before)
-        console.log(`[PASSWORD RESET] OTP for ${phone}: ${otp}`);
+        // SMS delivery is not wired up for phone-only resets. Never print the
+        // code: this ran in production and put working password-reset codes into
+        // the logs, which is a complete account-takeover path for anyone with
+        // log access.
+        logger.warn('[PASSWORD RESET] No delivery channel for phone-only reset — code not sent', {
+          hasEmail: false,
+        });
       }
 
       res.json({ success: true, message: "If the account exists, an OTP has been sent" });
@@ -708,6 +767,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Hash and update password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
       await storage.updateUser(decoded.userId, { password: hashedPassword });
+
+      // End every existing session. A reset is often triggered *because* the
+      // account is compromised; without this the attacker's refresh tokens
+      // survived the password change for their full 30-day lifetime.
+      await TokenService.revokeUserTokens(decoded.userId);
 
       res.json({ success: true, message: "Password reset successfully. Please login with your new password." });
     } catch (error) {
@@ -2190,26 +2254,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== REGISTER MODULAR ROUTES ====================
   // These were previously dead code — now properly connected
-  // ==================== RATE LIMITING ====================
-  // Essential security layer (Post-Launch Task #6)
-  app.use("/api/auth", authLimiter);
-  app.use("/api/otp", authLimiter); // Protect OTP generation strongly
-  app.use("/api/admin/auth", authLimiter); // Admin login protection
-
-  app.use("/api/admin", adminLimiter);
-  app.use("/api/serviceman", partnerLimiter);
-  app.use("/api/partner", partnerLimiter); // Wallet/Earnings APIs
-  app.use("/api/business", partnerLimiter); // Partner onboarding
-
-  app.use("/api/client", mobileLimiter);
-  app.use("/api/services", mobileLimiter); // Service creation
-  app.use("/api/products", mobileLimiter); // Product listing
-  app.use("/api/orders", mobileLimiter);   // Order placement
-  app.use("/api/cart", mobileLimiter);     // Cart management
-  app.use("/api/catalog", mobileLimiter);  // Product catalog
-
-  // Public/Default
-  app.use("/api/public", publicLimiter);
 
   // ==================== ROUTE REGISTRATION ====================
   // Apply Admin Authentication Middleware (skipping login/register)

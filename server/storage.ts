@@ -88,6 +88,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne, isNull } from "drizzle-orm";
+import logger from "./lib/logger";
 import crypto from "crypto";
 // PHASE 2: State machine imports
 import { BookingState, validateStateTransition, shouldTriggerWalletCredit, requiresOtpValidation, requiresPaymentVerification } from "./business/booking-state-machine";
@@ -1579,11 +1580,19 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
 
     if (!verification) {
-      console.log(`[OTP_DEBUG] No matching OTP found for phone=${phone}, email=${email}, purpose=${purpose}`);
+      // Never log the contact details or the code itself — these lines used
+      // console.log, which bypasses LOG_LEVEL and therefore ran in production,
+      // putting live login codes into the Render logs.
+      logger.warn('[OTP] No matching unexpired OTP found', { purpose });
       return false;
     }
 
-    console.log(`[OTP_DEBUG] Found OTP record id=${verification.id}, stored=${verification.otp}, received=${otp}, attempts=${verification.attempts}, expires=${verification.expiresAt}`);
+    logger.debug('[OTP] Verifying submitted code', {
+      recordId: verification.id,
+      purpose,
+      attempts: verification.attempts,
+      expiresAt: verification.expiresAt,
+    });
 
     const currentAttempts = (verification.attempts ?? 0);
 

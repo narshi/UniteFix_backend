@@ -163,11 +163,14 @@ export class NotificationService {
    */
   static async sendEmail(to: string, subject: string, html: string) {
     if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
-      logger.info(`[EMAIL MOCK] To: ${to}, Subject: ${subject}`);
-      // If the email contains a 4-6 digit verification OTP code, log it directly for easy dev/test retrieval
-      const otpMatch = html.match(/>([0-9]{4,6})<\/span>/);
-      if (otpMatch) {
-        logger.info(`[EMAIL MOCK OTP] The generated OTP code for ${to} is: ${otpMatch[1]}`);
+      logger.warn(`[EMAIL MOCK] SMTP not configured — email NOT sent`, { to, subject });
+      // Dev convenience only. Explicitly gated on NODE_ENV so a missing SMTP
+      // config in production can never dump live OTP codes into the logs.
+      if (process.env.NODE_ENV !== 'production') {
+        const otpMatch = html.match(/>([0-9]{4,6})<\/span>/);
+        if (otpMatch) {
+          logger.info(`[EMAIL MOCK OTP] Code for ${to}: ${otpMatch[1]}`);
+        }
       }
       return;
     }

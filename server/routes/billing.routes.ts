@@ -19,7 +19,7 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { eq, sql } from 'drizzle-orm';
 import { serviceRequests, employees } from '@shared/schema';
-import { authenticatePartner, authenticateToken, authenticateAny } from '../middleware/auth.middleware';
+import { authenticatePartner, authenticateToken, authenticateAny , requireVerifiedPartner} from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
@@ -36,7 +36,7 @@ export function registerBillingRoutes(app: Express) {
      *
      * Body: { sparePartsCost: number, serviceLaborCost: number }
      */
-    app.post('/api/bookings/:id/submit-bill', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.post('/api/bookings/:id/submit-bill', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { sparePartsCost = 0, serviceLaborCost = 0 } = req.body;
@@ -365,7 +365,7 @@ export function registerBillingRoutes(app: Express) {
      *
      * Body: { amountCollected: number }
      */
-    app.post('/api/bookings/:id/cash-collected', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.post('/api/bookings/:id/cash-collected', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { amountCollected } = req.body;

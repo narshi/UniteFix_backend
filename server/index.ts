@@ -13,6 +13,17 @@ const app = express();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Render (and any reverse proxy) terminates TLS and forwards the real client IP
+// in X-Forwarded-For. Without this, req.ip is the PROXY's address — identical for
+// every user — so express-rate-limit buckets the entire user base together and
+// /api/client effectively caps at 60 requests per minute in total. That produced
+// intermittent 429s that surfaced as "failed to save address" and blank profile
+// forms.
+//
+// Trust exactly one hop (the platform proxy), not `true`: a permissive setting
+// would let a client spoof X-Forwarded-For and evade rate limiting entirely.
+app.set('trust proxy', 1);
+
 // Security headers — CSP enabled in production, disabled in dev (Vite needs inline scripts)
 app.use(helmet({
   contentSecurityPolicy: isProduction

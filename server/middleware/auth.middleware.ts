@@ -11,8 +11,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { employees, users } from '@shared/schema';
+import { employees, users, adminUsers } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import logger from '../lib/logger';
 
 if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET environment variable is required");
@@ -106,11 +107,26 @@ export function authenticatePartner(req: Request, res: Response, next: NextFunct
             });
         }
 
-        // Enforce active status — admin suspension takes effect immediately
-        if (!provider.isActive) {
+        // Block only genuine suspensions/rejections.
+        //
+        // `employees.isActive` is overloaded: it means "admin has approved" AND
+        // "not suspended". Rejecting on isActive alone locked out every BRAND-NEW
+        // partner, who is created with isActive:false while awaiting verification
+        // — and told them they were "suspended". Worse, it also blocked
+        // GET /api/partner/verification-status, the endpoint their pending screen
+        // polls, so they could never see approval without logging out and back in.
+        //
+        // Gate on the verification status instead, which is the field that
+        // actually distinguishes "not yet approved" from "access revoked".
+        const revoked = provider.verificationStatus === 'suspended'
+            || provider.verificationStatus === 'rejected';
+
+        if (revoked) {
             return res.status(403).json({
                 success: false,
-                message: 'Your partner account has been suspended. Please contact support.'
+                message: provider.verificationStatus === 'rejected'
+                    ? 'Your partner application was not approved. Please contact support.'
+                    : 'Your partner account has been suspended. Please contact support.',
             });
         }
 
@@ -139,6 +155,32 @@ export function authenticatePartner(req: Request, res: Response, next: NextFunct
 }
 
 /**
+ * Requires a partner whose documents have been VERIFIED by an admin.
+ *
+ * Runs after authenticatePartner. That middleware now only blocks suspended and
+ * rejected accounts, so an unverified partner can read their own profile and
+ * poll their verification status — but must not be able to take jobs, submit
+ * bills, collect cash or withdraw money. This is that gate.
+ */
+export function requireVerifiedPartner(req: Request, res: Response, next: NextFunction) {
+    const partner = (req as any).partner;
+
+    if (!partner) {
+        return res.status(401).json({ success: false, message: 'Partner authentication required' });
+    }
+
+    if (partner.verificationStatus !== 'verified') {
+        return res.status(403).json({
+            success: false,
+            code: 'VERIFICATION_PENDING',
+            message: 'Your account is pending verification. You can start working once an admin approves your documents.',
+        });
+    }
+
+    next();
+}
+
+/**
  * Admin authentication middleware
  * Validates JWT token for admin dashboard users
  */
@@ -153,29 +195,59 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
         });
     }
 
+    let decoded: any;
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-
-        if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'Admin access required'
-            });
-        }
-
-        (req as any).admin = {
-            userId: decoded.userId,
-            role: decoded.role,
-            username: decoded.username,
-        };
-
-        next();
+        decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (error) {
         return res.status(403).json({
             success: false,
             message: 'Invalid or expired admin token'
         });
     }
+
+    if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
+        return res.status(403).json({
+            success: false,
+            message: 'Admin access required'
+        });
+    }
+
+    // Defence in depth: confirm the token maps to a real, active row in
+    // `adminUsers`. Previously the role claim alone was sufficient, so ANY token
+    // carrying role:'admin' was accepted — which is what turned the signup
+    // escalation into full admin access. Admin tokens are minted only by
+    // /api/admin/auth/login, where userId is an adminUsers.id.
+    db.select({ id: adminUsers.id, isActive: adminUsers.isActive, username: adminUsers.username })
+        .from(adminUsers)
+        .where(eq(adminUsers.id, decoded.userId))
+        .limit(1)
+        .then(([admin]) => {
+            if (!admin) {
+                logger.warn('[AUTH] Admin token rejected — no matching admin account', {
+                    claimedUserId: decoded.userId,
+                    claimedRole: decoded.role,
+                });
+                return res.status(403).json({ success: false, message: 'Admin access required' });
+            }
+
+            if (!admin.isActive) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'This admin account has been deactivated.',
+                });
+            }
+
+            (req as any).admin = {
+                userId: admin.id,
+                role: decoded.role,
+                username: admin.username ?? decoded.username,
+            };
+
+            next();
+        })
+        .catch(() => {
+            return res.status(500).json({ success: false, message: 'Admin authentication lookup failed' });
+        });
 }
 
 /**

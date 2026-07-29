@@ -20,6 +20,12 @@ import { NotificationService } from '../services/notification.service';
 import logger from '../lib/logger';
 import { getPendingOnboardingSteps } from '../lib/onboarding';
 import crypto from 'crypto';
+import { db } from '../db';
+import { otpVerifications } from '@shared/schema';
+import { and, eq, gte, desc } from 'drizzle-orm';
+
+/** Minimum gap between OTP requests for the same phone. */
+const OTP_REQUEST_COOLDOWN_MS = 60 * 1000;
 
 const router = Router();
 
@@ -391,6 +397,34 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
       if (existingEmail) {
         return res.status(400).json({ success: false, message: 'Email is already registered with another phone number.' });
       }
+    }
+
+    // Cooldown between OTP requests.
+    //
+    // verifyOtp caps attempts at 5 PER OTP RECORD and always matches the newest
+    // one, so unlimited re-requests reset the lockout — five guesses, ask again,
+    // five more. It also let anyone spam a registered user's inbox and burn SMTP
+    // quota. A minimum gap makes both impractical without hurting a real user
+    // who simply did not receive the first mail.
+    const [recentOtp] = await db.select({ createdAt: otpVerifications.createdAt })
+        .from(otpVerifications)
+        .where(and(
+            eq(otpVerifications.phone, normalizedPhone),
+            eq(otpVerifications.purpose, 'fallback_login'),
+            gte(otpVerifications.createdAt, new Date(Date.now() - OTP_REQUEST_COOLDOWN_MS)),
+        ))
+        .orderBy(desc(otpVerifications.createdAt))
+        .limit(1);
+
+    if (recentOtp?.createdAt) {
+        const waitSeconds = Math.ceil(
+            (OTP_REQUEST_COOLDOWN_MS - (Date.now() - new Date(recentOtp.createdAt).getTime())) / 1000,
+        );
+        return res.status(429).json({
+            success: false,
+            message: `Please wait ${waitSeconds} second${waitSeconds === 1 ? '' : 's'} before requesting another code.`,
+            retryAfterSeconds: waitSeconds,
+        });
     }
 
     // Generate 6-digit OTP

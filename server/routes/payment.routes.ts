@@ -10,7 +10,7 @@ import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import crypto from "crypto";
-import { authenticateToken, authenticatePartner } from "../middleware/auth.middleware";
+import { authenticateToken, authenticatePartner , requireVerifiedPartner} from "../middleware/auth.middleware";
 import { mobileLimiter } from "../middleware/rate-limit";
 import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
@@ -223,7 +223,7 @@ export function registerPaymentRoutes(app: Express) {
      * POST /api/partner/services/:id/generate-qr
      * Partner generates a dynamic Razorpay QR for customer to scan
      */
-    app.post("/api/partner/services/:id/generate-qr", authenticatePartner as any, async (req: Request, res: Response) => {
+    app.post("/api/partner/services/:id/generate-qr", authenticatePartner as any, requireVerifiedPartner as any, async (req: Request, res: Response) => {
         try {
             const serviceId = parseInt(req.params.id);
             const partnerId = (req as any).partner?.partnerId;

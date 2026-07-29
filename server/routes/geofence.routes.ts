@@ -14,7 +14,7 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { eq, sql } from 'drizzle-orm';
 import { serviceRequests, employees } from '@shared/schema';
-import { authenticatePartner } from '../middleware/auth.middleware';
+import { authenticatePartner , requireVerifiedPartner} from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition, requiresGeofenceValidation, requiresOtpValidation } from '../business/booking-state-machine';
 import { configService } from '../services/config.service';
 import logger from '../lib/logger';
@@ -30,7 +30,7 @@ export function registerGeofenceRoutes(app: Express) {
      * Body: { latitude: number, longitude: number }
      * Transition: ACCEPTED → REACHED
      */
-    app.patch('/api/bookings/:id/arrive', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.patch('/api/bookings/:id/arrive', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { latitude, longitude } = req.body;
@@ -167,7 +167,7 @@ export function registerGeofenceRoutes(app: Express) {
      * Body: { otp: string }
      * Transition: REACHED → IN_PROGRESS
      */
-    app.patch('/api/bookings/:id/start', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+    app.patch('/api/bookings/:id/start', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const { otp } = req.body;
@@ -209,7 +209,9 @@ export function registerGeofenceRoutes(app: Express) {
             }
 
             if (otp.trim() !== booking.handshakeOtp.trim()) {
-                logger.warn(`[OTP] Invalid OTP attempt for booking ${bookingId}: got=${otp}, expected=${booking.handshakeOtp}`);
+                // The expected code is deliberately not logged — printing it let
+                // anyone with log access start a job without the customer present.
+                logger.warn(`[OTP] Invalid handshake OTP attempt for booking ${bookingId}`);
                 return res.status(400).json({
                     success: false,
                     message: 'Invalid OTP. Please ask the customer for the correct service code.',
