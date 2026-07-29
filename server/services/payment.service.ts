@@ -14,7 +14,7 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "../db";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq, and, desc } from "drizzle-orm";
 import { paymentTransactions } from "@shared/schema";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
@@ -408,9 +408,19 @@ export class PaymentService {
             const paymentId = payload.payment.entity.id;
             const orderId = payload.payment.entity.order_id;
             const amountPaise = payload.payment.entity.amount; // Razorpay sends paise
+            const notes = payload.payment?.entity?.notes;
+
+            // Link the capture back to its booking. Razorpay echoes the notes we
+            // set at order creation, so this is available here — capture rows were
+            // previously orphaned, leaving payment_transactions unqueryable by
+            // booking and forcing refunds to join through razorpayOrderId.
+            const linkedServiceId = notes?.service_request_id
+                ? parseInt(notes.service_request_id)
+                : undefined;
 
             // Record capture event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
+                serviceRequestId: Number.isFinite(linkedServiceId as number) ? linkedServiceId : undefined,
                 razorpayOrderId: orderId,
                 razorpayPaymentId: paymentId,
                 amount: amountPaise, // stored as paise
@@ -418,11 +428,10 @@ export class PaymentService {
                 eventType: 'payment_captured',
                 status: 'captured',
                 method: payload.payment?.entity?.method,
-                metadata: payload.payment?.entity,
+                metadata: { ...payload.payment?.entity, paymentType: notes?.payment_type },
             });
 
             // Also update bookingFeeStatus on the service_requests table
-            const notes = payload.payment?.entity?.notes;
             if (notes?.payment_type === 'booking_charge' && notes?.service_request_id) {
                 try {
                     await db.execute(sql`
@@ -620,64 +629,112 @@ export class PaymentService {
      * PHASE 5: Refund booking charge (₹99) on cancellation from CREATED state
      * AI_CONTEXT §5.G: Only from CREATED state
      */
-    static async refundBookingCharge(serviceRequestId: number): Promise<{ refundId: string } | null> {
+    static async refundBookingCharge(
+        serviceRequestId: number,
+    ): Promise<{ refundId: string; amountRupees: number; alreadyRefunded?: boolean }> {
         const razorpay = await this.getRazorpayInstance();
 
-        // Find the booking charge payment using Drizzle ORM to avoid raw SQL column name issues
-        const paymentResult = await db.select({
+        // The captured row and the booking-charge tag live on DIFFERENT rows:
+        //   order_created    -> has serviceRequestId + metadata.paymentType, status 'pending'
+        //   payment_captured -> has razorpayPaymentId + status 'captured', but historically
+        //                       no serviceRequestId and no paymentType tag
+        // The previous query required all three on ONE row, so it matched nothing
+        // and every cancellation silently skipped the refund. Join the two rows
+        // through razorpayOrderId instead.
+        const [order] = await db.select({
+            razorpayOrderId: paymentTransactions.razorpayOrderId,
+            amount: paymentTransactions.amount,
+        })
+            .from(paymentTransactions)
+            .where(and(
+                eq(paymentTransactions.serviceRequestId, serviceRequestId),
+                sql`${paymentTransactions.metadata}->>'paymentType' = 'booking_charge'`,
+            ))
+            .orderBy(desc(paymentTransactions.createdAt))
+            .limit(1);
+
+        if (!order?.razorpayOrderId) {
+            throw new Error(
+                `No booking-fee order found for service request ${serviceRequestId}. Nothing to refund.`,
+            );
+        }
+
+        // Already refunded? Do not issue a second refund.
+        const [existingRefund] = await db.select({ id: paymentTransactions.id })
+            .from(paymentTransactions)
+            .where(and(
+                eq(paymentTransactions.razorpayOrderId, order.razorpayOrderId),
+                eq(paymentTransactions.eventType, 'refund_initiated'),
+            ))
+            .limit(1);
+
+        if (existingRefund) {
+            logger.info(`[REFUND] Booking fee for SR ${serviceRequestId} was already refunded`);
+            return { refundId: 'already-refunded', amountRupees: 0, alreadyRefunded: true };
+        }
+
+        const [captured] = await db.select({
             id: paymentTransactions.id,
             razorpayPaymentId: paymentTransactions.razorpayPaymentId,
-            amount: paymentTransactions.amount
+            amount: paymentTransactions.amount,
         })
-        .from(paymentTransactions)
-        .where(
-            and(
-                eq(paymentTransactions.serviceRequestId, serviceRequestId),
+            .from(paymentTransactions)
+            .where(and(
+                eq(paymentTransactions.razorpayOrderId, order.razorpayOrderId),
                 eq(paymentTransactions.status, 'captured'),
-                sql`${paymentTransactions.metadata}->>'paymentType' = 'booking_charge'`
-            )
-        )
-        .limit(1);
-        
-        const payment = paymentResult?.[0];
+            ))
+            .orderBy(desc(paymentTransactions.createdAt))
+            .limit(1);
 
-        if (!payment?.razorpayPaymentId) {
-            logger.warn(`[REFUND] No captured booking payment found for SR ${serviceRequestId}`);
-            return null;
+        if (!captured?.razorpayPaymentId) {
+            throw new Error(
+                `Booking fee for service request ${serviceRequestId} was never captured — nothing to refund.`,
+            );
+        }
+
+        // payment_transactions.amount is already in PAISE. The previous code
+        // multiplied it by 100 again, which would have requested a 100x refund
+        // (a ₹99 fee becoming ₹9,900) the moment the lookup started matching.
+        // Prefer the captured amount; fall back to the order amount when the
+        // capture row was written with a placeholder of 0.
+        const amountPaise = captured.amount > 0 ? captured.amount : order.amount;
+
+        if (!amountPaise || amountPaise <= 0) {
+            throw new Error(
+                `Cannot determine refund amount for service request ${serviceRequestId}.`,
+            );
         }
 
         try {
-            const refund = await razorpay.payments.refund(payment.razorpayPaymentId, {
-                amount: Math.round(payment.amount * 100), // Convert to paise
+            const refund = await razorpay.payments.refund(captured.razorpayPaymentId, {
+                amount: amountPaise,
                 notes: {
                     service_request_id: serviceRequestId.toString(),
                     reason: 'Customer cancelled from CREATED state',
                 },
             });
 
-            // Update payment record using correct column 'status'
             await db.update(paymentTransactions)
-                .set({
-                    status: 'refunded',
-                    updatedAt: new Date()
-                })
-                .where(eq(paymentTransactions.id, payment.id));
+                .set({ status: 'refunded', updatedAt: new Date() })
+                .where(eq(paymentTransactions.id, captured.id));
 
-            // PHASE 10: Record refund to audit trail
             await PaymentTrackingService.recordPaymentEvent({
                 serviceRequestId,
-                razorpayPaymentId: payment.razorpayPaymentId,
-                amount: Math.round(payment.amount * 100),
+                razorpayOrderId: order.razorpayOrderId,
+                razorpayPaymentId: captured.razorpayPaymentId,
+                amount: amountPaise,
                 currency: 'INR',
                 eventType: 'refund_initiated',
                 status: 'refunded',
                 metadata: { refundId: refund.id, reason: 'cancellation' },
             });
 
-            logger.info(`[REFUND] Booking refund initiated: SR ${serviceRequestId}, refund ${refund.id}`);
-            return { refundId: refund.id };
+            logger.info(
+                `[REFUND] SR ${serviceRequestId}: ₹${amountPaise / 100} refunded (${refund.id})`,
+            );
+            return { refundId: refund.id, amountRupees: amountPaise / 100 };
         } catch (err: any) {
-            logger.error(`[REFUND] Razorpay refund failed for SR ${serviceRequestId}:`, err.message);
+            logger.error(`[REFUND] Razorpay refund failed for SR ${serviceRequestId}: ${err.message}`);
             throw err;
         }
     }

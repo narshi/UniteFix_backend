@@ -1599,26 +1599,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
       }
 
-      // Admin cancellation automatically triggers a refund of the booking fee
+      // Refund the booking fee whenever it was actually collected — for CUSTOMER
+      // cancellations too, not just admin ones. Per AI_CONTEXT §3.D a customer
+      // cancelling from CREATED is entitled to a full booking-fee refund, but this
+      // route previously attempted a refund only when `isAdmin`, so every customer
+      // cancellation silently kept the money.
       let refundInitiated = false;
-      if (isAdmin) {
+      let refundedAmount = 0;
+      let refundFailed = false;
+
+      if (service.bookingFeeStatus === 'paid') {
           try {
-              await PaymentService.refundBookingCharge(service.id);
+              const refund = await PaymentService.refundBookingCharge(service.id);
               refundInitiated = true;
-              logger.info(`[ADMIN] Booking ${service.id} cancelled by admin + refund initiated`);
+              refundedAmount = refund.amountRupees;
+              logger.info(
+                  `[CANCEL] Booking ${service.id} cancelled by ${isAdmin ? 'admin' : 'customer'} + ₹${refundedAmount} refunded`,
+              );
           } catch (refundErr: any) {
-              logger.error(`[ADMIN] Refund failed for booking ${service.id} during admin cancellation:`, refundErr.message);
+              // Leave bookingFeeStatus as 'paid' so the outstanding refund stays
+              // visible for manual reconciliation rather than being marked done.
+              refundFailed = true;
+              logger.error(
+                  `[CANCEL] REFUND FAILED for booking ${service.id} — manual refund required: ${refundErr.message}`,
+              );
           }
       }
 
-      // Update both status and bookingFeeStatus
+      // 'refunded' is written only when Razorpay actually accepted the refund.
       const [updated] = await db.update(serviceRequests).set({
           status: 'cancelled',
           bookingFeeStatus: refundInitiated ? 'refunded' : service.bookingFeeStatus,
           updatedAt: new Date()
       }).where(eq(serviceRequests.id, service.id)).returning();
 
-      res.json({ success: true, message: refundInitiated ? "Service cancelled and refund initiated" : "Service cancelled successfully", data: updated });
+      const message = refundInitiated
+          ? `Service cancelled. ₹${refundedAmount} will be credited within 5-7 business days.`
+          : refundFailed
+              ? "Service cancelled. Your refund needs manual processing — our team will contact you shortly."
+              : "Service cancelled successfully.";
+
+      res.json({
+          success: true,
+          message,
+          data: { ...updated, refundInitiated, refundedAmount },
+      });
     } catch (error) {
       next(error);
     }

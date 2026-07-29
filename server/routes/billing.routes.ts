@@ -240,32 +240,61 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
-            // Cancel the booking
+            // Cancel the booking. bookingFeeStatus is deliberately NOT set here —
+            // it previously read 'refunded' before the refund was even attempted,
+            // so a silently failed refund was indistinguishable from a real one.
             const [updated] = await db.update(serviceRequests)
                 .set({
                     status: BookingState.CANCELLED as any,
-                    bookingFeeStatus: 'refunded' as any,
                     updatedAt: new Date(),
                 })
                 .where(eq(serviceRequests.id, bookingId))
                 .returning();
 
-            // Initiate ₹99 refund via Razorpay (best-effort)
-            try {
-                await PaymentService.refundBookingCharge(bookingId);
-                logger.info(`[BILLING] Booking ${bookingId} cancelled + ₹99 refund initiated`);
-            } catch (refundErr: any) {
-                logger.error(`[BILLING] Refund failed for booking ${bookingId}:`, refundErr.message);
-                // Still cancel — admin can manually refund
+            // Only attempt a refund if the fee was actually collected.
+            const feeWasPaid = booking.bookingFeeStatus === 'paid';
+            let refundInitiated = false;
+            let refundedAmount = 0;
+            let refundMessage: string;
+
+            if (!feeWasPaid) {
+                refundMessage = 'Booking cancelled. No booking fee had been charged.';
+                logger.info(`[BILLING] Booking ${bookingId} cancelled — fee was never captured, no refund due`);
+            } else {
+                try {
+                    const refund = await PaymentService.refundBookingCharge(bookingId);
+                    refundInitiated = true;
+                    refundedAmount = refund.amountRupees;
+
+                    // Only now is 'refunded' true.
+                    await db.update(serviceRequests)
+                        .set({ bookingFeeStatus: 'refunded' as any, updatedAt: new Date() })
+                        .where(eq(serviceRequests.id, bookingId));
+
+                    refundMessage = refund.alreadyRefunded
+                        ? 'Booking cancelled. A refund was already issued for this booking.'
+                        : `Booking cancelled. ₹${refundedAmount} will be credited within 5-7 business days.`;
+                    logger.info(`[BILLING] Booking ${bookingId} cancelled + ₹${refundedAmount} refunded`);
+                } catch (refundErr: any) {
+                    // The booking is still cancelled, but the fee remains 'paid' so
+                    // the outstanding refund shows up for manual reconciliation
+                    // instead of disappearing.
+                    logger.error(
+                        `[BILLING] REFUND FAILED for booking ${bookingId} — manual refund required: ${refundErr.message}`,
+                    );
+                    refundMessage =
+                        'Booking cancelled. Your refund needs manual processing — our team will contact you shortly.';
+                }
             }
 
             res.json({
                 success: true,
-                message: 'Booking cancelled. ₹99 refund will be processed within 5-7 business days.',
+                message: refundMessage,
                 data: {
                     bookingId: updated.id,
                     status: updated.status,
-                    refundInitiated: true,
+                    refundInitiated,
+                    refundedAmount,
                 },
             });
         } catch (error) {
