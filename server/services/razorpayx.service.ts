@@ -68,7 +68,19 @@ export class RazorpayXService {
     /**
      * Creates a Payout in RazorpayX
      */
-    static async createPayout(fundAccountId: string, amountInRupees: number, referenceId: string, purpose: string = 'payout'): Promise<any> {
+    /**
+     * @param idempotencyKey Sent as X-Payout-Idempotency. RazorpayX returns the
+     *   ORIGINAL payout for a repeated key rather than disbursing again, so a
+     *   retried or duplicated approval cannot pay a partner twice.
+     *   Note: `reference_id` is NOT an idempotency key — it is only a label.
+     */
+    static async createPayout(
+        fundAccountId: string,
+        amountInRupees: number,
+        referenceId: string,
+        purpose: string = 'payout',
+        idempotencyKey?: string,
+    ): Promise<any> {
         try {
             const api = this.getApiClient();
             const response = await api.post('/payouts', {
@@ -81,7 +93,7 @@ export class RazorpayXService {
                 queue_if_low_balance: true,
                 reference_id: referenceId,
                 narration: 'UniteFix Wallet Withdrawal'
-            });
+            }, idempotencyKey ? { headers: { 'X-Payout-Idempotency': idempotencyKey } } : undefined);
             return response.data;
         } catch (error: any) {
             logger.error(`Failed to create Razorpay Payout: ${error?.response?.data?.error?.description || error.message}`);
