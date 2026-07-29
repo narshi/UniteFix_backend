@@ -55,8 +55,9 @@ export default function WithdrawalsPage() {
     type: 'approve',
     request: null
   });
+  const [syncingId, setSyncingId] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: Withdrawal[] }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: Withdrawal[] }>({
     queryKey: ["/api/admin/withdrawals"],
   });
 
@@ -88,6 +89,35 @@ export default function WithdrawalsPage() {
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
+  });
+
+  /**
+   * Reconcile a payout against RazorpayX.
+   *
+   * A request only leaves 'processing' when the payout.processed webhook lands.
+   * If that webhook is failing, successful payouts sit here indefinitely and a
+   * reversed payout never returns the money to the partner's wallet. This asks
+   * RazorpayX directly and applies the real outcome.
+   */
+  const syncMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/sync`);
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      const d = result?.data ?? {};
+      const settled = d.localStatus === 'completed' || d.localStatus === 'failed';
+      toast({
+        title: settled ? `Payout ${d.payoutStatus}` : "Still in progress",
+        description: d.message,
+        variant: d.localStatus === 'failed' ? "destructive" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Sync failed", description: error.message, variant: "destructive" });
+    },
+    onSettled: () => setSyncingId(null),
   });
 
   const handleAction = () => {
@@ -134,7 +164,26 @@ export default function WithdrawalsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {withdrawals.length === 0 ? (
+                {isError ? (
+                  /* Distinct from "none found" — a failed load must not read as
+                     an empty queue when real payout requests may be waiting. */
+                  <TableRow className="border-b border-[rgba(255,255,255,0.04)]">
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <p className="text-[hsl(347,77%,65%)] font-medium">Could not load withdrawal requests.</p>
+                      <p className="text-xs text-[hsl(215,20%,55%)] mt-1">
+                        This is a loading failure, not an empty queue.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => refetch()}
+                        className="mt-3 border-[rgba(255,255,255,0.12)] text-[hsl(210,20%,85%)] hover:bg-[rgba(255,255,255,0.06)]"
+                      >
+                        Retry
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ) : withdrawals.length === 0 ? (
                   <TableRow className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)]">
                     <TableCell colSpan={7} className="text-center text-[hsl(215,20%,50%)] py-8">
                       No withdrawal requests found.
@@ -202,7 +251,26 @@ export default function WithdrawalsPage() {
                             </Button>
                           </>
                         )}
-                        {w.request.status === 'completed' && w.request.razorpayPayoutId && (
+                        {/* Stuck in 'processing' means the payout fired but the
+                            webhook never confirmed the outcome. */}
+                        {w.request.status === 'processing' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!w.request.razorpayPayoutId || syncingId === w.request.id}
+                            title={w.request.razorpayPayoutId
+                              ? "Ask RazorpayX for the real payout status"
+                              : "No payout id recorded for this request"}
+                            className="bg-[hsla(217,91%,60%,0.1)] text-[hsl(217,91%,70%)] hover:bg-[hsla(217,91%,60%,0.2)] border-[hsla(217,91%,60%,0.3)] transition-colors disabled:opacity-40"
+                            onClick={() => {
+                              setSyncingId(w.request.id);
+                              syncMutation.mutate(w.request.id);
+                            }}
+                          >
+                            {syncingId === w.request.id ? "Checking…" : "Sync with RazorpayX"}
+                          </Button>
+                        )}
+                        {w.request.razorpayPayoutId && (
                           <span className="text-xs text-[hsl(215,20%,65%)] font-mono block mt-1">ID: {w.request.razorpayPayoutId}</span>
                         )}
                       </TableCell>
