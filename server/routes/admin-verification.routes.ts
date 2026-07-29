@@ -20,6 +20,7 @@ import { authenticateAdmin } from '../middleware/auth.middleware';
 import { BookingState } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import logger from '../lib/logger';
+import { recordAudit } from '../lib/audit';
 
 export function registerAdminVerificationRoutes(app: Express) {
 
@@ -137,6 +138,21 @@ export function registerAdminVerificationRoutes(app: Express) {
                 .returning();
 
             logger.info(`[ADMIN] Employee ${employeeId} verification → ${status} by admin ${adminId}`);
+
+            await recordAudit({
+                entityType: 'employee',
+                entityId: employeeId,
+                action: `employee_${status}`,
+                changedBy: adminId,
+                fromState: employee.documentVerificationStatus,
+                toState: status,
+                metadata: {
+                    fullName: employee.fullName,
+                    remarks: remarks || null,
+                    // Verification also flips account access, so record that too.
+                    isActiveAfter: updateData.isActive ?? employee.isActive,
+                },
+            });
 
             res.json({
                 success: true,
@@ -263,6 +279,18 @@ export function registerAdminVerificationRoutes(app: Express) {
                 .returning();
 
             logger.warn(`[ADMIN_OVERRIDE] Booking ${bookingId}: ${previousState} → ${newState} — ${reason} (admin ${adminId})`);
+
+            await recordAudit({
+                entityType: 'service_request',
+                entityId: bookingId,
+                // Overrides bypass the state machine's normal guards, so they are
+                // recorded distinctly from ordinary transitions.
+                action: 'booking_state_overridden',
+                changedBy: adminId,
+                fromState: previousState,
+                toState: newState,
+                metadata: { reason, serviceId: booking.serviceId, bypassedStateMachine: true },
+            });
 
             res.json({
                 success: true,
@@ -399,6 +427,23 @@ export function registerAdminVerificationRoutes(app: Express) {
                 .returning();
 
             logger.info(`[ADMIN] Dispute resolved for booking ${bookingId}: ${resolution} (admin ${adminId})`);
+
+            await recordAudit({
+                entityType: 'service_request',
+                entityId: bookingId,
+                action: 'dispute_resolved',
+                changedBy: adminId,
+                fromState: 'disputed',
+                toState: 'completed',
+                metadata: {
+                    resolution,
+                    remarks,
+                    serviceId: booking.serviceId,
+                    // Records whether money actually moved, not just the intent.
+                    refund: refundOutcome,
+                    actionsTaken,
+                },
+            });
 
             res.json({
                 success: true,

@@ -5,6 +5,7 @@ import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, us
 import { RazorpayXService } from "../services/razorpayx.service";
 import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
+import { recordAudit } from "../lib/audit";
 
 export function registerAdminWithdrawalRoutes(app: Express) {
     
@@ -127,6 +128,22 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     updatedAt: new Date()
                 }).where(eq(withdrawalRequests.id, requestId));
 
+                await recordAudit({
+                    entityType: 'withdrawal',
+                    entityId: requestId,
+                    action: 'withdrawal_approved',
+                    changedBy: (req as any).admin?.userId,
+                    fromState: 'pending',
+                    toState: 'processing',
+                    metadata: {
+                        amount: amountFloat,
+                        method: withdrawal.method,
+                        partnerId: withdrawal.partnerId,
+                        partnerName: employee.fullName,
+                        razorpayPayoutId: payoutData.id,
+                    },
+                });
+
                 res.json({ success: true, message: "Payout processing via RazorpayX", payout: payoutData });
             } catch (payoutError: any) {
                 // If it fails immediately, mark failed and refund the wallet.
@@ -167,6 +184,21 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     logger.info(`[WITHDRAWAL] Refunded ₹${amount} to partner ${withdrawal.partnerId} after payout failure`);
                 }
 
+                await recordAudit({
+                    entityType: 'withdrawal',
+                    entityId: requestId,
+                    action: 'withdrawal_payout_failed',
+                    changedBy: (req as any).admin?.userId,
+                    fromState: 'processing',
+                    toState: 'failed',
+                    metadata: {
+                        amount: parseFloat(withdrawal.amount as any),
+                        partnerId: withdrawal.partnerId,
+                        error: payoutError.message,
+                        walletRefunded: !!wallet,
+                    },
+                });
+
                 return res.status(500).json({ error: "Payout failed immediately: " + payoutError.message });
             }
 
@@ -203,6 +235,22 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 await db.update(withdrawalRequests)
                     .set({ status: 'completed', updatedAt: new Date() })
                     .where(eq(withdrawalRequests.id, requestId));
+
+                await recordAudit({
+                    entityType: 'withdrawal',
+                    entityId: requestId,
+                    action: 'withdrawal_completed',
+                    changedBy: (req as any).admin?.userId,
+                    fromState: withdrawal.status,
+                    toState: 'completed',
+                    metadata: {
+                        amount: parseFloat(withdrawal.amount as any),
+                        partnerId: withdrawal.partnerId,
+                        razorpayPayoutId: withdrawal.razorpayPayoutId,
+                        reconciledVia: 'admin_sync',
+                    },
+                });
+
                 return res.json({
                     success: true,
                     data: { payoutStatus: status, localStatus: 'completed', message: "Payout confirmed as paid." },
@@ -253,6 +301,24 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 });
 
                 logger.warn(`[WITHDRAWAL] Payout ${withdrawal.razorpayPayoutId} ${status} — wallet refunded`);
+
+                await recordAudit({
+                    entityType: 'withdrawal',
+                    entityId: requestId,
+                    action: 'withdrawal_payout_reversed',
+                    changedBy: (req as any).admin?.userId,
+                    fromState: withdrawal.status,
+                    toState: 'failed',
+                    metadata: {
+                        amount: parseFloat(withdrawal.amount as any),
+                        partnerId: withdrawal.partnerId,
+                        razorpayPayoutId: withdrawal.razorpayPayoutId,
+                        payoutStatus: status,
+                        failureReason: failureReason || null,
+                        walletRefunded: true,
+                    },
+                });
+
                 return res.json({
                     success: true,
                     data: {
@@ -317,6 +383,21 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 failureReason: reason || 'Rejected by Admin',
                 updatedAt: new Date()
             }).where(eq(withdrawalRequests.id, requestId));
+
+            await recordAudit({
+                entityType: 'withdrawal',
+                entityId: requestId,
+                action: 'withdrawal_rejected',
+                changedBy: (req as any).admin?.userId,
+                fromState: 'pending',
+                toState: 'rejected',
+                metadata: {
+                    amount: parseFloat(withdrawal.amount as any),
+                    partnerId: withdrawal.partnerId,
+                    reason: reason || 'Rejected by Admin',
+                    walletRefunded: true,
+                },
+            });
 
             res.json({ success: true, message: "Withdrawal rejected and refunded to partner." });
         } catch (error) {

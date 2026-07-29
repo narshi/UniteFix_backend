@@ -15,6 +15,7 @@ import LocationsPage from "@/pages/locations";
 import DistrictsPage from "@/pages/admin/districts";
 import InventoryPage from "@/pages/admin/inventory";
 import WithdrawalsPage from "@/pages/admin/withdrawals";
+import AuditLogsPage from "@/pages/admin/audit-logs";
 import DeveloperPage from "@/pages/developer";
 import SettingsPage from "@/pages/settings";
 import ServiceCatalogPage from "@/pages/service-catalog";
@@ -130,6 +131,7 @@ function Router() {
           <Route path="/admin/districts" component={DistrictsPage} />
           <Route path="/admin/inventory" component={InventoryPage} />
           <Route path="/admin/withdrawals" component={WithdrawalsPage} />
+          <Route path="/admin/audit-logs" component={AuditLogsPage} />
           <Route path="/admin/developer" component={DeveloperPage} />
           <Route path="/admin/catalog" component={ServiceCatalogPage} />
           <Route path="/admin/assignments" component={AssignmentQueuePage} />

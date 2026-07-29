@@ -14,8 +14,10 @@ import { AdminOrderManager, DelhiveryService } from "../services/admin-order.man
 import { storage } from "../storage";
 import { SupportTicketService } from "../services/support.service";
 import { db } from "../db";
-import { platformConfig } from "@shared/schema";
+import { eq, and, desc, count, gte, lte, inArray, sql } from "drizzle-orm";
+import { platformConfig, auditLogs, adminUsers } from "@shared/schema";
 import { configService } from "../services/config.service";
+import { recordAudit } from "../lib/audit";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -200,6 +202,112 @@ export function registerAdminRoutes(app: Express) {
             res.json(metrics);
         } catch (error: any) {
             res.status(500).json({ error: error.message });
+        }
+    });
+
+    // ==================== AUDIT TRAIL ====================
+
+    /**
+     * GET /api/admin/audit-logs
+     *
+     * The audit_logs table has been written to for a while but was never
+     * readable — there was no endpoint at all, so the trail existed and nobody
+     * could see it.
+     *
+     * Filters: entityType, entityId, action, changedBy, from, to, q
+     * Paged, newest first.
+     */
+    app.get("/api/admin/audit-logs", async (req: Request, res: Response) => {
+        try {
+            const page = Math.max(1, parseInt(req.query.page as string) || 1);
+            const limit = Math.min(100, parseInt(req.query.limit as string) || 25);
+            const offset = (page - 1) * limit;
+
+            const conditions: any[] = [];
+            if (req.query.entityType) conditions.push(eq(auditLogs.entityType, req.query.entityType as string));
+            if (req.query.entityId) conditions.push(eq(auditLogs.entityId, parseInt(req.query.entityId as string)));
+            if (req.query.action) conditions.push(eq(auditLogs.action, req.query.action as string));
+            if (req.query.changedBy) conditions.push(eq(auditLogs.changedBy, parseInt(req.query.changedBy as string)));
+            if (req.query.from) conditions.push(gte(auditLogs.createdAt, new Date(req.query.from as string)));
+            if (req.query.to) conditions.push(lte(auditLogs.createdAt, new Date(req.query.to as string)));
+
+            // Free-text across action and metadata, so an admin can search for a
+            // payout id or a booking reference without knowing the schema.
+            if (req.query.q) {
+                const term = `%${String(req.query.q).toLowerCase()}%`;
+                conditions.push(sql`(
+                    lower(${auditLogs.action}) LIKE ${term}
+                    OR lower(COALESCE(${auditLogs.metadata}::text, '')) LIKE ${term}
+                )`);
+            }
+
+            const where = conditions.length ? and(...conditions) : undefined;
+
+            const [{ total }] = await db
+                .select({ total: count() })
+                .from(auditLogs)
+                .where(where as any);
+
+            const rows = await db
+                .select()
+                .from(auditLogs)
+                .where(where as any)
+                .orderBy(desc(auditLogs.createdAt))
+                .limit(limit)
+                .offset(offset);
+
+            // Resolve actor names so the table reads "Priya" rather than "#4".
+            const adminIds = Array.from(new Set(rows.map(r => r.changedBy).filter((v): v is number => !!v)));
+            const actors = adminIds.length
+                ? await db.select({ id: adminUsers.id, username: adminUsers.username })
+                    .from(adminUsers)
+                    .where(inArray(adminUsers.id, adminIds))
+                : [];
+            const actorMap = new Map(actors.map(a => [a.id, a.username]));
+
+            res.json({
+                success: true,
+                data: rows.map(r => ({
+                    ...r,
+                    actorName: r.changedBy ? (actorMap.get(r.changedBy) ?? `#${r.changedBy}`) : 'system',
+                })),
+                pagination: {
+                    page, limit,
+                    total: Number(total),
+                    totalPages: Math.ceil(Number(total) / limit),
+                    hasMore: page * limit < Number(total),
+                },
+            });
+        } catch (error: any) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    });
+
+    /**
+     * GET /api/admin/audit-logs/filters
+     * Distinct entity types and actions actually present, so the dashboard
+     * filters reflect reality instead of a hardcoded list that drifts.
+     */
+    app.get("/api/admin/audit-logs/filters", async (_req: Request, res: Response) => {
+        try {
+            const entityTypes = await db
+                .selectDistinct({ value: auditLogs.entityType })
+                .from(auditLogs)
+                .orderBy(auditLogs.entityType);
+            const actions = await db
+                .selectDistinct({ value: auditLogs.action })
+                .from(auditLogs)
+                .orderBy(auditLogs.action);
+
+            res.json({
+                success: true,
+                data: {
+                    entityTypes: entityTypes.map(e => e.value).filter(Boolean),
+                    actions: actions.map(a => a.value).filter(Boolean),
+                },
+            });
+        } catch (error: any) {
+            res.status(500).json({ success: false, message: error.message });
         }
     });
 
@@ -593,6 +701,19 @@ export function registerAdminRoutes(app: Express) {
             // serving the previous value long after the admin saw "saved" — the
             // app could quote one booking fee while billing froze another.
             configService.invalidate(key);
+
+            // Config drives the booking fee, platform commission and GST, so a
+            // change here alters what every future customer is charged and what
+            // every partner earns. Record who changed it and from what.
+            await recordAudit({
+                entityType: 'config',
+                entityId: adminUserId || 0,
+                action: 'config_updated',
+                changedBy: adminUserId,
+                fromState: existing?.value ?? null,
+                toState: String(value),
+                metadata: { key, previousValue: existing?.value ?? null, newValue: String(value) },
+            });
 
             res.json({ success: true, message: `Config "${key}" updated to "${value}"` });
         } catch (error: any) {
