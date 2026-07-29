@@ -102,6 +102,30 @@ export class RazorpayXService {
     }
     
     /**
+     * Fetch a payout's current state directly from RazorpayX.
+     *
+     * Payout completion otherwise depends entirely on the payout.processed
+     * webhook. While that webhook fails, every successful payout stays stuck at
+     * 'processing' and — worse — a reversed payout never returns the money to the
+     * partner's wallet. Unlike the QR flow there is no client in the loop, so this
+     * is the only available fallback.
+     */
+    static async fetchPayoutStatus(payoutId: string): Promise<{
+        status: string;
+        failureReason?: string;
+    }> {
+        try {
+            const api = this.getApiClient();
+            const { data } = await api.get(`/payouts/${payoutId}`);
+            return { status: data.status, failureReason: data.failure_reason };
+        } catch (error: any) {
+            const description = error?.response?.data?.error?.description || error.message;
+            logger.error(`Failed to fetch payout ${payoutId}: ${description}`);
+            throw new Error(`Razorpay Payout Fetch Error: ${description}`);
+        }
+    }
+
+    /**
      * End-to-end sync for an employee to ensure they have a Contact and Fund Account
      */
     static async syncEmployeeForPayouts(employee: typeof employees.$inferSelect): Promise<string> {

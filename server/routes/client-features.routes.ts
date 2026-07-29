@@ -721,36 +721,55 @@ export function registerClientFeatureRoutes(app: Express) {
             const transactionType = method === 'bank' ? 'withdraw_bank' : 'withdraw_upi';
             const newAvailable = available - amount;
 
-            // Create withdrawal transaction
-            const [transaction] = await db.insert(walletTransactionsV2).values({
-                transactionId: `WDRW-${provider.id}-${Date.now()}`,
-                partnerId: provider.id,
-                transactionType: transactionType as any,
-                amount: amount.toFixed(2),
-                balanceAvailableBefore: wallet.balanceAvailable,
-                balanceAvailableAfter: newAvailable.toFixed(2),
-                balanceHoldBefore: wallet.balanceHold,
-                balanceHoldAfter: wallet.balanceHold,
-                description: `Withdrawal Request via ${method.toUpperCase()}`,
-                metadata: { method, requestedAt: new Date().toISOString() },
-            }).returning();
+            // All three writes in one transaction. Previously they ran separately,
+            // so a failure between them could debit the wallet with no withdrawal
+            // request recorded (partner loses the money with nothing to approve),
+            // or create a request against an undebited balance (partner can spend
+            // the same funds twice).
+            //
+            // The balance is re-checked inside the transaction against the live row
+            // so two concurrent requests cannot both pass the earlier check and
+            // overdraw the wallet.
+            const transaction = await db.transaction(async (tx) => {
+                const [currentWallet] = await tx.select().from(partnerWallets)
+                    .where(eq(partnerWallets.partnerId, provider.id)).limit(1);
 
-            // Create tracking request for admin approval
-            await db.insert(withdrawalRequests).values({
-                partnerId: provider.id,
-                amount: amount.toFixed(2),
-                method,
-                status: 'pending',
-                walletTransactionId: transaction.id,
+                const liveAvailable = parseFloat(currentWallet?.balanceAvailable ?? '0');
+                if (amount > liveAvailable) {
+                    throw new Error(`Insufficient balance. Available: ₹${liveAvailable}`);
+                }
+                const liveNewAvailable = liveAvailable - amount;
+
+                const [txn] = await tx.insert(walletTransactionsV2).values({
+                    transactionId: `WDRW-${provider.id}-${Date.now()}`,
+                    partnerId: provider.id,
+                    transactionType: transactionType as any,
+                    amount: amount.toFixed(2),
+                    balanceAvailableBefore: currentWallet.balanceAvailable,
+                    balanceAvailableAfter: liveNewAvailable.toFixed(2),
+                    balanceHoldBefore: currentWallet.balanceHold,
+                    balanceHoldAfter: currentWallet.balanceHold,
+                    description: `Withdrawal Request via ${method.toUpperCase()}`,
+                    metadata: { method, requestedAt: new Date().toISOString() },
+                }).returning();
+
+                await tx.insert(withdrawalRequests).values({
+                    partnerId: provider.id,
+                    amount: amount.toFixed(2),
+                    method,
+                    status: 'pending',
+                    walletTransactionId: txn.id,
+                });
+
+                await tx.update(partnerWallets)
+                    .set({
+                        balanceAvailable: liveNewAvailable.toFixed(2),
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(partnerWallets.partnerId, provider.id));
+
+                return txn;
             });
-
-            // Update wallet
-            await db.update(partnerWallets)
-                .set({
-                    balanceAvailable: newAvailable.toFixed(2),
-                    updatedAt: new Date(),
-                })
-                .where(eq(partnerWallets.partnerId, provider.id));
 
             res.json({
                 success: true,
