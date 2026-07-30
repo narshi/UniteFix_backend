@@ -9,12 +9,47 @@ import { useState } from "react";
 import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
+import { useToast } from "@/hooks/use-toast";
 
 export default function ServicesPage() {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  // Download the real tax-invoice PDF from the server (same document the customer
+  // gets). window.open can't send the admin token, so fetch it as an authenticated
+  // blob and save that — the old window.open hit a route that never existed.
+  const downloadInvoicePdf = async (service: any) => {
+    try {
+      setDownloadingId(service.id);
+      const adminToken = localStorage.getItem("adminToken");
+      const res = await fetch(`/api/admin/services/${service.id}/invoice`, {
+        headers: adminToken ? { Authorization: `Bearer ${adminToken}` } : {},
+      });
+      if (!res.ok) {
+        let msg = "Could not generate the invoice for this booking.";
+        try { const j = await res.json(); msg = j.message || msg; } catch { /* non-JSON error body */ }
+        toast({ title: "Invoice unavailable", description: msg, variant: "destructive" });
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `UniteFix-Invoice-${service.serviceId || service.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e?.message || "Network error", variant: "destructive" });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
   
   const { data: services = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["/api/admin/services"],
@@ -350,10 +385,11 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => window.open(`/api/invoices/generate/${service.id}`, '_blank')}
+                                disabled={downloadingId === service.id}
+                                onClick={() => downloadInvoicePdf(service)}
                                 className="h-8 border-[rgba(255,255,255,0.1)] text-[hsl(160,84%,60%)] bg-[hsla(160,84%,39%,0.05)] hover:bg-[hsla(160,84%,39%,0.15)] transition-colors"
                               >
-                                <span className="text-xs font-medium">Invoice</span>
+                                <span className="text-xs font-medium">{downloadingId === service.id ? 'Generating…' : 'Invoice'}</span>
                               </Button>
                             )}
                           </div>

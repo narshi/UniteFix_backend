@@ -48,6 +48,7 @@ import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
+import { InvoiceGenerator } from "./services/invoice-generator";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 
@@ -1873,6 +1874,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Invoice not found" });
       }
       res.json(invoice);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * GET /api/admin/services/:id/invoice
+   * Download the tax invoice PDF for a completed service request.
+   *
+   * The admin Services page used to open /api/invoices/generate/:id, which never
+   * existed — hence the "API endpoint not found" page. This serves the SAME PDF
+   * the customer gets (pdfkit, built from the frozen billing snapshot), and
+   * generates the invoice on the fly if completion happened before invoicing was
+   * wired up. generateInvoice is idempotent, so repeat downloads reuse one row.
+   */
+  app.get("/api/admin/services/:id/invoice", authenticateAdmin, async (req, res, next) => {
+    try {
+      const serviceRequestId = parseInt(req.params.id);
+      if (isNaN(serviceRequestId)) {
+        return res.status(400).json({ success: false, message: "Invalid service id" });
+      }
+
+      const [sr] = await db.select().from(serviceRequests)
+        .where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+      if (!sr) {
+        return res.status(404).json({ success: false, message: "Service request not found" });
+      }
+      if (!sr.totalAmount) {
+        return res.status(400).json({
+          success: false,
+          message: "No invoice yet — this booking's billing has not been completed.",
+        });
+      }
+
+      // Reuse the existing invoice if present; otherwise create it now (idempotent).
+      const { invoiceId } = await PaymentService.generateInvoice(
+        serviceRequestId,
+        sr.userId,
+        sr.providerId as number,
+      );
+
+      const invoice = await storage.getInvoiceByInvoiceId(invoiceId);
+      if (!invoice) {
+        return res.status(500).json({ success: false, message: "Invoice could not be located after generation." });
+      }
+
+      const pdfBuffer = await InvoiceGenerator.generatePDF(invoice.id);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=${invoiceId}.pdf`);
+      res.send(pdfBuffer);
     } catch (error) {
       next(error);
     }
