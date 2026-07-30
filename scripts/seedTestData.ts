@@ -17,6 +17,55 @@ import bcrypt from 'bcrypt';
  * Can be run multiple times safely using onConflictDoNothing()
  */
 
+/**
+ * This seeder creates super_admin accounts with well-known passwords. Running it
+ * against anything but a local database hands out production admin access, so the
+ * target host is checked before a single row is written.
+ *
+ * Exits 0 rather than 1: this script has historically been wired into a deploy
+ * build command, and a hard failure there would take the whole service down. The
+ * safe outcome is "deploy succeeds, nothing was seeded".
+ */
+function assertLocalDatabase(): boolean {
+    const url = process.env.DATABASE_URL;
+
+    if (!url) {
+        console.error('❌ DATABASE_URL is not set — nothing to seed.');
+        return false;
+    }
+
+    let host: string;
+    try {
+        host = new URL(url).hostname;
+    } catch {
+        console.error('❌ DATABASE_URL could not be parsed — refusing to seed.');
+        return false;
+    }
+
+    const isLocal = ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(host);
+
+    if (isLocal) return true;
+
+    if (process.env.SEED_ALLOW_REMOTE === 'yes-i-understand') {
+        console.warn(`⚠️  Seeding REMOTE database at ${host} — SEED_ALLOW_REMOTE override is set.`);
+        return true;
+    }
+
+    console.warn('');
+    console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.warn('⏭️  SEEDING SKIPPED — target database is not local.');
+    console.warn(`   Host: ${host}`);
+    console.warn('');
+    console.warn('   This seeder creates super_admin accounts with known');
+    console.warn('   passwords and is for local development only.');
+    console.warn('');
+    console.warn('   If this ran during a deploy, remove "seed:test" from the');
+    console.warn('   build command — it should not run in production.');
+    console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.warn('');
+    return false;
+}
+
 async function seedTestData() {
     console.log('🌱 Starting UniteFix Test Data Seeder...\n');
 
@@ -302,4 +351,8 @@ async function seedTestData() {
 }
 
 // Run seeder
-seedTestData();
+if (assertLocalDatabase()) {
+    seedTestData();
+} else {
+    process.exit(0);
+}
