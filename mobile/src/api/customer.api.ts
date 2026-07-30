@@ -232,6 +232,7 @@ export const customerApi = {
             cancelFee: number;
             platformFeePercent: number;
             supportWindowHours: number;
+            minWalletRedemption: number;
             whatsappNumber: string;
             companyUpiId: string;
         }>>('/api/config/public'),

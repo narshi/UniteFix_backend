@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, DollarSign } from 'lucide-react-native';
 import { useWallet, useWithdraw } from '../../hooks/usePartnerData';
-import { usePartnerProfile } from '../../hooks/useCustomerData';
+import { usePartnerProfile, usePublicConfig } from '../../hooks/useCustomerData';
 import { WalletTransaction } from '../../api/partner.api';
 import { Button } from '../../components/ui/Button';
 import { colors } from '../../theme/colors';
@@ -53,7 +53,12 @@ export function WalletScreen() {
     const { headerTop, tabContent } = useScreenInsets();
     const { data: wallet, isLoading, refetch, isRefetching, isError } = useWallet();
     const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
+    const { data: publicConfig } = usePublicConfig();
     const withdrawMutation = useWithdraw();
+
+    // Admin-configurable minimum withdrawal (BUSINESS_CONFIG.MIN_WALLET_REDEMPTION).
+    // Fall back to 500 while the config request is in flight or unavailable.
+    const minRedemption = publicConfig?.minWalletRedemption ?? 500;
 
     if (isLoading || isPartnerLoading) {
         return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
@@ -70,8 +75,8 @@ export function WalletScreen() {
         }
 
         const available = wallet?.availableBalance || 0;
-        if (available < 500) {
-            Alert.alert('Insufficient Balance', 'Minimum withdrawal amount is ₹500.');
+        if (available < minRedemption) {
+            Alert.alert('Insufficient Balance', `Minimum withdrawal amount is ₹${minRedemption}.`);
             return;
         }
         Alert.alert(

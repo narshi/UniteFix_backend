@@ -87,6 +87,7 @@ export function registerClientFeatureRoutes(app: Express) {
             const cancelFee = await configService.get('BUSINESS_CONFIG.CANCELLATION_FEE', 150);
             const platformFeePercent = await configService.get('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT', 15);
             const supportWindowHours = await configService.get('BUSINESS_CONFIG.SUPPORT_WINDOW_HOURS', 48);
+            const minWalletRedemption = await configService.get('BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', 500);
             const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
             const companyUpiId = await configService.get('BUSINESS_CONFIG.COMPANY_UPI_ID', 'yourmerchant@upi');
 
@@ -98,6 +99,7 @@ export function registerClientFeatureRoutes(app: Express) {
                     cancelFee: Number(cancelFee),
                     platformFeePercent: Number(platformFeePercent),
                     supportWindowHours: Number(supportWindowHours),
+                    minWalletRedemption: Number(minWalletRedemption),
                     whatsappNumber: whatsappNumber,
                     companyUpiId: String(companyUpiId),
                 }
@@ -703,7 +705,11 @@ export function registerClientFeatureRoutes(app: Express) {
             }
 
             const available = parseFloat(wallet.balanceAvailable);
-            const minRedemption = 500; // From platform config
+            // Admin-configurable via BUSINESS_CONFIG.MIN_WALLET_REDEMPTION (Settings page).
+            // Falls back to 500 only if the config row is missing.
+            const minRedemption = Number(
+                await configService.get('BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', 500)
+            );
 
             if (amount > available) {
                 return res.status(400).json({
