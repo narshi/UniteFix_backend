@@ -21,11 +21,51 @@ import logger from '../lib/logger';
 import { getPendingOnboardingSteps } from '../lib/onboarding';
 import crypto from 'crypto';
 import { db } from '../db';
-import { otpVerifications } from '@shared/schema';
+import { otpVerifications, type User } from '@shared/schema';
 import { and, eq, gte, desc } from 'drizzle-orm';
 
 /** Minimum gap between OTP requests for the same phone. */
 const OTP_REQUEST_COOLDOWN_MS = 60 * 1000;
+
+/**
+ * A phone number can be registered again after its previous account was deleted.
+ * The delete flow soft-deletes the user (sets users.deletedAt) and marks the
+ * employee row 'suspended'. getUserByPhone does not filter soft-deleted rows, so
+ * without this a re-signup resurrects that same row: the returning serviceman is
+ * shown "Account Suspended" and every partner API call 403s, because the old
+ * suspension is still attached to the record.
+ *
+ * On an explicit signup we treat a *deleted* account as a fresh start — clear the
+ * soft-delete and reset the employee back to 'pending' so they go through
+ * verification again. A *suspended-but-not-deleted* account (deletedAt is null,
+ * i.e. an admin actively banned a live partner) is left untouched, so a ban
+ * cannot be shed simply by re-registering.
+ *
+ * Returns the up-to-date user row so callers respond with the reactivated state.
+ */
+async function reactivateDeletedAccountOnSignup(user: User, mode: string): Promise<User> {
+    if (mode !== 'signup' || !user?.deletedAt) return user;
+
+    logger.info(
+        `[AUTH] Re-signup of a deleted account (userId=${user.id}, role=${user.role}) — resetting to a fresh pending state.`
+    );
+
+    // Customers are usable immediately; servicemen await admin verification.
+    const updatedUser = await storage.updateUser(user.id, {
+        deletedAt: null as any,
+        isActive: user.role !== 'serviceman',
+    });
+
+    if (user.role === 'serviceman') {
+        await storage.updateEmployee(user.id, {
+            documentVerificationStatus: 'pending' as any,
+            isActive: false,
+            isOnline: false,
+        });
+    }
+
+    return updatedUser ?? user;
+}
 
 const router = Router();
 
@@ -254,6 +294,8 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
           ...(email && !user.email ? { email } : {}),
         });
       }
+      // A signup on a previously-deleted account is a fresh start, not a login.
+      user = await reactivateDeletedAccountOnSignup(user, mode);
       logger.info(`[TC_AUTH] Existing user login: ${phone} (ID: ${user.id})`);
     }
 
@@ -543,6 +585,8 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
       if (!user.emailVerified) {
         await storage.updateUser(user.id, { emailVerified: true });
       }
+      // A signup on a previously-deleted account is a fresh start, not a login.
+      user = await reactivateDeletedAccountOnSignup(user, mode);
     }
 
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
@@ -582,6 +626,7 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
 router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { accessToken, role } = req.body;
+    const mode = req.body.mode === 'login' ? 'login' : 'signup';
     if (!accessToken) return res.status(400).json({ success: false, message: 'Access Token required' });
 
     logger.info('[TC_DROP_CALL] Validating Drop Call Token');
@@ -640,6 +685,9 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
       } else {
         await storage.createCustomer({ userId: user.id, fullName });
       }
+    } else {
+      // A signup on a previously-deleted account is a fresh start, not a login.
+      user = await reactivateDeletedAccountOnSignup(user, mode);
     }
 
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
@@ -774,6 +822,8 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
         logger.info(`[FIREBASE_AUTH] New customer created: ${phone}`);
       }
     } else {
+      // A signup on a previously-deleted account is a fresh start, not a login.
+      user = await reactivateDeletedAccountOnSignup(user, mode);
       logger.info(`[FIREBASE_AUTH] Existing user login: ${phone}`);
     }
 
