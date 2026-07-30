@@ -81,10 +81,20 @@ export class RazorpayXService {
         purpose: string = 'payout',
         idempotencyKey?: string,
     ): Promise<any> {
+        // Payouts are debited from the RazorpayX current account. Without this the
+        // request goes out with account_number: undefined and Razorpay rejects it
+        // with a confusing error — fail early with a clear, actionable message.
+        const accountNumber = process.env.RAZORPAYX_ACCOUNT_NUMBER || process.env.RAZORPAY_X_ACCOUNT_NUMBER;
+        if (!accountNumber) {
+            throw new Error(
+                'RazorpayX is not configured: set RAZORPAYX_ACCOUNT_NUMBER (your RazorpayX current account number, usually starts with 2323) in the server environment.'
+            );
+        }
+
         try {
             const api = this.getApiClient();
             const response = await api.post('/payouts', {
-                account_number: process.env.RAZORPAYX_ACCOUNT_NUMBER || process.env.RAZORPAY_X_ACCOUNT_NUMBER, // The RazorpayX Current Account Number (Usually starts with 2323)
+                account_number: accountNumber,
                 fund_account_id: fundAccountId,
                 amount: Math.round(amountInRupees * 100), // Amount in paise
                 currency: 'INR',
@@ -96,8 +106,25 @@ export class RazorpayXService {
             }, idempotencyKey ? { headers: { 'X-Payout-Idempotency': idempotencyKey } } : undefined);
             return response.data;
         } catch (error: any) {
-            logger.error(`Failed to create Razorpay Payout: ${error?.response?.data?.error?.description || error.message}`);
-            throw new Error(`Razorpay Payout Error: ${error?.response?.data?.error?.description || error.message}`);
+            const description = error?.response?.data?.error?.description || error.message;
+            const status = error?.response?.status;
+
+            // A 404 "URL was not found" on /payouts does not mean a bad code path —
+            // it means the Razorpay account cannot reach the Payouts API at all.
+            // Almost always: RazorpayX (Payouts) is not activated for these keys, or
+            // test-mode keys are being used against the live payouts endpoint. Give
+            // the admin the real cause instead of the raw "URL not found".
+            const urlNotFound = status === 404 || /url was not found/i.test(String(description));
+            if (urlNotFound) {
+                logger.error(`RazorpayX payouts unreachable (404). Keys likely lack RazorpayX access. Raw: ${description}`);
+                throw new Error(
+                    'RazorpayX Payouts is not enabled for this Razorpay account (or test-mode keys are being used). ' +
+                    'Activate RazorpayX in the Razorpay dashboard and use that account\'s API keys to send payouts.'
+                );
+            }
+
+            logger.error(`Failed to create Razorpay Payout: ${description}`);
+            throw new Error(`Razorpay Payout Error: ${description}`);
         }
     }
     
