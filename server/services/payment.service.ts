@@ -15,7 +15,7 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "../db";
 import { sql, eq, and, desc } from "drizzle-orm";
-import { paymentTransactions } from "@shared/schema";
+import { paymentTransactions, invoices } from "@shared/schema";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
@@ -564,6 +564,20 @@ export class PaymentService {
 
         if (!sr || !sr.total_amount) {
             throw new Error("Service billing not completed — totalAmount is missing");
+        }
+
+        // Idempotency: completion can be reached from more than one path (customer
+        // payment verify, the qr_code.credited webhook, the partner-app poll, cash
+        // collection, admin reconcile). Without this guard a booking settled by two
+        // of them at once would produce duplicate invoices for the same job.
+        const [existing] = await db.select({ invoiceId: invoices.invoiceId })
+            .from(invoices)
+            .where(eq(invoices.serviceRequestId, serviceRequestId))
+            .limit(1);
+
+        if (existing) {
+            logger.info(`[INVOICE] Reusing existing invoice ${existing.invoiceId} for SR ${serviceRequestId}`);
+            return { invoiceId: existing.invoiceId };
         }
 
         const snapshot = sr.pricing_snapshot;

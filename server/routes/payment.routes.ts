@@ -8,7 +8,7 @@
 import type { Express, Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
-import { sql, eq, and, desc } from "drizzle-orm";
+import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
 import crypto from "crypto";
 import { authenticateToken, authenticatePartner , requireVerifiedPartner} from "../middleware/auth.middleware";
 import { mobileLimiter } from "../middleware/rate-limit";
@@ -688,9 +688,38 @@ export function registerPaymentRoutes(app: Express) {
                 }
             }
 
+            // Resolve the booking BEFORE recording the capture.
+            //
+            // This ordering is load-bearing. The capture row must carry
+            // serviceRequestId, because storage.updateServiceRequestStatus ->
+            // isFinalPaymentVerified() looks for a captured row *for that booking*
+            // before allowing PENDING_PAYMENT -> COMPLETED and generating the
+            // invoice. Previously the capture was written with serviceRequestId
+            // NULL, so that check always failed, the transition threw, the error
+            // was swallowed by the catch below, and the result was: money taken,
+            // booking stuck in pending_payment, and NO INVOICE EVER CREATED.
+            let serviceId: number | null = null;
+
+            if (razorpay_payment_id === 'zero_amount' && razorpay_order_id.startsWith('order_')) {
+                serviceId = parseInt(razorpay_order_id.replace('order_', ''));
+            } else {
+                // The order_created row carries the booking link.
+                const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
+                    .from(paymentTransactions)
+                    .where(and(
+                        eq(paymentTransactions.razorpayOrderId, razorpay_order_id),
+                        isNotNull(paymentTransactions.serviceRequestId),
+                    ))
+                    .limit(1);
+                if (txns[0]?.serviceRequestId) {
+                    serviceId = txns[0].serviceRequestId;
+                }
+            }
+
             // Record verified payment via Drizzle ORM (correct columns)
             if (razorpay_payment_id !== 'zero_amount') {
                 await PaymentTrackingService.recordPaymentEvent({
+                    serviceRequestId: serviceId ?? undefined,
                     razorpayOrderId: razorpay_order_id,
                     razorpayPaymentId: razorpay_payment_id,
                     amount: 0, // Amount will be updated by webhook
@@ -702,21 +731,6 @@ export function registerPaymentRoutes(app: Express) {
 
             // Update bookingFeeStatus for any service request linked to this order
             try {
-                let serviceId = null;
-                
-                if (razorpay_payment_id === 'zero_amount' && razorpay_order_id.startsWith('order_')) {
-                    serviceId = parseInt(razorpay_order_id.replace('order_', ''));
-                } else {
-                    // Find the service request associated with this Razorpay order
-                    const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
-                        .from(paymentTransactions)
-                        .where(eq(paymentTransactions.razorpayOrderId, razorpay_order_id))
-                        .limit(1);
-                    if (txns[0]?.serviceRequestId) {
-                        serviceId = txns[0].serviceRequestId;
-                    }
-                }
-
                 if (serviceId) {
                     const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
                     
