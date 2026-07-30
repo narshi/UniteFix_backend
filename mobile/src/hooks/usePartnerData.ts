@@ -147,7 +147,10 @@ export function useWithdraw() {
         mutationFn: (data: { amount: number; method: 'bank' | 'upi' }) => partnerApi.withdraw(data),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: partnerQueryKeys.wallet });
-            Alert.alert('Success', 'Withdrawal requested successfully');
+            Alert.alert(
+                'Withdrawal Requested',
+                'Your payout request has been submitted. The money will reach your UPI once an admin approves it, usually within 24 hours. You can track it in your wallet history.'
+            );
         },
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });

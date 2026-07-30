@@ -80,13 +80,13 @@ export function WalletScreen() {
             return;
         }
         Alert.alert(
-            'Confirm Withdrawal',
-            `Are you sure you want to withdraw ₹${available} to your bank account?`,
+            'Request Withdrawal',
+            `Request a payout of ₹${available} to your linked UPI?\n\nThe amount is held from your balance now and paid out to your UPI once our team approves the request (usually within 24 hours).`,
             [
                 { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Withdraw', 
-                    onPress: () => withdrawMutation.mutate({ amount: available, method: 'upi' }) 
+                {
+                    text: 'Request Payout',
+                    onPress: () => withdrawMutation.mutate({ amount: available, method: 'upi' })
                 }
             ]
         );
