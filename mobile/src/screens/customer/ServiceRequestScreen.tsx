@@ -39,7 +39,10 @@ const MAX_PHOTOS = 5;
 
 export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceType = route.params?.serviceType || '';
-    const serviceName = route.params?.serviceName || 'Service';
+    // Callers pass only `serviceType` (the catalog service name), so fall back to it
+    // for the display name — otherwise the screen reads a generic "Service" and the
+    // customer never sees the service they actually selected echoed back.
+    const serviceName = route.params?.serviceName || serviceType || 'Service';
 
     const { description, setDescription, urgency, setUrgency, photos, setPhotos, clearDraft } = useBookingDraftStore();
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);

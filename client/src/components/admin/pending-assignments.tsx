@@ -69,7 +69,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
             <table className="w-full glass-table">
               <thead>
                 <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
-                  <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service Request</th>
+                  <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service Requested</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Location</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Waiting Time</th>
@@ -80,9 +80,19 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                 {pendingServices.map((service: any) => (
                   <tr key={service.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                     <td className="p-4">
-                      <div>
-                        <p className="font-medium text-[hsl(210,20%,90%)]">{service.description}</p>
-                        <p className="text-sm text-[hsl(215,20%,55%)]">{service.serviceId}</p>
+                      {/* Lead with the service the customer actually SELECTED, so the
+                          assignment decision is driven by that and not by a free-text
+                          description that may name a different trade. The customer's
+                          note is kept but clearly demoted as supporting detail. */}
+                      <div className="space-y-1 max-w-[280px]">
+                        <p className="font-semibold text-white">{service.serviceType || 'Service'}</p>
+                        <p className="text-xs text-[hsl(215,20%,55%)] font-mono">{service.serviceId}</p>
+                        {service.description && (
+                          <p className="text-xs text-[hsl(215,20%,70%)] italic line-clamp-2">
+                            <span className="not-italic text-[hsl(215,20%,50%)]">Note: </span>
+                            {service.description}
+                          </p>
+                        )}
                       </div>
                     </td>
                     <td className="p-4">
