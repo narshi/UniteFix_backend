@@ -23,7 +23,8 @@ export type AuditEntity =
     | 'config'
     | 'product_order'
     | 'return_request'
-    | 'payment';
+    | 'payment'
+    | 'db_console';
 
 export interface AuditEntry {
     entityType: AuditEntity;

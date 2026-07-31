@@ -42,6 +42,7 @@ import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes";
+import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { registerPartnerProfileRoutes } from "./routes/partner-profile.routes";
 import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
@@ -2313,6 +2314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerAdminWithdrawalRoutes(app);
+  registerAdminDbConsoleRoutes(app);
   registerCatalogRoutes(app);
   // PHASE 0: Product ordering halted — Coming Soon (AI_CONTEXT §3.K)
   // registerProductRoutes(app);

@@ -16,7 +16,7 @@ const navigation = [
   { name: "Audit Trail", href: "/admin/audit-logs", icon: "history" },
   { name: "Districts", href: "/admin/districts", icon: "map" },
   { name: "Location Management", href: "/locations", icon: "location_on" },
-  { name: "Developer Details", href: "/admin/developer", icon: "code" },
+  { name: "Database Console", href: "/admin/developer", icon: "storage" },
   { name: "Settings", href: "/settings", icon: "settings" },
 ];
 
