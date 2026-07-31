@@ -15,7 +15,7 @@ import multer from "multer";
 import jwt from "jsonwebtoken";
 import { uploadImageBuffer } from "../services/cloudinary.service";
 import { db } from "../db";
-import { eq, and, desc, sql, avg, count } from "drizzle-orm";
+import { eq, and, desc, sql, avg, count, isNull, isNotNull } from "drizzle-orm";
 import {
     ratings, serviceRequests, employees, users, customers,
     partnerWallets, walletTransactionsV2, invoices,
@@ -24,6 +24,8 @@ import {
 import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
+import { PaymentService } from "../services/payment.service";
+import logger from "../lib/logger";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 import { storage } from "../storage";
 import { getPendingOnboardingSteps } from "../lib/onboarding";
@@ -797,6 +799,34 @@ export function registerClientFeatureRoutes(app: Express) {
     app.get("/api/client/invoices", authenticateToken, async (req: Request, res, next) => {
         try {
             const userId = (req as any).user!.userId;
+
+            // Safety net: an invoice should be created the moment a booking completes,
+            // but if a completion path missed it — or the booking completed before
+            // invoicing was wired up — the app's "Download Invoice" would say "not
+            // ready" forever. Backfill any completed, billed booking of this user that
+            // has no invoice yet. generateInvoice is idempotent and each call is
+            // guarded, so a single failure can't break the listing.
+            const missing = await db.select({
+                    id: serviceRequests.id,
+                    providerId: serviceRequests.providerId,
+                })
+                .from(serviceRequests)
+                .leftJoin(invoices, eq(invoices.serviceRequestId, serviceRequests.id))
+                .where(and(
+                    eq(serviceRequests.userId, userId),
+                    eq(serviceRequests.status, 'completed'),
+                    isNotNull(serviceRequests.totalAmount),
+                    isNull(invoices.id),
+                ));
+
+            for (const sr of missing) {
+                try {
+                    await PaymentService.generateInvoice(sr.id, userId, sr.providerId as number);
+                    logger.info(`[INVOICE] Backfilled missing invoice for completed booking ${sr.id}`);
+                } catch (e: any) {
+                    logger.warn(`[INVOICE] Backfill skipped for booking ${sr.id}: ${e.message}`);
+                }
+            }
 
             const userInvoices = await db.select()
                 .from(invoices)
