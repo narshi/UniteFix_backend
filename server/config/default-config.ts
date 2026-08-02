@@ -60,10 +60,10 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
     },
     {
         key: 'BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT',
-        value: '15',
+        value: '12',
         valueType: 'number',
         category: 'BUSINESS_CONFIG',
-        description: 'UniteFix platform fee percentage on (parts + labor) subtotal (AI_CONTEXT §5.B)',
+        description: 'UniteFix platform fee percentage (fixed-price catalog model — carved out of the service price)',
         isEditable: true,
     },
     {

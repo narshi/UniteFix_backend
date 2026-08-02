@@ -1,0 +1,257 @@
+{
+  "_note": "Generated from CATALOG-1.xlsx. Prices are the customer all-in (GST-inclusive) totals.",
+  "categories": [
+    {
+      "name": "DESKTOP",
+      "sortOrder": 100,
+      "services": [
+        {
+          "name": "OS Installation",
+          "basePrice": 799,
+          "sortOrder": 10
+        },
+        {
+          "name": "PC Assembly",
+          "basePrice": 799,
+          "sortOrder": 20
+        },
+        {
+          "name": "Hardware Replacement",
+          "basePrice": 699,
+          "sortOrder": 30
+        },
+        {
+          "name": "Software Installation",
+          "basePrice": 749,
+          "sortOrder": 40
+        },
+        {
+          "name": "SSD Upgrade with OS Installation",
+          "basePrice": 999,
+          "sortOrder": 50
+        },
+        {
+          "name": "Network Sharing",
+          "basePrice": 749,
+          "sortOrder": 60
+        },
+        {
+          "name": "Virus Removal",
+          "basePrice": 749,
+          "sortOrder": 70
+        },
+        {
+          "name": "Data Backup & Recovery",
+          "basePrice": 1499,
+          "sortOrder": 80
+        },
+        {
+          "name": "Visiting & Inspection Charges (0 to 5Km)",
+          "basePrice": 349,
+          "sortOrder": 90
+        },
+        {
+          "name": "Visiting & Inspection Charges (6 to 10Km)",
+          "basePrice": 449,
+          "sortOrder": 100
+        },
+        {
+          "name": "Visiting & Inspection Charges (11 to 20Km)",
+          "basePrice": 549,
+          "sortOrder": 110
+        },
+        {
+          "name": "Visiting & Inspection Charges (21 to 30Km)",
+          "basePrice": 649,
+          "sortOrder": 120
+        },
+        {
+          "name": "Visiting & Inspection Charges (31 to 40Km)",
+          "basePrice": 749,
+          "sortOrder": 130
+        }
+      ]
+    },
+    {
+      "name": "LAPTOP",
+      "sortOrder": 200,
+      "services": [
+        {
+          "name": "OS Installation",
+          "basePrice": 749,
+          "sortOrder": 10
+        },
+        {
+          "name": "Display Replacement",
+          "basePrice": 749,
+          "sortOrder": 20
+        },
+        {
+          "name": "Keyboard Replacement (Internal)",
+          "basePrice": 999,
+          "sortOrder": 30
+        },
+        {
+          "name": "Keyboard Replacement (External)",
+          "basePrice": 499,
+          "sortOrder": 40
+        },
+        {
+          "name": "Battery Replacemnt",
+          "basePrice": 749,
+          "sortOrder": 50
+        },
+        {
+          "name": "Motherboard Replacement",
+          "basePrice": 999,
+          "sortOrder": 60
+        },
+        {
+          "name": "Any other Hardware Replacement",
+          "basePrice": 749,
+          "sortOrder": 70
+        },
+        {
+          "name": "Data Backup & Recovery",
+          "basePrice": 1499,
+          "sortOrder": 80
+        }
+      ]
+    },
+    {
+      "name": "PRINTER",
+      "sortOrder": 300,
+      "services": [
+        {
+          "name": "Cartridge Replacement/Ink Filling",
+          "basePrice": 749,
+          "sortOrder": 10
+        },
+        {
+          "name": "Printer Sharing",
+          "basePrice": 749,
+          "sortOrder": 20
+        },
+        {
+          "name": "Pickup & Delivery",
+          "basePrice": 749,
+          "sortOrder": 30
+        },
+        {
+          "name": "Maintenance Box Replacement",
+          "basePrice": 749,
+          "sortOrder": 40
+        },
+        {
+          "name": "Installation & Setup",
+          "basePrice": 749,
+          "sortOrder": 50
+        },
+        {
+          "name": "Head Cleaning",
+          "basePrice": 749,
+          "sortOrder": 60
+        },
+        {
+          "name": "Paper Jam Removal",
+          "basePrice": 749,
+          "sortOrder": 70
+        }
+      ]
+    },
+    {
+      "name": "CCTV",
+      "sortOrder": 400,
+      "services": [
+        {
+          "name": "Camera Installation per camera",
+          "basePrice": 899,
+          "sortOrder": 10
+        },
+        {
+          "name": "Password Reset",
+          "basePrice": 749,
+          "sortOrder": 20
+        },
+        {
+          "name": "Footage Backup",
+          "basePrice": 999,
+          "sortOrder": 30
+        },
+        {
+          "name": "Hard Disk Replacement",
+          "basePrice": 749,
+          "sortOrder": 40
+        },
+        {
+          "name": "Mobile view setup",
+          "basePrice": 749,
+          "sortOrder": 50
+        },
+        {
+          "name": "Camera Shifting per camera",
+          "basePrice": 999,
+          "sortOrder": 60
+        }
+      ]
+    },
+    {
+      "name": "BIOMETRIC DEVICE",
+      "sortOrder": 500,
+      "services": [
+        {
+          "name": "Installation & Setup",
+          "basePrice": 999,
+          "sortOrder": 10
+        }
+      ]
+    },
+    {
+      "name": "UPS & BATTERY",
+      "sortOrder": 600,
+      "services": [
+        {
+          "name": "Installation & Setup",
+          "basePrice": 749,
+          "sortOrder": 10
+        },
+        {
+          "name": "Pickup & Delivery",
+          "basePrice": 999,
+          "sortOrder": 20
+        },
+        {
+          "name": "Battery add",
+          "basePrice": 749,
+          "sortOrder": 30
+        },
+        {
+          "name": "UPS Replacement",
+          "basePrice": 749,
+          "sortOrder": 40
+        }
+      ]
+    },
+    {
+      "name": "SOLAR",
+      "sortOrder": 700,
+      "services": [
+        {
+          "name": "Installation & Setup",
+          "basePrice": 3499,
+          "sortOrder": 10
+        },
+        {
+          "name": "Shifting",
+          "basePrice": 2999,
+          "sortOrder": 20
+        },
+        {
+          "name": "Panel add",
+          "basePrice": 1499,
+          "sortOrder": 30
+        }
+      ]
+    }
+  ]
+}

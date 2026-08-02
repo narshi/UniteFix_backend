@@ -153,7 +153,7 @@ export default function SettingsPage() {
     setSettings(prev => ({
       ...prev,
       defaultBookingFee: 99,
-      platformFeePercent: 15,
+      platformFeePercent: 12,
       gstPercentage: 18,
       cancellationFee: 150,
       maxAssignmentDays: 7,

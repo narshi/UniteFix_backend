@@ -311,6 +311,11 @@ export const services = pgTable("services", {
   subtitle: text("subtitle"),
   icon: text("icon"),
   bannerImage: text("banner_image"),
+  // Fixed catalog price — the customer's all-in, GST-inclusive total (in ₹).
+  // GST, platform fee and the booking charge are carved OUT of this; the
+  // technician earns basePrice − gst − fee − bookingCharge. 0 = not yet priced.
+  // See PRICING_ARCHITECTURE_PLAN.md.
+  basePrice: integer("base_price").notNull().default(0),
   status: serviceItemStatusEnum("status").default('ACTIVE'),
   isHomeVisible: boolean("is_home_visible").default(true),
   sortOrder: integer("sort_order").default(0),

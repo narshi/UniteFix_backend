@@ -56,7 +56,7 @@ export class BillingEngine {
 
     return {
       bookingFee: Math.round(parseFloat(bookingFeeStr || '99')),
-      platformFeePercent: parseFloat(feePercentStr || '15'),
+      platformFeePercent: parseFloat(feePercentStr || '12'),
       gstPercent: parseFloat(gstPercentStr || '18'),
       snapshotVersion: 1,
       createdAt: new Date().toISOString(),
