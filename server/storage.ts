@@ -2066,7 +2066,14 @@ export class DatabaseStorage implements IStorage {
           const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
           const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
 
-          const partnerAmount = (baseFee * partnerSharePct) / 100;
+          // v2 fixed-price booking → credit the exact technician earning frozen at
+          // booking creation (P − gst − fee − booking). v1/legacy bookings keep the
+          // existing behaviour (a share of the booking fee) so their payouts are
+          // untouched.
+          const snapshot: any = service.pricingSnapshot;
+          const partnerAmount = (snapshot && snapshot.snapshotVersion === 2 && snapshot.technicianEarning != null)
+            ? Number(snapshot.technicianEarning)
+            : (baseFee * partnerSharePct) / 100;
 
           const releaseDate = new Date(statusUpdate.completedAt);
           releaseDate.setDate(releaseDate.getDate() + holdDays);

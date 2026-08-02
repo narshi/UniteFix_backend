@@ -72,6 +72,16 @@ export function registerBillingRoutes(app: Express) {
                 return res.status(403).json({ success: false, message: 'This booking is not assigned to you' });
             }
 
+            // Fixed-price (v2) bookings have no bill to submit — the price was frozen
+            // at booking. Route them to request-payment instead of recomputing here.
+            if ((booking.pricingSnapshot as any)?.snapshotVersion === 2) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'FIXED_PRICE_BOOKING',
+                    message: 'This is a fixed-price booking. Use request-payment to collect the balance.',
+                });
+            }
+
             // State validation
             const currentState = booking.status as BookingState;
             if (!validateStateTransition(currentState, BookingState.PENDING_PAYMENT)) {
@@ -145,6 +155,93 @@ export function registerBillingRoutes(app: Express) {
                     billing: billedSnapshot,
                     razorpayOrderId: razorpayOrder?.orderId || null,
                     amountDue: billedSnapshot.finalTotal,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * POST /api/bookings/:id/request-payment
+     *
+     * Fixed-price (v2) equivalent of submit-bill. The bill was frozen at booking
+     * creation, so there is nothing to compute — this just moves the job to
+     * PENDING_PAYMENT so the customer can pay the balance (finalTotal = P − 99).
+     *
+     * Optional body { extraPartsCost, partsNote }: a customer-approved parts add-on
+     * that is passed straight through to the technician (added to the balance due
+     * and to the technician's earning). Transitions: IN_PROGRESS → PENDING_PAYMENT.
+     */
+    app.post('/api/bookings/:id/request-payment', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const bookingId = parseInt(req.params.id);
+            const partnerId = (req as any).partner?.partnerId;
+            const extraPartsCost = Math.max(0, Math.round(parseFloat(req.body?.extraPartsCost) || 0));
+            const partsNote = typeof req.body?.partsNote === 'string' ? req.body.partsNote.trim().slice(0, 500) : '';
+
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, bookingId)).limit(1);
+
+            if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+            if (booking.providerId !== partnerId) {
+                return res.status(403).json({ success: false, message: 'This booking is not assigned to you' });
+            }
+
+            const snapshot = booking.pricingSnapshot as PricingSnapshot | null;
+            if (!snapshot || snapshot.snapshotVersion !== 2) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This booking is not a fixed-price booking. Use submit-bill.',
+                });
+            }
+
+            const currentState = booking.status as BookingState;
+            if (!validateStateTransition(currentState, BookingState.PENDING_PAYMENT)) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Cannot request payment. Booking must be in 'in_progress' state. Current: '${currentState}'.`,
+                });
+            }
+
+            // Apply an optional customer-approved parts add-on (pass-through to the
+            // technician). The base breakdown (gst/fee on P) is untouched.
+            const round2 = (x: number) => Math.round(x * 100) / 100;
+            const updatedSnapshot: PricingSnapshot = extraPartsCost > 0
+                ? {
+                    ...snapshot,
+                    grossTotal: round2((snapshot.grossTotal ?? 0) + extraPartsCost),
+                    finalTotal: round2((snapshot.finalTotal ?? 0) + extraPartsCost),
+                    technicianEarning: round2((snapshot.technicianEarning ?? 0) + extraPartsCost),
+                    employeeEarnings: round2((snapshot.employeeEarnings ?? 0) + extraPartsCost),
+                    extraPartsCost,
+                    partsNote: partsNote || undefined,
+                }
+                : snapshot;
+
+            const [updated] = await db.update(serviceRequests)
+                .set({
+                    status: BookingState.PENDING_PAYMENT as any,
+                    totalAmount: Math.round(updatedSnapshot.grossTotal ?? 0),
+                    commissionAmount: Math.round(updatedSnapshot.platformFee ?? 0),
+                    pricingSnapshot: updatedSnapshot as any,
+                    serviceValueTier: BillingEngine.determineServiceValueTier(updatedSnapshot) as any,
+                    updatedAt: new Date(),
+                })
+                .where(eq(serviceRequests.id, bookingId))
+                .returning();
+
+            logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
+                (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts)` : ''));
+
+            res.json({
+                success: true,
+                message: 'Payment requested. Waiting for customer payment.',
+                data: {
+                    bookingId: updated.id,
+                    status: updated.status,
+                    amountDue: updatedSnapshot.finalTotal,
+                    technicianEarning: updatedSnapshot.technicianEarning,
                 },
             });
         } catch (error) {

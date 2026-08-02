@@ -34,10 +34,25 @@ export interface PricingSnapshot {
   finalTotal?: number;        // ₹987 — grossTotal - bookingFeeCredit (customer pays this)
   employeeEarnings?: number;  // ₹800 — subtotal (employee keeps parts + labor)
 
+  // ── v2 (fixed-price catalog) — frozen at booking creation ──────────
+  // In v2 the whole bill is known up front from the service's catalog price,
+  // so there is no separate bill-submission step. GST, fee and the booking
+  // charge are carved OUT of basePrice (they are NOT added on top).
+  basePrice?: number;          // ₹799 — the customer's all-in, GST-inclusive price P
+  gst?: number;                // ₹143.82 — cgst + sgst (= P × gstPercent%)
+  technicianEarning?: number;  // ₹460.30 — P − gst − platformFee − bookingCharge
+  extraPartsCost?: number;     // customer-approved parts add-on (pass-through to technician)
+  partsNote?: string;          // what the extra parts were for
+
   // Metadata
-  snapshotVersion: number;    // 1 — for future schema evolution
+  snapshotVersion: number;    // 1 = technician-billed · 2 = fixed-price catalog
   createdAt: string;          // ISO timestamp of snapshot creation
   billedAt?: string;          // ISO timestamp of bill submission
+}
+
+/** Round to 2 decimals (paise). v2 keeps paise so earnings match the catalog exactly. */
+function round2(x: number): number {
+  return Math.round(x * 100) / 100;
 }
 
 // ─── Engine ─────────────────────────────────────────────────────────
@@ -60,6 +75,70 @@ export class BillingEngine {
       gstPercent: parseFloat(gstPercentStr || '18'),
       snapshotVersion: 1,
       createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * v2 — Fixed-price catalog snapshot. Called at BOOKING CREATION when the
+   * customer picks a catalog service with a set price. The full bill is frozen
+   * immediately; there is no later bill-submission step.
+   *
+   * Formula (matches CATALOG-1.xlsx exactly), given catalog price P:
+   *   gst              = round2(P × gstPercent/100)     -- carved out of P
+   *   platformFee      = round2(P × feePercent/100)     -- carved out of P
+   *   bookingCharge    = bookingFee (₹99)               -- part of P, prepaid
+   *   serviceValue     = round2(P − gst − platformFee)  -- = 0.70P
+   *   technicianEarning= round2(serviceValue − bookingCharge)
+   *   finalTotal       = P − bookingCharge              -- customer pays after booking
+   *
+   * The four buckets (gst + platformFee + bookingCharge + technicianEarning)
+   * sum back to P. Verified: 799 → 143.82 + 95.88 + 99 + 460.30.
+   */
+  static async createCatalogSnapshot(basePrice: number): Promise<PricingSnapshot> {
+    const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
+    const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
+    const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
+
+    const bookingFee = Math.round(parseFloat(bookingFeeStr || '99'));
+    const platformFeePercent = parseFloat(feePercentStr || '12');
+    const gstPercent = parseFloat(gstPercentStr || '18');
+
+    const P = Math.round(basePrice);
+    const gst = round2(P * gstPercent / 100);
+    const platformFee = round2(P * platformFeePercent / 100);
+    const cgst = round2(gst / 2);
+    const sgst = round2(gst - cgst);
+    const serviceValue = round2(P - gst - platformFee);          // 0.70P — customer's service line
+    const technicianEarning = round2(serviceValue - bookingFee); // 0.70P − 99
+    const taxableAmount = round2(serviceValue + platformFee);    // = P − gst
+    const finalTotal = P - bookingFee;                            // customer pays after the booking fee
+
+    const now = new Date().toISOString();
+    return {
+      bookingFee,
+      platformFeePercent,
+      gstPercent,
+      basePrice: P,
+
+      // Mapped so the existing invoice generator & payment paths work unchanged:
+      sparePartsCost: 0,
+      serviceLaborCost: serviceValue,
+      subtotal: serviceValue,
+      platformFee,
+      taxableAmount,
+      gst,
+      cgst,
+      sgst,
+      grossTotal: P,
+      bookingFeeCredit: bookingFee,
+      finalTotal,
+
+      technicianEarning,
+      employeeEarnings: technicianEarning, // v2 wallet credit uses the real earning
+
+      snapshotVersion: 2,
+      createdAt: now,
+      billedAt: now, // v2 is fully billed at creation
     };
   }
 
