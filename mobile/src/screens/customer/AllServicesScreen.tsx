@@ -48,7 +48,12 @@ export const AllServicesScreen = () => {
             return;
         }
 
-        navigation.navigate('ServiceRequest', { serviceType: service.name });
+        navigation.navigate('ServiceRequest', {
+            serviceType: service.name,
+            serviceName: service.name,
+            serviceId: service.id,
+            basePrice: service.basePrice ?? 0,
+        });
     };
 
     if (isLoading) {

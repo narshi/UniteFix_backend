@@ -33,6 +33,7 @@ export interface ServiceItem {
     isHomeVisible: boolean;
     sortOrder: number;
     isActive: boolean;
+    basePrice?: number; // fixed catalog price (customer all-in). 0/undefined = not priced
 }
 
 export interface ServiceRequest {
@@ -86,6 +87,7 @@ export interface CreateServiceRequest {
     scheduledDate?: string;
     urgency?: 'normal' | 'urgent';
     customerLocation?: string; // WKT POINT(lng lat) for geofence
+    catalogServiceId?: number; // catalog service id → server freezes the fixed price
 }
 
 export interface SavedAddress {

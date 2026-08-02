@@ -46,7 +46,7 @@ export type PartnerTabParamList = {
 export type HomeStackParamList = {
     Home: undefined;
     AllServices: undefined;
-    ServiceRequest: { serviceType?: string };
+    ServiceRequest: { serviceType?: string; serviceName?: string; serviceId?: number; basePrice?: number; selectedAddress?: any };
     Notifications: undefined;
     SavedAddresses: { fromCheckout?: boolean };
     MapAddressPicker: { editAddressIndex?: number } | undefined;

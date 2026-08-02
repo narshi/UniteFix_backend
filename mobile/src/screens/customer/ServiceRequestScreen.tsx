@@ -43,6 +43,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     // for the display name — otherwise the screen reads a generic "Service" and the
     // customer never sees the service they actually selected echoed back.
     const serviceName = route.params?.serviceName || serviceType || 'Service';
+    const serviceId = route.params?.serviceId as number | undefined;
+    const basePrice = Number(route.params?.basePrice ?? 0);
 
     const { description, setDescription, urgency, setUrgency, photos, setPhotos, clearDraft } = useBookingDraftStore();
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
@@ -62,6 +64,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const { data: publicConfig } = usePublicConfig();
 
     const bookingFee = publicConfig?.bookingFee ?? 99;
+    const isFixedPrice = basePrice > 0;
+    const finalAfterBooking = Math.max(0, basePrice - bookingFee);
 
     // Get device GPS location on mount for geofence support
     useEffect(() => {
@@ -157,10 +161,14 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const handleSubmit = () => {
         if (!validate()) return;
 
-        // Confirm booking fee before proceeding
+        // Confirm booking fee before proceeding. For a fixed-price service, show the
+        // full split so the customer knows the total and what's left to pay later.
+        const confirmMessage = isFixedPrice
+            ? `Total for ${serviceName}: ₹${basePrice}.\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
+            : `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`;
         Alert.alert(
             'Confirm Booking',
-            `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`,
+            confirmMessage,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -190,6 +198,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     photos: photoUrls,
                                     urgency,
                                     customerLocation: `POINT(${selectedAddress!.long} ${selectedAddress!.lat})`,
+                                    catalogServiceId: serviceId,
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -286,6 +295,26 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                 <View style={styles.typeBadge}>
                     <Text style={styles.typeBadgeText}>📋 {serviceName}</Text>
                 </View>
+
+                {/* Fixed-price summary */}
+                {isFixedPrice && (
+                    <View style={styles.priceCard}>
+                        <View style={styles.priceRow}>
+                            <Text style={styles.priceLabel}>Total price</Text>
+                            <Text style={styles.priceTotal}>₹{basePrice}</Text>
+                        </View>
+                        <View style={styles.priceDivider} />
+                        <View style={styles.priceRow}>
+                            <Text style={styles.priceSubLabel}>Pay now to book</Text>
+                            <Text style={styles.priceSubValue}>₹{bookingFee}</Text>
+                        </View>
+                        <View style={styles.priceRow}>
+                            <Text style={styles.priceSubLabel}>Pay after service</Text>
+                            <Text style={styles.priceSubValue}>₹{finalAfterBooking}</Text>
+                        </View>
+                        <Text style={styles.priceNote}>Inclusive of all taxes.</Text>
+                    </View>
+                )}
 
                 {/* Description */}
                 <View style={styles.fieldContainer}>
@@ -443,6 +472,46 @@ const styles = StyleSheet.create({
     typeBadgeText: {
         ...typography.label,
         color: colors.primary,
+    },
+    priceCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: spacing.md,
+        marginBottom: spacing.xl,
+    },
+    priceRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 2,
+    },
+    priceLabel: {
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+    },
+    priceTotal: {
+        ...typography.h4,
+        color: colors.textPrimary,
+    },
+    priceDivider: {
+        height: 1,
+        backgroundColor: colors.divider,
+        marginVertical: spacing.sm,
+    },
+    priceSubLabel: {
+        ...typography.body,
+        color: colors.textSecondary,
+    },
+    priceSubValue: {
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+    },
+    priceNote: {
+        ...typography.small,
+        color: colors.textDisabled,
+        marginTop: spacing.sm,
     },
     fieldContainer: {
         marginBottom: spacing.lg,

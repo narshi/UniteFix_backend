@@ -12,6 +12,7 @@ import {
   insertDistrictSchema,
   otpVerifications,
   serviceRequests,
+  services as servicesCatalog,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -1502,13 +1503,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create service request with booking charge (₹99 default, dynamic from config)
   app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
+      // Catalog service id (distinct from the booking's own serviceId string).
+      // Read before the schema parse so it survives, and so it can't be spoofed
+      // into serviceRequests columns.
+      const catalogServiceId = req.body?.catalogServiceId ? Number(req.body.catalogServiceId) : null;
+
       const serviceData = insertServiceRequestSchema.parse({
         ...req.body,
         userId: req.user!.userId
       });
 
-      // BILLING ENGINE: Freeze current pricing config into a snapshot
-      const pricingSnapshot = await BillingEngine.createBookingSnapshot();
+      // FIXED-PRICE CATALOG (v2): if the client picked a catalog service with a
+      // set price, freeze the whole bill now. Otherwise fall back to the v1
+      // (technician-billed) snapshot so older app builds keep working.
+      let pricingSnapshot = await BillingEngine.createBookingSnapshot();
+      let catalogTotal: number | null = null;
+      let catalogCommission: number | null = null;
+
+      if (catalogServiceId) {
+        const [svc] = await db.select({ basePrice: servicesCatalog.basePrice })
+          .from(servicesCatalog).where(eq(servicesCatalog.id, catalogServiceId)).limit(1);
+        if (svc && svc.basePrice > 0) {
+          pricingSnapshot = await BillingEngine.createCatalogSnapshot(svc.basePrice);
+          catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
+          catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
+        }
+      }
 
       const service = await storage.createServiceRequest({
         ...serviceData,
@@ -1516,9 +1536,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
       });
 
-      // Write the frozen snapshot to the service_requests row
+      // Write the frozen snapshot to the service_requests row. For a catalog
+      // booking, the total and commission are known now.
       await db.update(serviceRequests)
-        .set({ pricingSnapshot: pricingSnapshot as any })
+        .set({
+          pricingSnapshot: pricingSnapshot as any,
+          ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
+          ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
+        })
         .where(eq(serviceRequests.id, service.id));
 
       // Attempt to create Razorpay booking charge order using frozen fee

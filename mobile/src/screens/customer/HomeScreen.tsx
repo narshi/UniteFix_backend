@@ -256,7 +256,12 @@ export function HomeScreen() {
                                                             'This service is temporarily under maintenance.',
                                                         );
                                                     } else {
-                                                        navigation.navigate('ServiceRequest', { serviceType: service.name });
+                                                        navigation.navigate('ServiceRequest', {
+                                                            serviceType: service.name,
+                                                            serviceName: service.name,
+                                                            serviceId: service.id,
+                                                            basePrice: service.basePrice ?? 0,
+                                                        });
                                                     }
                                                 }}
                                             />
