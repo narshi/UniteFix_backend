@@ -35,6 +35,7 @@ import {
     useStartServiceWithOtp,
     useCompleteService,
     useEnterServiceCharge,
+    useRequestPayment,
     useGenerateRazorpayQR,
     useQrPaymentStatus
 } from '../../hooks/usePartnerData';
@@ -61,6 +62,15 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
+    const [extraParts, setExtraParts] = useState('');
+    const [partsNote, setPartsNote] = useState('');
+    const [showPartsForm, setShowPartsForm] = useState(false);
+
+    // v2 fixed-price bookings carry the technician's earning + final amount frozen
+    // in the snapshot, so there is no bill to enter.
+    const snap: any = assignment?.pricingSnapshot;
+    const isFixedPrice = snap?.snapshotVersion === 2;
+    const technicianEarning = Number(snap?.technicianEarning ?? 0);
     const [collectingCash, setCollectingCash] = useState(false);
     const [customerCoords, setCustomerCoords] = useState<{ latitude: number; longitude: number } | null>(null);
     const [isFetchingLocation, setIsFetchingLocation] = useState(false);
@@ -71,6 +81,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: startService, isPending: starting } = useStartServiceWithOtp();
     const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
+    const { mutate: requestPayment, isPending: requestingPayment } = useRequestPayment();
     const { mutate: generateQr, isPending: generatingQr } = useGenerateRazorpayQR();
     const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
     const [qrError, setQrError] = useState(false);
@@ -249,6 +260,16 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         ]);
     };
 
+    // v2: move a fixed-price job to awaiting-payment, with an optional
+    // customer-approved parts add-on.
+    const handleRequestPayment = () => {
+        const extra = extraParts ? Math.max(0, parseFloat(extraParts) || 0) : 0;
+        requestPayment(
+            { bookingId: assignment.id, extraPartsCost: extra || undefined, partsNote: partsNote || undefined },
+            { onSuccess: () => { setShowPartsForm(false); setExtraParts(''); setPartsNote(''); } }
+        );
+    };
+
     const createdDate = new Date(assignment.createdAt).toLocaleDateString('en-IN', {
         day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
@@ -333,6 +354,12 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 {/* Actions based on status */}
                 {assignment.status === 'assigned' && (
                     <View style={styles.actionsCard}>
+                        {isFixedPrice && technicianEarning > 0 && (
+                            <View style={styles.earnCard}>
+                                <Text style={styles.earnLabel}>You'll earn on this job</Text>
+                                <Text style={styles.earnValue}>₹{technicianEarning.toFixed(2)}</Text>
+                            </View>
+                        )}
                         <Text style={styles.sectionTitle}>Actions</Text>
                         <View style={styles.actionRow}>
                             <View style={{ flex: 1 }}>
@@ -382,7 +409,52 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Complete Service</Text>
 
-                        {assignment.pricingSnapshot?.billedAt ? (
+                        {isFixedPrice ? (
+                            /* v2 fixed-price: the amount is set. Request payment, optionally
+                               adding customer-approved parts. */
+                            <View>
+                                <View style={styles.earnCard}>
+                                    <Text style={styles.earnLabel}>Customer pays now</Text>
+                                    <Text style={styles.earnValue}>₹{Number(snap?.finalTotal ?? 0).toFixed(2)}</Text>
+                                    {technicianEarning > 0 && (
+                                        <Text style={styles.earnSub}>You earn ₹{technicianEarning.toFixed(2)}</Text>
+                                    )}
+                                </View>
+
+                                {showPartsForm ? (
+                                    <View>
+                                        <Text style={styles.label}>Extra parts cost (₹) — customer approved</Text>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="e.g. 300"
+                                            value={extraParts}
+                                            onChangeText={setExtraParts}
+                                            keyboardType="numeric"
+                                            placeholderTextColor={colors.textDisabled}
+                                        />
+                                        <Text style={styles.label}>What was it for?</Text>
+                                        <TextInput
+                                            style={styles.input}
+                                            placeholder="e.g. replacement adapter"
+                                            value={partsNote}
+                                            onChangeText={setPartsNote}
+                                            placeholderTextColor={colors.textDisabled}
+                                        />
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity onPress={() => setShowPartsForm(true)}>
+                                        <Text style={styles.addPartsLink}>+ Add approved parts cost</Text>
+                                    </TouchableOpacity>
+                                )}
+
+                                <Button
+                                    title="Request Payment"
+                                    onPress={handleRequestPayment}
+                                    loading={requestingPayment}
+                                    style={styles.chargeBtn}
+                                />
+                            </View>
+                        ) : assignment.pricingSnapshot?.billedAt ? (
                             <View style={styles.cashWarningCard}>
                                 <CheckCircle size={18} color={colors.success} />
                                 <Text style={[styles.cashWarningText, { color: colors.success }]}>
@@ -627,6 +699,17 @@ const styles = StyleSheet.create({
     otpBtn: { width: 100 },
     startBtn: { marginTop: spacing.sm },
     chargeBtn: { marginBottom: spacing.md },
+    earnCard: {
+        backgroundColor: colors.successLight,
+        borderRadius: radii.md,
+        padding: spacing.md,
+        marginBottom: spacing.md,
+        alignItems: 'center',
+    },
+    earnLabel: { ...typography.caption, color: colors.textSecondary },
+    earnValue: { ...typography.h3, color: colors.success, marginTop: 2 },
+    earnSub: { ...typography.small, color: colors.textSecondary, marginTop: 2 },
+    addPartsLink: { ...typography.bodyMedium, color: colors.primary, marginBottom: spacing.md },
     label: { ...typography.label, color: colors.textPrimary, marginBottom: spacing.xs, marginTop: spacing.sm },
     input: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 15, color: colors.textPrimary, marginBottom: spacing.sm },
     completeBtn: { marginTop: spacing.lg },

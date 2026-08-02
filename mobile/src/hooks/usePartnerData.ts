@@ -131,6 +131,19 @@ export function useEnterServiceCharge() {
     });
 }
 
+export function useRequestPayment() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: ({ bookingId, extraPartsCost, partsNote }: { bookingId: number; extraPartsCost?: number; partsNote?: string }) =>
+            partnerApi.requestPayment(bookingId, { extraPartsCost, partsNote }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+            Alert.alert('Payment Requested', 'The customer can now pay the balance.');
+        },
+        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
+    });
+}
+
 // ==================== WALLET ====================
 
 export function useWallet() {

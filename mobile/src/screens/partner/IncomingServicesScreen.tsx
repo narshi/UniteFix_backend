@@ -55,6 +55,10 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
 
             <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
 
+            {(item as any).pricingSnapshot?.snapshotVersion === 2 && Number((item as any).pricingSnapshot?.technicianEarning) > 0 && (
+                <Text style={styles.earnText}>You'll earn ₹{Number((item as any).pricingSnapshot.technicianEarning).toFixed(2)}</Text>
+            )}
+
             <View style={styles.infoRow}>
                 <MapPin size={13} color={colors.textSecondary} />
                 <Text style={styles.infoText} numberOfLines={1}>{item.address}</Text>
@@ -175,6 +179,7 @@ const styles = StyleSheet.create({
     badge: { paddingVertical: 3, paddingHorizontal: spacing.sm, borderRadius: radii.full },
     badgeText: { fontSize: 11, fontWeight: '600' },
     description: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
+    earnText: { ...typography.bodyMedium, color: colors.success, marginBottom: spacing.md },
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
     infoText: { ...typography.small, color: colors.textSecondary, flex: 1 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },

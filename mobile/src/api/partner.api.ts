@@ -92,6 +92,12 @@ export const partnerApi = {
             notes: data.notes,
         }),
 
+    // Fixed-price (v2) equivalent of submit-bill: the price is already frozen, so
+    // this just moves the job to awaiting-payment. Optional parts add-on is a
+    // customer-approved extra passed through to the technician.
+    requestPayment: (bookingId: number, data?: { extraPartsCost?: number; partsNote?: string }) =>
+        apiClient.post(`/api/bookings/${bookingId}/request-payment`, data || {}),
+
     validateOtp: (serviceId: number, otp: string) =>
         // NOT IMPLEMENTED SERVER-SIDE — no /api/technician/* namespace exists.
         // Currently unused; calling it returns 404. OTP verification goes through
