@@ -7,10 +7,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Plus, Edit, Archive, CheckCircle2, XCircle, Grid, List, MoreVertical, Image as ImageIcon, Trash2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// Fixed-price breakdown — the same carve-out the billing engine applies. GST,
+// platform fee and the booking charge come OUT of the price; the technician
+// gets the remainder. Percentages are the admin's live config values.
+function priceBreakdown(P: number, gstPct: number, feePct: number, booking: number) {
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  const gst = r2((P * gstPct) / 100);
+  const fee = r2((P * feePct) / 100);
+  const service = r2(P - gst - fee);
+  const technician = r2(service - booking);
+  return { gst, fee, booking, technician, sum: r2(gst + fee + booking + technician) };
+}
 
 export default function ServiceCatalogPage() {
   const { toast } = useToast();
@@ -20,11 +32,29 @@ export default function ServiceCatalogPage() {
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<any>(null);
   const [editingService, setEditingService] = useState<any>(null);
+  const [priceInput, setPriceInput] = useState<string>('');
 
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ["/api/admin/catalog/categories"],
     select: (res: any) => res.data || []
   });
+
+  // Live pricing config (gst %, platform fee %, booking charge) for the breakdown.
+  const { data: pricingCfg } = useQuery({
+    queryKey: ["/api/config/public"],
+    select: (res: any) => res.data || {},
+  });
+  const gstPct = Number(pricingCfg?.gstRate ?? 18);
+  const feePct = Number(pricingCfg?.platformFeePercent ?? 12);
+  const bookingCharge = Number(pricingCfg?.bookingFee ?? 99);
+
+  // Seed the controlled price when the service dialog opens (Radix remounts the
+  // form each open, so this keeps the breakdown in sync with the edited row).
+  useEffect(() => {
+    if (isServiceModalOpen) setPriceInput(editingService?.basePrice ? String(editingService.basePrice) : '');
+  }, [isServiceModalOpen, editingService]);
+
+  const breakdown = priceBreakdown(Number(priceInput) || 0, gstPct, feePct, bookingCharge);
 
   const createCategoryMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -142,7 +172,8 @@ export default function ServiceCatalogPage() {
       status: formData.get('status') as string,
       isHomeVisible: formData.get('isHomeVisible') === 'on',
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
-      isActive: formData.get('isActive') === 'on'
+      isActive: formData.get('isActive') === 'on',
+      basePrice: Math.max(0, Math.round(Number(priceInput) || 0)),
     };
 
     if (editingService) {
@@ -286,6 +317,9 @@ export default function ServiceCatalogPage() {
                         <div className="min-w-0 pr-2">
                           <h3 className="font-semibold text-white leading-tight truncate">{service.name}</h3>
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5 truncate">{service.categoryName}</p>
+                          {service.basePrice > 0
+                            ? <p className="text-sm font-mono font-semibold text-[hsl(160,84%,65%)] mt-1">₹{Number(service.basePrice).toLocaleString()}</p>
+                            : <p className="text-xs text-[hsl(38,92%,60%)] mt-1">No price set</p>}
                         </div>
                         <Button 
                           variant="ghost" 
@@ -378,6 +412,33 @@ export default function ServiceCatalogPage() {
               <div className="grid gap-2">
                 <Label htmlFor="svc-sub" className="text-[hsl(215,20%,75%)]">Subtitle / Description</Label>
                 <Input id="svc-sub" name="subtitle" defaultValue={editingService?.subtitle} placeholder="Short summary of the service" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+              </div>
+
+              {/* Price + live breakdown */}
+              <div className="grid gap-2">
+                <Label htmlFor="svc-price" className="text-[hsl(215,20%,75%)]">Price (₹) — customer's all-in total</Label>
+                <Input
+                  id="svc-price" type="number" min="0" inputMode="numeric"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  placeholder="e.g., 799"
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                />
+                {Number(priceInput) > 0 && (
+                  <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 text-sm space-y-1.5">
+                    <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>GST ({gstPct}%)</span><span className="font-mono">₹{breakdown.gst.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Platform fee ({feePct}%)</span><span className="font-mono">₹{breakdown.fee.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Booking charge (upfront)</span><span className="font-mono">₹{breakdown.booking.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-[hsl(160,84%,65%)] font-semibold border-t border-[rgba(255,255,255,0.06)] pt-1.5"><span>Technician earns</span><span className="font-mono">₹{breakdown.technician.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-[hsl(215,20%,55%)] text-xs pt-1">
+                      <span>Customer pays ₹{bookingCharge} now, ₹{(Number(priceInput) - bookingCharge).toFixed(0)} after</span>
+                      <span>Σ ₹{breakdown.sum.toFixed(2)}</span>
+                    </div>
+                    {breakdown.technician < 0 && (
+                      <p className="text-xs text-[hsl(347,77%,65%)]">Price is too low — it doesn't cover the booking charge.</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
