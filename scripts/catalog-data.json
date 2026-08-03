@@ -9,82 +9,96 @@
           "name": "OS Installation",
           "basePrice": 799,
           "sortOrder": 10,
-          "icon": "download"
+          "icon": "download",
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "PC Assembly",
           "basePrice": 799,
           "sortOrder": 20,
-          "icon": "cpu"
+          "icon": "cpu",
+          "bannerImage": "https://images.unsplash.com/photo-1591488320449-011701bb6704?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Hardware Replacement",
           "basePrice": 699,
           "sortOrder": 30,
-          "icon": "wrench"
+          "icon": "wrench",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Software Installation",
           "basePrice": 749,
           "sortOrder": 40,
-          "icon": "download"
+          "icon": "download",
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "SSD Upgrade with OS Installation",
           "basePrice": 999,
           "sortOrder": 50,
-          "icon": "hard-drive"
+          "icon": "hard-drive",
+          "bannerImage": "https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Network Sharing",
           "basePrice": 749,
           "sortOrder": 60,
-          "icon": "network"
+          "icon": "network",
+          "bannerImage": "https://images.unsplash.com/photo-1606904825846-647eb07f5be2?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Virus Removal",
           "basePrice": 749,
           "sortOrder": 70,
-          "icon": "shield-check"
+          "icon": "shield-check",
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Data Backup & Recovery",
           "basePrice": 1499,
           "sortOrder": 80,
-          "icon": "database-backup"
+          "icon": "database-backup",
+          "bannerImage": "https://images.unsplash.com/photo-1531492746076-161ca9bcad58?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Visiting & Inspection Charges (0 to 5Km)",
           "basePrice": 349,
           "sortOrder": 90,
-          "icon": "map-pin"
+          "icon": "map-pin",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Visiting & Inspection Charges (6 to 10Km)",
           "basePrice": 449,
           "sortOrder": 100,
-          "icon": "map-pin"
+          "icon": "map-pin",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Visiting & Inspection Charges (11 to 20Km)",
           "basePrice": 549,
           "sortOrder": 110,
-          "icon": "map-pin"
+          "icon": "map-pin",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Visiting & Inspection Charges (21 to 30Km)",
           "basePrice": 649,
           "sortOrder": 120,
-          "icon": "map-pin"
+          "icon": "map-pin",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Visiting & Inspection Charges (31 to 40Km)",
           "basePrice": 749,
           "sortOrder": 130,
-          "icon": "map-pin"
+          "icon": "map-pin",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "monitor"
+      "icon": "monitor",
+      "image": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "LAPTOP",
@@ -94,52 +108,61 @@
           "name": "OS Installation",
           "basePrice": 749,
           "sortOrder": 10,
-          "icon": "download"
+          "icon": "download",
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Display Replacement",
           "basePrice": 749,
           "sortOrder": 20,
-          "icon": "monitor"
+          "icon": "monitor",
+          "bannerImage": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Keyboard Replacement (Internal)",
           "basePrice": 999,
           "sortOrder": 30,
-          "icon": "keyboard"
+          "icon": "keyboard",
+          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Keyboard Replacement (External)",
           "basePrice": 499,
           "sortOrder": 40,
-          "icon": "keyboard"
+          "icon": "keyboard",
+          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Battery Replacemnt",
           "basePrice": 749,
           "sortOrder": 50,
-          "icon": "battery-charging"
+          "icon": "battery-charging",
+          "bannerImage": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Motherboard Replacement",
           "basePrice": 999,
           "sortOrder": 60,
-          "icon": "circuit-board"
+          "icon": "circuit-board",
+          "bannerImage": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Any other Hardware Replacement",
           "basePrice": 749,
           "sortOrder": 70,
-          "icon": "wrench"
+          "icon": "wrench",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Data Backup & Recovery",
           "basePrice": 1499,
           "sortOrder": 80,
-          "icon": "database-backup"
+          "icon": "database-backup",
+          "bannerImage": "https://images.unsplash.com/photo-1531492746076-161ca9bcad58?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "laptop"
+      "icon": "laptop",
+      "image": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "PRINTER",
@@ -149,46 +172,54 @@
           "name": "Cartridge Replacement/Ink Filling",
           "basePrice": 749,
           "sortOrder": 10,
-          "icon": "droplet"
+          "icon": "droplet",
+          "bannerImage": "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Printer Sharing",
           "basePrice": 749,
           "sortOrder": 20,
-          "icon": "network"
+          "icon": "network",
+          "bannerImage": "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Pickup & Delivery",
           "basePrice": 749,
           "sortOrder": 30,
-          "icon": "truck"
+          "icon": "truck",
+          "bannerImage": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Maintenance Box Replacement",
           "basePrice": 749,
           "sortOrder": 40,
-          "icon": "wrench"
+          "icon": "wrench",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Installation & Setup",
           "basePrice": 749,
           "sortOrder": 50,
-          "icon": "settings"
+          "icon": "settings",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Head Cleaning",
           "basePrice": 749,
           "sortOrder": 60,
-          "icon": "spray-can"
+          "icon": "spray-can",
+          "bannerImage": "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Paper Jam Removal",
           "basePrice": 749,
           "sortOrder": 70,
-          "icon": "file-warning"
+          "icon": "file-warning",
+          "bannerImage": "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "printer"
+      "icon": "printer",
+      "image": "https://images.unsplash.com/photo-1612815154858-60aa4c59eaa6?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "CCTV",
@@ -198,40 +229,47 @@
           "name": "Camera Installation per camera",
           "basePrice": 899,
           "sortOrder": 10,
-          "icon": "cctv"
+          "icon": "cctv",
+          "bannerImage": "https://images.unsplash.com/photo-1557324232-b8917d3c3dcb?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Password Reset",
           "basePrice": 749,
           "sortOrder": 20,
-          "icon": "key-round"
+          "icon": "key-round",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Footage Backup",
           "basePrice": 999,
           "sortOrder": 30,
-          "icon": "database-backup"
+          "icon": "database-backup",
+          "bannerImage": "https://images.unsplash.com/photo-1531492746076-161ca9bcad58?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Hard Disk Replacement",
           "basePrice": 749,
           "sortOrder": 40,
-          "icon": "hard-drive"
+          "icon": "hard-drive",
+          "bannerImage": "https://images.unsplash.com/photo-1531492746076-161ca9bcad58?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Mobile view setup",
           "basePrice": 749,
           "sortOrder": 50,
-          "icon": "smartphone"
+          "icon": "smartphone",
+          "bannerImage": "https://images.unsplash.com/photo-1600861194942-f883de0dfe96?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Camera Shifting per camera",
           "basePrice": 999,
           "sortOrder": 60,
-          "icon": "cctv"
+          "icon": "cctv",
+          "bannerImage": "https://images.unsplash.com/photo-1557324232-b8917d3c3dcb?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "cctv"
+      "icon": "cctv",
+      "image": "https://images.unsplash.com/photo-1557324232-b8917d3c3dcb?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "BIOMETRIC DEVICE",
@@ -241,10 +279,12 @@
           "name": "Installation & Setup",
           "basePrice": 999,
           "sortOrder": 10,
-          "icon": "settings"
+          "icon": "settings",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "fingerprint"
+      "icon": "fingerprint",
+      "image": "https://images.unsplash.com/photo-1614064548237-096f735f344f?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "UPS & BATTERY",
@@ -254,28 +294,33 @@
           "name": "Installation & Setup",
           "basePrice": 749,
           "sortOrder": 10,
-          "icon": "settings"
+          "icon": "settings",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Pickup & Delivery",
           "basePrice": 999,
           "sortOrder": 20,
-          "icon": "truck"
+          "icon": "truck",
+          "bannerImage": "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Battery add",
           "basePrice": 749,
           "sortOrder": 30,
-          "icon": "battery-charging"
+          "icon": "battery-charging",
+          "bannerImage": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "UPS Replacement",
           "basePrice": 749,
           "sortOrder": 40,
-          "icon": "plug-zap"
+          "icon": "plug-zap",
+          "bannerImage": "https://images.unsplash.com/photo-1558449028-b53a39d100fc?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "battery-charging"
+      "icon": "battery-charging",
+      "image": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "SOLAR",
@@ -285,22 +330,26 @@
           "name": "Installation & Setup",
           "basePrice": 3499,
           "sortOrder": 10,
-          "icon": "settings"
+          "icon": "settings",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Shifting",
           "basePrice": 2999,
           "sortOrder": 20,
-          "icon": "move"
+          "icon": "move",
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Panel add",
           "basePrice": 1499,
           "sortOrder": 30,
-          "icon": "sun"
+          "icon": "sun",
+          "bannerImage": "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "sun"
+      "icon": "sun",
+      "image": "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=400&h=400&fit=crop&q=70"
     }
   ]
 }

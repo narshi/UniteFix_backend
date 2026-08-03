@@ -50,28 +50,33 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
             onPress={onPress}
             activeOpacity={0.7}
         >
-            <View style={[styles.cardAccent, { backgroundColor: colors.primary }]} />
-            <View style={styles.iconContainer}>
-                {(() => {
-                    const hasImageUrl = service.bannerImage || (service.icon && service.icon.startsWith('http'));
-                    const imageUrl = service.bannerImage || service.icon;
-                    
-                    if (hasImageUrl) {
-                        return (
+            {(() => {
+                const hasImageUrl = service.bannerImage || (service.icon && service.icon.startsWith('http'));
+                const imageUrl = service.bannerImage || service.icon;
+
+                if (hasImageUrl) {
+                    // Zepto-style: a prominent photo thumbnail.
+                    return (
+                        <View style={styles.imageBox}>
                             <Image
                                 source={{ uri: imageUrl }}
                                 style={styles.imageIcon}
                                 contentFit="cover"
                                 transition={200}
                             />
-                        );
-                    }
+                        </View>
+                    );
+                }
 
-                    const pascalCaseName = service.icon ? service.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Wrench';
-                    const ServiceIcon = (LucideIcons as any)[pascalCaseName] || Wrench;
-                    return <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />;
-                })()}
-            </View>
+                // Fallback: tinted Lucide icon for services without a photo.
+                const pascalCaseName = service.icon ? service.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Wrench';
+                const ServiceIcon = (LucideIcons as any)[pascalCaseName] || Wrench;
+                return (
+                    <View style={styles.iconContainer}>
+                        <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />
+                    </View>
+                );
+            })()}
             <Text style={styles.title} numberOfLines={2}>
                 {service.name}
             </Text>
@@ -135,6 +140,14 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.primaryLight + '30',
         overflow: 'hidden',
+    },
+    imageBox: {
+        width: 76,
+        height: 76,
+        borderRadius: radii.lg,
+        marginBottom: spacing.md,
+        overflow: 'hidden',
+        backgroundColor: colors.surface,
     },
     imageIcon: {
         width: '100%',

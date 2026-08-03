@@ -25,8 +25,8 @@ import { eq, and } from 'drizzle-orm';
  *   tsx scripts/seed-catalog.ts --confirm --activate# write and publish
  */
 
-interface CatalogSvc { name: string; basePrice: number; sortOrder: number; icon?: string; }
-interface CatalogCat { name: string; sortOrder: number; icon?: string; services: CatalogSvc[]; }
+interface CatalogSvc { name: string; basePrice: number; sortOrder: number; icon?: string; bannerImage?: string; }
+interface CatalogCat { name: string; sortOrder: number; icon?: string; image?: string; services: CatalogSvc[]; }
 
 const args = process.argv.slice(2);
 const CONFIRM = args.includes('--confirm');
@@ -53,7 +53,8 @@ async function main() {
             console.log(`+ category  ${cat.name}`);
             if (CONFIRM) {
                 [row] = await db.insert(serviceCategories)
-                    .values({ name: cat.name, icon: cat.icon, sortOrder: cat.sortOrder, isActive: ACTIVATE })
+                    // Prefer the photo (image) as the display icon; fall back to the Lucide name.
+                    .values({ name: cat.name, icon: cat.image ?? cat.icon, sortOrder: cat.sortOrder, isActive: ACTIVATE })
                     .returning();
             }
         }
@@ -72,7 +73,7 @@ async function main() {
                 svcUpdated++;
                 if (CONFIRM) {
                     await db.update(services)
-                        .set({ basePrice: svc.basePrice, icon: svc.icon, updatedAt: new Date() })
+                        .set({ basePrice: svc.basePrice, icon: svc.icon, bannerImage: svc.bannerImage, updatedAt: new Date() })
                         .where(eq(services.id, existing.id));
                 }
             } else {
@@ -84,6 +85,7 @@ async function main() {
                         name: svc.name,
                         basePrice: svc.basePrice,
                         icon: svc.icon,
+                        bannerImage: svc.bannerImage,
                         sortOrder: svc.sortOrder,
                         isActive: ACTIVATE,
                         isHomeVisible: ACTIVATE,
