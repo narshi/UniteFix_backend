@@ -17,7 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
@@ -336,6 +336,23 @@ export function PartnerProfileScreen() {
                     <View style={styles.menuLeft}>
                         <MessageCircle size={20} color={colors.primary} />
                         <Text style={styles.menuLabel}>Help (WhatsApp)</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+            </View>
+
+            {/* Skills / Expertise */}
+            <View style={[styles.section, { marginTop: spacing.md }]}>
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('ManageExpertise')}>
+                    <View style={styles.menuLeft}>
+                        <Briefcase size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>
+                            Manage Skills
+                            {(() => {
+                                const s = (partnerProfile as any)?.data?.services ?? (partnerProfile as any)?.services;
+                                return Array.isArray(s) && s.length > 0 ? ` (${s.length})` : '';
+                            })()}
+                        </Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

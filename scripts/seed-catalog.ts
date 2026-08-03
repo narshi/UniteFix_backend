@@ -25,8 +25,8 @@ import { eq, and } from 'drizzle-orm';
  *   tsx scripts/seed-catalog.ts --confirm --activate# write and publish
  */
 
-interface CatalogSvc { name: string; basePrice: number; sortOrder: number; }
-interface CatalogCat { name: string; sortOrder: number; services: CatalogSvc[]; }
+interface CatalogSvc { name: string; basePrice: number; sortOrder: number; icon?: string; }
+interface CatalogCat { name: string; sortOrder: number; icon?: string; services: CatalogSvc[]; }
 
 const args = process.argv.slice(2);
 const CONFIRM = args.includes('--confirm');
@@ -53,7 +53,7 @@ async function main() {
             console.log(`+ category  ${cat.name}`);
             if (CONFIRM) {
                 [row] = await db.insert(serviceCategories)
-                    .values({ name: cat.name, sortOrder: cat.sortOrder, isActive: ACTIVATE })
+                    .values({ name: cat.name, icon: cat.icon, sortOrder: cat.sortOrder, isActive: ACTIVATE })
                     .returning();
             }
         }
@@ -72,7 +72,7 @@ async function main() {
                 svcUpdated++;
                 if (CONFIRM) {
                     await db.update(services)
-                        .set({ basePrice: svc.basePrice, updatedAt: new Date() })
+                        .set({ basePrice: svc.basePrice, icon: svc.icon, updatedAt: new Date() })
                         .where(eq(services.id, existing.id));
                 }
             } else {
@@ -83,6 +83,7 @@ async function main() {
                         categoryId,
                         name: svc.name,
                         basePrice: svc.basePrice,
+                        icon: svc.icon,
                         sortOrder: svc.sortOrder,
                         isActive: ACTIVATE,
                         isHomeVisible: ACTIVATE,

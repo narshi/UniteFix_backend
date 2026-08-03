@@ -8,69 +8,83 @@
         {
           "name": "OS Installation",
           "basePrice": 799,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "download"
         },
         {
           "name": "PC Assembly",
           "basePrice": 799,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "cpu"
         },
         {
           "name": "Hardware Replacement",
           "basePrice": 699,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "wrench"
         },
         {
           "name": "Software Installation",
           "basePrice": 749,
-          "sortOrder": 40
+          "sortOrder": 40,
+          "icon": "download"
         },
         {
           "name": "SSD Upgrade with OS Installation",
           "basePrice": 999,
-          "sortOrder": 50
+          "sortOrder": 50,
+          "icon": "hard-drive"
         },
         {
           "name": "Network Sharing",
           "basePrice": 749,
-          "sortOrder": 60
+          "sortOrder": 60,
+          "icon": "network"
         },
         {
           "name": "Virus Removal",
           "basePrice": 749,
-          "sortOrder": 70
+          "sortOrder": 70,
+          "icon": "shield-check"
         },
         {
           "name": "Data Backup & Recovery",
           "basePrice": 1499,
-          "sortOrder": 80
+          "sortOrder": 80,
+          "icon": "database-backup"
         },
         {
           "name": "Visiting & Inspection Charges (0 to 5Km)",
           "basePrice": 349,
-          "sortOrder": 90
+          "sortOrder": 90,
+          "icon": "map-pin"
         },
         {
           "name": "Visiting & Inspection Charges (6 to 10Km)",
           "basePrice": 449,
-          "sortOrder": 100
+          "sortOrder": 100,
+          "icon": "map-pin"
         },
         {
           "name": "Visiting & Inspection Charges (11 to 20Km)",
           "basePrice": 549,
-          "sortOrder": 110
+          "sortOrder": 110,
+          "icon": "map-pin"
         },
         {
           "name": "Visiting & Inspection Charges (21 to 30Km)",
           "basePrice": 649,
-          "sortOrder": 120
+          "sortOrder": 120,
+          "icon": "map-pin"
         },
         {
           "name": "Visiting & Inspection Charges (31 to 40Km)",
           "basePrice": 749,
-          "sortOrder": 130
+          "sortOrder": 130,
+          "icon": "map-pin"
         }
-      ]
+      ],
+      "icon": "monitor"
     },
     {
       "name": "LAPTOP",
@@ -79,44 +93,53 @@
         {
           "name": "OS Installation",
           "basePrice": 749,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "download"
         },
         {
           "name": "Display Replacement",
           "basePrice": 749,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "monitor"
         },
         {
           "name": "Keyboard Replacement (Internal)",
           "basePrice": 999,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "keyboard"
         },
         {
           "name": "Keyboard Replacement (External)",
           "basePrice": 499,
-          "sortOrder": 40
+          "sortOrder": 40,
+          "icon": "keyboard"
         },
         {
           "name": "Battery Replacemnt",
           "basePrice": 749,
-          "sortOrder": 50
+          "sortOrder": 50,
+          "icon": "battery-charging"
         },
         {
           "name": "Motherboard Replacement",
           "basePrice": 999,
-          "sortOrder": 60
+          "sortOrder": 60,
+          "icon": "circuit-board"
         },
         {
           "name": "Any other Hardware Replacement",
           "basePrice": 749,
-          "sortOrder": 70
+          "sortOrder": 70,
+          "icon": "wrench"
         },
         {
           "name": "Data Backup & Recovery",
           "basePrice": 1499,
-          "sortOrder": 80
+          "sortOrder": 80,
+          "icon": "database-backup"
         }
-      ]
+      ],
+      "icon": "laptop"
     },
     {
       "name": "PRINTER",
@@ -125,39 +148,47 @@
         {
           "name": "Cartridge Replacement/Ink Filling",
           "basePrice": 749,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "droplet"
         },
         {
           "name": "Printer Sharing",
           "basePrice": 749,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "network"
         },
         {
           "name": "Pickup & Delivery",
           "basePrice": 749,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "truck"
         },
         {
           "name": "Maintenance Box Replacement",
           "basePrice": 749,
-          "sortOrder": 40
+          "sortOrder": 40,
+          "icon": "wrench"
         },
         {
           "name": "Installation & Setup",
           "basePrice": 749,
-          "sortOrder": 50
+          "sortOrder": 50,
+          "icon": "settings"
         },
         {
           "name": "Head Cleaning",
           "basePrice": 749,
-          "sortOrder": 60
+          "sortOrder": 60,
+          "icon": "spray-can"
         },
         {
           "name": "Paper Jam Removal",
           "basePrice": 749,
-          "sortOrder": 70
+          "sortOrder": 70,
+          "icon": "file-warning"
         }
-      ]
+      ],
+      "icon": "printer"
     },
     {
       "name": "CCTV",
@@ -166,34 +197,41 @@
         {
           "name": "Camera Installation per camera",
           "basePrice": 899,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "cctv"
         },
         {
           "name": "Password Reset",
           "basePrice": 749,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "key-round"
         },
         {
           "name": "Footage Backup",
           "basePrice": 999,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "database-backup"
         },
         {
           "name": "Hard Disk Replacement",
           "basePrice": 749,
-          "sortOrder": 40
+          "sortOrder": 40,
+          "icon": "hard-drive"
         },
         {
           "name": "Mobile view setup",
           "basePrice": 749,
-          "sortOrder": 50
+          "sortOrder": 50,
+          "icon": "smartphone"
         },
         {
           "name": "Camera Shifting per camera",
           "basePrice": 999,
-          "sortOrder": 60
+          "sortOrder": 60,
+          "icon": "cctv"
         }
-      ]
+      ],
+      "icon": "cctv"
     },
     {
       "name": "BIOMETRIC DEVICE",
@@ -202,9 +240,11 @@
         {
           "name": "Installation & Setup",
           "basePrice": 999,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "settings"
         }
-      ]
+      ],
+      "icon": "fingerprint"
     },
     {
       "name": "UPS & BATTERY",
@@ -213,24 +253,29 @@
         {
           "name": "Installation & Setup",
           "basePrice": 749,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "settings"
         },
         {
           "name": "Pickup & Delivery",
           "basePrice": 999,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "truck"
         },
         {
           "name": "Battery add",
           "basePrice": 749,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "battery-charging"
         },
         {
           "name": "UPS Replacement",
           "basePrice": 749,
-          "sortOrder": 40
+          "sortOrder": 40,
+          "icon": "plug-zap"
         }
-      ]
+      ],
+      "icon": "battery-charging"
     },
     {
       "name": "SOLAR",
@@ -239,19 +284,23 @@
         {
           "name": "Installation & Setup",
           "basePrice": 3499,
-          "sortOrder": 10
+          "sortOrder": 10,
+          "icon": "settings"
         },
         {
           "name": "Shifting",
           "basePrice": 2999,
-          "sortOrder": 20
+          "sortOrder": 20,
+          "icon": "move"
         },
         {
           "name": "Panel add",
           "basePrice": 1499,
-          "sortOrder": 30
+          "sortOrder": 30,
+          "icon": "sun"
         }
-      ]
+      ],
+      "icon": "sun"
     }
   ]
 }

@@ -10,6 +10,7 @@ import { StartServiceScreen } from '../screens/partner/StartServiceScreen';
 import { InvoiceViewScreen } from '../screens/partner/InvoiceViewScreen';
 import { SubmitBillScreen } from '../screens/partner/SubmitBillScreen';
 import { ServiceHistoryDetailScreen } from '../screens/partner/ServiceHistoryDetailScreen';
+import { ManageExpertiseScreen } from '../screens/partner/ManageExpertiseScreen';
 import { LegalScreen } from '../screens/LegalScreen';
 
 const Stack = createNativeStackNavigator();
@@ -23,6 +24,7 @@ export function PartnerStack() {
             <Stack.Screen name="InvoiceView" component={InvoiceViewScreen} />
             <Stack.Screen name="SubmitBill" component={SubmitBillScreen} />
             <Stack.Screen name="ServiceHistoryDetail" component={ServiceHistoryDetailScreen} />
+            <Stack.Screen name="ManageExpertise" component={ManageExpertiseScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
         </Stack.Navigator>
     );
