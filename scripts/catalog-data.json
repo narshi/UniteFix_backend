@@ -2,11 +2,11 @@
   "_note": "Generated from CATALOG-1.xlsx. Prices are the customer all-in (GST-inclusive) totals.",
   "categories": [
     {
-      "name": "DESKTOP",
+      "name": "Computer",
       "sortOrder": 100,
       "services": [
         {
-          "name": "OS Installation",
+          "name": "OS Installation (Desktop)",
           "basePrice": 799,
           "sortOrder": 10,
           "icon": "download",
@@ -95,74 +95,59 @@
           "sortOrder": 130,
           "icon": "map-pin",
           "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
-        }
-      ],
-      "icon": "monitor",
-      "image": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
-    },
-    {
-      "name": "LAPTOP",
-      "sortOrder": 200,
-      "services": [
+        },
         {
-          "name": "OS Installation",
+          "name": "OS Installation (Laptop)",
           "basePrice": 749,
-          "sortOrder": 10,
+          "sortOrder": 140,
           "icon": "download",
           "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Display Replacement",
           "basePrice": 749,
-          "sortOrder": 20,
+          "sortOrder": 150,
           "icon": "monitor",
           "bannerImage": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Keyboard Replacement (Internal)",
           "basePrice": 999,
-          "sortOrder": 30,
+          "sortOrder": 160,
           "icon": "keyboard",
           "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Keyboard Replacement (External)",
           "basePrice": 499,
-          "sortOrder": 40,
+          "sortOrder": 170,
           "icon": "keyboard",
           "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
         },
         {
-          "name": "Battery Replacemnt",
+          "name": "Battery Replacement",
           "basePrice": 749,
-          "sortOrder": 50,
+          "sortOrder": 180,
           "icon": "battery-charging",
           "bannerImage": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Motherboard Replacement",
           "basePrice": 999,
-          "sortOrder": 60,
+          "sortOrder": 190,
           "icon": "circuit-board",
           "bannerImage": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=400&fit=crop&q=70"
         },
         {
           "name": "Any other Hardware Replacement",
           "basePrice": 749,
-          "sortOrder": 70,
+          "sortOrder": 200,
           "icon": "wrench",
           "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
-        },
-        {
-          "name": "Data Backup & Recovery",
-          "basePrice": 1499,
-          "sortOrder": 80,
-          "icon": "database-backup",
-          "bannerImage": "https://images.unsplash.com/photo-1531492746076-161ca9bcad58?w=400&h=400&fit=crop&q=70"
         }
       ],
-      "icon": "laptop",
-      "image": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70"
+      "icon": "monitor",
+      "image": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
     },
     {
       "name": "PRINTER",
