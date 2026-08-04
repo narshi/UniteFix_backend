@@ -1153,11 +1153,7 @@ export function MyRequestsScreen() {
                             title="No active bookings"
                             subtitle="Book a service from the Home screen and track it here"
                             ctaLabel="Book a Service"
-                            onCta={() =>
-                                navigation.navigate('CustomerTabs', {
-                                    screen: 'HomeTab',
-                                })
-                            }
+                            onCta={() => navigation.navigate('HomeTab')}
                         />
                     }
                 />
@@ -1257,6 +1253,6 @@ const styles = StyleSheet.create({
     },
     listContent: {
         paddingHorizontal: spacing.xl,
-        paddingTop: spacing.xs,
+        paddingTop: spacing.xs,
     },
 });
