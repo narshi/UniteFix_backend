@@ -30,6 +30,19 @@ export const AllServicesScreen = () => {
         }
     }, [categories]);
 
+    // Reset the sub-tab whenever the category changes.
+    useEffect(() => { setSelectedSubCategory(null); }, [selectedCategoryId]);
+
+    // Sub-categories (horizontal tabs) for the selected category. Computed here —
+    // above the loading/error early returns — so the hook count is stable across
+    // renders (a hook after an early return crashes with "rendered more hooks").
+    const subCategories = useMemo(() => {
+        const cat = categories?.find(c => c.id === selectedCategoryId) || categories?.[0];
+        const set = new Set<string>();
+        (cat?.items || []).forEach((it: any) => { if (it.subCategory) set.add(it.subCategory); });
+        return Array.from(set).sort();
+    }, [categories, selectedCategoryId]);
+
     const handleServicePress = (service: ServiceItem) => {
         if (service.status === 'COMING_SOON') {
             Alert.alert(
@@ -76,16 +89,6 @@ export const AllServicesScreen = () => {
 
     const selectedCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
     const categoryItems = selectedCategory?.items || [];
-
-    // Sub-categories (horizontal tabs) — distinct sub_category labels in this category.
-    const subCategories = useMemo(() => {
-        const set = new Set<string>();
-        categoryItems.forEach((it: any) => { if (it.subCategory) set.add(it.subCategory); });
-        return Array.from(set).sort();
-    }, [categoryItems]);
-
-    // Reset the sub-tab whenever the category changes.
-    useEffect(() => { setSelectedSubCategory(null); }, [selectedCategoryId]);
 
     const subFilteredItems = selectedSubCategory
         ? categoryItems.filter((it: any) => it.subCategory === selectedSubCategory)
