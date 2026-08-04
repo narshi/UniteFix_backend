@@ -316,6 +316,10 @@ export const services = pgTable("services", {
   // technician earns basePrice − gst − fee − bookingCharge. 0 = not yet priced.
   // See PRICING_ARCHITECTURE_PLAN.md.
   basePrice: integer("base_price").notNull().default(0),
+  // Optional grouping within a category, shown as horizontal tabs in the app
+  // (e.g. category "Computer" → sub-categories "Desktop" / "Laptop"). Null means
+  // the service shows under the category's "All" tab only.
+  subCategory: text("sub_category"),
   status: serviceItemStatusEnum("status").default('ACTIVE'),
   isHomeVisible: boolean("is_home_visible").default(true),
   sortOrder: integer("sort_order").default(0),

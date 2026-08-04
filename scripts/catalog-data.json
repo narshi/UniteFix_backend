@@ -10,49 +10,56 @@
           "basePrice": 799,
           "sortOrder": 10,
           "icon": "download",
-          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "PC Assembly",
           "basePrice": 799,
           "sortOrder": 20,
           "icon": "cpu",
-          "bannerImage": "https://images.unsplash.com/photo-1591488320449-011701bb6704?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1591488320449-011701bb6704?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "Hardware Replacement",
           "basePrice": 699,
           "sortOrder": 30,
           "icon": "wrench",
-          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "Software Installation",
           "basePrice": 749,
           "sortOrder": 40,
           "icon": "download",
-          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "SSD Upgrade with OS Installation",
           "basePrice": 999,
           "sortOrder": 50,
           "icon": "hard-drive",
-          "bannerImage": "https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1597872200969-2b65d56bd16b?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "Network Sharing",
           "basePrice": 749,
           "sortOrder": 60,
           "icon": "network",
-          "bannerImage": "https://images.unsplash.com/photo-1606904825846-647eb07f5be2?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1606904825846-647eb07f5be2?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "Virus Removal",
           "basePrice": 749,
           "sortOrder": 70,
           "icon": "shield-check",
-          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Desktop"
         },
         {
           "name": "Data Backup & Recovery",
@@ -101,49 +108,56 @@
           "basePrice": 749,
           "sortOrder": 140,
           "icon": "download",
-          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1547082299-de196ea013d6?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Display Replacement",
           "basePrice": 749,
           "sortOrder": 150,
           "icon": "monitor",
-          "bannerImage": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Keyboard Replacement (Internal)",
           "basePrice": 999,
           "sortOrder": 160,
           "icon": "keyboard",
-          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Keyboard Replacement (External)",
           "basePrice": 499,
           "sortOrder": 170,
           "icon": "keyboard",
-          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Battery Replacement",
           "basePrice": 749,
           "sortOrder": 180,
           "icon": "battery-charging",
-          "bannerImage": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1620714223084-8fcacc6dfd8d?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Motherboard Replacement",
           "basePrice": 999,
           "sortOrder": 190,
           "icon": "circuit-board",
-          "bannerImage": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         },
         {
           "name": "Any other Hardware Replacement",
           "basePrice": 749,
           "sortOrder": 200,
           "icon": "wrench",
-          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70"
+          "bannerImage": "https://images.unsplash.com/photo-1530124566582-a618bc2615dc?w=400&h=400&fit=crop&q=70",
+          "subCategory": "Laptop"
         }
       ],
       "icon": "monitor",

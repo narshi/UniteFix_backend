@@ -174,6 +174,7 @@ export default function ServiceCatalogPage() {
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
       isActive: formData.get('isActive') === 'on',
       basePrice: Math.max(0, Math.round(Number(priceInput) || 0)),
+      subCategory: ((formData.get('subCategory') as string) || '').trim() || null,
     };
 
     if (editingService) {
@@ -412,6 +413,10 @@ export default function ServiceCatalogPage() {
               <div className="grid gap-2">
                 <Label htmlFor="svc-sub" className="text-[hsl(215,20%,75%)]">Subtitle / Description</Label>
                 <Input id="svc-sub" name="subtitle" defaultValue={editingService?.subtitle} placeholder="Short summary of the service" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="svc-subcat" className="text-[hsl(215,20%,75%)]">Sub-category (optional)</Label>
+                <Input id="svc-subcat" name="subCategory" defaultValue={editingService?.subCategory || ''} placeholder="e.g., Desktop or Laptop — groups this service into a tab" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
               </div>
 
               {/* Price + live breakdown */}

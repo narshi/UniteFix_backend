@@ -34,6 +34,7 @@ export interface ServiceItem {
     sortOrder: number;
     isActive: boolean;
     basePrice?: number; // fixed catalog price (customer all-in). 0/undefined = not priced
+    subCategory?: string | null; // grouping within a category (e.g. Desktop/Laptop)
 }
 
 export interface ServiceRequest {

@@ -25,7 +25,7 @@ import { eq, and } from 'drizzle-orm';
  *   tsx scripts/seed-catalog.ts --confirm --activate# write and publish
  */
 
-interface CatalogSvc { name: string; basePrice: number; sortOrder: number; icon?: string; bannerImage?: string; }
+interface CatalogSvc { name: string; basePrice: number; sortOrder: number; icon?: string; bannerImage?: string; subCategory?: string; }
 interface CatalogCat { name: string; sortOrder: number; icon?: string; image?: string; services: CatalogSvc[]; }
 
 const args = process.argv.slice(2);
@@ -73,7 +73,7 @@ async function main() {
                 svcUpdated++;
                 if (CONFIRM) {
                     await db.update(services)
-                        .set({ basePrice: svc.basePrice, icon: svc.icon, bannerImage: svc.bannerImage, updatedAt: new Date() })
+                        .set({ basePrice: svc.basePrice, icon: svc.icon, bannerImage: svc.bannerImage, subCategory: svc.subCategory ?? null, updatedAt: new Date() })
                         .where(eq(services.id, existing.id));
                 }
             } else {
@@ -86,6 +86,7 @@ async function main() {
                         basePrice: svc.basePrice,
                         icon: svc.icon,
                         bannerImage: svc.bannerImage,
+                        subCategory: svc.subCategory ?? null,
                         sortOrder: svc.sortOrder,
                         isActive: ACTIVATE,
                         isHomeVisible: ACTIVATE,

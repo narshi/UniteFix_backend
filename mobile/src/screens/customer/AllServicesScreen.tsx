@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +19,7 @@ export const AllServicesScreen = () => {
     const { data: categories, isLoading, error } = useAllServices();
     
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+    const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchActive, setIsSearchActive] = useState(false);
 
@@ -75,14 +76,28 @@ export const AllServicesScreen = () => {
 
     const selectedCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
     const categoryItems = selectedCategory?.items || [];
-    
+
+    // Sub-categories (horizontal tabs) — distinct sub_category labels in this category.
+    const subCategories = useMemo(() => {
+        const set = new Set<string>();
+        categoryItems.forEach((it: any) => { if (it.subCategory) set.add(it.subCategory); });
+        return Array.from(set).sort();
+    }, [categoryItems]);
+
+    // Reset the sub-tab whenever the category changes.
+    useEffect(() => { setSelectedSubCategory(null); }, [selectedCategoryId]);
+
+    const subFilteredItems = selectedSubCategory
+        ? categoryItems.filter((it: any) => it.subCategory === selectedSubCategory)
+        : categoryItems;
+
     // Search logic: filter across ALL categories if searching
     const allServices = categories.flatMap(c => c.items || []);
-    const searchResults = searchQuery.trim() === '' 
-        ? categoryItems 
+    const searchResults = searchQuery.trim() === ''
+        ? categoryItems
         : allServices.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : categoryItems;
+    const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : subFilteredItems;
 
     return (
         <SafeAreaView style={styles.container}>
@@ -199,6 +214,29 @@ export const AllServicesScreen = () => {
                             <View style={styles.searchResultHeader}>
                                 <Text style={styles.searchResultText}>Found {itemsToDisplay.length} results for "{searchQuery}"</Text>
                             </View>
+                        )}
+
+                        {/* Sub-category tabs (horizontal, scrollable) */}
+                        {!isSearchActive && subCategories.length > 0 && (
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.subTabRow}
+                            >
+                                {['All', ...subCategories].map((tab) => {
+                                    const active = tab === 'All' ? !selectedSubCategory : selectedSubCategory === tab;
+                                    return (
+                                        <TouchableOpacity
+                                            key={tab}
+                                            style={[styles.subTab, active && styles.subTabActive]}
+                                            onPress={() => setSelectedSubCategory(tab === 'All' ? null : tab)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Text style={[styles.subTabText, active && styles.subTabTextActive]}>{tab}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
                         )}
 
                         <View style={styles.servicesGrid}>
@@ -395,6 +433,30 @@ const styles = StyleSheet.create({
         ...typography.caption,
         color: colors.primary,
         fontWeight: '600',
+    },
+    subTabRow: {
+        gap: spacing.sm,
+        paddingBottom: spacing.md,
+    },
+    subTab: {
+        paddingHorizontal: spacing.base,
+        paddingVertical: spacing.sm,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    subTabActive: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    subTabText: {
+        ...typography.caption,
+        fontWeight: '600',
+        color: colors.textSecondary,
+    },
+    subTabTextActive: {
+        color: colors.textInverse,
     },
     servicesGrid: {
         flexDirection: 'row',
