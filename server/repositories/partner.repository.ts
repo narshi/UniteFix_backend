@@ -12,22 +12,27 @@ import {
 } from "@shared/schema";
 import { eq, desc, count, and } from "drizzle-orm";
 import { calculateHaversineDistance } from "../lib/geo";
+import { nextSequentialNumber } from "../lib/sequential-id";
 
 // ==================== PARTNER CRUD (→ employees table) ====================
 
 export async function createServiceProvider(insertProvider: any): Promise<Employee> {
-    const countResult = await db.select({ count: count() }).from(employees);
-    const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
-
-    const [employee] = await db
-        .insert(employees)
-        .values({
-            ...insertProvider,
-            partnerId,
-            skills: insertProvider.skills || null
-        } as any)
-        .returning();
-    return employee;
+    // Max-based id (not count) so deletions can't cause a unique collision.
+    let next = await nextSequentialNumber('employees', 'partner_id', 'SP');
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const partnerId = `SP${String(next).padStart(5, '0')}`;
+        try {
+            const [employee] = await db
+                .insert(employees)
+                .values({ ...insertProvider, partnerId, skills: insertProvider.skills || null } as any)
+                .returning();
+            return employee;
+        } catch (err: any) {
+            if (err?.code === '23505') { next++; continue; }
+            throw err;
+        }
+    }
+    throw new Error('Could not allocate a unique partner id after several attempts');
 }
 
 export async function getServiceProvider(id: number): Promise<Employee | undefined> {

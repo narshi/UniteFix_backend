@@ -11,18 +11,24 @@ import {
     type OtpVerification, type InsertOtpVerification,
 } from "@shared/schema";
 import { eq, and, desc, gte, count } from "drizzle-orm";
+import { nextSequentialNumber } from "../lib/sequential-id";
 
 // ==================== PRODUCT ORDERS ====================
 
 export async function createProductOrder(insertOrder: InsertProductOrder): Promise<ProductOrder> {
-    const countResult = await db.select({ count: count() }).from(productOrders);
-    const orderId = `ORD${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-
-    const [order] = await db
-        .insert(productOrders)
-        .values({ ...insertOrder, orderId })
-        .returning();
-    return order;
+    // Max-based id (not count) so deletions can't cause a unique collision.
+    let next = await nextSequentialNumber('product_orders', 'order_id', 'ORD');
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const orderId = `ORD${String(next).padStart(6, '0')}`;
+        try {
+            const [order] = await db.insert(productOrders).values({ ...insertOrder, orderId }).returning();
+            return order;
+        } catch (err: any) {
+            if (err?.code === '23505') { next++; continue; }
+            throw err;
+        }
+    }
+    throw new Error('Could not allocate a unique order id after several attempts');
 }
 
 export async function getProductOrder(id: number): Promise<ProductOrder | undefined> {
@@ -54,14 +60,18 @@ export async function getAllProductOrders(): Promise<ProductOrder[]> {
 // ==================== INVOICES ====================
 
 export async function createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
-    const countResult = await db.select({ count: count() }).from(invoices);
-    const invoiceId = `INV${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
-
-    const [invoice] = await db
-        .insert(invoices)
-        .values({ ...insertInvoice, invoiceId })
-        .returning();
-    return invoice;
+    let next = await nextSequentialNumber('invoices', 'invoice_id', 'INV');
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const invoiceId = `INV${String(next).padStart(6, '0')}`;
+        try {
+            const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
+            return invoice;
+        } catch (err: any) {
+            if (err?.code === '23505') { next++; continue; }
+            throw err;
+        }
+    }
+    throw new Error('Could not allocate a unique invoice id after several attempts');
 }
 
 export async function getInvoice(id: number): Promise<Invoice | undefined> {

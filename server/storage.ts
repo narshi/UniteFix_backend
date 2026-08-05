@@ -98,6 +98,7 @@ import { configService } from "./services/config.service";
 
 // Geo utilities: single source of truth
 import { calculateHaversineDistance } from "./lib/geo";
+import { nextSequentialNumber } from "./lib/sequential-id";
 
 export interface IStorage {
   // User management
@@ -478,18 +479,22 @@ export class DatabaseStorage implements IStorage {
 
   // Service Providers → PHASE 1: All methods now use employees table
   async createServiceProvider(insertProvider: any): Promise<Employee> {
-    const countResult = await db.select({ count: count() }).from(employees);
-    const partnerId = `SP${String((countResult[0]?.count || 0) + 1).padStart(5, '0')}`;
+    let next = await nextSequentialNumber('employees', 'partner_id', 'SP');
 
-    const [employee] = await db
-      .insert(employees)
-      .values({
-        ...insertProvider,
-        partnerId,
-        skills: insertProvider.skills || null
-      } as any)
-      .returning();
-    return employee;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const partnerId = `SP${String(next).padStart(5, '0')}`;
+      try {
+        const [employee] = await db
+          .insert(employees)
+          .values({ ...insertProvider, partnerId, skills: insertProvider.skills || null } as any)
+          .returning();
+        return employee;
+      } catch (err: any) {
+        if (err?.code === '23505') { next++; continue; }
+        throw err;
+      }
+    }
+    throw new Error('Could not allocate a unique partner id after several attempts');
   }
 
   async getServiceProvider(id: number): Promise<Employee | undefined> {
@@ -676,15 +681,24 @@ export class DatabaseStorage implements IStorage {
 
   // Service Requests
   async createServiceRequest(insertRequest: InsertServiceRequest): Promise<ServiceRequest> {
-    const countResult = await db.select({ count: count() }).from(serviceRequests);
-    const serviceId = `SR${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
     const handshakeOtp = crypto.randomInt(100000, 999999).toString();
+    let next = await nextSequentialNumber('service_requests', 'service_id', 'SR');
 
-    const [request] = await db
-      .insert(serviceRequests)
-      .values({ ...insertRequest, serviceId, handshakeOtp })
-      .returning();
-    return request;
+    // Retry on the rare chance a concurrent insert grabbed the same number.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const serviceId = `SR${String(next).padStart(6, '0')}`;
+      try {
+        const [request] = await db
+          .insert(serviceRequests)
+          .values({ ...insertRequest, serviceId, handshakeOtp })
+          .returning();
+        return request;
+      } catch (err: any) {
+        if (err?.code === '23505') { next++; continue; } // unique_violation → try next
+        throw err;
+      }
+    }
+    throw new Error('Could not allocate a unique service id after several attempts');
   }
 
   async getServiceRequest(id: number): Promise<ServiceRequest | undefined> {
@@ -1351,14 +1365,19 @@ export class DatabaseStorage implements IStorage {
 
   // Product Orders
   async createProductOrder(insertOrder: InsertProductOrder): Promise<ProductOrder> {
-    const countResult = await db.select({ count: count() }).from(productOrders);
-    const orderId = `ORD${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
+    let next = await nextSequentialNumber('product_orders', 'order_id', 'ORD');
 
-    const [order] = await db
-      .insert(productOrders)
-      .values({ ...insertOrder, orderId })
-      .returning();
-    return order;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const orderId = `ORD${String(next).padStart(6, '0')}`;
+      try {
+        const [order] = await db.insert(productOrders).values({ ...insertOrder, orderId }).returning();
+        return order;
+      } catch (err: any) {
+        if (err?.code === '23505') { next++; continue; }
+        throw err;
+      }
+    }
+    throw new Error('Could not allocate a unique order id after several attempts');
   }
 
   async getProductOrder(id: number): Promise<ProductOrder | undefined> {
@@ -1506,14 +1525,21 @@ export class DatabaseStorage implements IStorage {
 
   // Invoices
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
-    const countResult = await db.select({ count: count() }).from(invoices);
-    const invoiceId = `INV${String((countResult[0]?.count || 0) + 1).padStart(6, '0')}`;
+    // Only INV-format ids are counted; the main invoice path uses UF-INV-* ids,
+    // which this regexp deliberately ignores so the two schemes never collide.
+    let next = await nextSequentialNumber('invoices', 'invoice_id', 'INV');
 
-    const [invoice] = await db
-      .insert(invoices)
-      .values({ ...insertInvoice, invoiceId })
-      .returning();
-    return invoice;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const invoiceId = `INV${String(next).padStart(6, '0')}`;
+      try {
+        const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
+        return invoice;
+      } catch (err: any) {
+        if (err?.code === '23505') { next++; continue; }
+        throw err;
+      }
+    }
+    throw new Error('Could not allocate a unique invoice id after several attempts');
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {
