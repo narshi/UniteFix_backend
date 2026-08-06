@@ -13,7 +13,7 @@
 
 import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray } from "drizzle-orm";
-import { serviceRequests, employees, users, auditLogs } from "@shared/schema";
+import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories } from "@shared/schema";
 
 interface ServiceFilters {
     status?: string;
@@ -424,9 +424,13 @@ export class AdminServiceManager {
                 createdAt: serviceRequests.createdAt,
                 customerName: users.username,
                 customerPhone: users.phone,
+                categoryName: serviceCategories.name,
+                serviceName: servicesCatalog.name,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
+            .leftJoin(servicesCatalog, eq(servicesCatalog.id, serviceRequests.catalogServiceId))
+            .leftJoin(serviceCategories, eq(serviceCategories.id, servicesCatalog.categoryId))
             .where(
                 and(
                     eq(serviceRequests.status, 'created'),

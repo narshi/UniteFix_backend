@@ -302,8 +302,13 @@ export default function AssignmentQueuePage() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{req.serviceType}</p>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {(req as any).categoryName && (
+                              <span className="text-[10px] uppercase tracking-wider font-bold text-[hsl(217,91%,70%)] bg-[hsla(217,91%,60%,0.12)] border border-[hsla(217,91%,60%,0.25)] rounded px-1.5 py-0.5">
+                                {(req as any).categoryName}
+                              </span>
+                            )}
+                            <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{(req as any).serviceName || req.serviceType}</p>
                             {getUrgencyBadge(req.urgency, req.waitingHours)}
                             {req.photos && req.photos.length > 0 && (
                               <span className="text-xs text-[hsl(215,20%,55%)] flex items-center gap-0.5">
@@ -311,7 +316,7 @@ export default function AssignmentQueuePage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-[hsl(215,20%,65%)] truncate">{req.description}</p>
+                          <p className="text-xs text-[hsl(215,20%,65%)] truncate"><span className="text-[hsl(215,20%,45%)]">Note: </span>{req.description}</p>
                           <div className="flex items-center gap-4 mt-1.5">
                             <span className="text-xs text-[hsl(215,20%,55%)] flex items-center gap-1">
                               <User className="w-3 h-3 text-[hsl(217,91%,60%)]" />{req.customerName}

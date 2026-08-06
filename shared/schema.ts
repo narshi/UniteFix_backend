@@ -206,6 +206,9 @@ export const serviceRequests = pgTable("service_requests", {
   userId: integer("user_id").notNull().references(() => users.id),
   providerId: integer("provider_id").references(() => employees.id), // PHASE 1: FK → employees (was serviceProviders)
   serviceType: text("service_type").notNull(),
+  // The catalog service the customer selected — lets admin show its category and
+  // exact service name (serviceType is only a free-text copy of the name).
+  catalogServiceId: integer("catalog_service_id"),
   brand: text("brand"),
   model: text("model"),
   description: text("description").notNull(),

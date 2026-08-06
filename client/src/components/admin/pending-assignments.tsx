@@ -85,7 +85,12 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                           description that may name a different trade. The customer's
                           note is kept but clearly demoted as supporting detail. */}
                       <div className="space-y-1 max-w-[280px]">
-                        <p className="font-semibold text-white">{service.serviceType || 'Service'}</p>
+                        {service.categoryName && (
+                          <span className="inline-block text-[10px] uppercase tracking-wider font-bold text-[hsl(217,91%,70%)] bg-[hsla(217,91%,60%,0.12)] border border-[hsla(217,91%,60%,0.25)] rounded px-1.5 py-0.5">
+                            {service.categoryName}
+                          </span>
+                        )}
+                        <p className="font-semibold text-white">{service.serviceName || service.serviceType || 'Service'}</p>
                         <p className="text-xs text-[hsl(215,20%,55%)] font-mono">{service.serviceId}</p>
                         {service.description && (
                           <p className="text-xs text-[hsl(215,20%,70%)] italic line-clamp-2">

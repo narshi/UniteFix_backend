@@ -1000,12 +1000,51 @@ export class DatabaseStorage implements IStorage {
     return request || undefined;
   }
 
+  /**
+   * The technician's payout for a completed booking, credited to the wallet HOLD.
+   * v2 fixed-price → the exact frozen technicianEarning; v1/legacy → the historical
+   * share-of-booking-fee. Idempotent: creditWalletOnHold dedupes by serviceRequestId.
+   */
+  private async creditTechnicianOnCompletion(service: any, completedAt: Date | string, tx?: any): Promise<void> {
+    if (!service.providerId) {
+      logger.warn(`[WALLET] Skipping completion credit for SR ${service.id}: no provider assigned`);
+      return;
+    }
+    const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
+    const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
+    const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
+    const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
+
+    const snapshot: any = service.pricingSnapshot;
+    const partnerAmount = (snapshot && snapshot.snapshotVersion === 2 && snapshot.technicianEarning != null)
+      ? Number(snapshot.technicianEarning)
+      : (baseFee * partnerSharePct) / 100;
+
+    const releaseDate = new Date(completedAt);
+    releaseDate.setDate(releaseDate.getDate() + holdDays);
+
+    await this.creditWalletOnHold(service.providerId, service.id, partnerAmount, releaseDate, tx);
+    logger.info(`[WALLET] Credited ₹${partnerAmount} to HOLD for partner ${service.providerId} (SR ${service.id})`);
+  }
+
   async updateServiceRequestStatus(id: number, status: string): Promise<ServiceRequest | undefined> {
+    const isCompleting = status === 'completed';
     const [request] = await db
       .update(serviceRequests)
-      .set({ status: status as any, updatedAt: new Date() })
+      .set({ status: status as any, updatedAt: new Date(), ...(isCompleting ? { completedAt: new Date() } : {}) })
       .where(eq(serviceRequests.id, id))
       .returning();
+
+    // Credit the technician on completion. Online/QR payments finish through this
+    // path (not transitionBookingState), so without this the wallet was never
+    // credited. Non-fatal + idempotent, so a hiccup can't un-complete a paid job.
+    if (request && isCompleting) {
+      try {
+        await this.creditTechnicianOnCompletion(request, request.completedAt ?? new Date());
+      } catch (err) {
+        logger.error(`[WALLET] Completion credit failed for SR ${id}`, { error: (err as any)?.message });
+      }
+    }
     return request || undefined;
   }
 
@@ -1023,10 +1062,19 @@ export class DatabaseStorage implements IStorage {
     return request || undefined;
   }
 
-  async getPendingAssignments(): Promise<ServiceRequest[]> {
-    return await db
-      .select()
+  async getPendingAssignments(): Promise<any[]> {
+    // Join the catalog so admin sees the selected category + exact service name
+    // (serviceType is just a free-text copy). Left joins so bookings without a
+    // catalog link (old/free-text) still appear.
+    const rows = await db
+      .select({
+        sr: serviceRequests,
+        categoryName: serviceCategories.name,
+        serviceName: services.name,
+      })
       .from(serviceRequests)
+      .leftJoin(services, eq(services.id, serviceRequests.catalogServiceId))
+      .leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
       .where(
         and(
           eq(serviceRequests.status, 'created'),
@@ -1034,6 +1082,8 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(desc(serviceRequests.createdAt));
+
+    return rows.map((r) => ({ ...r.sr, categoryName: r.categoryName, serviceName: r.serviceName }));
   }
 
   async getAllServiceRequests(): Promise<ServiceRequest[]> {

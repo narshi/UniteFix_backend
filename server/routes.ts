@@ -1532,6 +1532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const service = await storage.createServiceRequest({
         ...serviceData,
+        catalogServiceId: catalogServiceId ?? undefined,
         bookingFee: pricingSnapshot.bookingFee,
         bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
       });
