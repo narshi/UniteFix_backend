@@ -308,7 +308,7 @@ export default function AssignmentQueuePage() {
                                 {(req as any).categoryName}
                               </span>
                             )}
-                            <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{(req as any).serviceName || req.serviceType}</p>
+                            <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{(req as any).serviceName || req.serviceType || 'General'}</p>
                             {getUrgencyBadge(req.urgency, req.waitingHours)}
                             {req.photos && req.photos.length > 0 && (
                               <span className="text-xs text-[hsl(215,20%,55%)] flex items-center gap-0.5">

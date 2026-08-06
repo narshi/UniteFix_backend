@@ -321,7 +321,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
                         </td>
                         <td className="p-4">
-                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceType}</p>
+                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceType || 'General'}</p>
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5 line-clamp-1 max-w-[150px]">{service.description}</p>
                         </td>
                         <td className="p-4">
@@ -422,7 +422,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </div>
                   <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                     <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service Type</p>
-                    <p className="text-base text-white">{selectedService.serviceType}</p>
+                    <p className="text-base text-white">{selectedService.serviceType || 'General'}</p>
                   </div>
                   <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                     <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee Status</p>

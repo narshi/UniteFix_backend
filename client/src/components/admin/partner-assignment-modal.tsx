@@ -113,7 +113,7 @@ export default function PartnerAssignmentModal({
           <div className="mb-4 p-4 bg-[rgba(255,255,255,0.03)] rounded-xl border border-[rgba(255,255,255,0.06)] shadow-inner">
             <div className="flex justify-between items-start">
               <div>
-                <p className="font-semibold text-white text-lg tracking-tight">{service.serviceType}</p>
+                <p className="font-semibold text-white text-lg tracking-tight">{service.serviceType || 'General'}</p>
                 <p className="text-sm text-[hsl(210,20%,85%)] mt-1">{service.description}</p>
                 <p className="text-xs text-[hsl(215,20%,55%)] mt-2 font-medium">
                   {service.serviceId} <span className="mx-1 opacity-50">•</span> {service.brand} {service.model}
