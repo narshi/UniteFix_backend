@@ -38,15 +38,31 @@ type Props = NativeStackScreenProps<any, 'ServiceRequest'>;
 const MAX_PHOTOS = 5;
 
 export function ServiceRequestScreen({ navigation, route }: Props) {
-    const serviceType = route.params?.serviceType || '';
-    // Callers pass only `serviceType` (the catalog service name), so fall back to it
-    // for the display name — otherwise the screen reads a generic "Service" and the
-    // customer never sees the service they actually selected echoed back.
-    const serviceName = route.params?.serviceName || serviceType || 'Service';
-    const serviceId = route.params?.serviceId as number | undefined;
-    const basePrice = Number(route.params?.basePrice ?? 0);
+    const { 
+        description, setDescription, 
+        urgency, setUrgency, 
+        photos, setPhotos, 
+        clearDraft,
+        serviceType: draftServiceType,
+        serviceName: draftServiceName,
+        serviceId: draftServiceId,
+        basePrice: draftBasePrice,
+        setServiceContext
+    } = useBookingDraftStore();
 
-    const { description, setDescription, urgency, setUrgency, photos, setPhotos, clearDraft } = useBookingDraftStore();
+    // If coming fresh from HomeScreen, read params and persist to store.
+    // Otherwise, fall back to the store (so navigation back from SavedAddresses doesn't wipe them)
+    const serviceType = route.params?.serviceType || draftServiceType || '';
+    const serviceName = route.params?.serviceName || draftServiceName || serviceType || 'Service';
+    const serviceId = (route.params?.serviceId as number | undefined) || draftServiceId;
+    const basePrice = Number(route.params?.basePrice ?? draftBasePrice ?? 0);
+
+    useEffect(() => {
+        if (route.params?.serviceType) {
+            setServiceContext(serviceType, serviceName, serviceId, basePrice);
+        }
+    }, [route.params?.serviceType]);
+
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
