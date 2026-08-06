@@ -1066,15 +1066,20 @@ export class DatabaseStorage implements IStorage {
     // Join the catalog so admin sees the selected category + exact service name
     // (serviceType is just a free-text copy). Left joins so bookings without a
     // catalog link (old/free-text) still appear.
+    // Also join users so we get the customer's name, phone, and address.
     const rows = await db
       .select({
         sr: serviceRequests,
         categoryName: serviceCategories.name,
-        serviceName: services.name,
+        catalogServiceName: services.name,
+        userName: users.username,
+        userPhone: users.phone,
+        userAddress: users.homeAddress,
       })
       .from(serviceRequests)
       .leftJoin(services, eq(services.id, serviceRequests.catalogServiceId))
       .leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
+      .leftJoin(users, eq(users.id, serviceRequests.userId))
       .where(
         and(
           eq(serviceRequests.status, 'created'),
@@ -1083,7 +1088,18 @@ export class DatabaseStorage implements IStorage {
       )
       .orderBy(desc(serviceRequests.createdAt));
 
-    return rows.map((r) => ({ ...r.sr, categoryName: r.categoryName, serviceName: r.serviceName }));
+    return rows.map((r) => ({
+      ...r.sr,
+      categoryName: r.categoryName,
+      // Use catalog service name if available, otherwise fall back to the
+      // free-text serviceType the customer typed / the app sent.
+      serviceName: r.catalogServiceName || r.sr.serviceType,
+      user: {
+        username: r.userName,
+        phone: r.userPhone,
+        homeAddress: r.userAddress,
+      },
+    }));
   }
 
   async getAllServiceRequests(): Promise<ServiceRequest[]> {
