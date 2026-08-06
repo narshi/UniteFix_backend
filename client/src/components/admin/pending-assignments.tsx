@@ -80,21 +80,19 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                 {pendingServices.map((service: any) => (
                   <tr key={service.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                     <td className="p-4">
-                      {/* Lead with the service the customer actually SELECTED, so the
-                          assignment decision is driven by that and not by a free-text
-                          description that may name a different trade. The customer's
-                          note is kept but clearly demoted as supporting detail. */}
-                      <div className="space-y-1 max-w-[280px]">
-                        {service.categoryName && (
-                          <span className="inline-block text-[10px] uppercase tracking-wider font-bold text-[hsl(217,91%,70%)] bg-[hsla(217,91%,60%,0.12)] border border-[hsla(217,91%,60%,0.25)] rounded px-1.5 py-0.5">
-                            {service.categoryName}
-                          </span>
+                      <div className="space-y-1.5 max-w-[300px]">
+                        {/* Category badge — from catalog or fall back to serviceType */}
+                        <span className="inline-block text-[10px] uppercase tracking-wider font-bold text-[hsl(217,91%,70%)] bg-[hsla(217,91%,60%,0.12)] border border-[hsla(217,91%,60%,0.25)] rounded px-1.5 py-0.5">
+                          {service.categoryName || service.serviceType || 'General'}
+                        </span>
+                        {/* Service name — catalog name if available */}
+                        {service.serviceName && service.serviceName !== service.serviceType && (
+                          <p className="font-semibold text-white">{service.serviceName}</p>
                         )}
-                        <p className="font-semibold text-white">{service.serviceName || service.serviceType || 'Service'}</p>
                         <p className="text-xs text-[hsl(215,20%,55%)] font-mono">{service.serviceId}</p>
+                        {/* Description — promoted so admin understands the request */}
                         {service.description && (
-                          <p className="text-xs text-[hsl(215,20%,70%)] italic line-clamp-2">
-                            <span className="not-italic text-[hsl(215,20%,50%)]">Note: </span>
+                          <p className="text-sm text-[hsl(210,20%,80%)] line-clamp-3 leading-snug">
                             {service.description}
                           </p>
                         )}
