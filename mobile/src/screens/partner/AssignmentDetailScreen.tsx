@@ -423,7 +423,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
                                 {showPartsForm ? (
                                     <View>
-                                        <Text style={styles.label}>Extra parts cost (₹) — customer approved</Text>
+                                        <Text style={styles.label}>Spare parts cost (₹) — customer approved</Text>
                                         <TextInput
                                             style={styles.input}
                                             placeholder="e.g. 300"
@@ -443,7 +443,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                     </View>
                                 ) : (
                                     <TouchableOpacity onPress={() => setShowPartsForm(true)}>
-                                        <Text style={styles.addPartsLink}>+ Add approved parts cost</Text>
+                                        <Text style={styles.addPartsLink}>+ Add spare parts cost</Text>
                                     </TouchableOpacity>
                                 )}
 

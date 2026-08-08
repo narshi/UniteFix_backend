@@ -208,6 +208,55 @@ export function registerAdminWithdrawalRoutes(app: Express) {
     });
 
     /**
+     * POST /api/admin/withdrawals/:id/approve-manual
+     * Approves a withdrawal manually without using RazorpayX.
+     * The admin has already transferred the funds via a UPI app.
+     */
+    app.post("/api/admin/withdrawals/:id/approve-manual", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const requestId = parseInt(req.params.id);
+            if (isNaN(requestId)) return res.status(400).json({ error: "Invalid ID" });
+
+            const [withdrawal] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, requestId)).limit(1);
+            if (!withdrawal) return res.status(404).json({ error: "Withdrawal request not found" });
+            if (withdrawal.status !== 'pending') {
+                return res.status(400).json({ error: `Withdrawal is ${withdrawal.status}, cannot approve manually.` });
+            }
+
+            const adminId = (req as any).admin?.userId;
+
+            await db.update(withdrawalRequests)
+                .set({ 
+                    status: 'completed', 
+                    updatedAt: new Date(),
+                    // Optionally record manual notes in failureReason or a new field, 
+                    // here we use failureReason temporarily or just leave it. 
+                    // Or razorpayPayoutId = 'manual_transfer'
+                    razorpayPayoutId: `manual_txn_${Date.now()}`
+                })
+                .where(eq(withdrawalRequests.id, requestId));
+
+            await recordAudit({
+                entityType: 'withdrawal',
+                entityId: requestId,
+                action: 'withdrawal_manual_payout',
+                changedBy: adminId,
+                fromState: 'pending',
+                toState: 'completed',
+                metadata: {
+                    amount: parseFloat(withdrawal.amount as any),
+                    partnerId: withdrawal.partnerId,
+                    method: 'manual',
+                },
+            });
+
+            res.json({ success: true, message: "Withdrawal marked as manually paid successfully." });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
      * POST /api/admin/withdrawals/:id/sync
      *
      * Asks RazorpayX for the real state of a payout and reconciles our record.

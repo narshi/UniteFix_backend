@@ -174,6 +174,9 @@ export interface IStorage {
     totalAmount: number,
     commissionRate: number
   ): Promise<{ service: ServiceRequest; transaction: WalletTransaction }>;
+  creditProviderWalletForOnlinePayment(
+    serviceRequestId: number
+  ): Promise<{ transaction: WalletTransaction | null }>;
   topUpProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction>;
   deductProviderWallet(providerId: number, amount: number, description: string): Promise<WalletTransaction>;
   getProviderWalletTransactions(providerId: number): Promise<WalletTransaction[]>;
@@ -1275,6 +1278,94 @@ export class DatabaseStorage implements IStorage {
         .returning();
 
       return { service: updatedService, transaction };
+    });
+
+    return result;
+  }
+
+  async creditProviderWalletForOnlinePayment(
+    serviceRequestId: number
+  ): Promise<{ transaction: WalletTransaction | null }> {
+    const result = await db.transaction(async (tx) => {
+      // 1. Get the service request
+      const [service] = await tx
+        .select()
+        .from(serviceRequests)
+        .where(eq(serviceRequests.id, serviceRequestId));
+
+      if (!service || !service.providerId) {
+        throw new Error('Service request or provider not found');
+      }
+      
+      const snapshot = service.pricingSnapshot as any;
+      if (!snapshot || !snapshot.technicianEarning) {
+          // If there is no technicianEarning, we can't credit.
+          // V1 bookings might not have this, but they rely on cash/manual entry
+          return { transaction: null };
+      }
+      
+      const earningAmount = Number(snapshot.technicianEarning);
+      if (earningAmount <= 0) {
+          return { transaction: null };
+      }
+
+      // Check if we already credited this to prevent double-crediting
+      const [existingTx] = await tx
+        .select()
+        .from(walletTransactions)
+        .where(and(
+            eq(walletTransactions.serviceRequestId, serviceRequestId),
+            eq(walletTransactions.type, 'earning')
+        ));
+        
+      if (existingTx) {
+          return { transaction: existingTx };
+      }
+
+      // 2. Get the employee (was provider)
+      const [employee] = await tx
+        .select()
+        .from(employees)
+        .where(eq(employees.id, service.providerId));
+
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const currentBalance = parseFloat(employee.walletBalance || '0');
+      const newBalance = currentBalance + earningAmount;
+
+      // 3. Add earning to employee wallet
+      await tx
+        .update(employees)
+        .set({
+          walletBalance: newBalance.toFixed(2),
+          updatedAt: new Date()
+        })
+        .where(eq(employees.id, service.providerId));
+
+      // 4. Create wallet transaction record
+      const [transaction] = await tx
+        .insert(walletTransactions)
+        .values({
+          providerId: service.providerId,
+          serviceRequestId,
+          amount: earningAmount.toFixed(2),
+          type: 'earning',
+          description: `Earnings for online payment of service ${service.serviceId}`,
+          balanceBefore: currentBalance.toFixed(2),
+          balanceAfter: newBalance.toFixed(2)
+        })
+        .returning();
+
+      // Update V2 Wallet (partner_wallets)
+      const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, service.providerId));
+      if (wallet) {
+         const newV2Balance = parseFloat(wallet.balance) + earningAmount;
+         await tx.update(partnerWallets).set({ balance: newV2Balance.toString() }).where(eq(partnerWallets.id, wallet.id));
+      }
+
+      return { transaction };
     });
 
     return result;

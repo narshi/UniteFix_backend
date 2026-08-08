@@ -297,8 +297,11 @@ export class PaymentService {
 
         await storage.updateServiceRequestStatus(serviceRequestId, BookingState.COMPLETED);
         await storage.updateServiceRequest(serviceRequestId, { paymentMethod: 'razorpay' as any });
+        
+        // Credit the technician's wallet since the platform received the money
+        await storage.creditProviderWalletForOnlinePayment(serviceRequestId);
 
-        logger.info(`[QR] Booking ${serviceRequestId} settled via QR payment ${payment.id}`);
+        logger.info(`[QR] Booking ${serviceRequestId} settled via QR payment ${payment.id} and wallet credited`);
         return { settled: true, alreadySettled: false };
     }
 
@@ -455,7 +458,11 @@ export class PaymentService {
                     await storage.updateServiceRequest(parseInt(notes.service_request_id), {
                         paymentMethod: 'razorpay' as any,
                     });
-                    logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED`);
+                    
+                    // Credit the technician's wallet since the platform received the money
+                    await storage.creditProviderWalletForOnlinePayment(parseInt(notes.service_request_id));
+                    
+                    logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED and wallet credited`);
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] COMPLETED transition failed: ${err.message}`);
                 }

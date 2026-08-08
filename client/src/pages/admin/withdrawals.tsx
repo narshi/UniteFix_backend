@@ -50,7 +50,7 @@ type Withdrawal = {
 export default function WithdrawalsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'approve' | 'reject'; request: Withdrawal | null }>({
+  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'approve' | 'reject' | 'approveManual'; request: Withdrawal | null }>({
     isOpen: false,
     type: 'approve',
     request: null
@@ -70,6 +70,21 @@ export default function WithdrawalsPage() {
       toast({ title: "Approved", description: "Payout processing via RazorpayX" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
       setActionDialog({ isOpen: false, type: 'approve', request: null });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const approveManualMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/approve-manual`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Approved Manually", description: "Withdrawal marked as manually paid." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      setActionDialog({ isOpen: false, type: 'approveManual', request: null });
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -124,6 +139,8 @@ export default function WithdrawalsPage() {
     if (!actionDialog.request) return;
     if (actionDialog.type === 'approve') {
       approveMutation.mutate(actionDialog.request.request.id);
+    } else if (actionDialog.type === 'approveManual') {
+      approveManualMutation.mutate(actionDialog.request.request.id);
     } else {
       rejectMutation.mutate(actionDialog.request.request.id);
     }
@@ -232,24 +249,34 @@ export default function WithdrawalsPage() {
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         {w.request.status === 'pending' && (
-                          <>
+                          <div className="flex flex-col gap-2 items-end">
+                            <div className="space-x-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
+                                onClick={() => setActionDialog({ isOpen: true, type: 'approve', request: w })}
+                              >
+                                Approve
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)] border-[hsla(347,77%,50%,0.3)] bg-[hsla(347,77%,50%,0.05)] transition-colors"
+                                onClick={() => setActionDialog({ isOpen: true, type: 'reject', request: w })}
+                              >
+                                Reject
+                              </Button>
+                            </div>
                             <Button 
                               size="sm" 
                               variant="outline"
-                              className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
-                              onClick={() => setActionDialog({ isOpen: true, type: 'approve', request: w })}
+                              className="w-[150px] bg-[hsla(38,92%,50%,0.1)] text-[hsl(38,92%,60%)] hover:bg-[hsla(38,92%,50%,0.2)] border-[hsla(38,92%,50%,0.3)] transition-colors"
+                              onClick={() => setActionDialog({ isOpen: true, type: 'approveManual', request: w })}
                             >
-                              Approve
+                              Mark Paid Manually
                             </Button>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              className="text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)] border-[hsla(347,77%,50%,0.3)] bg-[hsla(347,77%,50%,0.05)] transition-colors"
-                              onClick={() => setActionDialog({ isOpen: true, type: 'reject', request: w })}
-                            >
-                              Reject
-                            </Button>
-                          </>
+                          </div>
                         )}
                         {/* Stuck in 'processing' means the payout fired but the
                             webhook never confirmed the outcome. */}
@@ -288,11 +315,13 @@ export default function WithdrawalsPage() {
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {actionDialog.type === 'approve' ? 'Approve Withdrawal?' : 'Reject Withdrawal?'}
+              {actionDialog.type === 'approve' ? 'Approve Withdrawal via RazorpayX?' : actionDialog.type === 'approveManual' ? 'Mark Paid Manually?' : 'Reject Withdrawal?'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
               {actionDialog.type === 'approve' 
                 ? `This will initiate a real payout of ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via RazorpayX. Are you sure?`
+                : actionDialog.type === 'approveManual'
+                ? `Have you already transferred ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via UPI/Bank? This will complete the redemption without calling RazorpayX.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
               }
             </AlertDialogDescription>
