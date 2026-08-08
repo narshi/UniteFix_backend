@@ -40,12 +40,14 @@ app.use(helmet({
     : false,
 }));
 
-// CORS — allow admin dashboard + React Native app
+// CORS — allow admin dashboard + React Native app + public website
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:5000",
   "http://localhost:5001",
   "http://localhost:8081", // React Native Metro
+  "https://unitefix.com", // static website (register.html calls /api/auth/fallback/*)
+  "https://www.unitefix.com",
   process.env.CLIENT_URL,
 ].filter(Boolean) as string[];
 
