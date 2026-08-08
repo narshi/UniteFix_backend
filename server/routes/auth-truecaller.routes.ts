@@ -123,6 +123,17 @@ function normalizeIndianPhone(phone: string): string {
   return cleaned;
 }
 
+// Masked so the OTP response can say where the code went without letting an
+// unauthenticated caller enumerate a phone number's full account email.
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain || !local) return email;
+  const visible = local.length <= 2
+    ? local[0]
+    : `${local[0]}${'•'.repeat(Math.min(local.length - 2, 6))}${local[local.length - 1]}`;
+  return `${visible}@${domain}`;
+}
+
 // ── Route: Check Phone (Fallback UX Streamlining) ─────────────────────
 
 router.post('/check-phone', async (req: Request, res: Response, next: NextFunction) => {
@@ -498,9 +509,18 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
       return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please check your email address or SMTP configuration.' });
     }
 
+    // When the phone already has an account, the code goes to that account's
+    // stored email, which may not be the address the caller just typed (the
+    // public website form, for one). Tell the client where to look — masked,
+    // so this stays safe to expose pre-auth.
+    const typedEmail = email?.trim().toLowerCase();
+    const sentToRegisteredEmail = !!user?.email && targetEmail.toLowerCase() !== typedEmail;
+
     res.json({
       success: true,
       message: 'OTP sent to your email successfully.',
+      maskedEmail: maskEmail(targetEmail),
+      sentToRegisteredEmail,
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
