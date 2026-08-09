@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
-import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
-const { AlertCircle, ArrowLeft, Search, Grid, ChevronRight, ChevronDown, Inbox, X } = LucideIcons;
+const { AlertCircle, ArrowLeft, Search, ChevronRight, ChevronDown, Inbox, X } = LucideIcons;
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CustomerTabParamList, HomeStackParamList } from '../../types/navigation.types';
@@ -11,6 +10,7 @@ import { useAllServices } from '../../hooks/useCustomerData';
 import { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { ServiceCard } from '../../components/services/ServiceCard';
+import { getCategoryIcon } from '../../utils/serviceIcons';
 
 type NavigationProp = NativeStackNavigationProp<HomeStackParamList & CustomerTabParamList>;
 
@@ -165,19 +165,10 @@ export const AllServicesScreen = () => {
                                         isSelected && styles.sidebarIconContainerSelected
                                     ]}>
                                         {(() => {
-                                            if (category.icon && category.icon.startsWith('http')) {
-                                                return (
-                                                    <Image
-                                                        source={{ uri: category.icon }}
-                                                        style={{ width: '80%', height: '80%' }}
-                                                        contentFit="contain"
-                                                        transition={200}
-                                                    />
-                                                );
-                                            }
-
-                                            const pascalCaseName = category.icon ? category.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Grid';
-                                            const CategoryIcon = (LucideIcons as any)[pascalCaseName] || Grid;
+                                            // Unique Lucide glyph per category — the seeded
+                                            // icon URLs are duplicated stock photos, so remote
+                                            // images are deliberately not rendered here.
+                                            const CategoryIcon = getCategoryIcon(category);
                                             return <CategoryIcon size={24} color={isSelected ? colors.primary : colors.textSecondary} />;
                                         })()}
                                     </View>

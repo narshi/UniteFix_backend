@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
 import * as LucideIcons from 'lucide-react-native';
-const { Grid, Wrench, ChevronRight } = LucideIcons;
-import { Image } from 'expo-image';
+const { Grid, ChevronRight } = LucideIcons;
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { ServiceItem } from '../../api/customer.api';
+import { getServiceIcon } from '../../utils/serviceIcons';
 
 interface ServiceCardProps {
     service?: ServiceItem;
@@ -51,26 +51,10 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
             activeOpacity={0.7}
         >
             {(() => {
-                const hasImageUrl = service.bannerImage || (service.icon && service.icon.startsWith('http'));
-                const imageUrl = service.bannerImage || service.icon;
-
-                if (hasImageUrl) {
-                    // Zepto-style: a prominent photo thumbnail.
-                    return (
-                        <View style={styles.imageBox}>
-                            <Image
-                                source={{ uri: imageUrl }}
-                                style={styles.imageIcon}
-                                contentFit="cover"
-                                transition={200}
-                            />
-                        </View>
-                    );
-                }
-
-                // Fallback: tinted Lucide icon for services without a photo.
-                const pascalCaseName = service.icon ? service.icon.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('') : 'Wrench';
-                const ServiceIcon = (LucideIcons as any)[pascalCaseName] || Wrench;
+                // Always a tinted Lucide glyph — the seeded bannerImage/icon
+                // photo URLs are duplicated across categories, so remote
+                // images are deliberately not rendered here.
+                const ServiceIcon = getServiceIcon(service);
                 return (
                     <View style={styles.iconContainer}>
                         <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />
@@ -140,18 +124,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.primaryLight + '30',
         overflow: 'hidden',
-    },
-    imageBox: {
-        width: 76,
-        height: 76,
-        borderRadius: radii.lg,
-        marginBottom: spacing.md,
-        overflow: 'hidden',
-        backgroundColor: colors.surface,
-    },
-    imageIcon: {
-        width: '100%',
-        height: '100%',
     },
     moreIconContainer: {
         backgroundColor: colors.primaryLight + '50',
