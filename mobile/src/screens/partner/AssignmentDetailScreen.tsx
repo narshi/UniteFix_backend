@@ -23,7 +23,7 @@ import * as ExpoLocation from 'expo-location';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
     ArrowLeft, User, Phone, MapPin, Calendar, Navigation2,
-    CheckCircle, XCircle, Play, DollarSign, KeyRound, Banknote, QrCode
+    CheckCircle, XCircle, Play, KeyRound, Banknote, QrCode
 } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { usePublicConfig } from '../../hooks/useCustomerData';

@@ -613,6 +613,7 @@ export function registerClientFeatureRoutes(app: Express) {
                     balanceHold: wallet.balanceHold,
                     balanceAvailable: wallet.balanceAvailable,
                     totalEarned: wallet.totalEarned,
+                    completedJobs: provider.totalServicesCompleted,
                 },
             });
         } catch (error) {
