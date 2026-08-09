@@ -2,22 +2,69 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
-const { AlertCircle, ArrowLeft, Search, ChevronRight, ChevronDown, Inbox, X } = LucideIcons;
+const { AlertCircle, ArrowLeft, ArrowRight, Search, Users, ShieldCheck, Clock, Headphones, Inbox, X } = LucideIcons;
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CustomerTabParamList, HomeStackParamList } from '../../types/navigation.types';
 import { useAllServices } from '../../hooks/useCustomerData';
 import { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
-import { ServiceCard } from '../../components/services/ServiceCard';
-import { getCategoryIcon } from '../../utils/serviceIcons';
+import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
 
 type NavigationProp = NativeStackNavigationProp<HomeStackParamList & CustomerTabParamList>;
+
+// Banner copy per category; anything unmapped gets the generic line.
+const CATEGORY_TAGLINES: Record<string, string> = {
+    'IT & Security': 'Installation & repair by certified technicians',
+    'Appliances & Utilities': 'Keep your home running smoothly',
+    'Repairs & Maintenance': 'Quick fixes by skilled professionals',
+    'Professional & Property': 'Consultants & experts you can trust',
+    'Transport & Logistics': 'Moving, machinery & vehicle care',
+    'Events, Travel & Lifestyle': 'Plan, book & celebrate with ease',
+    'Specialized Services': 'Niche experts for every need',
+};
+const DEFAULT_TAGLINE = 'On-demand professionals at your doorstep';
+
+const TRUST_BADGES = [
+    { icon: ShieldCheck, color: colors.success, title: 'Verified Experts', caption: 'Background verified professionals' },
+    { icon: Clock, color: colors.warning, title: 'On-time Service', caption: 'Punctual visits you can rely on' },
+    { icon: Headphones, color: colors.info, title: '24/7 Support', caption: "We're here to help you" },
+] as const;
+
+/** Design-spec service card: lavender icon tile, title, subtitle + arrow chip. */
+const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () => void }) => {
+    const Icon = getServiceIcon(service);
+    return (
+        <TouchableOpacity
+            style={[styles.serviceTile, service.status !== 'ACTIVE' && styles.serviceTileDisabled]}
+            onPress={onPress}
+            activeOpacity={0.75}
+        >
+            <View style={styles.serviceTileIconBox}>
+                <Icon size={30} color={colors.primary} strokeWidth={2.2} />
+            </View>
+            <Text style={styles.serviceTileTitle} numberOfLines={2}>{service.name}</Text>
+            <View style={styles.serviceTileFooter}>
+                <Text style={styles.serviceTileSubtitle} numberOfLines={2}>
+                    {service.subtitle || 'Professional service'}
+                </Text>
+                <View style={styles.serviceTileArrow}>
+                    <ArrowRight size={16} color={colors.primary} strokeWidth={2.5} />
+                </View>
+            </View>
+            {service.status === 'COMING_SOON' && (
+                <View style={styles.badgeComingSoon}>
+                    <Text style={styles.badgeText}>Soon</Text>
+                </View>
+            )}
+        </TouchableOpacity>
+    );
+};
 
 export const AllServicesScreen = () => {
     const navigation = useNavigation<NavigationProp>();
     const { data: categories, isLoading, error } = useAllServices();
-    
+
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -102,6 +149,8 @@ export const AllServicesScreen = () => {
 
     const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : subFilteredItems;
 
+    const BannerIcon = selectedCategory ? getCategoryIcon(selectedCategory) : null;
+
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
@@ -109,7 +158,7 @@ export const AllServicesScreen = () => {
                 {isSearchActive ? (
                     <View style={styles.searchHeaderRow}>
                         <TouchableOpacity onPress={() => { setIsSearchActive(false); setSearchQuery(''); }} style={styles.backButton}>
-                            <ArrowLeft size={24} color={colors.textPrimary} />
+                            <ArrowLeft size={22} color={colors.textPrimary} />
                         </TouchableOpacity>
                         <View style={styles.searchInputContainer}>
                             <Search size={18} color={colors.textSecondary} style={{ marginRight: spacing.sm }} />
@@ -131,7 +180,7 @@ export const AllServicesScreen = () => {
                 ) : (
                     <>
                         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                            <ArrowLeft size={24} color={colors.textPrimary} />
+                            <ArrowLeft size={22} color={colors.textPrimary} strokeWidth={2.4} />
                         </TouchableOpacity>
                         <View>
                             <Text style={styles.headerTitle}>All Services</Text>
@@ -139,7 +188,7 @@ export const AllServicesScreen = () => {
                         </View>
                         <View style={{ flex: 1 }} />
                         <TouchableOpacity style={styles.headerAction} onPress={() => setIsSearchActive(true)}>
-                            <Search size={20} color={colors.textPrimary} />
+                            <Search size={20} color={colors.textPrimary} strokeWidth={2.4} />
                         </TouchableOpacity>
                     </>
                 )}
@@ -151,28 +200,26 @@ export const AllServicesScreen = () => {
                     <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         {categories.map((category) => {
                             const isSelected = category.id === selectedCategoryId;
+                            const CategoryIcon = getCategoryIcon(category);
                             return (
                                 <TouchableOpacity
                                     key={category.id}
-                                    style={[
-                                        styles.sidebarItem,
-                                        isSelected && styles.sidebarItemSelected
-                                    ]}
+                                    style={styles.sidebarItem}
                                     onPress={() => setSelectedCategoryId(category.id)}
+                                    activeOpacity={0.7}
                                 >
+                                    {isSelected && <View style={styles.sidebarActiveBar} />}
                                     <View style={[
                                         styles.sidebarIconContainer,
                                         isSelected && styles.sidebarIconContainerSelected
                                     ]}>
-                                        {(() => {
-                                            // Unique Lucide glyph per category — the seeded
-                                            // icon URLs are duplicated stock photos, so remote
-                                            // images are deliberately not rendered here.
-                                            const CategoryIcon = getCategoryIcon(category);
-                                            return <CategoryIcon size={24} color={isSelected ? colors.primary : colors.textSecondary} />;
-                                        })()}
+                                        <CategoryIcon
+                                            size={24}
+                                            color={isSelected ? colors.primary : colors.textSecondary}
+                                            strokeWidth={isSelected ? 2.4 : 2}
+                                        />
                                     </View>
-                                    <Text 
+                                    <Text
                                         style={[
                                             styles.sidebarText,
                                             isSelected && styles.sidebarTextSelected
@@ -190,20 +237,27 @@ export const AllServicesScreen = () => {
                 {/* Right Content - Services Grid */}
                 <View style={styles.rightContent}>
                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.rightContentScroll} keyboardShouldPersistTaps="handled">
+                        {/* Category banner */}
                         {selectedCategory && !isSearchActive && (
-                            <View style={styles.categoryHeaderSection}>
-                                <View style={styles.categoryTitleRow}>
-                                    <View style={styles.categoryTitleAccent} />
-                                    <Text style={styles.categoryHeaderTitle}>
-                                        {selectedCategory.name}
+                            <View style={styles.categoryBanner}>
+                                <View style={styles.categoryBannerText}>
+                                    <Text style={styles.categoryBannerTitle}>{selectedCategory.name}</Text>
+                                    <Text style={styles.categoryBannerSubtitle} numberOfLines={2}>
+                                        {CATEGORY_TAGLINES[selectedCategory.name] || DEFAULT_TAGLINE}
                                     </Text>
+                                    <View style={styles.categoryBannerPill}>
+                                        <Users size={14} color={colors.primary} strokeWidth={2.4} />
+                                        <Text style={styles.categoryBannerPillText}>{itemsToDisplay.length} services available</Text>
+                                    </View>
                                 </View>
-                                <View style={styles.categoryCountBadge}>
-                                    <Text style={styles.categoryCountText}>{itemsToDisplay.length} services available</Text>
-                                </View>
+                                {BannerIcon && (
+                                    <View style={styles.categoryBannerArt}>
+                                        <BannerIcon size={44} color={colors.primary} strokeWidth={1.8} />
+                                    </View>
+                                )}
                             </View>
                         )}
-                        
+
                         {isSearchActive && searchQuery.trim() !== '' && (
                             <View style={styles.searchResultHeader}>
                                 <Text style={styles.searchResultText}>Found {itemsToDisplay.length} results for "{searchQuery}"</Text>
@@ -233,14 +287,17 @@ export const AllServicesScreen = () => {
                             </ScrollView>
                         )}
 
+                        {!isSearchActive && (
+                            <Text style={styles.servicesHeading}>Services ({itemsToDisplay.length})</Text>
+                        )}
+
                         <View style={styles.servicesGrid}>
                             {itemsToDisplay.length > 0 ? itemsToDisplay.map((service) => (
-                                <View key={service.id} style={styles.serviceCardWrapper}>
-                                    <ServiceCard
-                                        service={service}
-                                        onPress={() => handleServicePress(service)}
-                                    />
-                                </View>
+                                <ServiceTile
+                                    key={service.id}
+                                    service={service}
+                                    onPress={() => handleServicePress(service)}
+                                />
                             )) : (
                                 <View style={styles.emptyState}>
                                     <Inbox size={40} color={colors.textDisabled} />
@@ -251,6 +308,25 @@ export const AllServicesScreen = () => {
                     </ScrollView>
                 </View>
             </View>
+
+            {/* Trust footer */}
+            <View style={styles.trustBar}>
+                {TRUST_BADGES.map((badge, index) => {
+                    const BadgeIcon = badge.icon;
+                    return (
+                        <React.Fragment key={badge.title}>
+                            {index > 0 && <View style={styles.trustDivider} />}
+                            <View style={styles.trustItem}>
+                                <BadgeIcon size={20} color={badge.color} strokeWidth={2.2} />
+                                <View style={styles.trustTextWrap}>
+                                    <Text style={styles.trustTitle} numberOfLines={1}>{badge.title}</Text>
+                                    <Text style={styles.trustCaption} numberOfLines={2}>{badge.caption}</Text>
+                                </View>
+                            </View>
+                        </React.Fragment>
+                    );
+                })}
+            </View>
         </SafeAreaView>
     );
 };
@@ -258,7 +334,7 @@ export const AllServicesScreen = () => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.surfaceElevated,
+        backgroundColor: colors.surface,
     },
     loadingContainer: {
         flex: 1,
@@ -282,28 +358,39 @@ const styles = StyleSheet.create({
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: spacing.md,
-        backgroundColor: colors.surfaceElevated,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        ...shadows.sm,
+        paddingHorizontal: spacing.base,
+        paddingVertical: spacing.md,
+        backgroundColor: colors.surface,
         zIndex: 10,
     },
     backButton: {
-        padding: spacing.sm,
-        marginRight: spacing.sm,
+        width: 46,
+        height: 46,
+        borderRadius: radii.xl,
+        backgroundColor: colors.surfaceElevated,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: spacing.md,
+        ...shadows.sm,
     },
     headerTitle: {
-        ...typography.h3,
+        fontSize: 22,
+        fontWeight: '800',
         color: colors.textPrimary,
-        fontWeight: 'bold',
+        letterSpacing: -0.3,
     },
     headerSubtitle: {
         ...typography.caption,
         color: colors.textSecondary,
     },
     headerAction: {
-        padding: spacing.sm,
+        width: 46,
+        height: 46,
+        borderRadius: radii.full,
+        backgroundColor: colors.surfaceElevated,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.sm,
     },
     searchHeaderRow: {
         flexDirection: 'row',
@@ -314,10 +401,10 @@ const styles = StyleSheet.create({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.surface,
+        backgroundColor: colors.surfaceElevated,
         borderRadius: radii.full,
         paddingHorizontal: spacing.md,
-        height: 40,
+        height: 44,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -344,89 +431,118 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
     },
     sidebar: {
-        width: 85,
+        width: 92,
         backgroundColor: colors.surfaceElevated,
-        borderRightWidth: 1,
-        borderRightColor: colors.border,
+        borderRadius: radii['2xl'],
+        marginLeft: spacing.sm,
+        marginBottom: spacing.sm,
+        paddingVertical: spacing.sm,
+        ...shadows.xs,
     },
     sidebarItem: {
         alignItems: 'center',
         paddingVertical: spacing.md,
         paddingHorizontal: spacing.xs,
         position: 'relative',
+        width: '100%',
     },
-    sidebarItemSelected: {
-        backgroundColor: 'transparent',
+    sidebarActiveBar: {
+        position: 'absolute',
+        left: 0,
+        top: '50%',
+        marginTop: -22,
+        width: 3.5,
+        height: 44,
+        backgroundColor: colors.primary,
+        borderTopRightRadius: radii.full,
+        borderBottomRightRadius: radii.full,
     },
     sidebarIconContainer: {
-        width: 56,
-        height: 56,
+        width: 54,
+        height: 54,
         borderRadius: radii.xl,
         backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: spacing.xs,
-        overflow: 'hidden',
     },
     sidebarIconContainerSelected: {
-        backgroundColor: colors.primaryLight + '15',
-        borderWidth: 1.5,
-        borderColor: colors.primaryLight + '60',
+        backgroundColor: colors.primarySurface,
     },
     sidebarText: {
-        ...typography.small,
         color: colors.textSecondary,
         textAlign: 'center',
         fontSize: 10,
+        lineHeight: 13,
         fontWeight: '500',
     },
     sidebarTextSelected: {
-        color: colors.textPrimary,
+        color: colors.primary,
         fontWeight: '800',
     },
     rightContent: {
         flex: 1,
-        backgroundColor: colors.surface,
     },
     rightContentScroll: {
-        padding: spacing.lg,
+        padding: spacing.base,
+        paddingBottom: spacing.xl,
     },
-    categoryHeaderSection: {
-        marginBottom: spacing.xl,
+    categoryBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
-        gap: spacing.sm,
-    },
-    categoryTitleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.sm,
-    },
-    categoryTitleAccent: {
-        width: 4,
-        height: 20,
-        backgroundColor: colors.primary,
-        borderRadius: radii.full,
-    },
-    categoryHeaderTitle: {
-        ...typography.h3,
-        color: colors.textPrimary,
-        fontWeight: '800',
-    },
-    categoryCountBadge: {
         backgroundColor: colors.primarySurface,
-        paddingHorizontal: spacing.sm,
-        paddingVertical: 4,
-        borderRadius: radii.full,
-        borderWidth: 1,
-        borderColor: colors.primaryLight,
+        borderRadius: radii['2xl'],
+        padding: spacing.lg,
+        marginBottom: spacing.lg,
+        overflow: 'hidden',
     },
-    categoryCountText: {
-        ...typography.caption,
+    categoryBannerText: {
+        flex: 1,
+        paddingRight: spacing.sm,
+    },
+    categoryBannerTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        lineHeight: 26,
+        letterSpacing: -0.3,
+        color: colors.textPrimary,
+    },
+    categoryBannerSubtitle: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: colors.textSecondary,
+        marginTop: spacing.xs,
+    },
+    categoryBannerPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: 6,
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii.full,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        marginTop: spacing.md,
+        ...shadows.xs,
+    },
+    categoryBannerPillText: {
+        fontSize: 12,
+        fontWeight: '700',
         color: colors.primary,
-        fontWeight: '600',
+    },
+    categoryBannerArt: {
+        width: 84,
+        height: 84,
+        borderRadius: radii['2xl'],
+        backgroundColor: 'rgba(255, 255, 255, 0.65)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    servicesHeading: {
+        ...typography.h3,
+        fontWeight: '800',
+        color: colors.textPrimary,
+        marginBottom: spacing.md,
     },
     subTabRow: {
         gap: spacing.sm,
@@ -438,7 +554,7 @@ const styles = StyleSheet.create({
         borderRadius: radii.full,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.surface,
+        backgroundColor: colors.surfaceElevated,
     },
     subTabActive: {
         backgroundColor: colors.primary,
@@ -457,9 +573,76 @@ const styles = StyleSheet.create({
         flexWrap: 'wrap',
         justifyContent: 'space-between',
     },
-    serviceCardWrapper: {
-        width: '48%',
+    serviceTile: {
+        width: '48.5%',
+        minHeight: 180,
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii['2xl'],
+        padding: spacing.base,
         marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.divider,
+        position: 'relative',
+        ...shadows.sm,
+    },
+    serviceTileDisabled: {
+        opacity: 0.75,
+    },
+    serviceTileIconBox: {
+        width: 60,
+        height: 60,
+        borderRadius: radii.xl,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    serviceTileTitle: {
+        fontSize: 15,
+        fontWeight: '800',
+        lineHeight: 20,
+        letterSpacing: -0.2,
+        color: colors.textPrimary,
+        marginBottom: spacing.xs,
+    },
+    serviceTileFooter: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        marginTop: 'auto',
+    },
+    serviceTileSubtitle: {
+        flex: 1,
+        fontSize: 11.5,
+        lineHeight: 15,
+        color: colors.textSecondary,
+        marginRight: spacing.sm,
+    },
+    serviceTileArrow: {
+        width: 34,
+        height: 34,
+        borderRadius: radii.full,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    badgeComingSoon: {
+        position: 'absolute',
+        top: spacing.sm,
+        right: spacing.sm,
+        backgroundColor: colors.warningLight,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: colors.warning,
+    },
+    badgeText: {
+        ...typography.caption,
+        fontSize: 9,
+        color: colors.warningDark,
+        fontWeight: '800',
+        textTransform: 'uppercase',
     },
     emptyState: {
         flex: 1,
@@ -472,5 +655,42 @@ const styles = StyleSheet.create({
         ...typography.body,
         color: colors.textSecondary,
         marginTop: spacing.md,
+    },
+    trustBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii['2xl'],
+        marginHorizontal: spacing.md,
+        marginBottom: spacing.sm,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.sm,
+        ...shadows.md,
+    },
+    trustItem: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        paddingHorizontal: spacing.xs,
+    },
+    trustTextWrap: {
+        flexShrink: 1,
+    },
+    trustTitle: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: colors.textPrimary,
+    },
+    trustCaption: {
+        fontSize: 9,
+        lineHeight: 12,
+        color: colors.textSecondary,
+    },
+    trustDivider: {
+        width: 1,
+        height: 34,
+        backgroundColor: colors.divider,
     },
 });
