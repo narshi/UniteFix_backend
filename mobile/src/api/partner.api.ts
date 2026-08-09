@@ -126,7 +126,7 @@ export const partnerApi = {
                 totalEarnings: parseFloat(walletData.totalEarned || '0'),
                 pendingPayments: parseFloat(walletData.balanceHold || '0'),
                 availableBalance: parseFloat(walletData.balanceAvailable || '0'), // Added for UI
-                completedJobs: 0, // Not provided by API currently
+                completedJobs: walletData.completedJobs || 0,
                 recentTransactions: txData.map((tx: any) => {
                     // Map V2 transaction types to credit/debit
                     const isCredit = tx.transactionType === 'release' || tx.transactionType === 'hold_credit' || parseFloat(tx.amount) > 0;

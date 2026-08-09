@@ -12,7 +12,7 @@ import {
     ActivityIndicator,
     Alert,
 } from 'react-native';
-import { Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, DollarSign } from 'lucide-react-native';
+import { Wallet, TrendingUp, ArrowDownLeft, ArrowUpRight, Briefcase } from 'lucide-react-native';
 import { useWallet, useWithdraw } from '../../hooks/usePartnerData';
 import { usePartnerProfile, usePublicConfig } from '../../hooks/useCustomerData';
 import { WalletTransaction } from '../../api/partner.api';
@@ -138,7 +138,7 @@ export function WalletScreen() {
                         </View>
 
                         <View style={styles.completedCard}>
-                            <DollarSign size={20} color={colors.success} />
+                            <Briefcase size={20} color={colors.success} />
                             <Text style={styles.completedText}>
                                 {wallet?.completedJobs || 0} jobs completed
                             </Text>
