@@ -134,10 +134,8 @@ export function ExpertiseSelectionScreen() {
     setError(null);
     try {
       await apiClient.patch('/api/partner/profile/expertise', { services: selected });
-      // Skills are the last mandatory step: once the server reports onboarding
-      // complete, RootNavigator swaps this stack for the partner app (or the
-      // pending-verification screen).
-      await refreshOnboardingStatus();
+      // Proceed to the Code of Conduct screen
+      navigation.navigate('ExpertCodeOfConduct');
     } catch (err: any) {
       console.error('[EXPERTISE] Save failed:', err?.message);
       setError(

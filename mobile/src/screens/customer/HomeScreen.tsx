@@ -415,7 +415,7 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
     },
     serviceCardWrapper: {
-        width: '48%',
+        width: '47.5%', // Slightly reduced to prevent edge overlap
         marginBottom: spacing.md,
     },
 

@@ -59,7 +59,7 @@ const EXACT: Array<[string, LucideIcon]> = [
     ['Repair Services', LucideIcons.Hammer],
 
     // Services — extended catalog
-    ['Computer & Printer', LucideIcons.Printer],
+    ['Computer & Printer', LucideIcons.Monitor],
     ['CCTV Camera', LucideIcons.Cctv],
     ['Biometric Device', LucideIcons.FingerprintPattern],
     ['Internet & Broadband Services (FTTH)', LucideIcons.Router],
@@ -97,7 +97,7 @@ const EXACT: Array<[string, LucideIcon]> = [
     ['Health', LucideIcons.HeartPulse],
 
     // Services — legacy seed variants
-    ['Computers & Printers', LucideIcons.Printer],
+    ['Computers & Printers', LucideIcons.Monitor],
     ['CCTV Installation', LucideIcons.Cctv],
     ['Biometric Systems', LucideIcons.FingerprintPattern],
     ['UPS & Battery', LucideIcons.BatteryCharging],
@@ -124,7 +124,7 @@ const KEYWORD_RULES: Array<[RegExp, LucideIcon]> = [
     [/generator|water pump|\bpump\b/, LucideIcons.PlugZap],
     [/cctv|surveillance/, LucideIcons.Cctv],
     [/biometric|fingerprint|attendance/, LucideIcons.FingerprintPattern],
-    [/computer|printer|laptop/, LucideIcons.Printer],
+    [/computer|printer|laptop/, LucideIcons.Monitor],
     [/internet|broadband|ftth|wifi|router|fiber/, LucideIcons.Router],
     [/dth|satellite|dish/, LucideIcons.SatelliteDish],
     [/appliance|washing/, LucideIcons.WashingMachine],

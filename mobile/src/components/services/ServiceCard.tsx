@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
 import * as LucideIcons from 'lucide-react-native';
-const { Grid, ChevronRight } = LucideIcons;
+const { Grid, ArrowRight } = LucideIcons;
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { ServiceItem } from '../../api/customer.api';
 import { getServiceIcon } from '../../utils/serviceIcons';
@@ -48,98 +48,100 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
         <TouchableOpacity 
             style={[styles.card, service.status !== 'ACTIVE' && styles.cardDisabled, style]} 
             onPress={onPress}
-            activeOpacity={0.7}
+            activeOpacity={0.75}
         >
-            {(() => {
-                // Always a tinted Lucide glyph — the seeded bannerImage/icon
-                // photo URLs are duplicated across categories, so remote
-                // images are deliberately not rendered here.
-                const ServiceIcon = getServiceIcon(service);
-                return (
-                    <View style={styles.iconContainer}>
-                        <ServiceIcon size={24} color={colors.primary} strokeWidth={2.5} />
-                    </View>
-                );
-            })()}
+            <View style={styles.iconContainer}>
+                {(() => {
+                    const ServiceIcon = getServiceIcon(service);
+                    return <ServiceIcon size={24} color={colors.primary} strokeWidth={2.0} />;
+                })()}
+            </View>
+            
             <Text style={styles.title} numberOfLines={2}>
                 {service.name}
             </Text>
-            {service.subtitle ? (
-                <Text style={styles.subtitle} numberOfLines={1}>
-                    {service.subtitle}
-                </Text>
-            ) : null}
-            {renderStatusBadge()}
             
-            {service.status === 'ACTIVE' && (
-                <View style={styles.chevronWrap}>
-                    <ChevronRight size={14} color={colors.primaryLight} strokeWidth={3} />
-                </View>
-            )}
+            <View style={styles.footer}>
+                <Text style={styles.subtitle} numberOfLines={2}>
+                    {service.subtitle || 'Professional service'}
+                </Text>
+                {service.status === 'ACTIVE' && (
+                    <View style={styles.arrowWrap}>
+                        <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
+                    </View>
+                )}
+            </View>
+            
+            {renderStatusBadge()}
         </TouchableOpacity>
     );
 };
 
 const styles = StyleSheet.create({
     card: {
+        width: '100%',
+        minHeight: 165,
         backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.xl,
-        padding: spacing.lg,
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: 140,
-        ...shadows.md,
-        position: 'relative',
-        overflow: 'hidden',
+        borderRadius: 20,
+        padding: 12,
         borderWidth: 1,
-        borderColor: colors.divider,
+        borderColor: 'rgba(226, 232, 240, 0.6)',
+        position: 'relative',
+        ...shadows.sm,
+        shadowOpacity: 0.05,
+        elevation: 2,
     },
     cardDisabled: {
-        opacity: 0.8,
-        backgroundColor: colors.background,
-    },
-    cardAccent: {
-        position: 'absolute',
-        left: 0,
-        top: '20%',
-        bottom: '20%',
-        width: 3,
-        borderTopRightRadius: radii.sm,
-        borderBottomRightRadius: radii.sm,
+        opacity: 0.75,
     },
     moreCard: {
         backgroundColor: colors.primaryLight + '20', // 20% opacity
         borderWidth: 1,
         borderColor: colors.primaryLight,
         borderStyle: 'dashed',
-    },
-    iconContainer: {
-        width: 52,
-        height: 52,
-        borderRadius: radii.lg,
-        backgroundColor: colors.primaryLight + '15',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: spacing.md,
-        borderWidth: 1,
-        borderColor: colors.primaryLight + '30',
-        overflow: 'hidden',
+    },
+    iconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 14,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
     },
     moreIconContainer: {
         backgroundColor: colors.primaryLight + '50',
     },
     title: {
-        ...typography.bodyMedium,
+        fontSize: 13.5,
         fontWeight: '700',
+        lineHeight: 18,
+        letterSpacing: -0.1,
         color: colors.textPrimary,
-        textAlign: 'center',
-        marginBottom: 2,
+        marginBottom: 4,
+    },
+    footer: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        marginTop: 'auto',
     },
     subtitle: {
-        ...typography.caption,
+        flex: 1,
+        fontSize: 10.5,
+        lineHeight: 14,
         color: colors.textSecondary,
-        textAlign: 'center',
-        marginTop: 2,
+        marginRight: 6,
+    },
+    arrowWrap: {
+        width: 28,
+        height: 28,
+        borderRadius: radii.full,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     badgeComingSoon: {
         position: 'absolute',
@@ -158,11 +160,5 @@ const styles = StyleSheet.create({
         color: colors.warningDark,
         fontWeight: '800',
         textTransform: 'uppercase',
-    },
-    chevronWrap: {
-        position: 'absolute',
-        bottom: spacing.sm,
-        right: spacing.sm,
-        opacity: 0.7,
     },
 });

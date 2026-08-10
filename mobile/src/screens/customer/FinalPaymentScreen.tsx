@@ -214,7 +214,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
                 {/* Amount Hero */}
                 <View style={styles.amountCard}>
                     <Text style={styles.amountLabel}>Total Due</Text>
