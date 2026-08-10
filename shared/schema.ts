@@ -557,6 +557,7 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   status: withdrawalStatusEnum("status").notNull().default("pending"),
   razorpayPayoutId: text("razorpay_payout_id"),
   failureReason: text("failure_reason"),
+  paymentProofUrl: text("payment_proof_url"), // screenshot proof for manual payouts
   walletTransactionId: integer("wallet_transaction_id").references((): any => walletTransactionsV2.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

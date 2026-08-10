@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   Table, 
@@ -35,6 +35,7 @@ type Withdrawal = {
     createdAt: string;
     failureReason: string | null;
     razorpayPayoutId: string | null;
+    paymentProofUrl: string | null;
   };
   employee: {
     fullName: string;
@@ -50,41 +51,48 @@ type Withdrawal = {
 export default function WithdrawalsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'approve' | 'reject' | 'approveManual'; request: Withdrawal | null }>({
+  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'reject' | 'approveManual'; request: Withdrawal | null }>({
     isOpen: false,
-    type: 'approve',
+    type: 'approveManual',
     request: null
   });
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  // Payment-proof screenshot — mandatory for manual approval.
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const proofInputRef = useRef<HTMLInputElement | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: Withdrawal[] }>({
     queryKey: ["/api/admin/withdrawals"],
   });
 
-  const approveMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/approve`);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast({ title: "Approved", description: "Payout processing via RazorpayX" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
-      setActionDialog({ isOpen: false, type: 'approve', request: null });
-    },
-    onError: (error: any) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    }
-  });
+  const closeDialog = () => {
+    setActionDialog({ isOpen: false, type: 'approveManual', request: null });
+    setProofFile(null);
+  };
 
   const approveManualMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/approve-manual`);
+    mutationFn: async ({ id, proof }: { id: number; proof: File }) => {
+      // apiRequest is JSON-only; the proof photo needs multipart/form-data.
+      const formData = new FormData();
+      formData.append('proof', proof);
+
+      const adminToken = localStorage.getItem("adminToken");
+      const res = await fetch(`/api/admin/withdrawals/${id}/approve-manual`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: adminToken ? { Authorization: `Bearer ${adminToken}` } : undefined,
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || `Request failed (${res.status})`);
+      }
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Approved Manually", description: "Withdrawal marked as manually paid." });
+      toast({ title: "Approved", description: "Withdrawal marked as paid with proof attached." });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
-      setActionDialog({ isOpen: false, type: 'approveManual', request: null });
+      closeDialog();
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -99,7 +107,7 @@ export default function WithdrawalsPage() {
     onSuccess: () => {
       toast({ title: "Rejected", description: "Withdrawal rejected and refunded." });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
-      setActionDialog({ isOpen: false, type: 'reject', request: null });
+      closeDialog();
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -137,10 +145,9 @@ export default function WithdrawalsPage() {
 
   const handleAction = () => {
     if (!actionDialog.request) return;
-    if (actionDialog.type === 'approve') {
-      approveMutation.mutate(actionDialog.request.request.id);
-    } else if (actionDialog.type === 'approveManual') {
-      approveManualMutation.mutate(actionDialog.request.request.id);
+    if (actionDialog.type === 'approveManual') {
+      if (!proofFile) return; // guarded again in the dialog button
+      approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile });
     } else {
       rejectMutation.mutate(actionDialog.request.request.id);
     }
@@ -154,7 +161,7 @@ export default function WithdrawalsPage() {
         <div>
           <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Withdrawals</h1>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">
-            Manage partner payout requests via RazorpayX.
+            Pay partners via UPI/bank, then approve with a payment-proof screenshot.
           </p>
         </div>
       </div>
@@ -249,32 +256,22 @@ export default function WithdrawalsPage() {
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         {w.request.status === 'pending' && (
-                          <div className="flex flex-col gap-2 items-end">
-                            <div className="space-x-2">
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
-                                onClick={() => setActionDialog({ isOpen: true, type: 'approve', request: w })}
-                              >
-                                Approve
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                className="text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)] border-[hsla(347,77%,50%,0.3)] bg-[hsla(347,77%,50%,0.05)] transition-colors"
-                                onClick={() => setActionDialog({ isOpen: true, type: 'reject', request: w })}
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                            <Button 
-                              size="sm" 
+                          <div className="space-x-2">
+                            <Button
+                              size="sm"
                               variant="outline"
-                              className="w-[150px] bg-[hsla(38,92%,50%,0.1)] text-[hsl(38,92%,60%)] hover:bg-[hsla(38,92%,50%,0.2)] border-[hsla(38,92%,50%,0.3)] transition-colors"
-                              onClick={() => setActionDialog({ isOpen: true, type: 'approveManual', request: w })}
+                              className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
+                              onClick={() => { setProofFile(null); setActionDialog({ isOpen: true, type: 'approveManual', request: w }); }}
                             >
-                              Mark Paid Manually
+                              Approve &amp; Mark Paid
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.1)] border-[hsla(347,77%,50%,0.3)] bg-[hsla(347,77%,50%,0.05)] transition-colors"
+                              onClick={() => setActionDialog({ isOpen: true, type: 'reject', request: w })}
+                            >
+                              Reject
                             </Button>
                           </div>
                         )}
@@ -297,6 +294,16 @@ export default function WithdrawalsPage() {
                             {syncingId === w.request.id ? "Checking…" : "Sync with RazorpayX"}
                           </Button>
                         )}
+                        {w.request.paymentProofUrl && (
+                          <a
+                            href={w.request.paymentProofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-[hsl(217,91%,70%)] underline block mt-1"
+                          >
+                            View payment proof
+                          </a>
+                        )}
                         {w.request.razorpayPayoutId && (
                           <span className="text-xs text-[hsl(215,20%,65%)] font-mono block mt-1">ID: {w.request.razorpayPayoutId}</span>
                         )}
@@ -311,29 +318,67 @@ export default function WithdrawalsPage() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={actionDialog.isOpen} onOpenChange={(open) => !open && setActionDialog({ ...actionDialog, isOpen: false })}>
+      <AlertDialog open={actionDialog.isOpen} onOpenChange={(open) => !open && closeDialog()}>
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {actionDialog.type === 'approve' ? 'Approve Withdrawal via RazorpayX?' : actionDialog.type === 'approveManual' ? 'Mark Paid Manually?' : 'Reject Withdrawal?'}
+              {actionDialog.type === 'approveManual' ? 'Approve & Mark Paid?' : 'Reject Withdrawal?'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
-              {actionDialog.type === 'approve' 
-                ? `This will initiate a real payout of ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via RazorpayX. Are you sure?`
-                : actionDialog.type === 'approveManual'
-                ? `Have you already transferred ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via UPI/Bank? This will complete the redemption without calling RazorpayX.`
+              {actionDialog.type === 'approveManual'
+                ? `Transfer ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via UPI/Bank first, then attach the payment screenshot below as proof. This completes the redemption.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
               }
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {actionDialog.type === 'approveManual' && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-white block">
+                Payment proof <span className="text-[hsl(347,77%,60%)]">*</span>
+              </label>
+              <input
+                ref={proofInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-[hsl(215,20%,65%)] file:mr-3 file:rounded-md file:border-0 file:bg-[hsla(160,84%,39%,0.15)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[hsl(160,84%,65%)] hover:file:bg-[hsla(160,84%,39%,0.25)] file:cursor-pointer cursor-pointer"
+              />
+              {proofFile ? (
+                <img
+                  src={URL.createObjectURL(proofFile)}
+                  alt="Payment proof preview"
+                  className="max-h-40 rounded-md border border-[rgba(255,255,255,0.1)]"
+                />
+              ) : (
+                <p className="text-xs text-[hsl(215,20%,55%)]">
+                  A screenshot of the UPI/bank transfer is required to approve.
+                </p>
+              )}
+            </div>
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleAction}
+            <AlertDialogAction
+              onClick={(e) => {
+                if (actionDialog.type === 'approveManual') {
+                  if (!proofFile) {
+                    e.preventDefault();
+                    toast({ title: "Proof required", description: "Attach the payment screenshot before approving.", variant: "destructive" });
+                    return;
+                  }
+                  // Keep the dialog open while the upload runs; onSuccess closes it.
+                  e.preventDefault();
+                  if (!approveManualMutation.isPending) handleAction();
+                  return;
+                }
+                handleAction();
+              }}
               className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
-              {actionDialog.type === 'approve' 
-                ? (approveMutation.isPending ? "Approving..." : "Yes, Approve Payout") 
+              {actionDialog.type === 'approveManual'
+                ? (approveManualMutation.isPending ? "Uploading proof..." : "Yes, Mark as Paid")
                 : (rejectMutation.isPending ? "Rejecting..." : "Yes, Reject")
               }
             </AlertDialogAction>

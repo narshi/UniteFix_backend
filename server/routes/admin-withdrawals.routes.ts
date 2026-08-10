@@ -1,11 +1,26 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import multer from "multer";
 import { db } from "../db";
 import { eq, desc, and } from "drizzle-orm";
 import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, users } from "@shared/schema";
 import { RazorpayXService } from "../services/razorpayx.service";
+import { uploadImageBuffer } from "../services/cloudinary.service";
 import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
 import { recordAudit } from "../lib/audit";
+
+// Payment-proof screenshot for manual payouts: one image, max 5MB.
+const proofUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files (JPEG, PNG, WebP) are allowed'));
+        }
+    },
+});
 
 export function registerAdminWithdrawalRoutes(app: Express) {
     
@@ -209,47 +224,80 @@ export function registerAdminWithdrawalRoutes(app: Express) {
 
     /**
      * POST /api/admin/withdrawals/:id/approve-manual
-     * Approves a withdrawal manually without using RazorpayX.
-     * The admin has already transferred the funds via a UPI app.
+     * Approves a withdrawal the admin has already paid via UPI/bank outside
+     * the platform. A payment-proof screenshot is REQUIRED — it is stored on
+     * the withdrawal so the payout is always auditable.
+     *
+     * Body: multipart/form-data with a single "proof" image.
      */
-    app.post("/api/admin/withdrawals/:id/approve-manual", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
+    app.post("/api/admin/withdrawals/:id/approve-manual", authenticateAdmin, proofUpload.single('proof'), async (req: Request, res: Response, next: NextFunction) => {
         try {
             const requestId = parseInt(req.params.id);
             if (isNaN(requestId)) return res.status(400).json({ error: "Invalid ID" });
 
-            const [withdrawal] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, requestId)).limit(1);
-            if (!withdrawal) return res.status(404).json({ error: "Withdrawal request not found" });
-            if (withdrawal.status !== 'pending') {
-                return res.status(400).json({ error: `Withdrawal is ${withdrawal.status}, cannot approve manually.` });
+            if (!req.file) {
+                return res.status(400).json({ error: "A payment proof photo is required. Attach a screenshot of the UPI/bank transfer." });
             }
 
-            const adminId = (req as any).admin?.userId;
+            const [existing] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, requestId)).limit(1);
+            if (!existing) return res.status(404).json({ error: "Withdrawal request not found" });
+            if (existing.status !== 'pending') {
+                return res.status(400).json({ error: `Withdrawal is ${existing.status}, cannot approve manually.` });
+            }
 
-            await db.update(withdrawalRequests)
-                .set({ 
-                    status: 'completed', 
+            // Store the proof BEFORE flipping any state: an upload failure here
+            // leaves the request untouched and retryable.
+            let proofUrl: string;
+            try {
+                const uploaded = await uploadImageBuffer(req.file.buffer, 'payment_proofs', {
+                    maxWidth: 1200,
+                    maxHeight: 1200,
+                });
+                proofUrl = uploaded.url;
+            } catch (uploadError: any) {
+                logger.error(`[WITHDRAWAL] Proof upload failed for request ${requestId}: ${uploadError.message}`);
+                return res.status(500).json({ error: "Failed to store the payment proof photo. Please try again." });
+            }
+
+            // ATOMIC CLAIM — same guard as the RazorpayX path: flip pending ->
+            // completed in one conditional statement so a double-click or two
+            // admins can't both mark (and pay) the same request.
+            const [withdrawal] = await db.update(withdrawalRequests)
+                .set({
+                    status: 'completed',
+                    paymentProofUrl: proofUrl,
+                    razorpayPayoutId: `manual_txn_${Date.now()}`,
                     updatedAt: new Date(),
-                    // Optionally record manual notes in failureReason or a new field, 
-                    // here we use failureReason temporarily or just leave it. 
-                    // Or razorpayPayoutId = 'manual_transfer'
-                    razorpayPayoutId: `manual_txn_${Date.now()}`
                 })
-                .where(eq(withdrawalRequests.id, requestId));
+                .where(and(
+                    eq(withdrawalRequests.id, requestId),
+                    eq(withdrawalRequests.status, 'pending'),
+                ))
+                .returning();
+
+            if (!withdrawal) {
+                logger.warn(`[WITHDRAWAL] Concurrent manual approval blocked for request ${requestId}`);
+                return res.status(409).json({
+                    error: "This withdrawal was already processed. Refresh to see its current status.",
+                });
+            }
 
             await recordAudit({
                 entityType: 'withdrawal',
                 entityId: requestId,
                 action: 'withdrawal_manual_payout',
-                changedBy: adminId,
+                changedBy: (req as any).admin?.userId,
                 fromState: 'pending',
                 toState: 'completed',
                 metadata: {
                     amount: parseFloat(withdrawal.amount as any),
                     partnerId: withdrawal.partnerId,
                     method: 'manual',
+                    paymentProofUrl: proofUrl,
                 },
             });
 
+            logger.info(`[WITHDRAWAL] Request ${requestId} manually paid with proof ${proofUrl.substring(0, 60)}`);
             res.json({ success: true, message: "Withdrawal marked as manually paid successfully." });
         } catch (error) {
             next(error);
