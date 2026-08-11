@@ -14,9 +14,25 @@ interface InvoiceData {
     providerName?: string;
     items: Array<{ description: string; quantity: number; unitPrice: number; total: number }>;
     subtotal: number;
-    gst: number;
+    cgst: number;
+    sgst: number;
+    otherCharges: number;
+    otherChargesLabel: string;
     total: number;
+    advancePaid: number;
     status: string;
+}
+
+function round2(x: number): number {
+    return Math.round(x * 100) / 100;
+}
+
+/**
+ * PDFKit's built-in Helvetica only supports WinAnsi, which predates the
+ * rupee sign — '₹' silently renders as a wrong glyph. Use 'Rs.' instead.
+ */
+function inr(amount: number): string {
+    return `Rs. ${amount.toFixed(2)}`;
 }
 
 export class InvoiceGenerator {
@@ -33,6 +49,12 @@ export class InvoiceGenerator {
 
         let items: Array<{ description: string; quantity: number; unitPrice: number; total: number }> = [];
         let providerName = "UniteFix Service Partner";
+        // Customer-approved parts added at request-payment time (v2). These are
+        // a pass-through to the technician: they raise grossTotal but are NOT
+        // folded into taxableAmount/cgst/sgst, so they need their own line or
+        // the invoice does not add up to what the customer actually paid.
+        let approvedPartsCost = 0;
+        let approvedPartsNote = "";
 
         // If Service Invoice
         if (invoice.serviceRequestId) {
@@ -48,6 +70,10 @@ export class InvoiceGenerator {
 
                 // PREFER pricing snapshot for accurate billing breakdown
                 const snapshot = service.pricingSnapshot as any;
+                if (snapshot?.extraPartsCost > 0) {
+                    approvedPartsCost = Number(snapshot.extraPartsCost);
+                    approvedPartsNote = typeof snapshot.partsNote === 'string' ? snapshot.partsNote : "";
+                }
                 if (snapshot && snapshot.snapshotVersion && snapshot.subtotal) {
                     // Use exact frozen values from BillingEngine
                     if (snapshot.sparePartsCost > 0) {
@@ -60,7 +86,11 @@ export class InvoiceGenerator {
                     }
                     if (snapshot.serviceLaborCost > 0) {
                         items.push({
-                            description: "Service Labor Charges",
+                            // v2 fixed-price bookings have no separate labor entry —
+                            // the catalog price's service value IS the charge.
+                            description: snapshot.snapshotVersion === 2
+                                ? "Service Charges (Fixed Price)"
+                                : "Service Labor Charges",
                             quantity: 1,
                             unitPrice: Number(snapshot.serviceLaborCost),
                             total: Number(snapshot.serviceLaborCost)
@@ -137,6 +167,38 @@ export class InvoiceGenerator {
             }
         }
 
+        const taxableAmount = Number(invoice.baseAmount || 0);
+        const cgst = Number(invoice.cgst || 0);
+        const sgst = Number(invoice.sgst || 0);
+        const total = Number(invoice.totalAmount || 0);
+
+        // The line items must add up to the taxable amount the tax was computed
+        // on. Snapshot-backed invoices already do; legacy rows (built from
+        // service_charges or with no charge row at all) can drift, which would
+        // print a table that visibly disagrees with its own total.
+        const itemsSum = round2(items.reduce((sum, i) => sum + i.total, 0));
+        const itemsGap = round2(taxableAmount - itemsSum);
+        if (Math.abs(itemsGap) > 0.01) {
+            items.push({
+                description: itemsGap > 0 ? "Other Service Charges" : "Adjustment",
+                quantity: 1,
+                unitPrice: itemsGap,
+                total: itemsGap,
+            });
+        }
+
+        // Anything the customer paid beyond taxable + tax. Normally this is the
+        // approved-parts pass-through; deriving it as a remainder also catches
+        // any other future component so the invoice can never under-report the
+        // amount actually collected.
+        const derivedOther = round2(total - (taxableAmount + cgst + sgst));
+        const otherCharges = approvedPartsCost > 0 ? approvedPartsCost : Math.max(0, derivedOther);
+        const otherChargesLabel = approvedPartsCost > 0
+            ? (approvedPartsNote
+                ? `Approved Spare Parts (${approvedPartsNote.slice(0, 40)}):`
+                : "Approved Spare Parts:")
+            : "Additional Charges:";
+
         const data: InvoiceData = {
             invoiceId: invoice.invoiceId,
             date: invoice.createdAt || new Date(),
@@ -144,9 +206,15 @@ export class InvoiceGenerator {
             customerAddress: customer?.homeAddress || "",
             providerName,
             items,
-            subtotal: Number(invoice.baseAmount),
-            gst: Number(invoice.cgst) + Number(invoice.sgst),
-            total: Number(invoice.totalAmount),
+            subtotal: taxableAmount,
+            cgst,
+            sgst,
+            otherCharges,
+            otherChargesLabel,
+            total,
+            // The booking fee is an ADVANCE inside the total, not an extra
+            // charge — shown so the paid amounts reconcile: advance + balance = total.
+            advancePaid: Number(invoice.discount || 0),
             status: "PAID"
         };
 
@@ -189,16 +257,21 @@ export class InvoiceGenerator {
                 .font("Helvetica")
                 .fontSize(10)
                 .text("UniteFix Technologies Pvt Ltd", 200, 50, { align: "right" })
-                .text("Bangalore, Karnataka, India", 200, 65, { align: "right" })
+                .text("Yellapur, Karnataka, India", 200, 65, { align: "right" })
                 .moveDown();
 
             // Divider
             doc.moveTo(50, 90).lineTo(550, 90).stroke();
 
-            // Customer Details
+            // Invoice meta + customer details
+            const invoiceDate = data.date.toLocaleDateString("en-IN", {
+                day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata",
+            });
+
             doc.fontSize(10).text(`Invoice Number: ${data.invoiceId}`, 50, 100)
-                .text(`Invoice Date: ${data.date.toLocaleDateString()}`, 50, 115)
+                .text(`Invoice Date: ${invoiceDate}`, 50, 115)
                 .text(`Status: ${data.status.toUpperCase()}`, 50, 130)
+                .text(`Place of Supply: Yellapur, Karnataka`, 50, 145)
 
                 .text(`Billed To:`, 300, 100)
                 .font("Helvetica-Bold").text(data.customerName, 300, 115)
@@ -222,26 +295,52 @@ export class InvoiceGenerator {
             data.items.forEach(item => {
                 doc.text(item.description, 50, y);
                 doc.text(item.quantity.toString(), 280, y, { width: 90, align: "right" });
-                doc.text(`₹${item.unitPrice.toFixed(2)}`, 370, y, { width: 90, align: "right" });
-                doc.text(`₹${item.total.toFixed(2)}`, 470, y, { width: 90, align: "right" });
+                doc.text(inr(item.unitPrice), 370, y, { width: 90, align: "right" });
+                doc.text(inr(item.total), 470, y, { width: 90, align: "right" });
                 y += 20;
             });
 
             doc.moveTo(50, y).lineTo(550, y).stroke();
 
-            // Totals
+            // Totals — CGST and SGST are printed as the stored amounts rather
+            // than a claimed percentage: v2 fixed-price bookings carve GST out
+            // of the catalog price, so a hardcoded "(18%)" label would not
+            // match the numbers on the page.
             y += 15;
             doc.font("Helvetica-Bold");
-            doc.text("Subtotal:", 370, y, { width: 90, align: "right" });
-            doc.text(`₹${data.subtotal.toFixed(2)}`, 470, y, { width: 90, align: "right" });
+            doc.text("Taxable Amount:", 350, y, { width: 110, align: "right" });
+            doc.text(inr(data.subtotal), 470, y, { width: 90, align: "right" });
 
             y += 15;
-            doc.text("GST (18%):", 370, y, { width: 90, align: "right" });
-            doc.text(`₹${data.gst.toFixed(2)}`, 470, y, { width: 90, align: "right" });
+            doc.text("CGST:", 350, y, { width: 110, align: "right" });
+            doc.text(inr(data.cgst), 470, y, { width: 90, align: "right" });
+
+            y += 15;
+            doc.text("SGST:", 350, y, { width: 110, align: "right" });
+            doc.text(inr(data.sgst), 470, y, { width: 90, align: "right" });
+
+            if (data.otherCharges > 0.01) {
+                y += 15;
+                doc.text(data.otherChargesLabel, 280, y, { width: 180, align: "right" });
+                doc.text(inr(data.otherCharges), 470, y, { width: 90, align: "right" });
+            }
 
             y += 20;
-            doc.fontSize(12).text("Grand Total:", 370, y, { width: 90, align: "right" });
-            doc.text(`₹${data.total.toFixed(2)}`, 470, y, { width: 90, align: "right" });
+            doc.fontSize(12).text("Grand Total:", 350, y, { width: 110, align: "right" });
+            doc.text(inr(data.total), 470, y, { width: 90, align: "right" });
+
+            // Payment reconciliation — the booking fee is an advance credited
+            // against the bill, so advance + balance always equals the total.
+            if (data.advancePaid > 0) {
+                y += 20;
+                doc.fontSize(10).font("Helvetica");
+                doc.text("Advance Paid (Booking Fee):", 320, y, { width: 140, align: "right" });
+                doc.text(inr(data.advancePaid), 470, y, { width: 90, align: "right" });
+
+                y += 15;
+                doc.text("Balance Paid:", 320, y, { width: 140, align: "right" });
+                doc.text(inr(Math.max(0, data.total - data.advancePaid)), 470, y, { width: 90, align: "right" });
+            }
 
             // Footer
             doc.fontSize(10).font("Helvetica")

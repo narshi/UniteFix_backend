@@ -32,10 +32,13 @@ interface Invoice {
     id: number;
     invoiceNumber: string;
     serviceRequestId: number;
-    bookingAmount?: number;
     serviceAmount?: number;
     gstAmount?: number;
+    otherCharges?: number;
     totalAmount: number;
+    // The booking fee is an advance inside the total, never an extra line.
+    advancePaid?: number;
+    balancePaid?: number;
     status: string;
     createdAt: string;
     customerName?: string;
@@ -178,19 +181,27 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                 <View style={styles.detailCard}>
                     <Text style={styles.sectionTitle}>Amount Breakdown</Text>
 
-                    {invoice.bookingAmount != null && invoice.bookingAmount > 0 && (
-                        <AmountRow label="Booking Charge" amount={invoice.bookingAmount} />
-                    )}
                     {invoice.serviceAmount != null && invoice.serviceAmount > 0 && (
-                        <AmountRow label="Service Charge" amount={invoice.serviceAmount} />
+                        <AmountRow label="Taxable Amount" amount={invoice.serviceAmount} />
                     )}
                     {invoice.gstAmount != null && invoice.gstAmount > 0 && (
-                        <AmountRow label="GST" amount={invoice.gstAmount} />
+                        <AmountRow label="GST (CGST + SGST)" amount={invoice.gstAmount} />
+                    )}
+                    {invoice.otherCharges != null && invoice.otherCharges > 0 && (
+                        <AmountRow label="Approved Spare Parts" amount={invoice.otherCharges} />
                     )}
                     <View style={styles.totalRow}>
                         <Text style={styles.totalLabel}>Total Amount</Text>
-                        <Text style={styles.totalAmount}>₹{invoice.totalAmount}</Text>
+                        <Text style={styles.totalAmount}>₹{invoice.totalAmount.toFixed(2)}</Text>
                     </View>
+
+                    {/* Advance + balance always reconcile to the total above. */}
+                    {invoice.advancePaid != null && invoice.advancePaid > 0 && (
+                        <View style={{ marginTop: spacing.md }}>
+                            <AmountRow label="Advance Paid (Booking Fee)" amount={invoice.advancePaid} />
+                            <AmountRow label="Balance Paid" amount={invoice.balancePaid ?? (invoice.totalAmount - invoice.advancePaid)} />
+                        </View>
+                    )}
                 </View>
 
                 {/* Download button */}
@@ -219,7 +230,7 @@ function AmountRow({ label, amount }: { label: string; amount: number }) {
     return (
         <View style={styles.amountRow}>
             <Text style={styles.amountLabel}>{label}</Text>
-            <Text style={styles.amountValue}>₹{amount}</Text>
+            <Text style={styles.amountValue}>₹{Number(amount).toFixed(2)}</Text>
         </View>
     );
 }

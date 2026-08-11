@@ -693,15 +693,29 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(404).json({ error: "Invoice not found" });
             }
 
+            const totalAmount = Number(row.total_amount || 0);
+            const advancePaid = Number(row.discount || 0);
+            const serviceAmount = Number(row.base_amount || 0);
+            const gstAmount = Number(row.cgst || 0) + Number(row.sgst || 0);
+            // Approved spare parts are a pass-through: they are inside the total
+            // but not inside the taxable amount, so the breakdown needs them
+            // explicitly or the lines don't sum to what the customer paid.
+            const otherCharges = Math.max(0, Math.round((totalAmount - (serviceAmount + gstAmount)) * 100) / 100);
+
             res.json({
                 invoice: {
                     id: row.id,
                     invoiceNumber: row.invoice_id,
                     serviceRequestId: row.service_request_id,
-                    bookingAmount: Number(row.discount || 0),
-                    serviceAmount: Number(row.base_amount || 0),
-                    gstAmount: Number(row.cgst || 0) + Number(row.sgst || 0),
-                    totalAmount: Number(row.total_amount || 0),
+                    serviceAmount,
+                    gstAmount,
+                    otherCharges,
+                    totalAmount,
+                    // The booking fee is an advance INSIDE the total, not an
+                    // extra charge — sent as advance/balance so the app never
+                    // renders it as an additive line item.
+                    advancePaid,
+                    balancePaid: Math.max(0, totalAmount - advancePaid),
                     // Invoices are only generated once payment has settled.
                     status: 'paid',
                     createdAt: row.created_at,
