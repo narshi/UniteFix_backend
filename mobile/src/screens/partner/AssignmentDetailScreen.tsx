@@ -501,6 +501,11 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             <Text style={{ ...typography.caption, color: colors.textDisabled, marginTop: spacing.md }}>
                                 Payment method: {assignment.paymentMethod === 'razorpay' ? '💳 Online (UPI/QR)' : assignment.paymentMethod === 'cash' ? '💵 Cash' : '💳 Online'}
                             </Text>
+                            <Button
+                                title="View Invoice"
+                                onPress={() => navigation.navigate('InvoiceView', { serviceId: assignment.id })}
+                                style={{ marginTop: spacing.lg, width: '100%' }}
+                            />
                         </View>
                     </View>
                 )}

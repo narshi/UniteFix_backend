@@ -651,24 +651,64 @@ export function registerPaymentRoutes(app: Express) {
 
     /**
      * GET /api/customer/services/:id/invoice
-     * Get invoice for completed service
+     * Get invoice for completed service.
+     *
+     * Visible only to the booking's customer and the technician who did the
+     * job — the previous version let any logged-in user read any invoice by
+     * guessing booking ids. The response is normalised to camelCase because
+     * the raw snake_case row rendered every amount as undefined in the app's
+     * invoice screen.
      */
     app.get("/api/customer/services/:id/invoice", authenticateToken as any, async (req: Request, res: Response) => {
         try {
             const serviceId = parseInt(req.params.id);
+            const requesterId = (req as any).user?.userId;
+
+            const srResult = await db.execute(sql`
+        SELECT sr.user_id, sr.service_type, e.user_id AS provider_user_id
+        FROM service_requests sr
+        LEFT JOIN employees e ON e.id = sr.provider_id
+        WHERE sr.id = ${serviceId}
+      `) as any;
+            const srRows = Array.isArray(srResult) ? srResult : (srResult?.rows || []);
+            const sr = srRows?.[0];
+
+            if (!sr) {
+                return res.status(404).json({ error: "Service request not found" });
+            }
+            if (sr.user_id !== requesterId && sr.provider_user_id !== requesterId) {
+                return res.status(403).json({ error: "Not authorised to view this invoice" });
+            }
 
             const invoiceResult = await db.execute(sql`
-        SELECT * FROM invoices 
-        WHERE service_request_id = ${serviceId}
+        SELECT i.*, u.username AS customer_name
+        FROM invoices i
+        LEFT JOIN users u ON u.id = i.user_id
+        WHERE i.service_request_id = ${serviceId}
       `) as any;
             const invRows = Array.isArray(invoiceResult) ? invoiceResult : (invoiceResult?.rows || []);
-            const invoice = invRows?.[0];
+            const row = invRows?.[0];
 
-            if (!invoice) {
+            if (!row) {
                 return res.status(404).json({ error: "Invoice not found" });
             }
 
-            res.json({ invoice });
+            res.json({
+                invoice: {
+                    id: row.id,
+                    invoiceNumber: row.invoice_id,
+                    serviceRequestId: row.service_request_id,
+                    bookingAmount: Number(row.discount || 0),
+                    serviceAmount: Number(row.base_amount || 0),
+                    gstAmount: Number(row.cgst || 0) + Number(row.sgst || 0),
+                    totalAmount: Number(row.total_amount || 0),
+                    // Invoices are only generated once payment has settled.
+                    status: 'paid',
+                    createdAt: row.created_at,
+                    customerName: row.customer_name || undefined,
+                    serviceType: sr.service_type || undefined,
+                },
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

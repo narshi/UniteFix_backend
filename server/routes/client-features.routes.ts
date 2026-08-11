@@ -979,6 +979,76 @@ export function registerClientFeatureRoutes(app: Express) {
         }
     });
 
+    /**
+     * POST /api/partner/services/:serviceId/invoice/download-link
+     *
+     * Same short-lived-URL pattern as the customer route above, but for the
+     * technician who did the job. The partner app's invoice screen used to
+     * open /api/invoices/:id/download — an endpoint that has never existed —
+     * so its download button always landed on a 404 page.
+     *
+     * The token is minted with the CUSTOMER's userId because the shared
+     * download GET checks ownership against invoices.userId; the partner's
+     * right to the file is enforced here instead (they must be the provider
+     * assigned to this booking).
+     */
+    app.post("/api/partner/services/:serviceId/invoice/download-link", authenticateServiceman, async (req: Request, res, next) => {
+        try {
+            const partnerUserId = (req as any).user!.userId;
+            const serviceId = parseInt(req.params.serviceId);
+            if (isNaN(serviceId)) {
+                return res.status(400).json({ success: false, message: "Invalid service id" });
+            }
+
+            const [employee] = await db.select().from(employees)
+                .where(eq(employees.userId, partnerUserId)).limit(1);
+            if (!employee) {
+                return res.status(404).json({ success: false, message: "Partner profile not found" });
+            }
+
+            const [sr] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, serviceId)).limit(1);
+            if (!sr) {
+                return res.status(404).json({ success: false, message: "Service request not found" });
+            }
+            if (sr.providerId !== employee.id) {
+                return res.status(403).json({ success: false, message: "This booking is not assigned to you" });
+            }
+            if (!sr.totalAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: "No invoice yet — billing for this booking has not been completed.",
+                });
+            }
+
+            // Idempotent: reuses the existing invoice row when one exists.
+            const { invoiceId } = await PaymentService.generateInvoice(
+                serviceId,
+                sr.userId,
+                sr.providerId as number,
+            );
+
+            const token = jwt.sign(
+                { invoiceId, userId: sr.userId, purpose: 'invoice_download' },
+                process.env.JWT_SECRET as string,
+                { expiresIn: '5m' },
+            );
+
+            const base = process.env.PUBLIC_BASE_URL
+                || `${req.protocol}://${req.get('host')}`;
+
+            res.json({
+                success: true,
+                data: {
+                    url: `${base}/api/client/invoices/${encodeURIComponent(invoiceId)}/download?token=${token}`,
+                    expiresInSeconds: 300,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    });
+
     // ==================== SUPPORT TICKETS (Customer) ====================
 
     /**

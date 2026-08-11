@@ -34,6 +34,7 @@ interface Invoice {
     serviceRequestId: number;
     bookingAmount?: number;
     serviceAmount?: number;
+    gstAmount?: number;
     totalAmount: number;
     status: string;
     createdAt: string;
@@ -44,6 +45,7 @@ interface Invoice {
 export function InvoiceViewScreen({ navigation, route }: Props) {
     const { headerTop } = useScreenInsets();
     const serviceId = route.params?.serviceId;
+    const [downloading, setDownloading] = useState(false);
 
     const { data, isLoading } = useQuery({
         queryKey: ['invoice', serviceId],
@@ -64,13 +66,23 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
         } catch { return d; }
     };
 
+    /**
+     * The PDF is fetched through a short-lived signed URL: a browser cannot
+     * send the app's Bearer token, and the old direct URL pointed at
+     * /api/invoices/:id/download — an endpoint that never existed (404).
+     */
     const handleDownload = async () => {
+        if (!serviceId) return;
+        setDownloading(true);
         try {
-            // Open invoice download URL in browser
-            const downloadUrl = `${apiClient.defaults.baseURL}/api/invoices/${invoice?.id}/download`;
-            await Linking.openURL(downloadUrl);
+            const res = await apiClient.post(`/api/partner/services/${serviceId}/invoice/download-link`);
+            const url = (res.data as any)?.data?.url;
+            if (!url) throw new Error('Could not create a download link');
+            await Linking.openURL(url);
         } catch (err) {
-            Alert.alert('Error', 'Could not download invoice.');
+            Alert.alert('Download Failed', getApiErrorMessage(err));
+        } finally {
+            setDownloading(false);
         }
     };
 
@@ -172,6 +184,9 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                     {invoice.serviceAmount != null && invoice.serviceAmount > 0 && (
                         <AmountRow label="Service Charge" amount={invoice.serviceAmount} />
                     )}
+                    {invoice.gstAmount != null && invoice.gstAmount > 0 && (
+                        <AmountRow label="GST" amount={invoice.gstAmount} />
+                    )}
                     <View style={styles.totalRow}>
                         <Text style={styles.totalLabel}>Total Amount</Text>
                         <Text style={styles.totalAmount}>₹{invoice.totalAmount}</Text>
@@ -182,6 +197,7 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                 <Button
                     title="Download Invoice PDF"
                     onPress={handleDownload}
+                    loading={downloading}
                     style={{ marginTop: spacing.md }}
                 />
             </ScrollView>
