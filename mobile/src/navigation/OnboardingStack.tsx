@@ -18,6 +18,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { OnboardingProfileScreen } from '../screens/onboarding/OnboardingProfileScreen';
 import { OnboardingLocationScreen } from '../screens/onboarding/OnboardingLocationScreen';
 import { ExpertiseSelectionScreen } from '../screens/auth/ExpertiseSelectionScreen';
+import { ExpertCodeOfConductScreen } from '../screens/onboarding/ExpertCodeOfConductScreen';
 
 const Stack = createNativeStackNavigator<OnboardingStackParamList>();
 
@@ -51,6 +52,7 @@ export function OnboardingStack() {
             <Stack.Screen name="OnboardingProfile" component={OnboardingProfileScreen} />
             <Stack.Screen name="OnboardingLocation" component={OnboardingLocationScreen} />
             <Stack.Screen name="ExpertiseSelection" component={ExpertiseSelectionScreen} />
+            <Stack.Screen name="ExpertCodeOfConduct" component={ExpertCodeOfConductScreen} />
         </Stack.Navigator>
     );
 }

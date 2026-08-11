@@ -24,6 +24,7 @@ export type OnboardingStackParamList = {
     OnboardingProfile: undefined;
     OnboardingLocation: undefined;
     ExpertiseSelection: undefined;
+    ExpertCodeOfConduct: undefined;
 };
 
 

@@ -52,7 +52,7 @@ test-results/
 # Sensitive Information
 private keys/
 
-# Android Keystores — NEVER COMMIT production keystores!
+# Android Keystores ??? NEVER COMMIT production keystores!
 *.keystore
 !mobile/android/app/debug.keystore
 
@@ -60,7 +60,7 @@ private keys/
 *.keystore
 *.pem
 
-# Database snapshots — contain user PII and payment records
+# Database snapshots ??? contain user PII and payment records
 prod-snapshot-*.json
 *-snapshot-*.json
 
@@ -68,3 +68,11 @@ prod-snapshot-*.json
 google-services.json
 mobile/google-services.json
 unitefix/
+
+# Claude Code worktrees & session tooling
+.claude/
+
+# Derived copies (source of truth: Worker Behavior.docx and mobile/icon set/)
+WorkerBehavior.zip
+WorkerBehavior_extracted/
+/icon set/

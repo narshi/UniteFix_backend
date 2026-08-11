@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
 const { AlertCircle, ArrowLeft, ArrowRight, Search, Users, ShieldCheck, Clock, Headphones, Inbox, X } = LucideIcons;
@@ -31,7 +31,21 @@ const TRUST_BADGES = [
     { icon: Headphones, color: colors.info, title: '24/7 Support', caption: "We're here to help you" },
 ] as const;
 
-/** Design-spec service card: lavender icon tile, title, subtitle + arrow chip. */
+// Map categories to the local 3D icon PNGs
+const CATEGORY_3D_ICONS: Record<string, any> = {
+    'IT & Security': require('../../assets/icons3d/3dicons-shield-dynamic-color.png'),
+    'Appliances & Utilities': require('../../assets/icons3d/3dicons-flash-front-color.png'),
+    'Repairs & Maintenance': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
+    'Professional & Property': require('../../assets/icons3d/3dicons-suitecase-iso-color.png'),
+    'Transport & Logistics': require('../../assets/icons3d/3dicons-suitecase-iso-color.png'), // Fallback
+    'Events, Travel & Lifestyle': require('../../assets/icons3d/3dicons-trophy-iso-color.png'),
+    'Specialized Services': require('../../assets/icons3d/3dicons-star-iso-color.png'),
+    'Technology Services': require('../../assets/icons3d/3dicons-shield-dynamic-color.png'),
+    'Home Services': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
+    'Repair Services': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
+};
+
+/** Design-spec service card: white card, rounded box icon, title, subtitle + arrow chip. */
 const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () => void }) => {
     const Icon = getServiceIcon(service);
     return (
@@ -41,7 +55,7 @@ const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () =
             activeOpacity={0.75}
         >
             <View style={styles.serviceTileIconBox}>
-                <Icon size={30} color={colors.primary} strokeWidth={2.2} />
+                <Icon size={24} color={colors.primary} strokeWidth={2.0} />
             </View>
             <Text style={styles.serviceTileTitle} numberOfLines={2}>{service.name}</Text>
             <View style={styles.serviceTileFooter}>
@@ -49,7 +63,7 @@ const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () =
                     {service.subtitle || 'Professional service'}
                 </Text>
                 <View style={styles.serviceTileArrow}>
-                    <ArrowRight size={16} color={colors.primary} strokeWidth={2.5} />
+                    <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
                 </View>
             </View>
             {service.status === 'COMING_SOON' && (
@@ -213,11 +227,19 @@ export const AllServicesScreen = () => {
                                         styles.sidebarIconContainer,
                                         isSelected && styles.sidebarIconContainerSelected
                                     ]}>
-                                        <CategoryIcon
-                                            size={24}
-                                            color={isSelected ? colors.primary : colors.textSecondary}
-                                            strokeWidth={isSelected ? 2.4 : 2}
-                                        />
+                                        {CATEGORY_3D_ICONS[category.name] ? (
+                                            <Image 
+                                                source={CATEGORY_3D_ICONS[category.name]} 
+                                                style={{ width: 34, height: 34, opacity: isSelected ? 1 : 0.6 }} 
+                                                resizeMode="contain"
+                                            />
+                                        ) : (
+                                            <CategoryIcon
+                                                size={24}
+                                                color={isSelected ? colors.primary : colors.textSecondary}
+                                                strokeWidth={isSelected ? 2.4 : 2}
+                                            />
+                                        )}
                                     </View>
                                     <Text
                                         style={[
@@ -250,9 +272,18 @@ export const AllServicesScreen = () => {
                                         <Text style={styles.categoryBannerPillText}>{itemsToDisplay.length} services available</Text>
                                     </View>
                                 </View>
-                                {BannerIcon && (
+                                {BannerIcon && !CATEGORY_3D_ICONS[selectedCategory.name] && (
                                     <View style={styles.categoryBannerArt}>
                                         <BannerIcon size={44} color={colors.primary} strokeWidth={1.8} />
+                                    </View>
+                                )}
+                                {CATEGORY_3D_ICONS[selectedCategory.name] && (
+                                    <View style={styles.categoryBannerArt3D}>
+                                        <Image 
+                                            source={CATEGORY_3D_ICONS[selectedCategory.name]} 
+                                            style={{ width: 130, height: 130 }} 
+                                            resizeMode="contain"
+                                        />
                                     </View>
                                 )}
                             </View>
@@ -305,27 +336,27 @@ export const AllServicesScreen = () => {
                                 </View>
                             )}
                         </View>
+                        
+                        {/* Trust footer (Moved here to align with right content and prevent sidebar overlap) */}
+                        <View style={styles.trustBar}>
+                            {TRUST_BADGES.map((badge, index) => {
+                                const BadgeIcon = badge.icon;
+                                return (
+                                    <React.Fragment key={badge.title}>
+                                        {index > 0 && <View style={styles.trustDivider} />}
+                                        <View style={styles.trustItem}>
+                                            <BadgeIcon size={20} color={badge.color} strokeWidth={2.2} />
+                                            <View style={styles.trustTextWrap}>
+                                                <Text style={styles.trustTitle} numberOfLines={1}>{badge.title}</Text>
+                                                <Text style={styles.trustCaption} numberOfLines={2}>{badge.caption}</Text>
+                                            </View>
+                                        </View>
+                                    </React.Fragment>
+                                );
+                            })}
+                        </View>
                     </ScrollView>
                 </View>
-            </View>
-
-            {/* Trust footer */}
-            <View style={styles.trustBar}>
-                {TRUST_BADGES.map((badge, index) => {
-                    const BadgeIcon = badge.icon;
-                    return (
-                        <React.Fragment key={badge.title}>
-                            {index > 0 && <View style={styles.trustDivider} />}
-                            <View style={styles.trustItem}>
-                                <BadgeIcon size={20} color={badge.color} strokeWidth={2.2} />
-                                <View style={styles.trustTextWrap}>
-                                    <Text style={styles.trustTitle} numberOfLines={1}>{badge.title}</Text>
-                                    <Text style={styles.trustCaption} numberOfLines={2}>{badge.caption}</Text>
-                                </View>
-                            </View>
-                        </React.Fragment>
-                    );
-                })}
             </View>
         </SafeAreaView>
     );
@@ -431,18 +462,19 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
     },
     sidebar: {
-        width: 92,
+        width: 80,
         backgroundColor: colors.surfaceElevated,
-        borderRadius: radii['2xl'],
-        marginLeft: spacing.sm,
-        marginBottom: spacing.sm,
+        borderTopRightRadius: radii['2xl'],
+        borderBottomRightRadius: radii['2xl'],
         paddingVertical: spacing.sm,
         ...shadows.xs,
+        shadowOpacity: 0.04,
+        marginRight: spacing.sm,
     },
     sidebarItem: {
         alignItems: 'center',
         paddingVertical: spacing.md,
-        paddingHorizontal: spacing.xs,
+        paddingHorizontal: 0,
         position: 'relative',
         width: '100%',
     },
@@ -450,21 +482,21 @@ const styles = StyleSheet.create({
         position: 'absolute',
         left: 0,
         top: '50%',
-        marginTop: -22,
-        width: 3.5,
-        height: 44,
+        marginTop: -20,
+        width: 3,
+        height: 40,
         backgroundColor: colors.primary,
         borderTopRightRadius: radii.full,
         borderBottomRightRadius: radii.full,
     },
     sidebarIconContainer: {
-        width: 54,
-        height: 54,
+        width: 50,
+        height: 50,
         borderRadius: radii.xl,
         backgroundColor: 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: spacing.xs,
+        marginBottom: 6,
     },
     sidebarIconContainerSelected: {
         backgroundColor: colors.primarySurface,
@@ -472,13 +504,14 @@ const styles = StyleSheet.create({
     sidebarText: {
         color: colors.textSecondary,
         textAlign: 'center',
-        fontSize: 10,
+        fontSize: 10.5,
         lineHeight: 13,
         fontWeight: '500',
+        paddingHorizontal: 4,
     },
     sidebarTextSelected: {
         color: colors.primary,
-        fontWeight: '800',
+        fontWeight: '700',
     },
     rightContent: {
         flex: 1,
@@ -538,19 +571,30 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    categoryBannerArt3D: {
+        width: 130,
+        height: 130,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: -20, // Pull it slightly off-edge for depth
+        marginTop: -15, // Let it break the bounds slightly
+        marginBottom: -15,
+    },
     servicesHeading: {
         ...typography.h3,
-        fontWeight: '800',
+        fontSize: 15, // Adjusted to match mockup size
+        fontWeight: '700',
         color: colors.textPrimary,
         marginBottom: spacing.md,
+        letterSpacing: -0.2,
     },
     subTabRow: {
         gap: spacing.sm,
         paddingBottom: spacing.md,
     },
     subTab: {
-        paddingHorizontal: spacing.base,
-        paddingVertical: spacing.sm,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
         borderRadius: radii.full,
         borderWidth: 1,
         borderColor: colors.border,
@@ -574,36 +618,38 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
     },
     serviceTile: {
-        width: '48.5%',
-        minHeight: 180,
+        width: '47.5%', // Slightly reduced to prevent edge overlap on smaller phones
+        minHeight: 165,
         backgroundColor: colors.surfaceElevated,
-        borderRadius: radii['2xl'],
-        padding: spacing.base,
+        borderRadius: 20,
+        padding: 12,
         marginBottom: spacing.md,
         borderWidth: 1,
-        borderColor: colors.divider,
+        borderColor: 'rgba(226, 232, 240, 0.6)', // Lighter border
         position: 'relative',
         ...shadows.sm,
+        shadowOpacity: 0.05,
+        elevation: 2,
     },
     serviceTileDisabled: {
         opacity: 0.75,
     },
     serviceTileIconBox: {
-        width: 60,
-        height: 60,
-        borderRadius: radii.xl,
+        width: 44,
+        height: 44,
+        borderRadius: 14,
         backgroundColor: colors.primarySurface,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: spacing.md,
+        marginBottom: 12,
     },
     serviceTileTitle: {
-        fontSize: 15,
-        fontWeight: '800',
-        lineHeight: 20,
-        letterSpacing: -0.2,
+        fontSize: 13.5,
+        fontWeight: '700',
+        lineHeight: 18,
+        letterSpacing: -0.1,
         color: colors.textPrimary,
-        marginBottom: spacing.xs,
+        marginBottom: 4,
     },
     serviceTileFooter: {
         flexDirection: 'row',
@@ -613,14 +659,14 @@ const styles = StyleSheet.create({
     },
     serviceTileSubtitle: {
         flex: 1,
-        fontSize: 11.5,
-        lineHeight: 15,
+        fontSize: 10.5,
+        lineHeight: 14,
         color: colors.textSecondary,
-        marginRight: spacing.sm,
+        marginRight: 6,
     },
     serviceTileArrow: {
-        width: 34,
-        height: 34,
+        width: 28,
+        height: 28,
         borderRadius: radii.full,
         backgroundColor: colors.primarySurface,
         alignItems: 'center',
@@ -661,10 +707,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: colors.surfaceElevated,
         borderRadius: radii['2xl'],
-        marginHorizontal: spacing.md,
+        marginTop: spacing.xl,
         marginBottom: spacing.sm,
         paddingVertical: spacing.md,
-        paddingHorizontal: spacing.sm,
+        paddingHorizontal: spacing.xs,
         ...shadows.md,
     },
     trustItem: {
