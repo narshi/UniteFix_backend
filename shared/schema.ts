@@ -455,11 +455,15 @@ export const invoices = pgTable("invoices", {
   productOrderId: integer("product_order_id").references(() => productOrders.id),
   userId: integer("user_id").notNull().references(() => users.id),
   providerId: integer("provider_id").references(() => employees.id), // PHASE 1: FK → employees
-  baseAmount: integer("base_amount").notNull(),
-  cgst: integer("cgst").notNull(),
-  sgst: integer("sgst").notNull(),
-  discount: integer("discount").default(0),
-  totalAmount: integer("total_amount").notNull(),
+  // Money is decimal(10,2), not integer: v2 fixed-price bookings carve GST out
+  // of the catalog price and land on paise (e.g. taxable 655.18, cgst 71.91).
+  // As integers those were silently rounded, so the stored invoice disagreed
+  // with the frozen snapshot and with what the customer actually paid.
+  baseAmount: decimal("base_amount", { precision: 10, scale: 2 }).notNull(),
+  cgst: decimal("cgst", { precision: 10, scale: 2 }).notNull(),
+  sgst: decimal("sgst", { precision: 10, scale: 2 }).notNull(),
+  discount: decimal("discount", { precision: 10, scale: 2 }).default('0'),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   userIdIdx: index("invoices_user_id_idx").on(table.userId),

@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
+// 2-digit state code, 10-char PAN, entity digit, 'Z', checksum.
+const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
     // System Settings — loaded from DB
@@ -45,10 +48,11 @@ export default function SettingsPage() {
     customerSupportEmail: "support@unitefix.com",
     customerSupportPhone: "+91-9876543210",
     
-    // Invoice Settings
+    // Invoice Settings — these print on every tax invoice PDF
     companyName: "UniteFix Solutions Pvt Ltd",
-    companyAddress: "Sirsi, Uttara Kannada, Karnataka - 581301",
+    companyAddress: "Yellapur, Uttara Kannada, Karnataka - 581359",
     gstNumber: "29ABCDE1234F1Z5",
+    placeOfSupply: "Yellapur, Karnataka",
     
     // Notification Templates
     welcomeMessage: "Welcome to UniteFix! Your service request has been received.",
@@ -72,6 +76,11 @@ export default function SettingsPage() {
     'BUSINESS_CONFIG.WALLET_HOLD_DAYS': { field: 'walletHoldDays', parse: Number },
     'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION': { field: 'minWalletRedemption', parse: Number },
     'BUSINESS_CONFIG.COMPANY_UPI_ID': { field: 'companyUpiId', parse: String },
+    // Invoice issuer block — printed on every tax invoice PDF.
+    'BUSINESS_CONFIG.COMPANY_NAME': { field: 'companyName', parse: String },
+    'BUSINESS_CONFIG.COMPANY_ADDRESS': { field: 'companyAddress', parse: String },
+    'BUSINESS_CONFIG.COMPANY_GSTIN': { field: 'gstNumber', parse: String },
+    'BUSINESS_CONFIG.PLACE_OF_SUPPLY': { field: 'placeOfSupply', parse: String },
     'OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE': { field: 'maxServiceStartDistance', parse: Number },
     'OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS': { field: 'partnerAcceptTimeoutHours', parse: Number },
     'OPERATIONAL_CONFIG.ENABLE_AUTO_ASSIGNMENT': { field: 'autoAssignPartners', parse: (v) => v === 'true' },
@@ -424,11 +433,28 @@ export default function SettingsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="gstNumber" className="text-[hsl(215,20%,75%)]">GST Number</Label>
+                <Label htmlFor="gstNumber" className="text-[hsl(215,20%,75%)]">GSTIN</Label>
                 <Input
                   id="gstNumber"
                   value={settings.gstNumber}
-                  onChange={(e) => setSettings(prev => ({ ...prev, gstNumber: e.target.value }))}
+                  onChange={(e) => setSettings(prev => ({ ...prev, gstNumber: e.target.value.toUpperCase() }))}
+                  maxLength={15}
+                  placeholder="29ABCDE1234F1Z5"
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all font-mono"
+                />
+                {settings.gstNumber && !GSTIN_PATTERN.test(settings.gstNumber) && (
+                  <p className="text-xs text-[hsl(38,92%,60%)] mt-1">
+                    Not a valid 15-character GSTIN — it will still save, but check it before issuing invoices.
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="placeOfSupply" className="text-[hsl(215,20%,75%)]">Place of Supply</Label>
+                <Input
+                  id="placeOfSupply"
+                  value={settings.placeOfSupply}
+                  onChange={(e) => setSettings(prev => ({ ...prev, placeOfSupply: e.target.value }))}
+                  placeholder="Yellapur, Karnataka"
                   className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                 />
               </div>

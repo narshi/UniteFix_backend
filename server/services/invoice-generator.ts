@@ -4,6 +4,7 @@ import { invoices, serviceRequests, users, serviceCharges, productOrders, employ
 import { eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { configService } from "./config.service";
 
 // Define strict types for invoice data
 interface InvoiceData {
@@ -18,9 +19,42 @@ interface InvoiceData {
     sgst: number;
     otherCharges: number;
     otherChargesLabel: string;
+    otherChargesNote: string;
     total: number;
     advancePaid: number;
     status: string;
+    seller: SellerDetails;
+}
+
+/** Issuer block on the invoice — edited from the admin Settings page. */
+interface SellerDetails {
+    name: string;
+    address: string;
+    gstin: string;
+    placeOfSupply: string;
+}
+
+const SELLER_DEFAULTS: SellerDetails = {
+    name: "UniteFix Solutions Pvt Ltd",
+    address: "Yellapur, Uttara Kannada, Karnataka - 581359",
+    gstin: "29ABCDE1234F1Z5",
+    placeOfSupply: "Yellapur, Karnataka",
+};
+
+async function loadSellerDetails(): Promise<SellerDetails> {
+    const [name, address, gstin, placeOfSupply] = await Promise.all([
+        configService.get<string>('BUSINESS_CONFIG.COMPANY_NAME', SELLER_DEFAULTS.name),
+        configService.get<string>('BUSINESS_CONFIG.COMPANY_ADDRESS', SELLER_DEFAULTS.address),
+        configService.get<string>('BUSINESS_CONFIG.COMPANY_GSTIN', SELLER_DEFAULTS.gstin),
+        configService.get<string>('BUSINESS_CONFIG.PLACE_OF_SUPPLY', SELLER_DEFAULTS.placeOfSupply),
+    ]);
+
+    return {
+        name: name?.trim() || SELLER_DEFAULTS.name,
+        address: address?.trim() || SELLER_DEFAULTS.address,
+        gstin: gstin?.trim() || SELLER_DEFAULTS.gstin,
+        placeOfSupply: placeOfSupply?.trim() || SELLER_DEFAULTS.placeOfSupply,
+    };
 }
 
 function round2(x: number): number {
@@ -46,6 +80,7 @@ export class InvoiceGenerator {
         if (!invoice) throw new Error("Invoice not found");
 
         const [customer] = await db.select().from(users).where(eq(users.id, invoice.userId)).limit(1);
+        const seller = await loadSellerDetails();
 
         let items: Array<{ description: string; quantity: number; unitPrice: number; total: number }> = [];
         let providerName = "UniteFix Service Partner";
@@ -179,12 +214,20 @@ export class InvoiceGenerator {
         const itemsSum = round2(items.reduce((sum, i) => sum + i.total, 0));
         const itemsGap = round2(taxableAmount - itemsSum);
         if (Math.abs(itemsGap) > 0.01) {
-            items.push({
-                description: itemsGap > 0 ? "Other Service Charges" : "Adjustment",
-                quantity: 1,
-                unitPrice: itemsGap,
-                total: itemsGap,
-            });
+            if (items.length > 0 && Math.abs(itemsGap) < 1) {
+                // Sub-rupee rounding: absorb it into the largest line rather than
+                // printing a "Rs. -0.18 Adjustment" row that reads like an error.
+                const largest = items.reduce((a, b) => (b.total > a.total ? b : a));
+                largest.total = round2(largest.total + itemsGap);
+                largest.unitPrice = round2(largest.unitPrice + itemsGap);
+            } else {
+                items.push({
+                    description: itemsGap > 0 ? "Other Service Charges" : "Adjustment",
+                    quantity: 1,
+                    unitPrice: itemsGap,
+                    total: itemsGap,
+                });
+            }
         }
 
         // Anything the customer paid beyond taxable + tax. Normally this is the
@@ -193,10 +236,9 @@ export class InvoiceGenerator {
         // amount actually collected.
         const derivedOther = round2(total - (taxableAmount + cgst + sgst));
         const otherCharges = approvedPartsCost > 0 ? approvedPartsCost : Math.max(0, derivedOther);
+        // Kept short so the label stays on one line in the totals column.
         const otherChargesLabel = approvedPartsCost > 0
-            ? (approvedPartsNote
-                ? `Approved Spare Parts (${approvedPartsNote.slice(0, 40)}):`
-                : "Approved Spare Parts:")
+            ? "Approved Spare Parts:"
             : "Additional Charges:";
 
         const data: InvoiceData = {
@@ -211,11 +253,13 @@ export class InvoiceGenerator {
             sgst,
             otherCharges,
             otherChargesLabel,
+            otherChargesNote: approvedPartsCost > 0 ? approvedPartsNote.slice(0, 80) : "",
             total,
             // The booking fee is an ADVANCE inside the total, not an extra
             // charge — shown so the paid amounts reconcile: advance + balance = total.
             advancePaid: Number(invoice.discount || 0),
-            status: "PAID"
+            status: "PAID",
+            seller,
         };
 
         return new Promise((resolve, reject) => {
@@ -252,12 +296,13 @@ export class InvoiceGenerator {
 
             doc.fillColor("#444444")
                 .font("Helvetica-Bold")
-                .fontSize(20)
-                .text("UniteFix Invoice", 110, 57)
+                .fontSize(18)
+                .text("Tax Invoice", 110, 52)
                 .font("Helvetica")
-                .fontSize(10)
-                .text("UniteFix Technologies Pvt Ltd", 200, 50, { align: "right" })
-                .text("Yellapur, Karnataka, India", 200, 65, { align: "right" })
+                .fontSize(9)
+                .text(data.seller.name, 200, 45, { align: "right" })
+                .text(data.seller.address, 200, 57, { align: "right" })
+                .text(`GSTIN: ${data.seller.gstin}`, 200, 69, { align: "right" })
                 .moveDown();
 
             // Divider
@@ -271,7 +316,7 @@ export class InvoiceGenerator {
             doc.fontSize(10).text(`Invoice Number: ${data.invoiceId}`, 50, 100)
                 .text(`Invoice Date: ${invoiceDate}`, 50, 115)
                 .text(`Status: ${data.status.toUpperCase()}`, 50, 130)
-                .text(`Place of Supply: Yellapur, Karnataka`, 50, 145)
+                .text(`Place of Supply: ${data.seller.placeOfSupply}`, 50, 145)
 
                 .text(`Billed To:`, 300, 100)
                 .font("Helvetica-Bold").text(data.customerName, 300, 115)
@@ -328,6 +373,13 @@ export class InvoiceGenerator {
             y += 20;
             doc.fontSize(12).text("Grand Total:", 350, y, { width: 110, align: "right" });
             doc.text(inr(data.total), 470, y, { width: 90, align: "right" });
+
+            if (data.otherChargesNote) {
+                y += 18;
+                doc.fontSize(8).font("Helvetica")
+                    .text(`Approved spare parts: ${data.otherChargesNote}`, 50, y, { width: 400 });
+                doc.font("Helvetica-Bold").fontSize(12);
+            }
 
             // Payment reconciliation — the booking fee is an advance credited
             // against the bill, so advance + balance always equals the total.
