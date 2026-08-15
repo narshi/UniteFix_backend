@@ -13,6 +13,7 @@ import {
   otpVerifications,
   serviceRequests,
   services as servicesCatalog,
+  paymentTransactions,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -52,7 +53,7 @@ import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
 import { InvoiceGenerator } from "./services/invoice-generator";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, inArray, desc } from "drizzle-orm";
 
 
 if (!process.env.JWT_SECRET) {
@@ -1878,7 +1879,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limit = parseInt(req.query.limit as string) || 20;
 
       const invoices = await storage.getAllInvoices();
-      const result = paginate(invoices, page, limit);
+      const serviceRequestIds = invoices
+        .map(i => i.serviceRequestId)
+        .filter((id): id is number => id !== null);
+
+      let payments: any[] = [];
+      if (serviceRequestIds.length > 0) {
+        payments = await db.select({
+          serviceRequestId: paymentTransactions.serviceRequestId,
+          status: paymentTransactions.status,
+          razorpayPaymentId: paymentTransactions.razorpayPaymentId,
+        })
+        .from(paymentTransactions)
+        .where(inArray(paymentTransactions.serviceRequestId, serviceRequestIds))
+        .orderBy(desc(paymentTransactions.createdAt));
+      }
+
+      const enrichedInvoices = invoices.map(inv => {
+        const tx = payments.find(p => p.serviceRequestId === inv.serviceRequestId);
+        return {
+          ...inv,
+          paymentStatus: tx?.status || 'pending',
+          razorpayPaymentId: tx?.razorpayPaymentId || null,
+        };
+      });
+
+      const result = paginate(enrichedInvoices, page, limit);
       res.json({ success: true, data: result.data, pagination: result.pagination });
     } catch (error) {
       next(error);
@@ -1888,9 +1914,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/invoices", async (req, res, next) => {
     try {
       const invoices = await storage.getAllInvoices();
-      res.json(invoices);
+      const serviceRequestIds = invoices
+        .map(i => i.serviceRequestId)
+        .filter((id): id is number => id !== null);
+
+      let payments: any[] = [];
+      if (serviceRequestIds.length > 0) {
+        payments = await db.select({
+          serviceRequestId: paymentTransactions.serviceRequestId,
+          status: paymentTransactions.status,
+          razorpayPaymentId: paymentTransactions.razorpayPaymentId,
+        })
+        .from(paymentTransactions)
+        .where(inArray(paymentTransactions.serviceRequestId, serviceRequestIds))
+        .orderBy(desc(paymentTransactions.createdAt));
+      }
+
+      const enrichedInvoices = invoices.map(inv => {
+        const tx = payments.find(p => p.serviceRequestId === inv.serviceRequestId);
+        return {
+          ...inv,
+          paymentStatus: tx?.status || 'pending',
+          razorpayPaymentId: tx?.razorpayPaymentId || null,
+        };
+      });
+
+      res.json(enrichedInvoices);
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.post("/api/admin/invoices/:id/refund", authenticateAdmin, async (req, res, next) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const invoice = await storage.getInvoice(invoiceId);
+      
+      if (!invoice) {
+        return res.status(404).json({ success: false, message: "Invoice not found" });
+      }
+
+      if (!invoice.serviceRequestId) {
+        return res.status(400).json({ success: false, message: "Refunds for product orders are not supported yet via this endpoint." });
+      }
+
+      const { refunds, totalRefunded } = await PaymentService.refundBookingPayments(
+        invoice.serviceRequestId,
+        undefined, // Refund full amount captured
+        'Admin requested refund via Dashboard'
+      );
+
+      res.json({ success: true, refunds, totalRefunded, message: `Successfully refunded ₹${totalRefunded}` });
+    } catch (error: any) {
+      logger.error(`[ADMIN_REFUND] Error refunding invoice ${req.params.id}: ${error.message}`);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 

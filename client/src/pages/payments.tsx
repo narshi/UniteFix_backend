@@ -1,12 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { StuckPayments } from "@/components/admin/stuck-payments";
 
 export default function PaymentsPage() {
-  const { data: invoices, isLoading } = useQuery<any[]>({
+  const { data: invoices, isLoading, refetch } = useQuery<any[]>({
     queryKey: ["/api/admin/invoices"],
   });
+  const { toast } = useToast();
+
+  const handleRefund = async (invoice: any) => {
+    if (!confirm("Are you sure you want to refund this payment?")) return;
+    try {
+      await apiRequest("POST", `/api/admin/invoices/${invoice.id}/refund`);
+      toast({
+        title: "Refund Processed",
+        description: `Successfully refunded invoice ${invoice.invoiceId}`,
+      });
+      refetch();
+    } catch (error: any) {
+      toast({
+        title: "Refund Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden bg-transparent">
@@ -49,6 +71,8 @@ export default function PaymentsPage() {
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Tax (CGST+SGST)</th>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Total Amount</th>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Date</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -83,11 +107,31 @@ export default function PaymentsPage() {
                           {invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : '—'}
                         </p>
                       </td>
+                      <td className="p-4">
+                        <Badge 
+                          variant={invoice.paymentStatus === 'captured' ? 'default' : invoice.paymentStatus === 'refunded' ? 'secondary' : invoice.paymentStatus === 'failed' ? 'destructive' : 'outline'}
+                          className={invoice.paymentStatus === 'captured' ? 'bg-[hsla(160,84%,40%,0.15)] text-[hsl(160,84%,55%)] border-[hsla(160,84%,40%,0.3)]' : ''}
+                        >
+                          {invoice.paymentStatus === 'captured' ? 'Completed' : invoice.paymentStatus || 'Pending'}
+                        </Badge>
+                      </td>
+                      <td className="p-4">
+                        {(invoice.paymentStatus === 'captured' || invoice.paymentStatus === 'pending') && invoice.serviceRequestId && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="bg-[hsla(0,84%,40%,0.1)] text-[hsl(0,84%,65%)] border-[hsla(0,84%,40%,0.3)] hover:bg-[hsla(0,84%,40%,0.2)]"
+                            onClick={() => handleRefund(invoice)}
+                          >
+                            Refund
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {(!invoices || invoices.length === 0) && (
                     <tr>
-                      <td colSpan={7} className="text-center py-8 text-[hsl(215,20%,50%)]">
+                      <td colSpan={9} className="text-center py-8 text-[hsl(215,20%,50%)]">
                         No invoices found
                       </td>
                     </tr>
