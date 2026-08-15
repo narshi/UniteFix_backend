@@ -12,6 +12,8 @@ import pg from 'pg';
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { admin } from '../lib/firebase';
+
 const DATABASE_URL = process.env.RENDER_DATABASE_URL || process.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
@@ -126,7 +128,30 @@ async function cleanupTestData() {
     }
 
     await client.query('COMMIT');
-    console.log('\n✅ Cleanup complete! Service catalogue, inventory, and products preserved.');
+    console.log('\n✅ Postgres cleanup complete! Service catalogue, inventory, and products preserved.');
+
+    console.log('\n🔥 Starting Firebase Authentication cleanup...');
+    try {
+      let users = await admin.auth().listUsers(1000);
+      let deleteCount = 0;
+      while (true) {
+        if (users.users.length > 0) {
+          const uids = users.users.map(u => u.uid);
+          await admin.auth().deleteUsers(uids);
+          deleteCount += uids.length;
+          console.log(`🗑️  Deleted ${uids.length} users from Firebase Auth`);
+        }
+        if (users.pageToken) {
+          users = await admin.auth().listUsers(1000, users.pageToken);
+        } else {
+          break;
+        }
+      }
+      console.log(`✅ Firebase cleanup complete! Total users deleted: ${deleteCount}`);
+    } catch (firebaseErr: any) {
+      console.error('❌ Firebase cleanup failed:', firebaseErr.message);
+      // Don't fail the whole script if Postgres succeeded
+    }
 
   } catch (error: any) {
     await client.query('ROLLBACK');
