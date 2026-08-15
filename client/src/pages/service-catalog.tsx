@@ -133,6 +133,20 @@ export default function ServiceCatalogPage() {
     }
   });
 
+  const deleteServiceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/catalog/services/${id}`);
+      return res;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
+      toast({ title: "Success", description: "Service deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  });
+
   const handleCategorySubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -322,14 +336,29 @@ export default function ServiceCatalogPage() {
                             ? <p className="text-sm font-mono font-semibold text-[hsl(160,84%,65%)] mt-1">₹{Number(service.basePrice).toLocaleString()}</p>
                             : <p className="text-xs text-[hsl(38,92%,60%)] mt-1">No price set</p>}
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-[hsl(215,20%,60%)] hover:text-[hsl(217,91%,65%)] hover:bg-[rgba(255,255,255,0.05)] shrink-0 transition-colors"
-                          onClick={() => { setEditingService(service); setIsServiceModalOpen(true); }}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-[hsl(215,20%,60%)] hover:text-[hsl(217,91%,65%)] hover:bg-[rgba(255,255,255,0.05)] shrink-0 transition-colors"
+                            onClick={() => { setEditingService(service); setIsServiceModalOpen(true); }}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-[hsl(215,20%,60%)] hover:text-[hsl(347,77%,65%)] hover:bg-[hsla(347,77%,50%,0.1)] shrink-0 transition-colors"
+                            onClick={() => {
+                              if (window.confirm(`Are you sure you want to delete "${service.name}"?`)) {
+                                deleteServiceMutation.mutate(service.id);
+                              }
+                            }}
+                            disabled={deleteServiceMutation.isPending}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-sm text-[hsl(210,20%,75%)] line-clamp-2 min-h-[40px] leading-relaxed">{service.subtitle || "No description provided."}</p>
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)]">

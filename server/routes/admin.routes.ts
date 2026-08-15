@@ -414,6 +414,25 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
+    /**
+     * DELETE /api/admin/catalog/services/:id
+     * Delete a service item
+     */
+    app.delete("/api/admin/catalog/services/:id", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) {
+                return res.status(403).json({ error: "Admin access required" });
+            }
+            const id = parseInt(req.params.id);
+            const deleted = await storage.deleteService(id);
+            if (!deleted) return res.status(404).json({ error: "Service not found" });
+            res.json({ success: true });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+
     // ==================== ORDER MANAGEMENT ====================
 
     /**

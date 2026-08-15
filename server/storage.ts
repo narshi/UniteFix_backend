@@ -167,6 +167,7 @@ export interface IStorage {
   deleteServiceCategory(id: number): Promise<boolean>;
   createService(service: InsertServiceItem): Promise<ServiceItem>;
   updateService(id: number, updates: Partial<ServiceItem>): Promise<ServiceItem | undefined>;
+  deleteService(id: number): Promise<boolean>;
 
   // Wallet Transactions (ACID)
   completeServiceWithTransaction(
@@ -1207,6 +1208,14 @@ export class DatabaseStorage implements IStorage {
       .where(eq(services.id, id))
       .returning();
     return result || undefined;
+  }
+
+  async deleteService(id: number): Promise<boolean> {
+    const [result] = await db
+      .delete(services)
+      .where(eq(services.id, id))
+      .returning();
+    return !!result;
   }
 
   // Wallet Transactions with ACID compliance
