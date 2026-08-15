@@ -16,6 +16,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
     ArrowLeft, FileText, Download, Calendar, User, Wrench, IndianRupee,
+    Building2, Phone, Mail, MapPin,
 } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
@@ -43,6 +44,13 @@ interface Invoice {
     createdAt: string;
     customerName?: string;
     serviceType?: string;
+    // Company/seller details from admin config
+    companyName?: string;
+    companyAddress?: string;
+    companyGstin?: string;
+    placeOfSupply?: string;
+    supportEmail?: string;
+    supportPhone?: string;
 }
 
 export function InvoiceViewScreen({ navigation, route }: Props) {
@@ -156,7 +164,56 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                     </View>
                 </View>
 
-                {/* Details */}
+                {/* Company / Issuer Details */}
+                {(invoice.companyName || invoice.companyGstin) && (
+                    <View style={styles.detailCard}>
+                        <Text style={styles.sectionTitle}>Issued By</Text>
+                        {invoice.companyName && (
+                            <DetailRow
+                                icon={<Building2 size={16} color={colors.textSecondary} />}
+                                label="Company"
+                                value={invoice.companyName}
+                            />
+                        )}
+                        {invoice.companyAddress && (
+                            <DetailRow
+                                icon={<MapPin size={16} color={colors.textSecondary} />}
+                                label="Address"
+                                value={invoice.companyAddress}
+                            />
+                        )}
+                        {invoice.companyGstin && (
+                            <DetailRow
+                                icon={<FileText size={16} color={colors.textSecondary} />}
+                                label="GSTIN"
+                                value={invoice.companyGstin}
+                            />
+                        )}
+                        {invoice.placeOfSupply && (
+                            <DetailRow
+                                icon={<MapPin size={16} color={colors.textSecondary} />}
+                                label="Place of Supply"
+                                value={invoice.placeOfSupply}
+                            />
+                        )}
+                        {invoice.supportPhone && (
+                            <DetailRow
+                                icon={<Phone size={16} color={colors.textSecondary} />}
+                                label="Support Phone"
+                                value={invoice.supportPhone}
+                            />
+                        )}
+                        {invoice.supportEmail && (
+                            <DetailRow
+                                icon={<Mail size={16} color={colors.textSecondary} />}
+                                label="Support Email"
+                                value={invoice.supportEmail}
+                            />
+                        )}
+                    </View>
+                )}
+
+                {/* Service Details */}
                 <View style={styles.detailCard}>
                     <Text style={styles.sectionTitle}>Service Details</Text>
 

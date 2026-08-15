@@ -35,7 +35,8 @@ interface Ticket {
     id: number;
     subject: string;
     description: string;
-    status: 'open' | 'in_progress' | 'resolved' | 'closed';
+    status: 'open' | 'in_progress' | 'escalated' | 'resolved' | 'closed';
+    serviceRequestId?: number;
     createdAt: string;
     updatedAt: string;
 }
@@ -43,15 +44,17 @@ interface Ticket {
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
     open: { bg: colors.primarySurface, text: colors.primary, label: 'Open' },
     in_progress: { bg: colors.warningLight, text: colors.warning, label: 'In Progress' },
+    escalated: { bg: colors.errorLight, text: colors.error, label: 'Escalated' },
     resolved: { bg: colors.successLight, text: colors.success, label: 'Resolved' },
     closed: { bg: colors.surface, text: colors.textDisabled, label: 'Closed' },
 };
 
-export function SupportTicketScreen({ navigation }: Props) {
+export function SupportTicketScreen({ navigation, route }: Props) {
     const { headerTop } = useScreenInsets();
     const qc = useQueryClient();
 
-    const [mode, setMode] = useState<'list' | 'create'>('list');
+    const prefilledServiceRequestId = route.params?.serviceRequestId;
+    const [mode, setMode] = useState<'list' | 'create'>(prefilledServiceRequestId ? 'create' : 'list');
     const [subject, setSubject] = useState('');
     const [description, setDescription] = useState('');
 
@@ -69,7 +72,7 @@ export function SupportTicketScreen({ navigation }: Props) {
 
     // Create ticket
     const { mutate: createTicket, isPending } = useMutation({
-        mutationFn: (data: { subject: string; description: string }) =>
+        mutationFn: (data: { subject: string; description: string; serviceRequestId?: number }) =>
             apiClient.post('/api/client/tickets', data),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['support-tickets'] });
@@ -81,10 +84,21 @@ export function SupportTicketScreen({ navigation }: Props) {
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
 
+    // Escalate ticket
+    const { mutate: escalateTicket, isPending: isEscalating } = useMutation({
+        mutationFn: (ticketId: number) =>
+            apiClient.post(`/api/client/tickets/${ticketId}/escalate`),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['support-tickets'] });
+            Alert.alert('Escalated', 'Your issue has been marked as escalated. Our team will prioritize it immediately.');
+        },
+        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
+    });
+
     const handleSubmit = () => {
         if (!subject.trim()) { Alert.alert('Required', 'Please enter a subject.'); return; }
         if (!description.trim()) { Alert.alert('Required', 'Please describe your issue.'); return; }
-        createTicket({ subject: subject.trim(), description: description.trim() });
+        createTicket({ subject: subject.trim(), description: description.trim(), serviceRequestId: prefilledServiceRequestId });
     };
 
     const formatDate = (d: string) => {
@@ -95,18 +109,38 @@ export function SupportTicketScreen({ navigation }: Props) {
 
     const renderTicket = ({ item }: { item: Ticket }) => {
         const status = STATUS_COLORS[item.status] || STATUS_COLORS.open;
+        const isEligibleForEscalation = item.status === 'open' && (Date.now() - new Date(item.createdAt).getTime()) > 48 * 60 * 60 * 1000;
+        
         return (
             <TouchableOpacity style={styles.ticketCard} activeOpacity={0.7}>
                 <View style={styles.ticketHeader}>
-                    <Text style={styles.ticketSubject} numberOfLines={1}>{item.subject}</Text>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.ticketSubject} numberOfLines={1}>{item.subject}</Text>
+                        {item.serviceRequestId && (
+                            <Text style={styles.ticketLinked}>Booking #{item.serviceRequestId}</Text>
+                        )}
+                    </View>
                     <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
                         <Text style={[styles.statusText, { color: status.text }]}>{status.label}</Text>
                     </View>
                 </View>
                 <Text style={styles.ticketDesc} numberOfLines={2}>{item.description}</Text>
-                <View style={styles.ticketFooter}>
-                    <Clock size={12} color={colors.textDisabled} />
-                    <Text style={styles.ticketDate}>{formatDate(item.createdAt)}</Text>
+                
+                <View style={[styles.ticketFooter, isEligibleForEscalation ? { justifyContent: 'space-between' } : {}]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                        <Clock size={12} color={colors.textDisabled} />
+                        <Text style={styles.ticketDate}>{formatDate(item.createdAt)}</Text>
+                    </View>
+                    
+                    {isEligibleForEscalation && (
+                        <TouchableOpacity 
+                            style={styles.escalateBtn}
+                            onPress={() => escalateTicket(item.id)}
+                            disabled={isEscalating}
+                        >
+                            <Text style={styles.escalateText}>Follow up</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </TouchableOpacity>
         );
@@ -132,9 +166,21 @@ export function SupportTicketScreen({ navigation }: Props) {
                 ) : <View style={{ width: 36 }} />}
             </View>
 
+            {/* Working Hours Notice */}
+            <View style={styles.noticeBanner}>
+                <Clock size={14} color={colors.textSecondary} />
+                <Text style={styles.noticeText}>Working hours: Mon - Sat, 10 AM to 6 PM</Text>
+            </View>
+
             {mode === 'create' ? (
                 /* Create Form */
                 <ScrollView contentContainerStyle={styles.formContent}>
+                    {prefilledServiceRequestId && (
+                        <View style={styles.linkedBookingBadge}>
+                            <CircleDot size={14} color={colors.primary} />
+                            <Text style={styles.linkedBookingText}>Linked to Booking #{prefilledServiceRequestId}</Text>
+                        </View>
+                    )}
                     <View style={styles.formCard}>
                         <Text style={styles.formLabel}>Subject</Text>
                         <TextInput
@@ -203,9 +249,15 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
+        backgroundColor: colors.background,
     },
+    noticeBanner: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,
+        paddingVertical: spacing.sm, backgroundColor: colors.surface,
+        borderBottomWidth: 1, borderBottomColor: colors.divider,
+    },
+    noticeText: { ...typography.caption, color: colors.textSecondary },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
     headerTitle: { ...typography.h4, color: colors.textPrimary },
     addBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
@@ -213,12 +265,17 @@ const styles = StyleSheet.create({
     ticketCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm },
     ticketHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
     ticketSubject: { ...typography.bodyMedium, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
+    ticketLinked: { ...typography.small, color: colors.primary, marginTop: 2 },
     statusBadge: { paddingVertical: 2, paddingHorizontal: spacing.sm, borderRadius: radii.full },
     statusText: { ...typography.small, fontWeight: '700' },
     ticketDesc: { ...typography.caption, color: colors.textSecondary, lineHeight: 18, marginBottom: spacing.sm },
-    ticketFooter: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    ticketFooter: { flexDirection: 'row', alignItems: 'center' },
     ticketDate: { ...typography.small, color: colors.textDisabled },
+    escalateBtn: { backgroundColor: colors.errorLight, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radii.sm },
+    escalateText: { ...typography.captionMedium, color: colors.errorDark },
     formContent: { padding: spacing.xl },
+    linkedBookingBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.primarySurface, padding: spacing.sm, borderRadius: radii.md, marginBottom: spacing.md, alignSelf: 'flex-start' },
+    linkedBookingText: { ...typography.captionMedium, color: colors.primary },
     formCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.xl, ...shadows.sm },
     formLabel: { ...typography.bodyMedium, color: colors.textPrimary, marginBottom: spacing.sm, marginTop: spacing.md },
     input: {

@@ -1136,6 +1136,28 @@ export function registerClientFeatureRoutes(app: Express) {
         }
     });
 
+    /**
+     * POST /api/client/tickets/:ticketId/escalate
+     * Customer escalates their ticket
+     */
+    app.post("/api/client/tickets/:ticketId/escalate", authenticateToken, async (req: Request, res, next) => {
+        try {
+            const ticketId = req.params.ticketId;
+            const result = await SupportTicketService.getTicketDetails(ticketId);
+
+            // Verify ticket belongs to this user
+            if (result.ticket.userId !== (req as any).user!.userId) {
+                return res.status(403).json({ success: false, message: "Access denied" });
+            }
+
+            const updatedTicket = await SupportTicketService.updateTicketStatus(ticketId, 'escalated');
+
+            res.json({ success: true, message: "Ticket escalated successfully", data: updatedTicket });
+        } catch (error) {
+            next(error);
+        }
+    });
+
     // ==================== PARTNER EARNINGS SUMMARY ====================
 
     /**

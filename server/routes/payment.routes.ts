@@ -17,6 +17,7 @@ import { BillingEngine } from "../services/billing-engine";
 import { PaymentTrackingService } from "../services/payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
 import logger from "../lib/logger";
+import { configService } from "../services/config.service";
 import { 
     paymentTransactions,
     invoices,
@@ -702,6 +703,16 @@ export function registerPaymentRoutes(app: Express) {
             // explicitly or the lines don't sum to what the customer paid.
             const otherCharges = Math.max(0, Math.round((totalAmount - (serviceAmount + gstAmount)) * 100) / 100);
 
+            // Load company details from admin config for the invoice view
+            const [companyName, companyAddress, companyGstin, placeOfSupply, supportEmail, supportPhone] = await Promise.all([
+                configService.get<string>('BUSINESS_CONFIG.COMPANY_NAME', 'UniteFix Solutions Pvt Ltd'),
+                configService.get<string>('BUSINESS_CONFIG.COMPANY_ADDRESS', 'Yellapur, Uttara Kannada, Karnataka - 581359'),
+                configService.get<string>('BUSINESS_CONFIG.COMPANY_GSTIN', '29ABCDE1234F1Z5'),
+                configService.get<string>('BUSINESS_CONFIG.PLACE_OF_SUPPLY', 'Yellapur, Karnataka'),
+                configService.get<string>('BUSINESS_CONFIG.SUPPORT_EMAIL', 'support@unitefix.com'),
+                configService.get<string>('BUSINESS_CONFIG.SUPPORT_PHONE', '+91-9876543210'),
+            ]);
+
             res.json({
                 invoice: {
                     id: row.id,
@@ -721,6 +732,13 @@ export function registerPaymentRoutes(app: Express) {
                     createdAt: row.created_at,
                     customerName: row.customer_name || undefined,
                     serviceType: sr.service_type || undefined,
+                    // Company/seller details from admin config
+                    companyName: companyName?.trim() || undefined,
+                    companyAddress: companyAddress?.trim() || undefined,
+                    companyGstin: companyGstin?.trim() || undefined,
+                    placeOfSupply: placeOfSupply?.trim() || undefined,
+                    supportEmail: supportEmail?.trim() || undefined,
+                    supportPhone: supportPhone?.trim() || undefined,
                 },
             });
         } catch (error: any) {

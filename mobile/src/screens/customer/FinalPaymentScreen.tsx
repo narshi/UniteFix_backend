@@ -297,21 +297,6 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                     <Text style={styles.failedText}>
                         Payment failed. Please try again.
                     </Text>
-                )}
-                <TouchableOpacity
-                    style={styles.cashOptionContainer}
-                    onPress={() => {
-                        Alert.alert(
-                            'Pay via Cash',
-                            'Ask your technician to collect the cash payment. They will confirm the payment from their app.\n\nThe service will be marked complete once the technician confirms.',
-                            [{ text: 'OK' }]
-                        );
-                    }}
-                >
-                    <Text style={styles.cashOptionText}>
-                        No network? Ask technician to collect cash
-                    </Text>
-                </TouchableOpacity>
             </View>
         </View>
     );

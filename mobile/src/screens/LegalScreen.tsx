@@ -44,7 +44,7 @@ const LEGAL_DOCS = [
     id: 'refund',
     title: 'Refund & Cancellation Policy',
     description: 'Guidelines for cancelling service requests and our refund process for payments and deposits.',
-    url: 'https://unitefix.com/assets/terms-and-conditions.pdf',
+    url: 'https://unitefix.com/refund-policy.html',
     icon: FileText,
     iconColor: '#F59E0B',
     iconBg: '#FFFBEB',

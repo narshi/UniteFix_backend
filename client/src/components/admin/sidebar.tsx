@@ -6,6 +6,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: "dashboard" },
   { name: "User Management", href: "/users", icon: "people" },
   { name: "Service Requests", href: "/services", icon: "build" },
+  { name: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent" },
   { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment" },
   { name: "Service Catalog", href: "/admin/catalog", icon: "category" },
   { name: "Product Orders", href: "/orders", icon: "shopping_cart" },

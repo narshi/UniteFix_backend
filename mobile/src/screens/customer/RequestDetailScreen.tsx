@@ -254,7 +254,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
         );
     };
 
-    const openWhatsApp = () => {
+    const openSupport = () => {
         if (isTerminal && request.completedAt) {
             const hoursSinceCompletion = (Date.now() - new Date(request.completedAt).getTime()) / (1000 * 60 * 60);
             if (hoursSinceCompletion > 48) {
@@ -262,8 +262,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 return;
             }
         }
-        const msg = encodeURIComponent(`Hi, I need help with booking #${request.id}. Service: ${request.serviceType}`);
-        Linking.openURL(`https://wa.me/${whatsappNumber}?text=${msg}`);
+        navigation.navigate('SupportTicket', { serviceRequestId: request.id });
     };
 
     const openPayment = () => {
@@ -690,13 +689,13 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
-                {/* WhatsApp Support — Active services or within 48h of completion */}
+                {/* Support Ticket — Active services or within 48h of completion */}
                 {showSupport && (
                     <Button
-                        title="Contact Support"
+                        title="Help / Report Issue"
                         variant="secondary"
-                        onPress={openWhatsApp}
-                        icon={<MessageCircle size={18} color={colors.whatsapp} />}
+                        onPress={openSupport}
+                        icon={<MessageCircle size={18} color={colors.primary} />}
                         style={{ marginBottom: spacing.md }}
                     />
                 )}

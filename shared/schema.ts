@@ -79,7 +79,7 @@ export const inventoryTransactionTypeEnum = pgEnum('inventory_transaction_type',
 export const transactionTypeEnum = pgEnum('transaction_type', ['credit', 'debit', 'commission', 'refund', 'topup']);
 export const bookingFeeStatusEnum = pgEnum('booking_fee_status', ['pending', 'paid', 'refunded']);
 // PHASE 7: Support ticket enums
-export const ticketStatusEnum = pgEnum('ticket_status', ['open', 'in_progress', 'resolved', 'closed']);
+export const ticketStatusEnum = pgEnum('ticket_status', ['open', 'in_progress', 'escalated', 'resolved', 'closed']);
 export const ticketPriorityEnum = pgEnum('ticket_priority', ['low', 'medium', 'high', 'urgent']);
 export const ticketCategoryEnum = pgEnum('ticket_category', ['service', 'product', 'payment', 'general']);
 // PHASE 5: Shipment status enum

@@ -202,14 +202,14 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     const handleAccept = () => {
         Alert.alert('Accept Assignment', 'Take this job?', [
-            { text: 'Cancel' },
+            { text: 'Cancel', style: 'cancel' },
             { text: 'Accept', onPress: () => accept(assignment.id, { onSuccess: () => navigation.goBack() }) },
         ]);
     };
 
     const handleDeny = () => {
         Alert.alert('Deny Assignment', 'Are you sure you want to decline?', [
-            { text: 'Cancel' },
+            { text: 'Cancel', style: 'cancel' },
             { text: 'Deny', style: 'destructive', onPress: () => deny({ id: assignment.id }, { onSuccess: () => navigation.goBack() }) },
         ]);
     };
@@ -255,7 +255,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     const handleComplete = () => {
         Alert.alert('Complete Service', 'Mark this service as done?', [
-            { text: 'Cancel' },
+            { text: 'Cancel', style: 'cancel' },
             { text: 'Complete', onPress: () => complete(assignment.id, { onSuccess: () => navigation.goBack() }) },
         ]);
     };

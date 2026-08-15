@@ -285,9 +285,13 @@ export function ProfileScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.menuItem, { borderBottomWidth: 1, borderBottomColor: colors.divider }]} onPress={() => {
-                    Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
-                        Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
-                    });
+                    if (profile?.role === 'user') {
+                        navigation.navigate('SupportTicket');
+                    } else {
+                        Linking.openURL(`whatsapp://send?phone=+${whatsappNumber}&text=Hello UniteFix Support, I need help.`).catch(() => {
+                            Alert.alert('Error', 'Make sure WhatsApp is installed on your device');
+                        });
+                    }
                 }}>
                     <View style={styles.menuLeft}>
                         <MessageCircle size={20} color={colors.primary} />

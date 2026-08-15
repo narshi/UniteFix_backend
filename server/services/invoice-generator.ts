@@ -32,6 +32,8 @@ interface SellerDetails {
     address: string;
     gstin: string;
     placeOfSupply: string;
+    supportEmail?: string;
+    supportPhone?: string;
 }
 
 const SELLER_DEFAULTS: SellerDetails = {
@@ -39,14 +41,18 @@ const SELLER_DEFAULTS: SellerDetails = {
     address: "Yellapur, Uttara Kannada, Karnataka - 581359",
     gstin: "29ABCDE1234F1Z5",
     placeOfSupply: "Yellapur, Karnataka",
+    supportEmail: "support@unitefix.com",
+    supportPhone: "+91-9876543210",
 };
 
 async function loadSellerDetails(): Promise<SellerDetails> {
-    const [name, address, gstin, placeOfSupply] = await Promise.all([
+    const [name, address, gstin, placeOfSupply, supportEmail, supportPhone] = await Promise.all([
         configService.get<string>('BUSINESS_CONFIG.COMPANY_NAME', SELLER_DEFAULTS.name),
         configService.get<string>('BUSINESS_CONFIG.COMPANY_ADDRESS', SELLER_DEFAULTS.address),
         configService.get<string>('BUSINESS_CONFIG.COMPANY_GSTIN', SELLER_DEFAULTS.gstin),
         configService.get<string>('BUSINESS_CONFIG.PLACE_OF_SUPPLY', SELLER_DEFAULTS.placeOfSupply),
+        configService.get<string>('BUSINESS_CONFIG.SUPPORT_EMAIL', SELLER_DEFAULTS.supportEmail),
+        configService.get<string>('BUSINESS_CONFIG.SUPPORT_PHONE', SELLER_DEFAULTS.supportPhone),
     ]);
 
     return {
@@ -54,6 +60,8 @@ async function loadSellerDetails(): Promise<SellerDetails> {
         address: address?.trim() || SELLER_DEFAULTS.address,
         gstin: gstin?.trim() || SELLER_DEFAULTS.gstin,
         placeOfSupply: placeOfSupply?.trim() || SELLER_DEFAULTS.placeOfSupply,
+        supportEmail: supportEmail?.trim() || SELLER_DEFAULTS.supportEmail,
+        supportPhone: supportPhone?.trim() || SELLER_DEFAULTS.supportPhone,
     };
 }
 
@@ -270,16 +278,26 @@ export class InvoiceGenerator {
             doc.on("end", () => resolve(Buffer.concat(buffers)));
             doc.on("error", (err) => reject(err));
 
-            // Header
-            const logoPath = path.join(process.cwd(), "client", "public", "logo_clean.png");
+            // Header — try multiple logo paths and formats
+            const logoCandidates = [
+                path.join(process.cwd(), "client", "public", "logo_clean.png"),
+                path.join(process.cwd(), "client", "public", "logo_clean.jpg"),
+                path.join(process.cwd(), "client", "public", "logo.png"),
+                path.join(process.cwd(), "client", "public", "logo.jpg"),
+                path.join(process.cwd(), "logo.jpg"),
+                path.join(process.cwd(), "logo.png"),
+            ];
             let hasLogo = false;
-            try {
-                if (fs.existsSync(logoPath)) {
-                    doc.image(logoPath, 50, 45, { width: 50 });
-                    hasLogo = true;
+            for (const candidate of logoCandidates) {
+                try {
+                    if (fs.existsSync(candidate)) {
+                        doc.image(candidate, 50, 45, { width: 50 });
+                        hasLogo = true;
+                        break;
+                    }
+                } catch (e) {
+                    // Try next candidate
                 }
-            } catch (e) {
-                // Ignore error
             }
 
             if (!hasLogo) {
@@ -302,30 +320,43 @@ export class InvoiceGenerator {
                 .fontSize(9)
                 .text(data.seller.name, 200, 45, { align: "right" })
                 .text(data.seller.address, 200, 57, { align: "right" })
-                .text(`GSTIN: ${data.seller.gstin}`, 200, 69, { align: "right" })
-                .moveDown();
+                .text(`GSTIN: ${data.seller.gstin}`, 200, 69, { align: "right" });
+
+            let sellerTopY = 69;
+            if (data.seller.supportPhone) {
+                sellerTopY += 12;
+                doc.text(`Phone: ${data.seller.supportPhone}`, 200, sellerTopY, { align: "right" });
+            }
+            if (data.seller.supportEmail) {
+                sellerTopY += 12;
+                doc.text(`Email: ${data.seller.supportEmail}`, 200, sellerTopY, { align: "right" });
+            }
+
+            doc.moveDown();
 
             // Divider
-            doc.moveTo(50, 90).lineTo(550, 90).stroke();
+            const dividerY = Math.max(90, sellerTopY + 15);
+            doc.moveTo(50, dividerY).lineTo(550, dividerY).stroke();
 
             // Invoice meta + customer details
             const invoiceDate = data.date.toLocaleDateString("en-IN", {
                 day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata",
             });
 
-            doc.fontSize(10).text(`Invoice Number: ${data.invoiceId}`, 50, 100)
-                .text(`Invoice Date: ${invoiceDate}`, 50, 115)
-                .text(`Status: ${data.status.toUpperCase()}`, 50, 130)
-                .text(`Place of Supply: ${data.seller.placeOfSupply}`, 50, 145)
+            const metaY = dividerY + 10;
+            doc.fontSize(10).text(`Invoice Number: ${data.invoiceId}`, 50, metaY)
+                .text(`Invoice Date: ${invoiceDate}`, 50, metaY + 15)
+                .text(`Status: ${data.status.toUpperCase()}`, 50, metaY + 30)
+                .text(`Place of Supply: ${data.seller.placeOfSupply}`, 50, metaY + 45)
 
-                .text(`Billed To:`, 300, 100)
-                .font("Helvetica-Bold").text(data.customerName, 300, 115)
-                .font("Helvetica").text(data.customerAddress || "Address on file", 300, 130);
+                .text(`Billed To:`, 300, metaY)
+                .font("Helvetica-Bold").text(data.customerName, 300, metaY + 15)
+                .font("Helvetica").text(data.customerAddress || "Address on file", 300, metaY + 30);
 
             doc.moveDown();
 
             // Table Header using manual layout
-            const tableTop = 180;
+            const tableTop = metaY + 80;
             doc.font("Helvetica-Bold");
             doc.text("Item", 50, tableTop);
             doc.text("Quantity", 280, tableTop, { width: 90, align: "right" });

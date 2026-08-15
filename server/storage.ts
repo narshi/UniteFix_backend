@@ -1315,7 +1315,7 @@ export class DatabaseStorage implements IStorage {
         .from(walletTransactions)
         .where(and(
             eq(walletTransactions.serviceRequestId, serviceRequestId),
-            eq(walletTransactions.type, 'earning')
+            eq(walletTransactions.type, 'credit')
         ));
         
       if (existingTx) {
@@ -1351,7 +1351,7 @@ export class DatabaseStorage implements IStorage {
           providerId: service.providerId,
           serviceRequestId,
           amount: earningAmount.toFixed(2),
-          type: 'earning',
+          type: 'credit',
           description: `Earnings for online payment of service ${service.serviceId}`,
           balanceBefore: currentBalance.toFixed(2),
           balanceAfter: newBalance.toFixed(2)
@@ -1361,8 +1361,12 @@ export class DatabaseStorage implements IStorage {
       // Update V2 Wallet (partner_wallets)
       const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, service.providerId));
       if (wallet) {
-         const newV2Balance = parseFloat(wallet.balance) + earningAmount;
-         await tx.update(partnerWallets).set({ balance: newV2Balance.toString() }).where(eq(partnerWallets.id, wallet.id));
+         const newV2Balance = parseFloat(wallet.balanceAvailable) + earningAmount;
+         const newTotalEarned = parseFloat(wallet.totalEarned) + earningAmount;
+         await tx.update(partnerWallets).set({ 
+             balanceAvailable: newV2Balance.toString(),
+             totalEarned: newTotalEarned.toString()
+         }).where(eq(partnerWallets.id, wallet.id));
       }
 
       return { transaction };

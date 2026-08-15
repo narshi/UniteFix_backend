@@ -81,6 +81,8 @@ export default function SettingsPage() {
     'BUSINESS_CONFIG.COMPANY_ADDRESS': { field: 'companyAddress', parse: String },
     'BUSINESS_CONFIG.COMPANY_GSTIN': { field: 'gstNumber', parse: String },
     'BUSINESS_CONFIG.PLACE_OF_SUPPLY': { field: 'placeOfSupply', parse: String },
+    'BUSINESS_CONFIG.SUPPORT_EMAIL': { field: 'customerSupportEmail', parse: String },
+    'BUSINESS_CONFIG.SUPPORT_PHONE': { field: 'customerSupportPhone', parse: String },
     'OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE': { field: 'maxServiceStartDistance', parse: Number },
     'OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS': { field: 'partnerAcceptTimeoutHours', parse: Number },
     'OPERATIONAL_CONFIG.ENABLE_AUTO_ASSIGNMENT': { field: 'autoAssignPartners', parse: (v) => v === 'true' },
