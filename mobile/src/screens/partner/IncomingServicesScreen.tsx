@@ -14,8 +14,9 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, Calendar, ChevronRight, Inbox, WifiOff } from 'lucide-react-native';
+import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell } from 'lucide-react-native';
 import { useAssignments } from '../../hooks/usePartnerData';
+import { useUnreadNotificationCount } from '../../hooks/useCustomerData';
 import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -78,6 +79,7 @@ export function IncomingServicesScreen() {
     const { headerTop, tabContent } = useScreenInsets();
     const { t } = useTranslation();
     const { data: assignments, isLoading, isError, refetch, isRefetching } = useAssignments();
+    const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
     // Show incoming (non-completed, non-denied) first
@@ -145,12 +147,34 @@ export function IncomingServicesScreen() {
     return (
         <View style={styles.container}>
             <View style={[styles.header, { paddingTop: headerTop }]}>
-                <Text style={styles.headerTitle}>{t('partner.incoming_services')}</Text>
-                <Text style={styles.headerSub}>
-                    {isError
-                        ? t('common.unavailable', 'Unavailable')
-                        : `${incoming.length} ${incoming.length === 1 ? t('partner.active_assignment') : t('partner.active_assignments')}`}
-                </Text>
+                <View style={styles.headerRow}>
+                    <View style={styles.headerTextCol}>
+                        <Text style={styles.headerTitle}>{t('partner.incoming_services')}</Text>
+                        <Text style={styles.headerSub}>
+                            {isError
+                                ? t('common.unavailable', 'Unavailable')
+                                : `${incoming.length} ${incoming.length === 1 ? t('partner.active_assignment') : t('partner.active_assignments')}`}
+                        </Text>
+                    </View>
+
+                    {/* The expert's only way into the notification feed — without
+                        it a missed push is unrecoverable. */}
+                    <TouchableOpacity
+                        style={styles.bellButton}
+                        onPress={() => navigation.navigate('Notifications')}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Notifications"
+                    >
+                        <Bell size={20} color={colors.textPrimary} strokeWidth={2} />
+                        {unreadCount > 0 && (
+                            <View style={styles.bellBadge}>
+                                <Text style={styles.bellBadgeText}>
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {renderBody()}
@@ -164,8 +188,25 @@ const styles = StyleSheet.create({
     header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
+    headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+    headerTextCol: { flex: 1, minWidth: 0 },
     headerTitle: { ...typography.h2, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+    bellButton: {
+        width: 40, height: 40, borderRadius: 20,
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: colors.surface,
+        borderWidth: 1, borderColor: colors.border,
+        marginLeft: spacing.md,
+    },
+    bellBadge: {
+        position: 'absolute', top: 2, right: 2,
+        minWidth: 16, height: 16, borderRadius: 8,
+        paddingHorizontal: 3,
+        backgroundColor: colors.error,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
     listContent: { padding: spacing.xl },
     card: {
         backgroundColor: colors.background, borderRadius: radii.xl,

@@ -118,7 +118,9 @@ export interface Notification {
     id: number;
     userId: number;
     title: string;
-    message: string;
+    /** DB column is `body`. `message` is kept only for older server responses. */
+    body: string;
+    message?: string;
     type: string;
     isRead: boolean;
     data?: any;
@@ -209,12 +211,23 @@ export const customerApi = {
         ),
 
     // Notifications
+    // The response also carries `notifications` and `unreadCount` alongside `data`.
     getNotifications: () =>
-        apiClient.get<ApiResponse<Notification[]>>('/api/notifications'),
+        apiClient.get<ApiResponse<Notification[]> & {
+            notifications?: Notification[];
+            unreadCount?: number;
+            total?: number;
+        }>('/api/notifications'),
+
+    getUnreadNotificationCount: () =>
+        apiClient.get<ApiResponse<{ unreadCount: number }>>('/api/notifications/unread-count'),
 
     // Server registers this as PUT (notification.routes.ts); PATCH 404'd.
     markNotificationRead: (id: number) =>
         apiClient.put(`/api/notifications/${id}/read`),
+
+    markAllNotificationsRead: () =>
+        apiClient.put('/api/notifications/read-all'),
 
     // Pincode validation
     validatePincode: (pinCode: string) =>

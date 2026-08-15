@@ -37,7 +37,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { apiClient } from '../../api/client';
-import { usePublicConfig, queryKeys } from '../../hooks/useCustomerData';
+import { usePublicConfig, queryKeys, useServiceRequests } from '../../hooks/useCustomerData';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useScreenInsets } from '../../theme/layout';
@@ -47,7 +47,15 @@ type Props = NativeStackScreenProps<any, 'FinalPayment'>;
 export function FinalPaymentScreen({ navigation, route }: Props) {
     const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const queryClient = useQueryClient();
-    const request = route.params?.request;
+    // In-app navigation passes the whole booking. A push notification only knows
+    // its id, so fall back to looking the booking up in the live list — without
+    // this, tapping a "bill is ready" notification crashed on `request.id`.
+    const routeRequest = route.params?.request;
+    const paramId = route.params?.serviceId ?? route.params?.id;
+    const { data: liveRequests } = useServiceRequests();
+    const request =
+        routeRequest ??
+        (liveRequests as any[] | undefined)?.find((r) => r.id === Number(paramId));
     const [paymentState, setPaymentState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [billingData, setBillingData] = useState<any>(null);
     const [loadingBill, setLoadingBill] = useState(true);
@@ -61,10 +69,15 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
             Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
             Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 50, friction: 7 }),
         ]).start();
-
-        // Fetch billing details
-        fetchBilling();
     }, []);
+
+    // Keyed on the booking id rather than mount: arriving from a notification,
+    // `request` is undefined on the first render and only resolves once the
+    // bookings list loads.
+    useEffect(() => {
+        if (!request?.id) return;
+        fetchBilling();
+    }, [request?.id]);
 
     const fetchBilling = async () => {
         try {
@@ -168,6 +181,15 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     };
 
     if (!request) {
+        // Arrived from a notification with only an id: hold on a spinner until
+        // the bookings list resolves, and only bail out if it truly isn't there.
+        if (paramId && liveRequests === undefined) {
+            return (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            );
+        }
         navigation.goBack();
         return null;
     }
@@ -369,6 +391,11 @@ const styles = StyleSheet.create({
         ...shadows.lg,
     },
     failedText: { ...typography.caption, color: colors.error, textAlign: 'center', marginTop: spacing.sm },
+
+    loadingContainer: {
+        flex: 1, backgroundColor: colors.background,
+        justifyContent: 'center', alignItems: 'center',
+    },
 
     // Success
     successContainer: {

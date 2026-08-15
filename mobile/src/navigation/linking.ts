@@ -1,8 +1,18 @@
 /**
- * Deep Linking Configuration — Maps URLs to screens
+ * Deep Linking Configuration — Maps URLs to screens.
+ *
+ * IMPORTANT: the top-level keys below must be the screen names RootNavigator
+ * actually renders — 'Auth', 'Onboarding', 'CustomerMain', 'EmployeeMain'. They
+ * previously read 'AuthStack' / 'CustomerStack' / 'PartnerStack', which match no
+ * registered route, so every deep link and every notification `url` resolved to
+ * nothing.
+ *
+ * Notification TAPS without a `url` are handled by RootNavigator; this file only
+ * handles OS deep links and notifications that carry an explicit `url` (admin
+ * marketing campaigns). See NotificationService.getNavigationRoute.
  */
 
-import { LinkingOptions, getStateFromPath } from '@react-navigation/native';
+import { LinkingOptions } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 
@@ -12,7 +22,7 @@ export const linkingConfig: LinkingOptions<any> = {
     prefixes: [prefix, 'unitefix://'],
     config: {
         screens: {
-            AuthStack: {
+            Auth: {
                 screens: {
                     Login: 'login',
                     Signup: 'signup',
@@ -21,7 +31,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     ResetPassword: 'reset-password/:token',
                 },
             },
-            CustomerStack: {
+            CustomerMain: {
                 screens: {
                     CustomerTabs: {
                         screens: {
@@ -35,6 +45,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     ServiceRequest: 'service/new',
                     RequestDetail: 'service/:id',
                     OtpDisplay: 'service/:serviceId/otp',
+                    FinalPayment: 'service/:serviceId/pay',
                     Notifications: 'notifications',
                     ProductDetail: 'product/:id',
                     Cart: 'cart',
@@ -43,7 +54,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     SupportTicket: 'support',
                 },
             },
-            PartnerStack: {
+            EmployeeMain: {
                 screens: {
                     PartnerTabs: {
                         screens: {
@@ -57,6 +68,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     AssignmentDetail: 'partner/assignment/:id',
                     StartService: 'partner/service/:serviceId/start',
                     InvoiceView: 'partner/invoice/:serviceId',
+                    Notifications: 'partner/notifications',
                 },
             },
         },

@@ -23,6 +23,7 @@ import AssignmentQueuePage from "@/pages/assignment-queue";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
+import MarketingPage from "@/pages/admin/marketing";
 
 function Router() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -137,6 +138,7 @@ function Router() {
           <Route path="/admin/catalog" component={ServiceCatalogPage} />
           <Route path="/admin/assignments" component={AssignmentQueuePage} />
           <Route path="/admin/support-tickets" component={SupportTicketsPage} />
+          <Route path="/admin/marketing" component={MarketingPage} />
           <Route path="/settings" component={SettingsPage} />
           <Route component={NotFound} />
         </Switch>

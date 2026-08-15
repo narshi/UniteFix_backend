@@ -8,6 +8,7 @@ import { uploadImageBuffer } from "../services/cloudinary.service";
 import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
 import { recordAudit } from "../lib/audit";
+import { BookingNotifications } from "../services/booking-notifications";
 
 // Payment-proof screenshot for manual payouts: one image, max 5MB.
 const proofUpload = multer({
@@ -159,6 +160,12 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     },
                 });
 
+                void BookingNotifications.withdrawalApproved(
+                    withdrawal.partnerId,
+                    amountFloat,
+                    payoutData.id,
+                );
+
                 res.json({ success: true, message: "Payout processing via RazorpayX", payout: payoutData });
             } catch (payoutError: any) {
                 // If it fails immediately, mark failed and refund the wallet.
@@ -298,6 +305,11 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             });
 
             logger.info(`[WITHDRAWAL] Request ${requestId} manually paid with proof ${proofUrl.substring(0, 60)}`);
+            void BookingNotifications.withdrawalApproved(
+                withdrawal.partnerId,
+                parseFloat(withdrawal.amount as any),
+            );
+
             res.json({ success: true, message: "Withdrawal marked as manually paid successfully." });
         } catch (error) {
             next(error);
@@ -495,6 +507,12 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     walletRefunded: true,
                 },
             });
+
+            void BookingNotifications.withdrawalRejected(
+                withdrawal.partnerId,
+                parseFloat(withdrawal.amount as any),
+                reason,
+            );
 
             res.json({ success: true, message: "Withdrawal rejected and refunded to partner." });
         } catch (error) {

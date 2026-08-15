@@ -20,6 +20,7 @@ import {
     Animated,
     Linking,
     Alert,
+    ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -180,10 +181,14 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     // details and payment state stay in sync while this screen is open — the
     // same pattern AssignmentDetailScreen already uses on the partner side.
     const routeRequest: ServiceRequest = route.params?.request;
+    // A push notification only carries the booking id, so accept that too and
+    // resolve it against the same live list.
+    const paramId = route.params?.id ?? route.params?.serviceId;
+    const targetId = routeRequest?.id ?? (paramId != null ? Number(paramId) : undefined);
     const { data: liveRequests } = useServiceRequests();
     const request: ServiceRequest =
         (liveRequests as ServiceRequest[] | undefined)?.find(
-            (r) => r.id === routeRequest?.id || (!!r.serviceId && r.serviceId === routeRequest?.serviceId),
+            (r) => r.id === targetId || (!!r.serviceId && r.serviceId === routeRequest?.serviceId),
         ) || routeRequest;
     const [showRating, setShowRating] = useState(false);
     const [rating, setRating] = useState(0);
@@ -207,6 +212,15 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     }, []);
 
     if (!request) {
+        // Opened from a notification: wait for the bookings list before deciding
+        // the booking doesn't exist, otherwise the screen bounces straight back.
+        if (targetId != null && liveRequests === undefined) {
+            return (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            );
+        }
         navigation.goBack();
         return null;
     }
@@ -743,6 +757,10 @@ export function RequestDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
+    loadingContainer: {
+        flex: 1, backgroundColor: colors.surface,
+        justifyContent: 'center', alignItems: 'center',
+    },
     header: {
         flexDirection: 'row',
         alignItems: 'center',

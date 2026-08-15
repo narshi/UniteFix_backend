@@ -36,6 +36,7 @@ import { registerInventoryRoutes } from "./routes/inventory.routes";
 // updates applied through one instance were invisible to the other.
 
 import { NotificationService } from "./services/notification.service";
+import { BookingNotifications } from "./services/booking-notifications";
 import { registerNotificationRoutes } from "./routes/notification.routes";
 import { registerReturnRoutes } from "./routes/return.routes";
 import { registerCatalogRoutes } from "./routes/catalog.routes";
@@ -1434,6 +1435,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startedAt: new Date()
       });
 
+      void BookingNotifications.serviceStarted(targetId);
+
       res.json({ success: true, message: "Service started", data: updatedService });
     } catch (error) {
       next(error);
@@ -1485,6 +1488,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalAmount,
         0.15 // PHASE 5: 15% UniteFix fee (was COMMISSION_RATE=0.10)
       );
+
+      void BookingNotifications.serviceCompleted(targetId!, result.transaction?.amount);
 
       res.json({
         success: true,
@@ -1607,6 +1612,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         logger.info(`[BOOKING] Free booking created for service ${service.id}.`);
       }
+
+      void BookingNotifications.bookingCreated(service.id);
 
       res.status(201).json({
         success: true,
@@ -1731,6 +1738,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : refundFailed
               ? "Service cancelled. Your refund needs manual processing — our team will contact you shortly."
               : "Service cancelled successfully.";
+
+      // Only matters when an expert was already assigned — otherwise this is a
+      // no-op, since bookingCancelled targets the expert.
+      void BookingNotifications.bookingCancelled(service.id, req.body?.reason);
 
       res.json({
           success: true,
@@ -2303,15 +2314,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ==================== PARTNER ACCEPT/DENY ====================
-  // Critical: These are the #1 missing feature from Figma designs
+  // ==================== DEVICE TOKEN ALIASES ====================
+  // Legacy paths, kept for app builds already in the field. The canonical routes
+  // are /api/notifications/register-token and /unregister-token in
+  // notification.routes.ts — new clients should use those.
 
-  // Partner accepts an assigned service request
-  app.post("/api/notifications/register", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  // authenticateAny, not authenticateToken — the latter is customer-only and
+  // 403'd every service expert trying to register their device.
+  app.post("/api/notifications/register", authenticateAny, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { token, platform } = req.body;
       if (!token) {
         return res.status(400).json({ success: false, message: "Device token is required" });
+      }
+
+      // Expo push tokens are routed by Expo's service, not FCM — storing one
+      // guarantees every later send to that device fails. Reject it loudly.
+      if (/^Expo(nent)?PushToken\[/i.test(token)) {
+        return res.status(400).json({
+          success: false,
+          message: "Expo push tokens are not supported. Send the native FCM token instead.",
+        });
       }
 
       await storage.addDeviceToken(req.user!.userId, token, platform || 'unknown');
@@ -2321,7 +2344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/notifications/unregister", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  app.delete("/api/notifications/unregister", authenticateAny, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { token } = req.body;
       if (!token) {
@@ -2359,6 +2382,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         { action: 'partner_accepted' }
       );
+
+      // Customer has been waiting to hear the expert is coming.
+      void BookingNotifications.expertAccepted(serviceId);
 
       res.json({ success: true, message: "Service accepted successfully", service: updated });
     } catch (error) {
@@ -2400,6 +2426,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         changedBy: userId,
         metadata: { reason, providerId: provider.id, partnerName: provider.fullName || provider.businessName || 'Unknown' },
       });
+
+      // Reassure the customer, and put it back on the admin's radar.
+      void BookingNotifications.expertDenied(serviceId, provider.id, reason);
 
       res.json({ success: true, message: "Service denied. It will be reassigned.", service: updated });
     } catch (error) {

@@ -79,25 +79,61 @@ export function RootNavigator() {
         }
     }, [isAuthenticated]);
 
-    // Initialize push notifications after auth
+    // Register this device for push once the user is authenticated. Re-running on
+    // every login matters: the token is stored against a user id, so a device
+    // shared between a customer and an expert must re-register per session.
     useEffect(() => {
         if (isAuthenticated) {
             NotificationService.initialize();
         }
     }, [isAuthenticated]);
 
-    // Listen for incoming notifications (foreground)
+    /**
+     * Open the screen a notification points at.
+     *
+     * `navigate(screenName)` from the root only searches the CURRENT navigator —
+     * it cannot descend into a child stack, so navigating straight to
+     * 'RequestDetail' silently did nothing. The route carries the owning stack so
+     * we can address the nested screen explicitly.
+     */
+    const openNotification = (notification: any) => {
+        const route = NotificationService.getNavigationRoute(notification);
+        if (!route || !navigationRef.current) return;
+
+        // The target stack only exists when the signed-in user's role matches it.
+        // Ignoring a mismatch beats crashing on an unknown route name.
+        const activeStack = getNavigationBranch(useAuthStore.getState().user);
+        const stackIsMounted =
+            (route.stack === 'CustomerMain' && activeStack === 'customer') ||
+            (route.stack === 'EmployeeMain' && activeStack === 'employee_verified');
+
+        if (!stackIsMounted) {
+            if (__DEV__) {
+                console.log(
+                    `[Notification] Ignoring deep link to ${route.stack} — current branch is ${activeStack}`
+                );
+            }
+            return;
+        }
+
+        // Cast: NavigationContainerRef<any> narrows navigate()'s params to
+        // `never`, which cannot express a nested { screen, params } target.
+        (navigationRef.current as any).navigate(route.stack, {
+            screen: route.screen,
+            params: route.params,
+        });
+    };
+
+    // Foreground arrivals + taps (background and quit-state).
     useEffect(() => {
         const receivedSub = addNotificationReceivedListener((notification) => {
-            if (__DEV__) console.log('[Notification] Received in foreground:', notification.request.content.title);
+            if (__DEV__) {
+                console.log('[Notification] Received in foreground:', notification.request.content.title);
+            }
         });
 
-        // Listen for notification taps
         const responseSub = addNotificationResponseListener((response) => {
-            const route = NotificationService.getNavigationRoute(response.notification);
-            if (route && navigationRef.current) {
-                navigationRef.current.navigate(route.screen as any, route.params);
-            }
+            openNotification(response.notification);
         });
 
         return () => {
@@ -105,6 +141,26 @@ export function RootNavigator() {
             responseSub.remove();
         };
     }, []);
+
+    /**
+     * Cold start: the app was launched by tapping a notification. The response
+     * listener above does not fire for that case, so replay the last response
+     * once navigation is ready and the correct stack has mounted.
+     */
+    useEffect(() => {
+        if (!isAuthenticated) return;
+
+        let cancelled = false;
+        NotificationService.getLastNotificationResponse().then((response) => {
+            if (cancelled || !response) return;
+            // Defer a tick so the navigator has finished mounting the branch.
+            setTimeout(() => openNotification(response.notification), 400);
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isAuthenticated, user?.role]);
 
     if (isLoading) {
         return <LoadingScreen />;

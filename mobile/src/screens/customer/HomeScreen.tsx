@@ -34,7 +34,7 @@ import {
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useProfile } from '../../hooks/useCustomerData';
+import { useProfile, useUnreadNotificationCount } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -74,6 +74,7 @@ export function HomeScreen() {
         refetch: refetchServices,
     } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
+    const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const { t } = useTranslation();
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
@@ -166,8 +167,16 @@ export function HomeScreen() {
                         style={styles.bellButton}
                         onPress={() => navigation.navigate('Notifications')}
                         activeOpacity={0.7}
+                        accessibilityLabel="Notifications"
                     >
                         <Bell size={20} color={colors.textInverse} strokeWidth={2} />
+                        {unreadCount > 0 && (
+                            <View style={styles.bellBadge}>
+                                <Text style={styles.bellBadgeText}>
+                                    {unreadCount > 9 ? '9+' : unreadCount}
+                                </Text>
+                            </View>
+                        )}
                     </TouchableOpacity>
                 </View>
 
@@ -356,6 +365,19 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    bellBadge: {
+        position: 'absolute',
+        top: 6,
+        right: 6,
+        minWidth: 16,
+        height: 16,
+        borderRadius: 8,
+        paddingHorizontal: 3,
+        backgroundColor: colors.error,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
     // Location Pill
     locationPill: {

@@ -19,6 +19,7 @@ import { paymentTransactions, invoices } from "@shared/schema";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
+import { BookingNotifications } from "./booking-notifications";
 import logger from "../lib/logger";
 
 interface RazorpayConfig {
@@ -302,6 +303,10 @@ export class PaymentService {
         await storage.creditProviderWalletForOnlinePayment(serviceRequestId);
 
         logger.info(`[QR] Booking ${serviceRequestId} settled via QR payment ${payment.id} and wallet credited`);
+
+        void BookingNotifications.paymentReceived(serviceRequestId, payment.amount / 100, 'UPI QR');
+        void BookingNotifications.serviceCompleted(serviceRequestId);
+
         return { settled: true, alreadySettled: false };
     }
 
@@ -463,6 +468,10 @@ export class PaymentService {
                     await storage.creditProviderWalletForOnlinePayment(parseInt(notes.service_request_id));
                     
                     logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED and wallet credited`);
+
+                    const settledId = parseInt(notes.service_request_id);
+                    void BookingNotifications.paymentReceived(settledId, amountPaise / 100, 'online');
+                    void BookingNotifications.serviceCompleted(settledId);
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] COMPLETED transition failed: ${err.message}`);
                 }
@@ -506,6 +515,7 @@ export class PaymentService {
         if (event === "payment.failed") {
             const orderId = payload.payment.entity.order_id;
             const amountPaise = payload.payment.entity.amount || 0; // Razorpay sends paise
+            const failedNotes = payload.payment.entity.notes || {};
 
             // Record failure event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
@@ -515,6 +525,16 @@ export class PaymentService {
                 status: 'failed',
                 metadata: payload.payment?.entity,
             });
+
+            // A failed final payment leaves the expert waiting on site — the
+            // customer needs to know to retry rather than assume it went through.
+            const failedServiceId = parseInt(failedNotes.service_request_id);
+            if (Number.isFinite(failedServiceId)) {
+                void BookingNotifications.paymentFailed(
+                    failedServiceId,
+                    payload.payment.entity.error_description,
+                );
+            }
 
             return {
                 success: true,

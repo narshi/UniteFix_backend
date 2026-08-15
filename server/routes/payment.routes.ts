@@ -16,6 +16,7 @@ import { storage } from "../storage";
 import { BillingEngine } from "../services/billing-engine";
 import { PaymentTrackingService } from "../services/payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
+import { BookingNotifications } from "../services/booking-notifications";
 import logger from "../lib/logger";
 import { configService } from "../services/config.service";
 import { 
@@ -840,6 +841,12 @@ export function registerPaymentRoutes(app: Express) {
                             await storage.updateServiceRequest(serviceId, {
                                 paymentMethod: 'razorpay' as any,
                             });
+
+                            const paidAmount = (booking.pricingSnapshot as any)?.finalTotal
+                                ?? booking.totalAmount
+                                ?? 0;
+                            void BookingNotifications.paymentReceived(serviceId, paidAmount, 'online');
+                            void BookingNotifications.serviceCompleted(serviceId);
                         } else {
                             // Booking fee or other payment
                             await db.update(serviceRequests)

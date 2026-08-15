@@ -23,6 +23,7 @@ import { authenticatePartner, authenticateToken, authenticateAny , requireVerifi
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
+import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 
 export function registerBillingRoutes(app: Express) {
@@ -146,6 +147,10 @@ export function registerBillingRoutes(app: Express) {
 
             logger.info(`[BILLING] Bill submitted for booking ${bookingId}: parts=₹${parts}, labor=₹${labor}, grossTotal=₹${billedSnapshot.grossTotal}, finalDue=₹${billedSnapshot.finalTotal}`);
 
+            // The expert is standing there waiting to be paid — the customer needs
+            // this immediately, not on their next app open.
+            void BookingNotifications.billSubmitted(bookingId, billedSnapshot.finalTotal ?? 0);
+
             res.json({
                 success: true,
                 message: 'Bill submitted. Waiting for customer payment.',
@@ -233,6 +238,8 @@ export function registerBillingRoutes(app: Express) {
 
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
                 (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts)` : ''));
+
+            void BookingNotifications.billSubmitted(bookingId, updatedSnapshot.finalTotal ?? 0);
 
             res.json({
                 success: true,
@@ -383,6 +390,8 @@ export function registerBillingRoutes(app: Express) {
                         'Booking cancelled. Your refund needs manual processing — our team will contact you shortly.';
                 }
             }
+
+            void BookingNotifications.bookingCancelled(bookingId, req.body?.reason);
 
             res.json({
                 success: true,
@@ -567,6 +576,9 @@ export function registerBillingRoutes(app: Express) {
             }
 
             logger.info(`[CASH] Cash collected for booking ${bookingId}: amount=₹${amountCollected}, platformDebit=₹${platformDebit}, employee=${partnerId}`);
+
+            void BookingNotifications.paymentReceived(bookingId, amountCollected, 'cash');
+            void BookingNotifications.serviceCompleted(bookingId, snapshot.employeeEarnings);
 
             res.json({
                 success: true,

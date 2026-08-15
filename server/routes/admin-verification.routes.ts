@@ -19,6 +19,7 @@ import {
 import { authenticateAdmin } from '../middleware/auth.middleware';
 import { BookingState } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
+import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 import { recordAudit } from '../lib/audit';
 
@@ -154,6 +155,10 @@ export function registerAdminVerificationRoutes(app: Express) {
                 },
             });
 
+            // Verification is the gate between EmployeePendingScreen and the real
+            // app — the expert has no other way to learn the decision was made.
+            void BookingNotifications.verificationDecision(employeeId, status, remarks);
+
             res.json({
                 success: true,
                 message: `Employee verification status updated to '${status}'`,
@@ -279,6 +284,8 @@ export function registerAdminVerificationRoutes(app: Express) {
                 .returning();
 
             logger.warn(`[ADMIN_OVERRIDE] Booking ${bookingId}: ${previousState} → ${newState} — ${reason} (admin ${adminId})`);
+
+            void BookingNotifications.forState(bookingId, newState, reason);
 
             await recordAudit({
                 entityType: 'service_request',
@@ -427,6 +434,8 @@ export function registerAdminVerificationRoutes(app: Express) {
                 .returning();
 
             logger.info(`[ADMIN] Dispute resolved for booking ${bookingId}: ${resolution} (admin ${adminId})`);
+
+            void BookingNotifications.disputeResolved(bookingId, actionsTaken.join('; ') || remarks);
 
             await recordAudit({
                 entityType: 'service_request',

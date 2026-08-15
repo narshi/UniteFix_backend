@@ -292,8 +292,10 @@ export interface IStorage {
   addDeviceToken(userId: number, token: string, platform: string): Promise<DeviceToken>;
   removeDeviceToken(userId: number, token: string): Promise<void>;
   createNotification(data: InsertNotification): Promise<Notification>;
+  createNotifications(rows: InsertNotification[]): Promise<number>;
   getUserNotifications(userId: number, page?: number, limit?: number): Promise<{ notifications: Notification[], total: number }>;
-  markNotificationRead(id: number): Promise<void>;
+  getUnreadNotificationCount(userId: number): Promise<number>;
+  markNotificationRead(id: number, userId: number): Promise<void>;
   markAllNotificationsRead(userId: number): Promise<void>;
 }
 
@@ -2628,10 +2630,28 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async markNotificationRead(id: number): Promise<void> {
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    const [row] = await db
+      .select({ count: count() })
+      .from(notifications)
+      .where(and(
+        eq(notifications.userId, userId),
+        eq(notifications.isRead, false)
+      ));
+    return Number(row?.count || 0);
+  }
+
+  /**
+   * Scoped by userId as well as id — without it any authenticated user could
+   * mark another user's notification as read by guessing a serial id.
+   */
+  async markNotificationRead(id: number, userId: number): Promise<void> {
     await db.update(notifications)
       .set({ isRead: true })
-      .where(eq(notifications.id, id));
+      .where(and(
+        eq(notifications.id, id),
+        eq(notifications.userId, userId)
+      ));
   }
 
   async markAllNotificationsRead(userId: number): Promise<void> {
@@ -2655,6 +2675,24 @@ export class DatabaseStorage implements IStorage {
       .values(data)
       .returning();
     return result;
+  }
+
+  /**
+   * Bulk insert for broadcasts. Chunked because a marketing campaign can target
+   * tens of thousands of users and Postgres caps a statement's bind parameters
+   * at 65535 (5 columns per row here).
+   */
+  async createNotifications(rows: InsertNotification[]): Promise<number> {
+    if (rows.length === 0) return 0;
+
+    const CHUNK = 1000;
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      await db.insert(notifications).values(chunk);
+      inserted += chunk.length;
+    }
+    return inserted;
   }
 
   // Districts Implementation

@@ -20,6 +20,8 @@ import {
     notifications,
 } from "@shared/schema";
 import logger from "../lib/logger";
+import { BookingNotifications } from "./booking-notifications";
+import { NotificationService } from "./notification.service";
 
 // ==================== JOB 1: WALLET HOLD RELEASE ====================
 /**
@@ -66,6 +68,10 @@ async function releaseHeldWalletFunds(): Promise<void> {
 
                     logger.info(`[CRON] Released ₹${txn.amount} for partner ${txn.partnerId}, service ${txn.serviceRequestId}`);
                 });
+
+                // Sent after the transaction commits — the expert should only be
+                // told the money is withdrawable once it actually is.
+                void BookingNotifications.walletReleased(txn.partnerId, txn.amount);
             } catch (err: any) {
                 logger.error(`[CRON] Failed to release txn ${txn.id}`, { error: err.message });
                 // Continue with next — don't block other releases
@@ -181,7 +187,14 @@ async function checkLowStockAlerts(): Promise<void> {
             })),
         });
 
-        // TODO: Send admin notification via NotificationService when admin device tokens are available
+        void NotificationService.sendToAdmins(
+            `${lowStockItems.length} item(s) low on stock`,
+            lowStockItems
+                .slice(0, 10)
+                .map((item) => `${item.productName} (${item.variantLabel}) — ${item.stock} left`)
+                .join('\n'),
+            { count: lowStockItems.length },
+        );
     } catch (err: any) {
         logger.error('[CRON] Low stock alert job failed', { error: err.message });
     }
@@ -220,6 +233,23 @@ async function revertStaleAssignments(): Promise<void> {
         const cutoffMs = timeoutHours * 60 * 60 * 1000;
         const cutoff = new Date(Date.now() - cutoffMs);
 
+        // Read the affected rows first: the UPDATE nulls provider_id, so
+        // RETURNING would hand back the already-cleared value and there would be
+        // no way to tell the expert their job was taken back.
+        const staleRows = await db.execute(sql`
+            SELECT id, provider_id
+            FROM service_requests
+            WHERE status = 'assigned'
+              AND assigned_at IS NOT NULL
+              AND assigned_at <= ${cutoff}
+        `) as any;
+        const stale = (Array.isArray(staleRows) ? staleRows : staleRows?.rows || []) as Array<{
+            id: number;
+            provider_id: number | null;
+        }>;
+
+        if (stale.length === 0) return;
+
         const result = await db.execute(sql`
             UPDATE service_requests
             SET status = 'created',
@@ -232,12 +262,81 @@ async function revertStaleAssignments(): Promise<void> {
               AND assigned_at <= ${cutoff}
         `);
 
-        const count = (result as any).rowCount || 0;
-        if (count > 0) {
-            logger.warn(`[CRON] Auto-reverted ${count} stale ASSIGNED booking(s) (>${timeoutHours}h)`);
+        const count = (result as any).rowCount || stale.length;
+        logger.warn(`[CRON] Auto-reverted ${count} stale ASSIGNED booking(s) (>${timeoutHours}h)`);
+
+        for (const row of stale) {
+            if (row.provider_id) {
+                void BookingNotifications.assignmentRevoked(
+                    row.provider_id,
+                    row.id,
+                    `not accepted within ${timeoutHours}h`,
+                );
+            }
         }
+
+        void NotificationService.sendToAdmins(
+            `${count} assignment(s) timed out`,
+            `Bookings ${stale.map((r) => r.id).join(', ')} were not accepted within ${timeoutHours}h and are back in the queue.`,
+            { bookingIds: stale.map((r) => r.id) },
+        );
     } catch (err: any) {
         logger.error('[CRON] Assignment timeout job failed', { error: err.message });
+    }
+}
+
+// ==================== JOB 8: ASSIGNMENT ACCEPTANCE REMINDER ====================
+/**
+ * Nudge experts sitting on an unaccepted assignment.
+ *
+ * Without this, the only assignment push an expert ever gets is the one at the
+ * moment of assignment — if their phone was off or the app had no token yet,
+ * the job silently ages out via revertStaleAssignments() and the customer waits
+ * hours for nothing. Reminders go out once per interval between 30 minutes old
+ * and the timeout, so a job is never both reminded and expired in the same tick.
+ * Runs every 15 minutes.
+ */
+async function remindPendingAssignments(): Promise<void> {
+    try {
+        const { configService } = await import("./config.service");
+        const timeoutHoursStr = await configService.get<string>('OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS');
+        const timeoutHours = parseInt(timeoutHoursStr || '4');
+
+        const olderThan = new Date(Date.now() - 30 * 60 * 1000);              // assigned >30m ago
+        const notYetExpired = new Date(Date.now() - timeoutHours * 60 * 60 * 1000);
+
+        const rows = await db.execute(sql`
+            SELECT sr.id, sr.service_id, sr.service_type, e.user_id AS expert_user_id
+            FROM service_requests sr
+            JOIN employees e ON e.id = sr.provider_id
+            WHERE sr.status = 'assigned'
+              AND sr.assigned_at IS NOT NULL
+              AND sr.assigned_at <= ${olderThan}
+              AND sr.assigned_at > ${notYetExpired}
+        `) as any;
+
+        const pending = (Array.isArray(rows) ? rows : rows?.rows || []) as Array<{
+            id: number;
+            service_id: string;
+            service_type: string | null;
+            expert_user_id: number;
+        }>;
+
+        if (pending.length === 0) return;
+
+        logger.info(`[CRON] Reminding ${pending.length} expert(s) about unaccepted assignments`);
+
+        for (const row of pending) {
+            NotificationService.notify(
+                row.expert_user_id,
+                'Job still waiting for you',
+                `${row.service_type || 'A job'} — ${row.service_id} is still unaccepted. It will be reassigned if you don't accept it.`,
+                'assignment_reminder',
+                { serviceId: row.id, serviceRef: row.service_id, role: 'expert' },
+            );
+        }
+    } catch (err: any) {
+        logger.error('[CRON] Assignment reminder job failed', { error: err.message });
     }
 }
 
@@ -287,7 +386,12 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(revertStaleAssignments, FIFTEEN_MINUTES));
     setTimeout(revertStaleAssignments, 60000);
 
-    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m)');
+    // Nudge experts on unaccepted assignments every 15 minutes. Offset from the
+    // revert job so a booking is reverted before it can be reminded again.
+    intervals.push(setInterval(remindPendingAssignments, FIFTEEN_MINUTES));
+    setTimeout(remindPendingAssignments, 90000);
+
+    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m)');
 }
 
 /**

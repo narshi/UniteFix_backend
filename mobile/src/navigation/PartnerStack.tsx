@@ -12,6 +12,9 @@ import { SubmitBillScreen } from '../screens/partner/SubmitBillScreen';
 import { ServiceHistoryDetailScreen } from '../screens/partner/ServiceHistoryDetailScreen';
 import { ManageExpertiseScreen } from '../screens/partner/ManageExpertiseScreen';
 import { LegalScreen } from '../screens/LegalScreen';
+// Shared with the customer stack — an expert needs the same durable record of
+// assignments, wallet credits and verification decisions.
+import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -25,6 +28,7 @@ export function PartnerStack() {
             <Stack.Screen name="SubmitBill" component={SubmitBillScreen} />
             <Stack.Screen name="ServiceHistoryDetail" component={ServiceHistoryDetailScreen} />
             <Stack.Screen name="ManageExpertise" component={ManageExpertiseScreen} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
         </Stack.Navigator>
     );

@@ -54,8 +54,15 @@ type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { headerTop } = useScreenInsets();
     const routeAssignment: Assignment = route.params?.assignment;
-    const { data: assignmentsList } = useAssignments();
-    const assignment = assignmentsList?.find((a: Assignment) => a.id === routeAssignment?.id || a.serviceId === routeAssignment?.serviceId) || routeAssignment;
+    // A push notification only carries the booking id — the in-app list passes
+    // the whole object. Support both so "New job assigned" opens the real job.
+    const paramId = route.params?.id ?? route.params?.serviceId;
+    const targetId = routeAssignment?.id ?? (paramId != null ? Number(paramId) : undefined);
+    const { data: assignmentsList, isLoading: loadingAssignments } = useAssignments();
+    const assignment =
+        assignmentsList?.find(
+            (a: Assignment) => a.id === targetId || a.serviceId === routeAssignment?.serviceId,
+        ) || routeAssignment;
     const { data: publicConfig } = usePublicConfig();
     
     const [otp, setOtp] = useState('');
@@ -185,7 +192,19 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     }, [qrExpiresAt]);
 
     // Early return AFTER all hooks (React Rules of Hooks)
-    if (!assignment) { navigation.goBack(); return null; }
+    if (!assignment) {
+        // Opened from a notification with only an id: hold until the assignment
+        // list loads rather than bouncing the expert straight back out.
+        if (targetId != null && loadingAssignments) {
+            return (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+            );
+        }
+        navigation.goBack();
+        return null;
+    }
 
     const openDirections = () => {
         if (!customerCoords) return;
@@ -679,6 +698,10 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
+    loadingContainer: {
+        flex: 1, backgroundColor: colors.surface,
+        justifyContent: 'center', alignItems: 'center',
+    },
     // NOTE: header/backBtn/headerTitle styles removed — this screen uses <ScreenHeader />.
     scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     card: { backgroundColor: colors.background, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },

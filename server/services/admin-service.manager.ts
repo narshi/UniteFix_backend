@@ -14,6 +14,7 @@
 import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories } from "@shared/schema";
+import { BookingNotifications } from "./booking-notifications";
 
 interface ServiceFilters {
     status?: string;
@@ -219,6 +220,10 @@ export class AdminServiceManager {
             },
         });
 
+        // Tell the expert they have a job and the customer who is coming.
+        // Fire-and-forget: a push failure must not fail the assignment.
+        void BookingNotifications.expertAssigned(serviceId, false);
+
         return updated;
     }
 
@@ -276,6 +281,13 @@ export class AdminServiceManager {
             },
         });
 
+        // New expert + customer get the assignment notice; the outgoing expert
+        // is told the job is no longer theirs so they don't travel to it.
+        void BookingNotifications.expertAssigned(serviceId, true);
+        if (oldTechnicianId && oldTechnicianId !== newTechnicianId) {
+            void BookingNotifications.assignmentRevoked(oldTechnicianId, serviceId, reason);
+        }
+
         return updated;
     }
 
@@ -323,6 +335,10 @@ export class AdminServiceManager {
                 bypassedGates: true,
             },
         });
+
+        // An override is invisible to the app otherwise — the user's screen would
+        // silently jump states on next refresh with no explanation.
+        void BookingNotifications.forState(serviceId, newState, reason);
 
         return updated;
     }

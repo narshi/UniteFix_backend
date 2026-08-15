@@ -17,6 +17,7 @@ import { serviceRequests, employees } from '@shared/schema';
 import { authenticatePartner , requireVerifiedPartner} from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition, requiresGeofenceValidation, requiresOtpValidation } from '../business/booking-state-machine';
 import { configService } from '../services/config.service';
+import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 
 export function registerGeofenceRoutes(app: Express) {
@@ -142,6 +143,10 @@ export function registerGeofenceRoutes(app: Express) {
 
             logger.info(`[GEOFENCE] APPROVED: Booking ${bookingId} → REACHED (distance=${Math.round(distanceMeters)}m)`);
 
+            // The customer has to open the app to read the OTP out — without a
+            // push they have no idea the expert is standing outside.
+            void BookingNotifications.expertArrived(bookingId);
+
             res.json({
                 success: true,
                 message: 'Arrival confirmed. Please ask the customer for the service OTP to begin.',
@@ -233,6 +238,8 @@ export function registerGeofenceRoutes(app: Express) {
             }
 
             logger.info(`[OTP] Verified: Booking ${bookingId} → IN_PROGRESS`);
+
+            void BookingNotifications.serviceStarted(bookingId);
 
             res.json({
                 success: true,

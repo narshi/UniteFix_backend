@@ -752,6 +752,25 @@ export const notifications = pgTable("notifications", {
   userIdx: index("notifications_user_idx").on(table.userId),
 }));
 
+// Marketing broadcast history — one row per admin-sent campaign.
+// `recipientCount` is how many users the audience resolved to; `deliveredCount`
+// is how many DEVICES FCM accepted. They differ because a user can have zero
+// devices (in-app only) or several.
+export const notificationCampaigns = pgTable("notification_campaigns", {
+  id: serial("id").primaryKey(),
+  audience: text("audience").notNull(), // customers | experts | all
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  deepLink: text("deep_link"),
+  recipientCount: integer("recipient_count").notNull().default(0),
+  deliveredCount: integer("delivered_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  sentBy: integer("sent_by"), // admin_users.id
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  createdIdx: index("notification_campaigns_created_idx").on(table.createdAt),
+}));
+
 // PHASE 10: Payment Transactions table (tracks every Razorpay event)
 export const paymentTransactions = pgTable("payment_transactions", {
   id: serial("id").primaryKey(),
@@ -1344,6 +1363,9 @@ export type InsertDeviceToken = z.infer<typeof insertDeviceTokenSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export type NotificationCampaign = typeof notificationCampaigns.$inferSelect;
+export type InsertNotificationCampaign = typeof notificationCampaigns.$inferInsert;
 
 // PHASE 10: Payment, Return, Refund types
 export type PaymentTransaction = typeof paymentTransactions.$inferSelect;

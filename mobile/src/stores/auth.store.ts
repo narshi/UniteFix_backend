@@ -200,6 +200,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * Clear all auth state and revoke tokens
    */
   logout: async () => {
+    // Drop the push token FIRST, while the access token is still valid — this
+    // device is registered against the outgoing user id, so skipping it would
+    // deliver their notifications to whoever signs in next.
+    // Required lazily: notifications → apiClient → auth.store is a cycle at
+    // module scope, and Metro would hand one of them a half-initialised module.
+    try {
+      const { NotificationService } = require('../services/notifications');
+      await NotificationService.unregisterToken();
+    } catch {
+      // Best effort — the server prunes dead tokens on its next send.
+    }
+
     try {
       await authApi.logout();
     } catch {

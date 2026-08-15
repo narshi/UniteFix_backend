@@ -212,7 +212,43 @@ export function useNotifications() {
         queryKey: queryKeys.notifications,
         queryFn: async () => {
             const response = await customerApi.getNotifications();
-            return response.data.data;
+            // Older servers returned `{ notifications }` with no `data` key, which
+            // read as undefined and rendered the list permanently empty.
+            return response.data.data ?? response.data.notifications ?? [];
+        },
+        // The feed is push-driven, so a stale list is the normal failure mode.
+        staleTime: 30_000,
+    });
+}
+
+export function useUnreadNotificationCount() {
+    return useQuery({
+        queryKey: [...queryKeys.notifications, 'unread'],
+        queryFn: async () => {
+            const response = await customerApi.getUnreadNotificationCount();
+            return response.data.data?.unreadCount ?? 0;
+        },
+        refetchInterval: 60_000,
+        staleTime: 30_000,
+    });
+}
+
+export function useMarkNotificationRead() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: number) => customerApi.markNotificationRead(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+        },
+    });
+}
+
+export function useMarkAllNotificationsRead() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: () => customerApi.markAllNotificationsRead(),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
         },
     });
 }
