@@ -45,7 +45,7 @@ export function StuckPayments() {
   const reconcile = useMutation({
     mutationFn: async (serviceId: number) => {
       const res = await apiRequest("POST", `/api/admin/services/${serviceId}/reconcile-payment`);
-      return res.json();
+      return res;
     },
     onSuccess: (result: any) => {
       const d = result?.data ?? {};
