@@ -297,6 +297,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                     <Text style={styles.failedText}>
                         Payment failed. Please try again.
                     </Text>
+                )}
             </View>
         </View>
     );
