@@ -1,3 +1,7 @@
+// MUST stay the first import: ES imports are hoisted and evaluated in source
+// order, so this installs the WeakRef shim before any other module body runs.
+import './src/polyfills';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';
