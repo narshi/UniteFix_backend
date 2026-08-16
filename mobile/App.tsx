@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { Alert } from 'react-native';
 import { PremiumAlertProvider, PremiumAlertService } from './src/components/ui/PremiumAlert';
+import { useAppUpdateCheck } from './src/hooks/useAppUpdateCheck';
 import './src/i18n';
 
 // --- GLOBAL ALERT INTERCEPTOR ---
@@ -32,13 +33,26 @@ const queryClient = new QueryClient({
   },
 });
 
+function AppShell() {
+  // Store-driven update check. Mounted inside the tree (not at module scope) so
+  // it can raise a PremiumAlert, and deliberately NOT gated on auth — an
+  // outdated build needs updating whether or not anyone is signed in.
+  useAppUpdateCheck();
+
+  return (
+    <>
+      <StatusBar style="dark" />
+      <RootNavigator />
+      <PremiumAlertProvider />
+    </>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <StatusBar style="dark" />
-        <RootNavigator />
-        <PremiumAlertProvider />
+        <AppShell />
       </QueryClientProvider>
     </SafeAreaProvider>
   );
