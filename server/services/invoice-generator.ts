@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { db } from "../db";
-import { invoices, serviceRequests, users, serviceCharges, productOrders, employees } from "@shared/schema";
+import { invoices, serviceRequests, users, serviceCharges, productOrders, employees, manualBills } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -207,6 +207,26 @@ export class InvoiceGenerator {
                         total: Number(prod.price || 0) * (prod.quantity || 1)
                     });
                 });
+            }
+        }
+
+        // Manual counter sale: neither a booking nor a product order, so the line
+        // items live in `manual_bills`. Without this branch the PDF would fall
+        // through to the reconciliation below and print the whole bill as a
+        // single "Other Service Charges" line.
+        else {
+            const [bill] = await db.select().from(manualBills)
+                .where(eq(manualBills.invoiceId, invoice.id)).limit(1);
+            if (bill && Array.isArray(bill.items)) {
+                (bill.items as any[]).forEach((line) => {
+                    items.push({
+                        description: String(line.description ?? "Item"),
+                        quantity: Number(line.quantity ?? 1),
+                        unitPrice: Number(line.unitPrice ?? 0),
+                        total: Number(line.total ?? 0),
+                    });
+                });
+                providerName = "UniteFix (in-house)";
             }
         }
 

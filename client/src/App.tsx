@@ -25,6 +25,7 @@ import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
 import MarketingPage from "@/pages/admin/marketing";
 import AdminsPage from "@/pages/admin/admins";
+import ManualBillPage from "@/pages/admin/manual-bill";
 import { useAdminMe } from "@/lib/admin-auth";
 
 /**
@@ -175,6 +176,7 @@ function Router() {
           <Route path="/admin/admins">
             <SuperAdminRoute component={AdminsPage} />
           </Route>
+          <Route path="/admin/manual-bill" component={ManualBillPage} />
           <Route path="/admin/catalog" component={ServiceCatalogPage} />
           <Route path="/admin/assignments" component={AssignmentQueuePage} />
           <Route path="/admin/support-tickets" component={SupportTicketsPage} />

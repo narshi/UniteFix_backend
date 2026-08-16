@@ -14,6 +14,8 @@ import {
   serviceRequests,
   services as servicesCatalog,
   paymentTransactions,
+  users,
+  employees,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -26,6 +28,7 @@ import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pa
 // PHASE 7: Import modular route registrations
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerAdminManagementRoutes } from "./routes/admin-management.routes";
+import { registerManualBillRoutes } from "./routes/manual-bill.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
 // PHASE 0: OTP routes removed — auth OTP replaced by Truecaller SDK v3
@@ -55,7 +58,14 @@ import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
 import { InvoiceGenerator } from "./services/invoice-generator";
 import { db } from "./db";
-import { eq, inArray, desc } from "drizzle-orm";
+import { eq, inArray, desc, and, or, ilike, count } from "drizzle-orm";
+import {
+  parseListParams,
+  buildOrderBy,
+  dateRangeConditions,
+  combine,
+  paginationMeta,
+} from "./lib/list-query";
 
 
 if (!process.env.JWT_SECRET) {
@@ -843,22 +853,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all CUSTOMER users (role='user' only — servicemen are in Partners section)
+  // Standard admin list contract: ?page&limit&sort&order&q&from&to&status
+  const USER_SORTABLE = {
+    id: users.id,
+    username: users.username,
+    phone: users.phone,
+    email: users.email,
+    createdAt: users.createdAt,
+    isActive: users.isActive,
+  };
+
   app.get("/api/admin/users", async (req, res, next) => {
     try {
-      const { page, limit } = parsePaginationParams(req.query);
-      const offset = getOffset({ page, limit });
+      const listOptions = { defaultSort: 'createdAt', sortable: USER_SORTABLE };
+      const params = parseListParams(req.query, listOptions);
 
-      // Only show customers (role='user') — servicemen are managed in /api/admin/servicemen
-      const total = await storage.countUsers({ role: 'user' });
-      const pageData = await storage.getAllUsers(limit, offset, 'user');
+      const conditions: any[] = [
+        // Servicemen are managed in /api/admin/servicemen; this list is customers.
+        eq(users.role, 'user' as any),
+      ];
 
-      const result = buildPaginatedResult(
-        pageData.map(u => ({ ...u, password: undefined })),
-        total,
-        { page, limit }
-      );
+      if (req.query.status === 'active') conditions.push(eq(users.isActive, true));
+      if (req.query.status === 'deactivated') conditions.push(eq(users.isActive, false));
 
-      res.json({ success: true, ...result });
+      if (params.q) {
+        const term = `%${params.q}%`;
+        conditions.push(or(
+          ilike(users.username, term),
+          ilike(users.email, term),
+          ilike(users.phone, term),
+          ilike(users.pinCode, term),
+        ));
+      }
+
+      conditions.push(...dateRangeConditions(params, users.createdAt));
+
+      const where = combine(conditions);
+
+      const [{ total }] = await db.select({ total: count() }).from(users).where(where as any);
+
+      const rows = await db
+        .select()
+        .from(users)
+        .where(where as any)
+        .orderBy(buildOrderBy(params, listOptions))
+        .limit(params.limit)
+        .offset(params.offset);
+
+      res.json({
+        success: true,
+        data: rows.map(u => ({ ...u, password: undefined })),
+        pagination: paginationMeta(params, Number(total)),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * POST /api/admin/users/bulk-status
+   * Body: { ids: number[], isActive: boolean }
+   * One request and one audit entry for N rows, rather than N of each.
+   */
+  app.post("/api/admin/users/bulk-status", async (req, res, next) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+      const isActive = req.body?.isActive;
+
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, message: "ids must be a non-empty array" });
+      }
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({ success: false, message: "isActive must be a boolean" });
+      }
+
+      const updated = await db
+        .update(users)
+        .set({ isActive, updatedAt: new Date() })
+        // Scoped to customers so this can never deactivate an admin or a
+        // serviceman, whose accounts are managed by their own screens.
+        .where(and(inArray(users.id, ids), eq(users.role, 'user' as any)))
+        .returning({ id: users.id });
+
+      const adminId = (req as any).admin?.userId;
+      await storage.logAuditEvent({
+        entityType: 'user',
+        entityId: 0,
+        action: isActive ? 'users_bulk_activated' : 'users_bulk_deactivated',
+        changedBy: adminId,
+        metadata: { requestedIds: ids, affected: updated.length },
+      }).catch(() => { /* never fail the action over its audit row */ });
+
+      res.json({
+        success: true,
+        message: `${updated.length} customer(s) ${isActive ? 'activated' : 'deactivated'}.`,
+        data: { affected: updated.length },
+      });
     } catch (error) {
       next(error);
     }
@@ -881,51 +971,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== SERVICE PROVIDER MANAGEMENT ====================
 
-  // Get all service providers with filtering and DB-level pagination
-  // Get all service providers with filtering and DB-level pagination
+  // Get all service providers — standard admin list contract.
+  // ?page&limit&sort&order&q&from&to&status (status = verification status)
+  const EMPLOYEE_SORTABLE = {
+    id: employees.id,
+    fullName: employees.fullName,
+    partnerId: employees.partnerId,
+    createdAt: employees.createdAt,
+    totalServicesCompleted: employees.totalServicesCompleted,
+    averageRating: employees.averageRating,
+    isActive: employees.isActive,
+    documentVerificationStatus: employees.documentVerificationStatus,
+  };
+
   app.get("/api/admin/servicemen/list", async (req, res, next) => {
     try {
-      const { status } = req.query;
-      const { page, limit } = parsePaginationParams(req.query);
-      const offset = getOffset({ page, limit });
+      const listOptions = { defaultSort: 'createdAt', sortable: EMPLOYEE_SORTABLE };
+      const params = parseListParams(req.query, listOptions);
 
-      let providers;
-      let total: number;
-      if (status === 'pending') {
-        providers = await storage.getPendingServiceProviders(limit, offset);
-        total = await storage.countServiceProviders('pending');
-      } else if (status === 'verified') {
-        providers = await storage.getVerifiedServiceProviders(limit, offset);
-        total = await storage.countServiceProviders('verified');
-      } else if (status === 'suspended') {
-        providers = await storage.getAllServiceProviders(limit, offset);
-        providers = providers.filter(p => p.documentVerificationStatus === 'suspended');
-        total = await storage.countServiceProviders('suspended');
-      } else {
-        providers = await storage.getAllServiceProviders(limit, offset);
-        total = await storage.countServiceProviders();
+      const conditions: any[] = [];
+      const status = req.query.status as string | undefined;
+      if (status && status !== 'all') {
+        conditions.push(eq(employees.documentVerificationStatus, status as any));
       }
 
-      // Enrich with user contact info (email, phone) for admin display
-      // PHASE 1: Map unified employees columns → admin dashboard field names
-      const enriched = await Promise.all(
-        providers.map(async (p) => {
-          const user = await storage.getUser(p.userId);
-          return {
-            ...p,
-            // Field aliases for admin dashboard backward compat
-            partnerName: p.fullName || user?.username || 'Unknown',
-            verificationStatus: p.documentVerificationStatus || 'pending',
-            email: user?.email || '',
-            phone: user?.phone || '',
-            location: '', // No longer stored as simple text
-            services: p.services || [],
-          };
-        })
-      );
+      if (params.q) {
+        const term = `%${params.q}%`;
+        conditions.push(or(
+          ilike(employees.fullName, term),
+          ilike(employees.partnerId, term),
+          ilike(employees.businessName, term),
+          ilike(users.phone, term),
+          ilike(users.email, term),
+        ));
+      }
 
-      const result = buildPaginatedResult(enriched, total, { page, limit });
-      res.json({ success: true, data: result.data, pagination: result.pagination });
+      conditions.push(...dateRangeConditions(params, employees.createdAt));
+      const where = combine(conditions);
+
+      // Joined rather than a getUser() per row: the old version issued one query
+      // per employee on every page load.
+      const [{ total }] = await db
+        .select({ total: count() })
+        .from(employees)
+        .leftJoin(users, eq(users.id, employees.userId))
+        .where(where as any);
+
+      const rows = await db
+        .select({ employee: employees, userEmail: users.email, userPhone: users.phone, username: users.username })
+        .from(employees)
+        .leftJoin(users, eq(users.id, employees.userId))
+        .where(where as any)
+        .orderBy(buildOrderBy(params, listOptions))
+        .limit(params.limit)
+        .offset(params.offset);
+
+      // Field aliases kept for admin dashboard backward compat.
+      const data = rows.map(({ employee: p, userEmail, userPhone, username }) => ({
+        ...p,
+        partnerName: p.fullName || username || 'Unknown',
+        verificationStatus: p.documentVerificationStatus || 'pending',
+        email: userEmail || '',
+        phone: userPhone || '',
+        location: '',
+        services: p.services || [],
+      }));
+
+      res.json({ success: true, data, pagination: paginationMeta(params, Number(total)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * POST /api/admin/servicemen/bulk-status
+   * Body: { ids: number[], isActive: boolean }   (ids are employees.id)
+   *
+   * Deactivating also forces isOnline false — an employee left "online" while
+   * inactive still looks assignable on the queue screen.
+   */
+  app.post("/api/admin/servicemen/bulk-status", async (req, res, next) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+      const isActive = req.body?.isActive;
+
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, message: "ids must be a non-empty array" });
+      }
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({ success: false, message: "isActive must be a boolean" });
+      }
+
+      const updated = await db
+        .update(employees)
+        .set({ isActive, ...(isActive ? {} : { isOnline: false }), updatedAt: new Date() })
+        .where(inArray(employees.id, ids))
+        .returning({ id: employees.id });
+
+      const adminId = (req as any).admin?.userId;
+      await storage.logAuditEvent({
+        entityType: 'employee',
+        entityId: 0,
+        action: isActive ? 'employees_bulk_activated' : 'employees_bulk_deactivated',
+        changedBy: adminId,
+        metadata: { requestedIds: ids, affected: updated.length },
+      }).catch(() => { /* never fail the action over its audit row */ });
+
+      res.json({
+        success: true,
+        message: `${updated.length} employee(s) ${isActive ? 'activated' : 'deactivated'}.`,
+        data: { affected: updated.length },
+      });
     } catch (error) {
       next(error);
     }
@@ -1132,6 +1288,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * DELETE /api/admin/accounts/:kind/:id
    * Irreversible. Requires ?confirm=true so it cannot fire from a stray click.
    */
+  /**
+   * POST /api/admin/accounts/:kind/bulk-deletion-impact
+   * Body: { ids: number[] }
+   * Combined preview across a selection. Each id is measured with the same
+   * dry-run purge the single-account dialog uses, so the total an admin is shown
+   * is the sum of what will actually be deleted.
+   */
+  app.post("/api/admin/accounts/:kind/bulk-deletion-impact", requireSuperAdmin, async (req, res, next) => {
+    try {
+      const kind = req.params.kind;
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+      if (kind !== 'user' && kind !== 'employee') {
+        return res.status(400).json({ success: false, message: "Invalid account kind" });
+      }
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, message: "ids must be a non-empty array" });
+      }
+
+      const counts: Record<string, number> = {};
+      const accounts: Array<{ id: number; username: string | null; totalRows: number }> = [];
+      let skipped = 0;
+
+      for (const id of ids) {
+        try {
+          const result = await storage.purgeAccountCascade({
+            ...(kind === 'user' ? { userId: id } : { employeeId: id }),
+            dryRun: true,
+          });
+          if (!result) { skipped++; continue; }
+          let rowTotal = 0;
+          for (const [table, n] of Object.entries(result.counts)) {
+            counts[table] = (counts[table] ?? 0) + n;
+            rowTotal += n;
+          }
+          accounts.push({ id, username: result.username, totalRows: rowTotal });
+        } catch {
+          // Admin accounts are refused by purgeAccountCascade — report them as
+          // skipped rather than failing the whole preview.
+          skipped++;
+        }
+      }
+
+      const totalRows = Object.values(counts).reduce((a, b) => a + b, 0);
+      res.json({ success: true, data: { accounts, counts, totalRows, skipped } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * DELETE /api/admin/accounts/:kind/bulk?confirm=true
+   * Body: { ids: number[] }
+   */
+  app.delete("/api/admin/accounts/:kind/bulk", requireSuperAdmin, async (req, res, next) => {
+    try {
+      const kind = req.params.kind;
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+
+      if (kind !== 'user' && kind !== 'employee') {
+        return res.status(400).json({ success: false, message: "Invalid account kind" });
+      }
+      if (ids.length === 0) {
+        return res.status(400).json({ success: false, message: "ids must be a non-empty array" });
+      }
+      if (req.query.confirm !== 'true') {
+        return res.status(428).json({
+          success: false,
+          requiresConfirmation: true,
+          message: "This permanently deletes the selected accounts and all connected services. Re-send with ?confirm=true.",
+        });
+      }
+
+      const adminId = (req as any).admin?.userId;
+      const deleted: Array<{ id: number; username: string | null; totalRows: number }> = [];
+      const failed: Array<{ id: number; reason: string }> = [];
+
+      // Sequential rather than parallel: each purge is its own transaction, and
+      // two overlapping cascades can contend on the same child rows.
+      for (const id of ids) {
+        try {
+          const result = await storage.purgeAccountCascade({
+            ...(kind === 'user' ? { userId: id } : { employeeId: id }),
+          });
+          if (!result) { failed.push({ id, reason: 'not found' }); continue; }
+          const rowTotal = Object.values(result.counts).reduce((a, b) => a + b, 0);
+          deleted.push({ id: result.userId, username: result.username, totalRows: rowTotal });
+        } catch (err: any) {
+          failed.push({ id, reason: err.message });
+        }
+      }
+
+      const totalRows = deleted.reduce((sum, d) => sum + d.totalRows, 0);
+      logger.warn(`[ADMIN_PURGE] Bulk purge by admin ${adminId}: ${deleted.length} account(s), ${totalRows} rows, ${failed.length} failed`);
+
+      await storage.logAuditEvent({
+        entityType: 'user',
+        entityId: 0,
+        action: 'accounts_bulk_purged',
+        changedBy: adminId,
+        metadata: { kind, deleted, failed, totalRows },
+      }).catch(() => { /* never fail the purge over its audit row */ });
+
+      res.json({
+        success: true,
+        message: `Deleted ${deleted.length} account(s) and ${totalRows} connected row(s).`
+          + (failed.length ? ` ${failed.length} could not be deleted.` : ''),
+        data: { deleted, failed, totalRows },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // NOTE: registered AFTER /accounts/:kind/bulk below — Express matches in
+  // registration order, and this pattern would otherwise swallow "bulk" as an
+  // :id, parse it to NaN, and reject the bulk delete with "Invalid id".
   app.delete("/api/admin/accounts/:kind/:id", requireSuperAdmin, async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
@@ -1185,6 +1457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next(error);
     }
   });
+
 
   // Top up provider wallet
   app.post("/api/admin/servicemen/:id/topup", async (req, res, next) => {
@@ -2575,6 +2848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   registerAdminRoutes(app);
   registerAdminManagementRoutes(app); // Administrator roles + enable/disable (super_admin only)
+  registerManualBillRoutes(app); // Counter-sale billing for in-house visits
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerAdminWithdrawalRoutes(app);
   registerAdminDbConsoleRoutes(app);

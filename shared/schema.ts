@@ -752,6 +752,25 @@ export const notifications = pgTable("notifications", {
   userIdx: index("notifications_user_idx").on(table.userId),
 }));
 
+// Counter-sale bills raised at the shop for in-house visits.
+//
+// The invoice itself lives in `invoices` (so numbering, GST and the PDF path are
+// shared with every other invoice); this table holds what `invoices` has no room
+// for — the itemisation and who raised it. `invoices.service_request_id` and
+// `product_order_id` are both null for these, which is how the PDF generator
+// recognises a manual bill.
+export const manualBills = pgTable("manual_bills", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id),
+  // [{ description, quantity, unitPrice, total }]
+  items: jsonb("items").notNull(),
+  notes: text("notes"),
+  createdBy: integer("created_by"), // admin_users.id
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  invoiceIdx: index("manual_bills_invoice_idx").on(table.invoiceId),
+}));
+
 // Marketing broadcast history — one row per admin-sent campaign.
 // `recipientCount` is how many users the audience resolved to; `deliveredCount`
 // is how many DEVICES FCM accepted. They differ because a user can have zero
@@ -1366,6 +1385,17 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type NotificationCampaign = typeof notificationCampaigns.$inferSelect;
 export type InsertNotificationCampaign = typeof notificationCampaigns.$inferInsert;
+
+export type ManualBill = typeof manualBills.$inferSelect;
+export type InsertManualBill = typeof manualBills.$inferInsert;
+
+/** One line on a counter-sale bill. */
+export interface ManualBillItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
 
 // PHASE 10: Payment, Return, Refund types
 export type PaymentTransaction = typeof paymentTransactions.$inferSelect;

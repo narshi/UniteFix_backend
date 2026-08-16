@@ -11,7 +11,14 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus, Minus, History } from "lucide-react";
 import { PurgeAccountDialog } from "@/components/admin/purge-account-dialog";
+import { BulkPurgeDialog } from "@/components/admin/bulk-purge-dialog";
 import { useAdminMe } from "@/lib/admin-auth";
+import {
+  useTableQuery, DataToolbar, DataPagination, SortableHeader,
+  useRowSelection, BulkActionBar, SelectAllCheckbox, RowCheckbox,
+  exportCsv, timestampedName,
+} from "@/components/admin/table";
+import { Download } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
@@ -27,9 +34,12 @@ export default function PartnersPage() {
   const [topupAmount, setTopupAmount] = useState("");
   const [deductAmount, setDeductAmount] = useState("");
   const [deductReason, setDeductReason] = useState("");
-  const [verificationStatusFilter, setVerificationStatusFilter] = useState<string>("all");
-  const [activeStatusFilter, setActiveStatusFilter] = useState<string>("all");
-  const [searchTerm, setSearchTerm] = useState('');
+  const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);
+  const query = useTableQuery("/api/admin/servicemen/list", {
+    defaultSort: "createdAt",
+    initialFilters: { status: "all" },
+  });
+  const selection = useRowSelection<any>();
   const [newPartner, setNewPartner] = useState({
     partnerName: '',
     email: '',
@@ -45,28 +55,45 @@ export default function PartnersPage() {
   const queryClient = useQueryClient();
 
   const { data: partnersResponse, isLoading, isError, refetch } = useQuery<any>({
-    queryKey: ["/api/admin/servicemen/list"],
+    queryKey: [query.key],
   });
 
-  const partners = partnersResponse?.data || [];
+  // Searching, filtering, sorting and paging all happen server-side now — the
+  // page renders exactly the rows it was given.
+  const filteredPartners = partnersResponse?.data || [];
+  const pagination = partnersResponse?.pagination;
 
-  // Filter partners based on search term and verification status
-  const filteredPartners = partners.filter((partner: any) => {
-    const matchesSearch = partner.partnerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      partner.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      partner.phone?.includes(searchTerm) ||
-      partner.location?.includes(searchTerm) ||
-      partner.services?.some((service: string) => service.toLowerCase().includes(searchTerm.toLowerCase()));
+  const refreshList = () => {
+    queryClient.invalidateQueries({ queryKey: [query.key] });
+    selection.clear();
+  };
 
-    const matchesStatus = verificationStatusFilter === "all" ||
-      partner.documentVerificationStatus === verificationStatusFilter;
-
-    const matchesActiveStatus = activeStatusFilter === "all" ||
-      (activeStatusFilter === "active" && partner.isActive) ||
-      (activeStatusFilter === "deactivated" && !partner.isActive);
-
-    return matchesSearch && matchesStatus && matchesActiveStatus;
+  const bulkStatusMutation = useMutation({
+    mutationFn: async (isActive: boolean) =>
+      apiRequest("POST", "/api/admin/servicemen/bulk-status", { ids: selection.ids, isActive }),
+    onSuccess: (r: any) => {
+      toast({ title: "Employees updated", description: r?.message });
+      refreshList();
+    },
+    onError: (e: any) => toast({ title: "Bulk update failed", description: e.message, variant: "destructive" }),
   });
+
+  const handleExport = () => {
+    exportCsv(timestampedName("employees"), selection.rows, [
+      { header: "ID", value: (p: any) => p.id },
+      { header: "Partner ID", value: (p: any) => p.partnerId },
+      { header: "Name", value: (p: any) => p.partnerName },
+      { header: "Phone", value: (p: any) => p.phone },
+      { header: "Email", value: (p: any) => p.email },
+      { header: "Verification", value: (p: any) => p.documentVerificationStatus },
+      { header: "Active", value: (p: any) => (p.isActive ? "yes" : "no") },
+      { header: "Wallet", value: (p: any) => p.walletBalance },
+      { header: "Jobs completed", value: (p: any) => p.totalServicesCompleted ?? 0 },
+      { header: "Rating", value: (p: any) => p.averageRating ?? "" },
+      { header: "Services", value: (p: any) => (p.services || []).join(" | ") },
+    ]);
+    toast({ title: `Exported ${selection.count} employee(s)` });
+  };
 
   const addPartnerMutation = useMutation({
     mutationFn: async (partnerData: any) => {
@@ -266,58 +293,55 @@ export default function PartnersPage() {
       </div>
 
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
-          <div className="flex justify-between items-center w-full">
-            <CardTitle className="text-xl text-white">Employee Directory</CardTitle>
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-              <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
-                <SelectTrigger className="w-full sm:w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Verification</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="verified">Verified</SelectItem>
-                  <SelectItem value="suspended">Suspended</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={activeStatusFilter} onValueChange={setActiveStatusFilter}>
-                <SelectTrigger className="w-full sm:w-40 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="deactivated">Deactivated</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                placeholder="Search name, phone, service..."
-                className="w-64 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
+        <CardHeader className="flex flex-col gap-4 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">
+            Employee Directory{pagination?.total ? <span className="text-[hsl(215,20%,55%)] text-sm font-normal ml-2">({pagination.total})</span> : null}
+          </CardTitle>
+          <DataToolbar
+            query={query}
+            searchPlaceholder="Name, partner ID, phone, email…"
+            filters={[{
+              key: "status",
+              label: "All Verification",
+              options: [
+                { value: "pending", label: "Pending" },
+                { value: "verified", label: "Verified" },
+                { value: "rejected", label: "Rejected" },
+                { value: "suspended", label: "Suspended" },
+              ],
+            }]}
+          />
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="p-0">
           {isLoading ? (
             <div className="py-10 text-center text-[hsl(215,20%,55%)] skeleton-shimmer">Loading partners...</div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm glass-table">
                 <thead>
                   <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Employee Info</th>
+                    <th className="p-4 w-10">
+                      <SelectAllCheckbox state={selection.pageState(filteredPartners)} onToggle={() => selection.togglePage(filteredPartners)} />
+                    </th>
+                    <SortableHeader query={query} field="fullName">Employee Info</SortableHeader>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Services</th>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Wallet</th>
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <SortableHeader query={query} field="documentVerificationStatus">Status</SortableHeader>
+                    <SortableHeader query={query} field="totalServicesCompleted">Jobs</SortableHeader>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {isError && <TableErrorState colSpan={5} onRetry={() => refetch()} message="Could not load employees." />}
+                  {isError && <TableErrorState colSpan={7} onRetry={() => refetch()} message="Could not load employees." />}
                     {!isError && filteredPartners.length === 0 && (
-                      <TableEmptyState colSpan={5} icon="handyman" title={partners.length === 0 ? "No employees yet" : "No matching employees"} description={partners.length === 0 ? "Partners who sign up in the app will appear here for verification." : "Try a different search term or filter."} />
+                      <TableEmptyState colSpan={7} icon="handyman" title={query.activeFilterCount > 0 ? "No matching employees" : "No employees yet"} description={query.activeFilterCount > 0 ? "Try a different search term or filter." : "Partners who sign up in the app will appear here for verification."} />
                     )}
                     {!isError && filteredPartners.map((partner: any) => (
-                    <tr key={partner.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group ${!partner.isActive ? 'opacity-60 bg-[rgba(255,255,255,0.01)]' : ''}`}>
+                    <tr key={partner.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group ${!partner.isActive ? 'opacity-60 bg-[rgba(255,255,255,0.01)]' : ''} ${selection.isSelected(partner.id) ? 'bg-[hsla(217,91%,60%,0.06)]' : ''}`}>
+                      <td className="p-4">
+                        <RowCheckbox checked={selection.isSelected(partner.id)} onToggle={() => selection.toggle(partner)} />
+                      </td>
                       <td className="p-4">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 bg-gradient-to-br from-[hsl(263,70%,50%)] to-[hsl(217,91%,60%)] rounded-lg flex items-center justify-center font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
@@ -387,6 +411,10 @@ export default function PartnersPage() {
                             partner.documentVerificationStatus === 'suspended' ? <Ban className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           <span className="capitalize">{partner.documentVerificationStatus}</span>
                         </Badge>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-mono text-[hsl(210,20%,85%)]">{partner.totalServicesCompleted ?? 0}</p>
+                        <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">★ {partner.averageRating ?? '0.00'}</p>
                       </td>
                       <td className="p-4 text-right">
                         <div className="flex justify-end gap-1.5">
@@ -526,9 +554,32 @@ export default function PartnersPage() {
                 </tbody>
               </table>
             </div>
+            <DataPagination query={query} pagination={pagination} rowCount={filteredPartners.length} />
+            </>
           )}
         </CardContent>
       </Card>
+
+      <BulkActionBar
+        count={selection.count}
+        onClear={selection.clear}
+        noun="employee"
+        actions={[
+          { label: "Export CSV", icon: <Download className="w-3.5 h-3.5" />, onClick: handleExport },
+          { label: "Activate", icon: <CheckCircle className="w-3.5 h-3.5" />, onClick: () => bulkStatusMutation.mutate(true), disabled: bulkStatusMutation.isPending },
+          { label: "Deactivate", icon: <Ban className="w-3.5 h-3.5" />, onClick: () => bulkStatusMutation.mutate(false), disabled: bulkStatusMutation.isPending },
+          { label: "Delete", icon: <Trash2 className="w-3.5 h-3.5" />, onClick: () => setBulkPurgeOpen(true), destructive: true, visible: isSuperAdmin },
+        ]}
+      />
+
+      <BulkPurgeDialog
+        kind="employee"
+        ids={selection.ids}
+        noun="employee"
+        open={bulkPurgeOpen}
+        onOpenChange={setBulkPurgeOpen}
+        onDeleted={refreshList}
+      />
 
       <Dialog open={isTopupModalOpen} onOpenChange={setIsTopupModalOpen}>
         <DialogContent className="max-w-md glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl overflow-y-auto max-h-[85vh] custom-scrollbar">

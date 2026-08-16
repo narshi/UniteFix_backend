@@ -15,6 +15,7 @@ const navigation: Array<{ name: string; href: string; icon: string; superAdminOn
   { name: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent" },
   { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment" },
   { name: "Service Catalog", href: "/admin/catalog", icon: "category" },
+  { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long" },
   { name: "Product Orders", href: "/orders", icon: "shopping_cart" },
   { name: "Inventory", href: "/admin/inventory", icon: "inventory_2" },
   { name: "Employees", href: "/partners", icon: "handyman" },

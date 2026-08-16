@@ -20,6 +20,42 @@ export interface AdminMe {
   isSuperAdmin: boolean;
 }
 
+/**
+ * Download an admin-authenticated file.
+ *
+ * window.open / <a href> cannot be used for these: admin endpoints require an
+ * Authorization header, and a plain navigation sends none, so the browser lands
+ * on a 401 instead of a PDF. Fetch it with the token, then hand the browser a
+ * blob URL.
+ */
+export async function downloadAdminFile(url: string, fallbackName: string): Promise<void> {
+  const token = localStorage.getItem("adminToken");
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+
+  // Prefer the server's filename when it sent one.
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = disposition.match(/filename=([^;]+)/i);
+  const filename = match ? match[1].trim().replace(/["']/g, "") : fallbackName;
+
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function useAdminMe() {
   const { data, isLoading, isError } = useQuery<{ data: AdminMe }>({
     queryKey: ["/api/admin/me"],

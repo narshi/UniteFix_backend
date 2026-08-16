@@ -15,6 +15,7 @@
     "check": "tsc",
     "db:push": "drizzle-kit push --force",
     "migrate:notifications": "node scripts/apply-notification-migration.mjs",
+    "migrate:admin": "node scripts/apply-admin-migrations.mjs",
     "seed:test": "npm run db:push && tsx scripts/seedTestData.ts",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
