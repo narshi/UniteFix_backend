@@ -752,6 +752,37 @@ export const notifications = pgTable("notifications", {
   userIdx: index("notifications_user_idx").on(table.userId),
 }));
 
+// The trade list a service expert ticks during signup — "Electrician",
+// "Computer Technician", "CCTV Technician" and so on.
+//
+// Deliberately NOT derived from service_categories. Those describe what the
+// CUSTOMER is buying (Computer, PRINTER, CCTV…); this describes what the EXPERT
+// does, in the words an expert would use about themselves. Keeping them apart
+// means the customer-facing catalogue can be reorganised without disturbing how
+// technicians describe their trade, and vice versa.
+//
+// `source` records who introduced the row. An expert who cannot find their trade
+// adds it from the signup screen, and it lands here flagged 'expert' so an admin
+// can rename, merge or remove it later rather than the list quietly filling with
+// near-duplicates.
+export const technicianTypes = pgTable("technician_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  source: text("source").notNull().default('admin'), // 'admin' | 'expert'
+  /** employees.id of the expert who suggested it; null for admin-created rows. */
+  suggestedBy: integer("suggested_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Case-insensitive uniqueness is enforced by a lower(name) index in the
+  // migration — Drizzle cannot express a functional index here, and without it
+  // "Electrician" and "electrician" would both be creatable.
+  activeSortIdx: index("technician_types_active_sort_idx").on(table.isActive, table.sortOrder),
+}));
+
 // Counter-sale bills raised at the shop for in-house visits.
 //
 // The invoice itself lives in `invoices` (so numbering, GST and the PDF path are
@@ -1385,6 +1416,9 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type NotificationCampaign = typeof notificationCampaigns.$inferSelect;
 export type InsertNotificationCampaign = typeof notificationCampaigns.$inferInsert;
+
+export type TechnicianType = typeof technicianTypes.$inferSelect;
+export type InsertTechnicianType = typeof technicianTypes.$inferInsert;
 
 export type ManualBill = typeof manualBills.$inferSelect;
 export type InsertManualBill = typeof manualBills.$inferInsert;

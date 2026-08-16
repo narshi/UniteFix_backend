@@ -19,7 +19,7 @@ import { colors } from '../../theme/colors';
 import { fontSizes, fontWeights } from '../../theme/typography';
 import { useScreenInsets } from '../../theme/layout';
 
-interface ServiceOption { id: number; name: string; categoryName: string; }
+interface TradeOption { id: number; name: string; description?: string | null; }
 
 export function ManageExpertiseScreen() {
   const { bottomBar: bottomPad } = useScreenInsets();
@@ -27,7 +27,7 @@ export function ManageExpertiseScreen() {
   const qc = useQueryClient();
   const { data: partnerProfile } = usePartnerProfile();
 
-  const [options, setOptions] = useState<ServiceOption[]>([]);
+  const [options, setOptions] = useState<TradeOption[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [customText, setCustomText] = useState('');
@@ -49,16 +49,11 @@ export function ManageExpertiseScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await apiClient.get('/api/services/categories');
-        if (data?.success && Array.isArray(data.data)) {
-          const flat: ServiceOption[] = [];
-          for (const cat of data.data) {
-            for (const item of cat.items || []) {
-              flat.push({ id: item.id, name: item.name, categoryName: cat.name });
-            }
-          }
-          flat.sort((a, b) => a.name.localeCompare(b.name));
-          setOptions(flat);
+        // Same list the signup screen uses — a different source here would
+        // offer options the expert never had and hide the trades they picked.
+        const { data } = await apiClient.get('/api/technician-types');
+        if (Array.isArray(data?.data)) {
+          setOptions(data.data as TradeOption[]);
         }
       } catch {
         // leave list empty; the technician can still add custom skills
@@ -71,21 +66,38 @@ export function ManageExpertiseScreen() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter((o) => o.name.toLowerCase().includes(q) || o.categoryName.toLowerCase().includes(q));
+    return options.filter((o) => o.name.toLowerCase().includes(q) || (o.description ?? '').toLowerCase().includes(q));
   }, [query, options]);
 
   const toggle = (name: string) =>
     setSelected((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]));
 
-  const addCustom = () => {
+  const addCustom = async () => {
     const value = customText.trim();
-    if (value && !selected.includes(value)) setSelected((prev) => [...prev, value]);
+    if (value.length < 3) return;
+
+    // Registered server-side, same as during signup, so a trade added here
+    // also reaches the shared list and the admin can curate it.
+    let name = value;
+    try {
+      const { data } = await apiClient.post('/api/technician-types/suggest', { name: value });
+      name = data?.data?.name ?? value;
+      setOptions((prev) =>
+        prev.some((o) => o.name.toLowerCase() === name.toLowerCase())
+          ? prev
+          : [...prev, { id: data?.data?.id ?? -Date.now(), name }],
+      );
+    } catch {
+      // Offline — still let them keep it on their own profile.
+    }
+
+    if (!selected.includes(name)) setSelected((prev) => [...prev, name]);
     setCustomText('');
   };
 
   const handleSave = async () => {
     if (selected.length === 0) {
-      Alert.alert('No skills selected', 'Select at least one service you can do.');
+      Alert.alert('No trades selected', 'Pick at least one trade you work in.');
       return;
     }
     setIsSaving(true);
@@ -102,13 +114,13 @@ export function ManageExpertiseScreen() {
     }
   };
 
-  const renderRow = ({ item }: { item: ServiceOption }) => {
+  const renderRow = ({ item }: { item: TradeOption }) => {
     const isSelected = selected.includes(item.name);
     return (
       <Pressable style={[styles.row, isSelected && styles.rowSelected]} onPress={() => toggle(item.name)}>
         <View style={styles.rowTextWrap}>
           <Text style={[styles.rowName, isSelected && styles.rowNameSelected]}>{item.name}</Text>
-          <Text style={styles.rowCategory}>{item.categoryName}</Text>
+          {!!item.description && <Text style={styles.rowCategory}>{item.description}</Text>}
         </View>
         <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
           {isSelected && <Check size={15} color={colors.textInverse} strokeWidth={3} />}

@@ -45,6 +45,51 @@ CREATE INDEX IF NOT EXISTS employees_verification_created_idx
 CREATE INDEX IF NOT EXISTS service_requests_status_created_idx
     ON service_requests (status, created_at);
 
+-- The trade list a service expert ticks during signup. Separate from
+-- service_categories on purpose: those describe what the CUSTOMER buys, this
+-- describes what the EXPERT does.
+CREATE TABLE IF NOT EXISTS technician_types (
+    id           SERIAL PRIMARY KEY,
+    name         TEXT    NOT NULL,
+    description  TEXT,
+    is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    source       TEXT    NOT NULL DEFAULT 'admin',  -- 'admin' | 'expert'
+    suggested_by INTEGER,
+    created_at   TIMESTAMP DEFAULT NOW(),
+    updated_at   TIMESTAMP DEFAULT NOW()
+);
+
+-- Case-insensitive uniqueness. Experts can add missing trades from the signup
+-- screen, so without this the list fills with "Electrician" / "electrician" /
+-- "ELECTRICIAN". The API dedupes too, but two experts suggesting the same trade
+-- simultaneously would both pass that check — this is what actually stops it.
+CREATE UNIQUE INDEX IF NOT EXISTS technician_types_name_lower_idx
+    ON technician_types (lower(name));
+
+CREATE INDEX IF NOT EXISTS technician_types_active_sort_idx
+    ON technician_types (is_active, sort_order);
+
+-- Starting set: the trades implied by the current service catalogue, plus the
+-- common home-services ones. Admins can rename, reorder, deactivate or delete
+-- any of these. ON CONFLICT means re-running never duplicates or resets edits.
+INSERT INTO technician_types (name, sort_order, source) VALUES
+    ('Computer Technician',        10, 'admin'),
+    ('Printer Technician',         20, 'admin'),
+    ('CCTV Technician',            30, 'admin'),
+    ('Biometric Device Technician',40, 'admin'),
+    ('UPS & Battery Technician',   50, 'admin'),
+    ('Solar Technician',           60, 'admin'),
+    ('Water Purifier Technician',  70, 'admin'),
+    ('Networking & Internet Technician', 80, 'admin'),
+    ('Electrician',                90, 'admin'),
+    ('Plumber',                   100, 'admin'),
+    ('Carpenter',                 110, 'admin'),
+    ('Painter',                   120, 'admin'),
+    ('AC Technician',             130, 'admin'),
+    ('Appliance Repair Technician',140, 'admin')
+ON CONFLICT DO NOTHING;
+
 -- Schema drift: shared/schema.ts declares withdrawal_requests.payment_proof_url
 -- (the manual-payout proof screenshot) but the column was never added to some
 -- databases, so ANY select of the table 500s with "column does not exist".
@@ -75,8 +120,15 @@ try {
 
     await pool.query(SQL);
 
-    const { rows } = await pool.query(
-        'SELECT COUNT(*)::int AS c FROM manual_bills'
+    const { rows } = await pool.query('SELECT COUNT(*)::int AS c FROM manual_bills');
+    const trades = await pool.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE source = 'expert')::int AS suggested
+         FROM technician_types`
+    );
+    const proof = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM information_schema.columns
+         WHERE table_name = 'withdrawal_requests' AND column_name = 'payment_proof_url'`
     );
     const idx = await pool.query(`
         SELECT indexname FROM pg_indexes
@@ -84,12 +136,16 @@ try {
             'manual_bills_invoice_idx',
             'users_role_created_idx',
             'employees_verification_created_idx',
-            'service_requests_status_created_idx'
+            'service_requests_status_created_idx',
+            'technician_types_name_lower_idx',
+            'technician_types_active_sort_idx'
         )
         ORDER BY indexname
     `);
 
     console.log(`OK — manual_bills present (${rows[0].c} rows)`);
+    console.log(`OK — technician_types present (${trades.rows[0].total} trades, ${trades.rows[0].suggested} expert-suggested)`);
+    console.log(`OK — withdrawal_requests.payment_proof_url ${proof.rows[0].c ? 'present' : 'MISSING'}`);
     console.log(`OK — indexes: ${idx.rows.map((r) => r.indexname).join(', ')}`);
 } catch (error) {
     console.error(`FAILED: ${error.message}`);

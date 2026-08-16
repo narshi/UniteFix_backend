@@ -31,6 +31,7 @@ import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerAdminManagementRoutes } from "./routes/admin-management.routes";
 import { AdminOrderManager } from "./services/admin-order.manager";
 import { registerManualBillRoutes } from "./routes/manual-bill.routes";
+import { registerTechnicianTypeRoutes } from "./routes/technician-type.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
 // PHASE 0: OTP routes removed — auth OTP replaced by Truecaller SDK v3
@@ -2927,6 +2928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app);
   registerAdminManagementRoutes(app); // Administrator roles + enable/disable (super_admin only)
   registerManualBillRoutes(app); // Counter-sale billing for in-house visits
+  registerTechnicianTypeRoutes(app); // Expert trade list + admin CRUD
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerAdminWithdrawalRoutes(app);
   registerAdminDbConsoleRoutes(app);

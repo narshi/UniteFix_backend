@@ -1,11 +1,20 @@
 /**
- * ExpertiseSelectionScreen — Mandatory skills step for new technicians.
+ * ExpertiseSelectionScreen — mandatory trade step for new service experts.
  *
- * Final step of the onboarding stack (technicians only). The user searches the
- * full list of services (sub-categories) and multi-selects the ones they can do,
- * plus any custom skills. Selecting sub-categories — not just top-level
- * categories — is what lets assignment match a partner to a booking, because a
- * booking stores the service (sub-category) name in serviceType.
+ * Final step of the onboarding stack (technicians only). The expert ticks the
+ * trades they work in — Electrician, CCTV Technician, Plumber — from the
+ * admin-curated `technician_types` list, and at least one is required. The
+ * server enforces that too (PATCH /api/partner/profile/expertise rejects an
+ * empty array), so it cannot be skipped by a client that misbehaves.
+ *
+ * This list is deliberately NOT the service catalogue. The catalogue describes
+ * what a customer buys ("Cartridge Replacement", "Footage Backup"); this
+ * describes what the expert does, in the words they would use about themselves.
+ * An expert whose trade is missing adds it here and it becomes a real
+ * technician type for an admin to curate.
+ *
+ * Selections are stored on employees.services and shown to admins on the
+ * assignment queue as context when they pick someone for a booking.
  *
  * Flow: OnboardingProfile → OnboardingLocation → ExpertiseSelection
  *       → RootNavigator switches to the partner app / pending-verification screen
@@ -32,28 +41,34 @@ import { apiClient } from '../../api/client';
 import { useScreenInsets } from '../../theme/layout';
 import { useNavigation } from '@react-navigation/native';
 
-interface ServiceOption {
+interface TradeOption {
   id: number;
-  name: string;         // service / sub-category name (what gets saved)
-  categoryName: string; // parent category, shown as a subtitle for context
+  name: string;                // the trade name, which is what gets saved
+  description?: string | null; // optional hint, shown underneath
 }
 
-// Used only if the catalog request fails — a flat list of common services so the
-// screen is never empty. These are sub-categories, not top-level categories.
-const FALLBACK_OPTIONS: ServiceOption[] = [
-  { id: -1, name: 'Fan Installation & Repair', categoryName: 'Electrician' },
-  { id: -2, name: 'Wiring & Rewiring', categoryName: 'Electrician' },
-  { id: -3, name: 'Switchboard & Socket Repair', categoryName: 'Electrician' },
-  { id: -4, name: 'Inverter & Stabilizer', categoryName: 'Electrician' },
-  { id: -5, name: 'Tap & Pipe Repair', categoryName: 'Plumber' },
-  { id: -6, name: 'Toilet & Flush Repair', categoryName: 'Plumber' },
-  { id: -7, name: 'Water Motor & Tank', categoryName: 'Plumber' },
-  { id: -8, name: 'AC Service & Repair', categoryName: 'AC & Appliance' },
-  { id: -9, name: 'Refrigerator Repair', categoryName: 'AC & Appliance' },
-  { id: -10, name: 'Washing Machine Repair', categoryName: 'AC & Appliance' },
-  { id: -11, name: 'Furniture Repair', categoryName: 'Carpenter' },
-  { id: -12, name: 'Door & Lock Repair', categoryName: 'Carpenter' },
-  { id: -13, name: 'Interior Painting', categoryName: 'Painter' },
+/**
+ * Shown only if the request fails, so signup is never blocked by a network
+ * blip. These mirror the seeded technician_types rather than inventing trades:
+ * the previous fallback listed granular services like "Fan Installation &
+ * Repair" that existed nowhere in the catalogue, so an expert who hit it during
+ * an outage ended up with skills no booking could ever match.
+ */
+const FALLBACK_OPTIONS: TradeOption[] = [
+  { id: -1, name: 'Computer Technician' },
+  { id: -2, name: 'Printer Technician' },
+  { id: -3, name: 'CCTV Technician' },
+  { id: -4, name: 'Biometric Device Technician' },
+  { id: -5, name: 'UPS & Battery Technician' },
+  { id: -6, name: 'Solar Technician' },
+  { id: -7, name: 'Water Purifier Technician' },
+  { id: -8, name: 'Networking & Internet Technician' },
+  { id: -9, name: 'Electrician' },
+  { id: -10, name: 'Plumber' },
+  { id: -11, name: 'Carpenter' },
+  { id: -12, name: 'Painter' },
+  { id: -13, name: 'AC Technician' },
+  { id: -14, name: 'Appliance Repair Technician' },
 ];
 
 export function ExpertiseSelectionScreen() {
@@ -64,12 +79,13 @@ export function ExpertiseSelectionScreen() {
   const refreshOnboardingStatus = useAuthStore((s) => s.refreshOnboardingStatus);
   const navigation = useNavigation<any>();
 
-  const [options, setOptions] = useState<ServiceOption[]>([]);
+  const [options, setOptions] = useState<TradeOption[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [customText, setCustomText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,23 +95,14 @@ export function ExpertiseSelectionScreen() {
   const fetchServices = async () => {
     try {
       setIsLoading(true);
-      // Public endpoint — returns categories, each with its services in `items`.
-      const { data } = await apiClient.get('/api/services/categories');
-      if (data?.success && Array.isArray(data.data)) {
-        const flat: ServiceOption[] = [];
-        for (const cat of data.data) {
-          for (const item of cat.items || []) {
-            flat.push({ id: item.id, name: item.name, categoryName: cat.name });
-          }
-        }
-        // Alphabetical within the whole list keeps search results predictable.
-        flat.sort((a, b) => a.name.localeCompare(b.name));
-        setOptions(flat.length > 0 ? flat : FALLBACK_OPTIONS);
-      } else {
-        setOptions(FALLBACK_OPTIONS);
-      }
+      // Public endpoint — the admin-curated trade list, already ordered by
+      // sortOrder then name, so it is rendered in the order it arrives rather
+      // than re-sorted alphabetically here.
+      const { data } = await apiClient.get('/api/technician-types');
+      const list: TradeOption[] = Array.isArray(data?.data) ? data.data : [];
+      setOptions(list.length > 0 ? list : FALLBACK_OPTIONS);
     } catch (err: any) {
-      console.warn('[EXPERTISE] Failed to fetch services:', err?.message);
+      console.warn('[EXPERTISE] Failed to fetch technician types:', err?.message);
       setOptions(FALLBACK_OPTIONS);
     } finally {
       setIsLoading(false);
@@ -106,7 +113,7 @@ export function ExpertiseSelectionScreen() {
     const q = query.trim().toLowerCase();
     if (!q) return options;
     return options.filter(
-      (o) => o.name.toLowerCase().includes(q) || o.categoryName.toLowerCase().includes(q)
+      (o) => o.name.toLowerCase().includes(q) || (o.description ?? '').toLowerCase().includes(q)
     );
   }, [query, options]);
 
@@ -115,19 +122,54 @@ export function ExpertiseSelectionScreen() {
     setError(null);
   };
 
-  const addCustom = () => {
+  /**
+   * Adds a trade the expert could not find.
+   *
+   * Sent to the server rather than kept as local free text, so it becomes a real
+   * technician type an admin can rename, adopt or remove — and so the next
+   * expert with the same trade finds it already listed. The server dedupes
+   * case-insensitively, so "electrician" resolves to an existing "Electrician"
+   * instead of creating a near-duplicate.
+   */
+  const addCustom = async () => {
     const value = customText.trim();
-    if (!value) return;
-    if (!selected.includes(value)) {
-      setSelected((prev) => [...prev, value]);
+    if (!value || isAddingCustom) return;
+
+    if (value.length < 3) {
+      setError('Please enter at least 3 characters.');
+      return;
     }
-    setCustomText('');
+
+    setIsAddingCustom(true);
     setError(null);
+    try {
+      const { data } = await apiClient.post('/api/technician-types/suggest', { name: value });
+      const created = data?.data;
+      const name: string = created?.name ?? value;
+
+      // Show it in the list immediately so the tick is visible, not just chipped.
+      setOptions((prev) =>
+        prev.some((o) => o.name.toLowerCase() === name.toLowerCase())
+          ? prev
+          : [...prev, { id: created?.id ?? -Date.now(), name }],
+      );
+      setSelected((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      setCustomText('');
+      setQuery('');
+    } catch (err: any) {
+      // Offline or rejected — keep it locally so signup is not blocked. The
+      // name still saves onto the profile; it just is not in the shared list.
+      if (!selected.includes(value)) setSelected((prev) => [...prev, value]);
+      setCustomText('');
+      console.warn('[EXPERTISE] Could not register trade:', err?.message);
+    } finally {
+      setIsAddingCustom(false);
+    }
   };
 
   const handleContinue = async () => {
     if (selected.length === 0) {
-      setError('Please select at least one skill');
+      setError('Please tick at least one trade to continue');
       return;
     }
     setIsSaving(true);
@@ -147,7 +189,7 @@ export function ExpertiseSelectionScreen() {
     }
   };
 
-  const renderRow = ({ item }: { item: ServiceOption }) => {
+  const renderRow = ({ item }: { item: TradeOption }) => {
     const isSelected = selected.includes(item.name);
     return (
       <Pressable
@@ -156,7 +198,7 @@ export function ExpertiseSelectionScreen() {
       >
         <View style={styles.rowTextWrap}>
           <Text style={[styles.rowName, isSelected && styles.rowNameSelected]}>{item.name}</Text>
-          <Text style={styles.rowCategory}>{item.categoryName}</Text>
+          {!!item.description && <Text style={styles.rowCategory}>{item.description}</Text>}
         </View>
         <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
           {isSelected && <Check size={15} color={colors.textInverse} strokeWidth={3} />}
@@ -178,9 +220,9 @@ export function ExpertiseSelectionScreen() {
               <ChevronLeft size={24} color={colors.textPrimary} />
             </Pressable>
           )}
-          <Text style={styles.title}>What can you do?</Text>
+          <Text style={styles.title}>What kind of work do you do?</Text>
           <Text style={styles.subtitle}>
-            Search and select every service you can handle. Pick as many as apply.
+            Tick every trade you work in. At least one is required — pick as many as apply.
           </Text>
         </View>
 
@@ -191,7 +233,7 @@ export function ExpertiseSelectionScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Search services (e.g. fan, wiring, AC)"
+            placeholder="Search trades (e.g. electrician, CCTV)"
             placeholderTextColor={colors.textDisabled}
             autoCorrect={false}
             returnKeyType="search"
@@ -219,7 +261,7 @@ export function ExpertiseSelectionScreen() {
         {isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Loading services…</Text>
+            <Text style={styles.loadingText}>Loading trades…</Text>
           </View>
         ) : (
           <FlatList
@@ -230,29 +272,31 @@ export function ExpertiseSelectionScreen() {
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
-                <Text style={styles.emptyText}>No services match “{query}”.</Text>
-                <Text style={styles.emptyHint}>Add it as a custom skill below.</Text>
+                <Text style={styles.emptyText}>No trades match “{query}”.</Text>
+                <Text style={styles.emptyHint}>Add it below — it becomes available to other experts too.</Text>
               </View>
             }
             ListFooterComponent={
               <View style={styles.customWrap}>
-                <Text style={styles.customLabel}>Can't find it? Add a custom skill</Text>
+                <Text style={styles.customLabel}>Can't find your trade? Add it</Text>
                 <View style={styles.customInputRow}>
                   <TextInput
                     style={styles.customInput}
                     value={customText}
                     onChangeText={(t) => { setCustomText(t); setError(null); }}
-                    placeholder="e.g. Solar Panel Installation"
+                    placeholder="e.g. Welder"
                     placeholderTextColor={colors.textDisabled}
                     returnKeyType="done"
                     onSubmitEditing={addCustom}
                   />
                   <Pressable
-                    style={[styles.addBtn, !customText.trim() && styles.addBtnDisabled]}
+                    style={[styles.addBtn, (!customText.trim() || isAddingCustom) && styles.addBtnDisabled]}
                     onPress={addCustom}
-                    disabled={!customText.trim()}
+                    disabled={!customText.trim() || isAddingCustom}
                   >
-                    <Plus size={18} color={colors.textInverse} strokeWidth={2.5} />
+                    {isAddingCustom
+                      ? <ActivityIndicator size="small" color={colors.textInverse} />
+                      : <Plus size={18} color={colors.textInverse} strokeWidth={2.5} />}
                   </Pressable>
                 </View>
               </View>
