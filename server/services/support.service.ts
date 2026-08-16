@@ -152,42 +152,78 @@ export class SupportTicketService {
   /**
    * Get ticket details with messages
    */
-  static async getTicketDetails(ticketIdStr: string): Promise<any> {
-    const [ticket] = await db
-      .select()
-      .from(supportTickets)
-      .where(eq(supportTickets.ticketId, ticketIdStr))
-      .limit(1);
+
+  /**
+   * Resolve a ticket by EITHER its numeric primary key or its public reference
+   * ("TKT-0001").
+   *
+   * The admin table renders rows keyed on the numeric id and passes that to
+   * every detail/status/reply call, while these lookups matched only on the
+   * text ticketId — so opening a ticket always 404'd and the modal stayed
+   * empty. Accepting both means neither caller has to know which it holds.
+   */
+  private static async resolveTicket(idOrRef: string | number) {
+    const asNumber = Number(idOrRef);
+    const where = Number.isInteger(asNumber) && String(idOrRef).trim() !== ''
+      ? eq(supportTickets.id, asNumber)
+      : eq(supportTickets.ticketId, String(idOrRef));
+
+    const [ticket] = await db.select().from(supportTickets).where(where).limit(1);
+    return ticket;
+  }
+
+  static async getTicketDetails(idOrRef: string | number): Promise<any> {
+    const ticket = await this.resolveTicket(idOrRef);
 
     if (!ticket) {
       throw new Error("Ticket not found");
     }
 
-    // Get messages
     const messages = await db
       .select()
       .from(ticketMessages)
       .where(eq(ticketMessages.ticketId, ticket.id))
       .orderBy(asc(ticketMessages.createdAt));
 
-    return { ticket, messages };
+    const [customer] = await db
+      .select({ username: users.username, phone: users.phone, email: users.email })
+      .from(users)
+      .where(eq(users.id, ticket.userId))
+      .limit(1);
+
+    // Returned BOTH nested and flattened. The admin modal reads a single object
+    // with .messages and .user on it, so handing back only { ticket, messages }
+    // meant the reply thread and the customer name silently vanished.
+    const flat = {
+      ...ticket,
+      messages,
+      user: {
+        fullName: customer?.username ?? 'Unknown',
+        phone: customer?.phone ?? '',
+        email: customer?.email ?? '',
+        role: 'user',
+      },
+    };
+
+    // Spread first so `flat`'s own `messages` is not overwritten by the
+    // explicit key, then re-expose the nested shape older callers expect.
+    return { ...flat, ticket: flat, messages };
   }
 
   /**
    * Add message to ticket
    */
   static async addMessage(
-    ticketIdStr: string,
+    idOrRef: string | number,
     message: string,
     senderType: "customer" | "admin" | "system",
     senderId?: number,
     isInternal: boolean = false
   ): Promise<any> {
-    const [ticket] = await db
-      .select({ id: supportTickets.id })
-      .from(supportTickets)
-      .where(eq(supportTickets.ticketId, ticketIdStr))
-      .limit(1);
+    // Same numeric-id-vs-reference problem as the detail lookup: the admin modal
+    // replies using the numeric id, so matching only on ticketId meant every
+    // reply from the dashboard failed with "Ticket not found".
+    const ticket = await this.resolveTicket(idOrRef);
 
     if (!ticket) {
       throw new Error("Ticket not found");
@@ -201,15 +237,16 @@ export class SupportTicketService {
       isInternal,
     }).returning();
 
-    // Update ticket timestamp
+    // Update ticket timestamp — keyed on the resolved row, so it works whether
+    // the caller passed a numeric id or a TKT- reference.
     await db
       .update(supportTickets)
       .set({ updatedAt: new Date() })
-      .where(eq(supportTickets.ticketId, ticketIdStr));
+      .where(eq(supportTickets.id, ticket.id));
 
     // Send email notification
     if (senderType === "admin" && !isInternal) {
-      await this.sendReplyNotification(ticketIdStr, message);
+      await this.sendReplyNotification(ticket.ticketId, message);
     }
 
     return msg;
@@ -219,19 +256,34 @@ export class SupportTicketService {
    * Update ticket status
    */
   static async updateTicketStatus(
-    ticketIdStr: string,
-    newStatus: "open" | "in_progress" | "resolved" | "closed",
-    adminId: number
+    idOrRef: string | number,
+    newStatus: "open" | "in_progress" | "escalated" | "resolved" | "closed",
+    adminId?: number | null
   ): Promise<any> {
+    const existing = await this.resolveTicket(idOrRef);
+    if (!existing) {
+      throw new Error("Ticket not found");
+    }
+
     const [ticket] = await db
       .update(supportTickets)
       .set({
         status: newStatus,
-        assignedTo: adminId,
-        resolvedAt: newStatus === "resolved" ? new Date() : null,
+        // Only claim the ticket when we actually know who acted. The admin
+        // routes were reading req.user.id, which does not exist on the admin
+        // shim (it is userId), so this was writing null over the assignee.
+        ...(adminId ? { assignedTo: adminId } : {}),
+        // Stamp on resolve, and PRESERVE it afterwards. Previously any move to
+        // a non-resolved status wrote null, so closing a resolved ticket erased
+        // the moment it was resolved.
+        ...(newStatus === "resolved"
+          ? { resolvedAt: new Date() }
+          : newStatus === "closed"
+            ? {}
+            : { resolvedAt: null }),
         updatedAt: new Date(),
       })
-      .where(eq(supportTickets.ticketId, ticketIdStr))
+      .where(eq(supportTickets.id, existing.id))
       .returning();
 
     return ticket;

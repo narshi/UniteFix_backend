@@ -605,7 +605,14 @@ export function registerAdminRoutes(app: Express) {
             }
 
             const { message, isInternal } = req.body;
-            const adminId = (req as any).user.id;
+            // The admin shim builds req.user from req.admin, whose key is
+            // `userId` — `.id` was always undefined, so every reply was stored
+            // with a null sender.
+            const adminId = (req as any).user.userId ?? (req as any).user.id ?? null;
+
+            if (typeof message !== "string" || !message.trim()) {
+                return res.status(400).json({ error: "Message is required" });
+            }
 
             const msg = await SupportTicketService.addMessage(
                 req.params.ticketId,
@@ -632,7 +639,17 @@ export function registerAdminRoutes(app: Express) {
             }
 
             const { status } = req.body;
-            const adminId = (req as any).user.id;
+            const adminId = (req as any).user.userId ?? (req as any).user.id ?? null;
+
+            // Validated against the ticket_status enum here rather than letting
+            // Postgres reject it — an unknown value came back as a raw 22P02
+            // driver error with no useful message in the UI.
+            const ALLOWED = ["open", "in_progress", "escalated", "resolved", "closed"] as const;
+            if (!ALLOWED.includes(status)) {
+                return res.status(400).json({
+                    error: `Invalid status. Expected one of: ${ALLOWED.join(", ")}`,
+                });
+            }
 
             const ticket = await SupportTicketService.updateTicketStatus(
                 req.params.ticketId,
@@ -640,7 +657,7 @@ export function registerAdminRoutes(app: Express) {
                 adminId
             );
 
-            res.json({ message: "Ticket status updated", ticket });
+            res.json({ success: true, message: "Ticket status updated", ticket });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }

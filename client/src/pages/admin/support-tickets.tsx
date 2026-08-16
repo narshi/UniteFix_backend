@@ -80,11 +80,28 @@ export default function SupportTicketsPage() {
             });
             if (!res.ok) throw new Error("Failed to fetch details");
             const data = await res.json();
-            setSelectedTicket(data.ticket); // Server might return { ticket, messages } or just ticket with messages included depending on implementation, let's assume { ticket } where ticket has messages
+            // The endpoint returns the ticket both nested and flattened; take
+            // whichever is present so a shape change on either side cannot empty
+            // the modal again. `messages` is folded in because older responses
+            // kept it as a sibling of `ticket`.
+            const detail = data.ticket ?? data;
+            setSelectedTicket({ ...detail, messages: detail.messages ?? data.messages ?? [] });
         } catch (error) {
             toast({ title: "Error", description: "Could not load ticket details", variant: "destructive" });
         }
     };
+
+    /**
+     * The list's React Query key is the full URL (`/api/admin/tickets?page=1&…`),
+     * so invalidating on `['/api/admin/tickets']` matched nothing — element-wise
+     * prefix matching compares the whole string. Match on the path instead.
+     */
+    const invalidateTickets = () =>
+        queryClient.invalidateQueries({
+            predicate: (q) =>
+                typeof q.queryKey[0] === "string" &&
+                (q.queryKey[0] as string).startsWith("/api/admin/tickets"),
+        });
 
     const replyMutation = useMutation({
         mutationFn: async () => {
@@ -98,7 +115,7 @@ export default function SupportTicketsPage() {
             toast({ title: "Reply Sent" });
             setReplyMessage("");
             if (selectedTicket) fetchTicketDetails(selectedTicket.id);
-            queryClient.invalidateQueries({ queryKey: ['/api/admin/tickets'] });
+            invalidateTickets();
         },
         onError: () => {
             toast({ title: "Error", description: "Failed to send reply", variant: "destructive" });
@@ -108,11 +125,23 @@ export default function SupportTicketsPage() {
     const statusMutation = useMutation({
         mutationFn: async ({ id, status }: { id: number, status: string }) => {
             await apiRequest("PUT", `/api/admin/tickets/${id}/status`, { status });
+            return status as Ticket["status"];
         },
-        onSuccess: () => {
+        onSuccess: (status) => {
             toast({ title: "Status Updated" });
-            queryClient.invalidateQueries({ queryKey: ['/api/admin/tickets'] });
+            // Applied locally first: the <select> is controlled by
+            // selectedTicket.status, so without this it snaps back to the old
+            // value until the detail refetch lands.
+            setSelectedTicket((prev) => (prev ? { ...prev, status } : prev));
+            invalidateTickets();
             if (selectedTicket) fetchTicketDetails(selectedTicket.id);
+        },
+        onError: (err: any) => {
+            toast({
+                title: "Error",
+                description: err?.message || "Failed to update status",
+                variant: "destructive",
+            });
         }
     });
 
@@ -208,7 +237,7 @@ export default function SupportTicketsPage() {
                             <span>Ticket #{selectedTicket?.id}: {selectedTicket?.subject}</span>
                             {selectedTicket && (
                                 <Badge variant="outline" className={getStatusColor(selectedTicket.status)}>
-                                    {selectedTicket.status.replace('_', ' ').toUpperCase()}
+                                    {(selectedTicket.status ?? 'open').replace('_', ' ').toUpperCase()}
                                 </Badge>
                             )}
                         </DialogTitle>
@@ -240,7 +269,7 @@ export default function SupportTicketsPage() {
                                             }`}>
                                                 <p className="text-sm">{msg.message}</p>
                                                 <span className="text-[10px] opacity-70 mt-1 block">
-                                                    {msg.isInternal ? 'Internal Note - ' : ''}{format(new Date(msg.createdAt), "dd MMM HH:mm")}
+                                                    {msg.isInternal ? 'Internal Note - ' : ''}{formatTicketDate(msg.createdAt)}
                                                 </span>
                                             </div>
                                         </div>

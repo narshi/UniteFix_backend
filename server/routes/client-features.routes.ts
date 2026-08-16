@@ -1107,7 +1107,19 @@ export function registerClientFeatureRoutes(app: Express) {
                 return res.status(403).json({ success: false, message: "Access denied" });
             }
 
-            res.json({ success: true, data: result });
+            // Internal admin notes are staff-only — stripped here rather than in
+            // the app, so a future client can never leak them by rendering the
+            // raw thread.
+            const visible = (result.messages ?? []).filter((m: any) => !m.isInternal);
+
+            res.json({
+                success: true,
+                data: {
+                    ...result.ticket,
+                    messages: visible,
+                    ticket: { ...result.ticket, messages: visible },
+                },
+            });
         } catch (error) {
             next(error);
         }
@@ -1124,6 +1136,13 @@ export function registerClientFeatureRoutes(app: Express) {
 
             if (!message) {
                 return res.status(400).json({ success: false, message: "Message is required" });
+            }
+
+            // Ownership was never checked here, so any signed-in user could post
+            // into any ticket just by changing the id in the URL.
+            const existing = await SupportTicketService.getTicketDetails(ticketId);
+            if (existing.ticket.userId !== (req as any).user!.userId) {
+                return res.status(403).json({ success: false, message: "Access denied" });
             }
 
             const msg = await SupportTicketService.addMessage(

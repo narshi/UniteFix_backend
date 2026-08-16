@@ -15,11 +15,15 @@ import {
     Alert,
     ActivityIndicator,
     RefreshControl,
+    Modal,
+    Pressable,
+    KeyboardAvoidingView,
+    Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
     ArrowLeft, MessageCircle, Send, ChevronRight, CircleDot,
-    Clock, CheckCircle, PlusCircle,
+    Clock, CheckCircle, PlusCircle, X,
 } from 'lucide-react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, getApiErrorMessage } from '../../api/client';
@@ -31,14 +35,24 @@ import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'SupportTicket'>;
 
+interface TicketMessage {
+    id: number;
+    message: string;
+    senderType: 'customer' | 'admin' | 'system';
+    isInternal?: boolean;
+    createdAt: string;
+}
+
 interface Ticket {
     id: number;
+    ticketId?: string;
     subject: string;
     description: string;
     status: 'open' | 'in_progress' | 'escalated' | 'resolved' | 'closed';
     serviceRequestId?: number;
     createdAt: string;
     updatedAt: string;
+    messages?: TicketMessage[];
 }
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -90,10 +104,45 @@ export function SupportTicketScreen({ navigation, route }: Props) {
             apiClient.post(`/api/client/tickets/${ticketId}/escalate`),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['support-tickets'] });
+            if (openTicketId) qc.invalidateQueries({ queryKey: ['support-ticket', openTicketId] });
             Alert.alert('Escalated', 'Your issue has been marked as escalated. Our team will prioritize it immediately.');
         },
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });
+
+    // ── Detail popup ──────────────────────────────────────────────────────
+    // Tapping a row previously did nothing: the card was a TouchableOpacity
+    // with no onPress, so the status and the conversation the admin can see
+    // were invisible in the app.
+    const [openTicketId, setOpenTicketId] = useState<number | null>(null);
+    const [reply, setReply] = useState('');
+
+    const { data: detail, isLoading: isDetailLoading } = useQuery({
+        queryKey: ['support-ticket', openTicketId],
+        enabled: openTicketId != null,
+        queryFn: async () => {
+            const res = await apiClient.get(`/api/client/tickets/${openTicketId}`);
+            const body = (res.data as any)?.data ?? res.data;
+            return (body?.ticket ?? body) as Ticket;
+        },
+    });
+
+    const { mutate: sendReply, isPending: isReplying } = useMutation({
+        mutationFn: (message: string) =>
+            apiClient.post(`/api/client/tickets/${openTicketId}/reply`, { message }),
+        onSuccess: () => {
+            setReply('');
+            qc.invalidateQueries({ queryKey: ['support-ticket', openTicketId] });
+            qc.invalidateQueries({ queryKey: ['support-tickets'] });
+        },
+        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
+    });
+
+    // Falls back to the list row while the detail request is in flight, so the
+    // sheet opens with the subject and status already filled in.
+    const openTicket: Ticket | undefined =
+        detail ?? tickets.find((t) => t.id === openTicketId);
+    const isClosed = openTicket?.status === 'closed' || openTicket?.status === 'resolved';
 
     const handleSubmit = () => {
         if (!subject.trim()) { Alert.alert('Required', 'Please enter a subject.'); return; }
@@ -112,7 +161,11 @@ export function SupportTicketScreen({ navigation, route }: Props) {
         const isEligibleForEscalation = item.status === 'open' && (Date.now() - new Date(item.createdAt).getTime()) > 48 * 60 * 60 * 1000;
         
         return (
-            <TouchableOpacity style={styles.ticketCard} activeOpacity={0.7}>
+            <TouchableOpacity
+                style={styles.ticketCard}
+                activeOpacity={0.7}
+                onPress={() => { setReply(''); setOpenTicketId(item.id); }}
+            >
                 <View style={styles.ticketHeader}>
                     <View style={{ flex: 1 }}>
                         <Text style={styles.ticketSubject} numberOfLines={1}>{item.subject}</Text>
@@ -241,6 +294,116 @@ export function SupportTicketScreen({ navigation, route }: Props) {
                     />
                 )
             )}
+
+            {/* Ticket detail popup */}
+            <Modal
+                visible={openTicketId != null}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setOpenTicketId(null)}
+            >
+                <View style={styles.modalRoot}>
+                    <Pressable style={styles.backdrop} onPress={() => setOpenTicketId(null)} />
+
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        style={styles.sheet}
+                    >
+                        <View style={styles.sheetHandle} />
+
+                        <View style={styles.sheetHeader}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.sheetTitle} numberOfLines={2}>
+                                    {openTicket?.subject ?? 'Ticket'}
+                                </Text>
+                                <Text style={styles.sheetMeta}>
+                                    {openTicket?.ticketId ? `${openTicket.ticketId} · ` : ''}
+                                    {openTicket?.createdAt ? formatDate(openTicket.createdAt) : ''}
+                                </Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setOpenTicketId(null)} style={styles.closeBtn}>
+                                <X size={20} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.sheetStatusRow}>
+                            {(() => {
+                                const s = STATUS_COLORS[openTicket?.status ?? 'open'] || STATUS_COLORS.open;
+                                return (
+                                    <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
+                                        <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
+                                    </View>
+                                );
+                            })()}
+                            {openTicket?.serviceRequestId ? (
+                                <Text style={styles.ticketLinked}>Booking #{openTicket.serviceRequestId}</Text>
+                            ) : null}
+                        </View>
+
+                        <ScrollView style={styles.sheetBody} contentContainerStyle={{ paddingBottom: spacing.lg }}>
+                            <Text style={styles.sheetSectionLabel}>Your issue</Text>
+                            <View style={styles.sheetBlock}>
+                                <Text style={styles.sheetBlockText}>{openTicket?.description}</Text>
+                            </View>
+
+                            <Text style={styles.sheetSectionLabel}>Conversation</Text>
+                            {isDetailLoading && !detail ? (
+                                <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+                            ) : (openTicket?.messages?.length ?? 0) === 0 ? (
+                                <Text style={styles.sheetEmpty}>
+                                    No replies yet. Our team responds within working hours.
+                                </Text>
+                            ) : (
+                                openTicket!.messages!.map((m) => (
+                                    <View
+                                        key={m.id}
+                                        style={[
+                                            styles.bubble,
+                                            m.senderType === 'customer' ? styles.bubbleMine : styles.bubbleTheirs,
+                                        ]}
+                                    >
+                                        <Text style={styles.bubbleFrom}>
+                                            {m.senderType === 'customer' ? 'You' : 'UniteFix Support'}
+                                        </Text>
+                                        <Text style={styles.bubbleText}>{m.message}</Text>
+                                        <Text style={styles.bubbleTime}>{formatDate(m.createdAt)}</Text>
+                                    </View>
+                                ))
+                            )}
+                        </ScrollView>
+
+                        {isClosed ? (
+                            <View style={styles.closedNotice}>
+                                <CheckCircle size={14} color={colors.success} />
+                                <Text style={styles.closedNoticeText}>
+                                    This ticket is {openTicket?.status === 'closed' ? 'closed' : 'resolved'}.
+                                    Create a new ticket if you still need help.
+                                </Text>
+                            </View>
+                        ) : (
+                            <View style={styles.replyRow}>
+                                <TextInput
+                                    style={styles.replyInput}
+                                    placeholder="Write a reply…"
+                                    placeholderTextColor={colors.textDisabled}
+                                    value={reply}
+                                    onChangeText={setReply}
+                                    multiline
+                                />
+                                <TouchableOpacity
+                                    style={[styles.sendBtn, (!reply.trim() || isReplying) && { opacity: 0.5 }]}
+                                    disabled={!reply.trim() || isReplying}
+                                    onPress={() => sendReply(reply.trim())}
+                                >
+                                    {isReplying
+                                        ? <ActivityIndicator size="small" color={colors.background} />
+                                        : <Send size={18} color={colors.background} />}
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </KeyboardAvoidingView>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -285,4 +448,61 @@ const styles = StyleSheet.create({
     textArea: { minHeight: 120 },
     emptyTitle: { ...typography.h4, color: colors.textPrimary, marginTop: spacing.lg },
     emptyText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+
+    // ── Detail popup ──────────────────────────────────────────────────────
+    modalRoot: { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+    sheet: {
+        backgroundColor: colors.background,
+        borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
+        paddingHorizontal: spacing.xl, paddingBottom: spacing.xl,
+        maxHeight: '88%',
+    },
+    sheetHandle: {
+        width: 40, height: 4, borderRadius: 2, backgroundColor: colors.divider,
+        alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md,
+    },
+    sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+    sheetTitle: { ...typography.h4, color: colors.textPrimary },
+    sheetMeta: { ...typography.small, color: colors.textDisabled, marginTop: 2 },
+    closeBtn: {
+        width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface,
+        justifyContent: 'center', alignItems: 'center',
+    },
+    sheetStatusRow: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        marginTop: spacing.md, marginBottom: spacing.sm,
+    },
+    sheetBody: { marginTop: spacing.sm },
+    sheetSectionLabel: {
+        ...typography.captionMedium, color: colors.textSecondary,
+        marginTop: spacing.md, marginBottom: spacing.sm, textTransform: 'uppercase',
+    },
+    sheetBlock: { backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md },
+    sheetBlockText: { ...typography.body, color: colors.textPrimary, lineHeight: 20 },
+    sheetEmpty: { ...typography.caption, color: colors.textDisabled, paddingVertical: spacing.md },
+    bubble: { borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm, maxWidth: '90%' },
+    bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.primarySurface },
+    bubbleTheirs: { alignSelf: 'flex-start', backgroundColor: colors.surface },
+    bubbleFrom: { ...typography.small, fontWeight: '700', color: colors.textSecondary, marginBottom: 2 },
+    bubbleText: { ...typography.body, color: colors.textPrimary, lineHeight: 20 },
+    bubbleTime: { ...typography.small, color: colors.textDisabled, marginTop: 4 },
+    replyRow: {
+        flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm,
+        paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider,
+    },
+    replyInput: {
+        flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md,
+        paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+        ...typography.body, color: colors.textPrimary, maxHeight: 100,
+    },
+    sendBtn: {
+        width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary,
+        justifyContent: 'center', alignItems: 'center',
+    },
+    closedNotice: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider,
+    },
+    closedNoticeText: { ...typography.caption, color: colors.textSecondary, flex: 1 },
 });
