@@ -127,7 +127,13 @@ export function OnboardingLocationScreen() {
             await refreshOnboardingStatus();
 
             if (isTechnician) {
-                navigation.navigate('ExpertiseSelection');
+                // Trades are normally collected before this screen. Only send
+                // them back if the server still lists that step — otherwise
+                // continue to the code of conduct, which closes out signup.
+                const pending = useAuthStore.getState().user?.pendingOnboardingSteps ?? [];
+                navigation.navigate(
+                    pending.includes('skills') ? 'ExpertiseSelection' : 'ExpertCodeOfConduct',
+                );
             }
             // Customers are done — RootNavigator swaps to the customer app as
             // soon as refreshOnboardingStatus() reports completion.

@@ -713,18 +713,28 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
 
     let profileData = null;
+    let employeeRecord: any = null;
     if (user.role === 'serviceman') {
-      const emp = await storage.getEmployeeByUserId(user.id);
-      profileData = { employee: emp };
+      employeeRecord = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: employeeRecord };
     } else {
       const customer = await storage.getCustomerByUserId(user.id);
       profileData = { customer };
     }
 
+    // MUST be returned, as the /truecaller/verify and /fallback/verify-otp paths
+    // already do. Without it the client falls back to `?? true`, treats
+    // onboarding as finished, and RootNavigator never renders the onboarding
+    // stack — so an expert signing up this way was dropped straight into the
+    // pending-approval screen, never asked for a location or a single trade.
+    const pendingOnboarding = getPendingOnboardingSteps(user, employeeRecord);
+
     res.json({
       success: true,
       message: isNewUser ? 'Account created successfully' : 'Login successful',
       isNewUser,
+      onboardingCompleted: pendingOnboarding.length === 0,
+      pendingOnboardingSteps: pendingOnboarding,
       user: { ...user, password: undefined },
       profile: profileData,
       ...tokens,
@@ -852,18 +862,28 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
 
     // 5. Get Profile
     let profileData = null;
+    let employeeRecord: any = null;
     if (user.role === 'serviceman') {
-      const emp = await storage.getEmployeeByUserId(user.id);
-      profileData = { employee: emp };
+      employeeRecord = await storage.getEmployeeByUserId(user.id);
+      profileData = { employee: employeeRecord };
     } else {
       const customer = await storage.getCustomerByUserId(user.id);
       profileData = { customer };
     }
 
+    // MUST be returned, as the /truecaller/verify and /fallback/verify-otp paths
+    // already do. Without it the client falls back to `?? true`, treats
+    // onboarding as finished, and RootNavigator never renders the onboarding
+    // stack — so an expert signing up this way was dropped straight into the
+    // pending-approval screen, never asked for a location or a single trade.
+    const pendingOnboarding = getPendingOnboardingSteps(user, employeeRecord);
+
     res.json({
       success: true,
       message: isNewUser ? 'Account created successfully' : 'Login successful',
       isNewUser,
+      onboardingCompleted: pendingOnboarding.length === 0,
+      pendingOnboardingSteps: pendingOnboarding,
       user: { ...user, password: undefined },
       profile: profileData,
       ...tokens,

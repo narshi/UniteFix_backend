@@ -176,8 +176,19 @@ export function ExpertiseSelectionScreen() {
     setError(null);
     try {
       await apiClient.patch('/api/partner/profile/expertise', { services: selected });
-      // Proceed to the Code of Conduct screen
-      navigation.navigate('ExpertCodeOfConduct');
+
+      // Trades now come before location, so ask the server what is still
+      // outstanding rather than assuming. This screen is reached both during
+      // signup (location still pending) and when an expert returns to finish an
+      // interrupted one (location already supplied).
+      await refreshOnboardingStatus();
+      const pending = useAuthStore.getState().user?.pendingOnboardingSteps ?? [];
+
+      if (pending.includes('location')) {
+        navigation.navigate('OnboardingLocation');
+      } else {
+        navigation.navigate('ExpertCodeOfConduct');
+      }
     } catch (err: any) {
       console.error('[EXPERTISE] Save failed:', err?.message);
       setError(

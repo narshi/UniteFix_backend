@@ -3,7 +3,11 @@
  *
  * Signup and login are distinct flows: a brand-new account MUST supply profile
  * details and a location before it can use the app, and technicians must also
- * declare at least one skill.
+ * declare at least one trade.
+ *
+ * Order matters — it is the order the client walks the user through:
+ *   customer:   profile -> location
+ *   technician: profile -> skills -> location
  *
  * Completeness is derived from the stored data rather than a boolean flag so it
  * cannot drift: if the data is there the user is onboarded, regardless of which
@@ -40,16 +44,20 @@ export function getPendingOnboardingSteps(
         pending.push('profile');
     }
 
-    if (!user.homeAddress || !user.homeAddress.trim() || !user.pinCode || !user.pinCode.trim()) {
-        pending.push('location');
-    }
-
-    // Skills are technician-only.
+    // Trades come straight after name/email, BEFORE location. An expert has just
+    // said who they are; "what work do you do" is the natural next question,
+    // and asking it while they are still describing themselves gets a far better
+    // answer than burying it behind an address and map picker.
+    // Technician-only — customers never see it.
     if (user.role === 'serviceman') {
         const services = employee?.services;
         if (!Array.isArray(services) || services.length === 0) {
             pending.push('skills');
         }
+    }
+
+    if (!user.homeAddress || !user.homeAddress.trim() || !user.pinCode || !user.pinCode.trim()) {
+        pending.push('location');
     }
 
     return pending;

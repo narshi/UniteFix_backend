@@ -144,6 +144,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Older servers omit this; treating a missing value as "complete" keeps
       // existing sessions out of the onboarding stack.
       onboardingCompleted: response.onboardingCompleted ?? true,
+      pendingOnboardingSteps: response.pendingOnboardingSteps ?? [],
     };
 
     await Promise.all([
@@ -269,6 +270,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         homeAddress: profile.homeAddress ?? current.homeAddress,
         pinCode: profile.pinCode ?? current.pinCode,
         onboardingCompleted: profile.onboardingCompleted ?? current.onboardingCompleted,
+        // Refreshed alongside the flag so the onboarding stack always resumes at
+        // the step the server still considers outstanding.
+        pendingOnboardingSteps: profile.pendingOnboardingSteps ?? current.pendingOnboardingSteps,
       };
 
       set({ user: updated });

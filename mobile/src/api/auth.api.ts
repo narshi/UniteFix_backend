@@ -54,6 +54,13 @@ export interface AuthUser {
    * interrupted signup resumes instead of leaking into the app half-configured.
    */
   onboardingCompleted: boolean;
+  /**
+   * Which steps are still outstanding, in the order to walk them. Server-derived
+   * (see server/lib/onboarding.ts) and therefore authoritative — the client must
+   * not infer this from user fields, because it does not hold an expert's
+   * trades and would send a finished expert back to the trade picker forever.
+   */
+  pendingOnboardingSteps?: OnboardingStep[];
   homeAddress?: string | null;
   pinCode?: string | null;
 }
