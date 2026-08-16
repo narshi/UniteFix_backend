@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Eye, UserCheck, UserX, Phone, Mail, MapPin, Calendar, Share2, Trash2 } from "lucide-react";
 import { PurgeAccountDialog } from "@/components/admin/purge-account-dialog";
+import { useAdminMe } from "@/lib/admin-auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +19,7 @@ export default function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<any>(null);
+  const { isSuperAdmin } = useAdminMe();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -193,8 +195,9 @@ export default function UsersPage() {
                           >
                             {user.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
                           </Button>
-                          {/* Admins are managed in admin_users; the API refuses to purge them. */}
-                          {user.role !== 'admin' && (
+                          {/* Super admin only, and never for platform admins —
+                              the API refuses both independently. */}
+                          {isSuperAdmin && user.role !== 'admin' && (
                             <Button
                               size="icon"
                               variant="ghost"

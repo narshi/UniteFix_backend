@@ -11,6 +11,7 @@ import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus, Minus, History } from "lucide-react";
 import { PurgeAccountDialog } from "@/components/admin/purge-account-dialog";
+import { useAdminMe } from "@/lib/admin-auth";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
@@ -22,6 +23,7 @@ export default function PartnersPage() {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
   const [purgeTarget, setPurgeTarget] = useState<any>(null);
+  const { isSuperAdmin } = useAdminMe();
   const [topupAmount, setTopupAmount] = useState("");
   const [deductAmount, setDeductAmount] = useState("");
   const [deductReason, setDeductReason] = useState("");
@@ -504,16 +506,19 @@ export default function PartnersPage() {
                             </AlertDialogContent>
                           </AlertDialog>
 
-                          {/* Permanent purge — account + every connected service. */}
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            title="Delete permanently (with all connected services)"
-                            className="h-8 w-8 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors"
-                            onClick={() => setPurgeTarget(partner)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          {/* Permanent purge — account + every connected service.
+                              Super admin only; the endpoint enforces it too. */}
+                          {isSuperAdmin && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Delete permanently (with all connected services)"
+                              className="h-8 w-8 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors"
+                              onClick={() => setPurgeTarget(partner)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

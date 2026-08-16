@@ -217,7 +217,12 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
     // carrying role:'admin' was accepted — which is what turned the signup
     // escalation into full admin access. Admin tokens are minted only by
     // /api/admin/auth/login, where userId is an adminUsers.id.
-    db.select({ id: adminUsers.id, isActive: adminUsers.isActive, username: adminUsers.username })
+    db.select({
+        id: adminUsers.id,
+        isActive: adminUsers.isActive,
+        username: adminUsers.username,
+        role: adminUsers.role,
+    })
         .from(adminUsers)
         .where(eq(adminUsers.id, decoded.userId))
         .limit(1)
@@ -237,9 +242,22 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
                 });
             }
 
+            // The ROW's role wins, never the token claim. Tokens are long-lived,
+            // so trusting the claim meant demoting a super_admin changed nothing
+            // until their token expired — they kept Database Console and delete
+            // access the whole time. Reading it here makes a demotion effective
+            // on the admin's very next request.
+            if (admin.role !== 'admin' && admin.role !== 'super_admin') {
+                logger.warn('[AUTH] Admin row carries an unrecognised role', {
+                    adminId: admin.id,
+                    role: admin.role,
+                });
+                return res.status(403).json({ success: false, message: 'Admin access required' });
+            }
+
             (req as any).admin = {
                 userId: admin.id,
-                role: decoded.role,
+                role: admin.role,
                 username: admin.username ?? decoded.username,
             };
 
@@ -248,6 +266,35 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
         .catch(() => {
             return res.status(500).json({ success: false, message: 'Admin authentication lookup failed' });
         });
+}
+
+/**
+ * Restrict a route to super_admins. Must run AFTER authenticateAdmin, which is
+ * what populates `req.admin` with the role read from the database.
+ *
+ * Gates the capabilities that can destroy data or expose everything: the raw SQL
+ * console, the audit trail, and permanent account deletion.
+ */
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+    const admin = (req as any).admin as { userId: number; role: string; username?: string } | undefined;
+
+    if (!admin) {
+        return res.status(401).json({ success: false, message: 'Admin authentication required' });
+    }
+
+    if (admin.role !== 'super_admin') {
+        logger.warn('[AUTH] super_admin route refused', {
+            adminId: admin.userId,
+            role: admin.role,
+            path: req.originalUrl,
+        });
+        return res.status(403).json({
+            success: false,
+            message: 'This action requires a super_admin account.',
+        });
+    }
+
+    next();
 }
 
 /**

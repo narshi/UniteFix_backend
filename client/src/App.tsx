@@ -24,6 +24,39 @@ import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
 import MarketingPage from "@/pages/admin/marketing";
+import AdminsPage from "@/pages/admin/admins";
+import { useAdminMe } from "@/lib/admin-auth";
+
+/**
+ * Route-level gate for super_admin-only pages. The sidebar hides these links,
+ * but a plain admin could still type the URL — this is what actually stops
+ * them rendering. The endpoints behind each page enforce it independently.
+ */
+function SuperAdminRoute({ component: Component }: { component: () => JSX.Element }) {
+  const { isSuperAdmin, isLoading } = useAdminMe();
+
+  if (isLoading) {
+    return <div className="flex-1 p-8 text-[hsl(215,20%,65%)]">Checking permissions…</div>;
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen p-8">
+        <div className="glass-card border border-[rgba(255,255,255,0.08)] rounded-xl p-8 max-w-md text-center">
+          <span className="material-icons text-4xl text-[hsl(347,77%,60%)]" style={{ fontFamily: "Material Icons" }}>
+            lock
+          </span>
+          <h2 className="text-xl font-bold text-white mt-3">Super admin only</h2>
+          <p className="text-sm text-[hsl(215,20%,65%)] mt-2">
+            This section is restricted. Ask a super admin if you need access.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <Component />;
+}
 
 function Router() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -133,8 +166,15 @@ function Router() {
           <Route path="/admin/districts" component={DistrictsPage} />
           <Route path="/admin/inventory" component={InventoryPage} />
           <Route path="/admin/withdrawals" component={WithdrawalsPage} />
-          <Route path="/admin/audit-logs" component={AuditLogsPage} />
-          <Route path="/admin/developer" component={DeveloperPage} />
+          <Route path="/admin/audit-logs">
+            <SuperAdminRoute component={AuditLogsPage} />
+          </Route>
+          <Route path="/admin/developer">
+            <SuperAdminRoute component={DeveloperPage} />
+          </Route>
+          <Route path="/admin/admins">
+            <SuperAdminRoute component={AdminsPage} />
+          </Route>
           <Route path="/admin/catalog" component={ServiceCatalogPage} />
           <Route path="/admin/assignments" component={AssignmentQueuePage} />
           <Route path="/admin/support-tickets" component={SupportTicketsPage} />

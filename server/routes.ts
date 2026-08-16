@@ -25,6 +25,7 @@ import logger from "./lib/logger";
 import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pagination";
 // PHASE 7: Import modular route registrations
 import { registerAdminRoutes } from "./routes/admin.routes";
+import { registerAdminManagementRoutes } from "./routes/admin-management.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
 // PHASE 0: OTP routes removed — auth OTP replaced by Truecaller SDK v3
@@ -68,7 +69,7 @@ const JWT_SECRET: string = process.env.JWT_SECRET;
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
 // Import canonical auth middleware (single source of truth)
-import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny } from "./middleware/auth.middleware";
+import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin } from "./middleware/auth.middleware";
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -603,6 +604,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin Registration — PROTECTED: requires super_admin JWT
+  /**
+   * GET /api/admin/me
+   * The signed-in admin, with the role read from the database rather than the
+   * token. The dashboard uses this to decide which menu items and destructive
+   * actions to show — it must not trust the `adminUser` blob in localStorage,
+   * which the user can edit freely.
+   *
+   * Deliberately NOT under /api/admin/auth/: that prefix is exempted from
+   * authenticateAdmin (so login and register can be reached unauthenticated),
+   * which would leave req.admin undefined here.
+   */
+  app.get("/api/admin/me", async (req, res, next) => {
+    try {
+      const admin = (req as any).admin as { userId: number; role: string; username: string } | undefined;
+      if (!admin) {
+        return res.status(401).json({ success: false, message: "Admin authentication required" });
+      }
+
+      const record = await storage.getAdminById(admin.userId);
+      res.json({
+        success: true,
+        data: {
+          id: admin.userId,
+          username: admin.username,
+          email: record?.email ?? null,
+          role: admin.role,
+          isSuperAdmin: admin.role === 'super_admin',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // 401 if no/invalid token, 403 if role !== 'super_admin'
   app.post("/api/admin/auth/register", authenticateAdmin, async (req, res, next) => {
     try {
@@ -1068,7 +1103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * What a purge would remove. Runs the real deletes and rolls back, so the
    * numbers cannot drift from what the purge actually does.
    */
-  app.get("/api/admin/accounts/:kind/:id/deletion-impact", async (req, res, next) => {
+  app.get("/api/admin/accounts/:kind/:id/deletion-impact", requireSuperAdmin, async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
       const kind = req.params.kind;
@@ -1097,7 +1132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * DELETE /api/admin/accounts/:kind/:id
    * Irreversible. Requires ?confirm=true so it cannot fire from a stray click.
    */
-  app.delete("/api/admin/accounts/:kind/:id", async (req, res, next) => {
+  app.delete("/api/admin/accounts/:kind/:id", requireSuperAdmin, async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
       const kind = req.params.kind;
@@ -2539,6 +2574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // This must be registered BEFORE any admin routes
   
   registerAdminRoutes(app);
+  registerAdminManagementRoutes(app); // Administrator roles + enable/disable (super_admin only)
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerAdminWithdrawalRoutes(app);
   registerAdminDbConsoleRoutes(app);

@@ -18,6 +18,7 @@ import { eq, and, desc, count, gte, lte, inArray, sql } from "drizzle-orm";
 import { platformConfig, auditLogs, adminUsers } from "@shared/schema";
 import { configService } from "../services/config.service";
 import { recordAudit } from "../lib/audit";
+import { requireSuperAdmin } from "../middleware/auth.middleware";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -217,7 +218,9 @@ export function registerAdminRoutes(app: Express) {
      * Filters: entityType, entityId, action, changedBy, from, to, q
      * Paged, newest first.
      */
-    app.get("/api/admin/audit-logs", async (req: Request, res: Response) => {
+    // super_admin only: the trail exposes every entity id, actor and metadata
+    // blob on the platform, including payout and dispute detail.
+    app.get("/api/admin/audit-logs", requireSuperAdmin, async (req: Request, res: Response) => {
         try {
             const page = Math.max(1, parseInt(req.query.page as string) || 1);
             const limit = Math.min(100, parseInt(req.query.limit as string) || 25);
@@ -288,7 +291,7 @@ export function registerAdminRoutes(app: Express) {
      * Distinct entity types and actions actually present, so the dashboard
      * filters reflect reality instead of a hardcoded list that drifts.
      */
-    app.get("/api/admin/audit-logs/filters", async (_req: Request, res: Response) => {
+    app.get("/api/admin/audit-logs/filters", requireSuperAdmin, async (_req: Request, res: Response) => {
         try {
             const entityTypes = await db
                 .selectDistinct({ value: auditLogs.entityType })

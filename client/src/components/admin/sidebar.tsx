@@ -1,8 +1,14 @@
 import { Link, useLocation } from "wouter";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { useAdminMe } from "@/lib/admin-auth";
 
-const navigation = [
+/**
+ * `superAdminOnly` hides the entry for plain admins. The matching routes in
+ * App.tsx are gated too — hiding a link is not access control on its own, and
+ * the endpoints behind these pages enforce super_admin regardless.
+ */
+const navigation: Array<{ name: string; href: string; icon: string; superAdminOnly?: boolean }> = [
   { name: "Dashboard", href: "/", icon: "dashboard" },
   { name: "User Management", href: "/users", icon: "people" },
   { name: "Service Requests", href: "/services", icon: "build" },
@@ -15,10 +21,11 @@ const navigation = [
   { name: "Payments & Invoices", href: "/payments", icon: "payment" },
   { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance" },
   { name: "Marketing Push", href: "/admin/marketing", icon: "campaign" },
-  { name: "Audit Trail", href: "/admin/audit-logs", icon: "history" },
+  { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", superAdminOnly: true },
   { name: "Districts", href: "/admin/districts", icon: "map" },
   { name: "Location Management", href: "/locations", icon: "location_on" },
-  { name: "Database Console", href: "/admin/developer", icon: "storage" },
+  { name: "Administrators", href: "/admin/admins", icon: "admin_panel_settings", superAdminOnly: true },
+  { name: "Database Console", href: "/admin/developer", icon: "storage", superAdminOnly: true },
   { name: "Settings", href: "/settings", icon: "settings" },
 ];
 
@@ -30,6 +37,8 @@ interface SidebarProps {
 
 export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const [location] = useLocation();
+  const { isSuperAdmin, admin } = useAdminMe();
+  const visibleNavigation = navigation.filter((item) => !item.superAdminOnly || isSuperAdmin);
 
   // Close the mobile drawer whenever the route changes, otherwise it stays
   // open over the page the user just navigated to.
@@ -104,7 +113,7 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
 
         <nav className="flex-1 p-4 overflow-y-auto overflow-x-hidden custom-scrollbar">
           <ul className="space-y-1.5">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const isActive = location === item.href;
               return (
                 <li key={item.name}>
@@ -135,10 +144,10 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">
-                {adminUser.username || 'Administrator'}
+                {admin?.username || adminUser.username || 'Administrator'}
               </p>
-              <p className="text-xs text-[hsl(215,20%,55%)] truncate">
-                {adminUser.email || 'System Access'}
+              <p className={`text-xs truncate ${isSuperAdmin ? 'text-[hsl(263,70%,70%)] font-medium' : 'text-[hsl(215,20%,55%)]'}`}>
+                {isSuperAdmin ? 'Super Admin' : (admin?.role === 'admin' ? 'Administrator' : (adminUser.email || 'System Access'))}
               </p>
             </div>
           </div>

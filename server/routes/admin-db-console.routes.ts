@@ -15,27 +15,14 @@
  *   - every write is written to the audit log with the SQL text and row count
  */
 
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express, Request, Response } from "express";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
-import { authenticateAdmin } from "../middleware/auth.middleware";
+// Shared with the audit trail and the account-purge routes, so all three enforce
+// super_admin identically and a fix in one place covers every gated capability.
+import { authenticateAdmin, requireSuperAdmin } from "../middleware/auth.middleware";
 import { recordAudit } from "../lib/audit";
 import logger from "../lib/logger";
-
-/** Only super_admins may reach the raw console. */
-function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
-    const admin = (req as any).admin as { userId: number; role: string; username?: string } | undefined;
-    if (!admin) {
-        return res.status(401).json({ success: false, message: "Admin authentication required" });
-    }
-    if (admin.role !== "super_admin") {
-        return res.status(403).json({
-            success: false,
-            message: "Only super_admin accounts can use the database console.",
-        });
-    }
-    next();
-}
 
 // Catastrophic, non-CRUD statements with no undo — refused outright.
 const HARD_BLOCK = /\b(drop\s+database|drop\s+schema|create\s+database)\b/i;
