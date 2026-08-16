@@ -23,6 +23,19 @@ import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 
+/** Empty state for the Add/Edit employee form. */
+const blankPartner = {
+  partnerName: '',
+  email: '',
+  phone: '',
+  password: '',
+  partnerType: 'Individual',
+  services: [] as string[],
+  location: '',   // pin code — the dashboard's historical name for it
+  businessName: '',
+  address: '',
+};
+
 export default function PartnersPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
@@ -40,17 +53,7 @@ export default function PartnersPage() {
     initialFilters: { status: "all" },
   });
   const selection = useRowSelection<any>();
-  const [newPartner, setNewPartner] = useState({
-    partnerName: '',
-    email: '',
-    phone: '',
-    password: '',
-    partnerType: 'Individual',
-    services: [] as string[],
-    location: '',
-    businessName: '',
-    address: ''
-  });
+  const [newPartner, setNewPartner] = useState({ ...blankPartner });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -63,8 +66,21 @@ export default function PartnersPage() {
   const filteredPartners = partnersResponse?.data || [];
   const pagination = partnersResponse?.pagination;
 
+  /**
+   * The list's React Query key is the full URL (`/api/admin/servicemen/list?page=1&…`),
+   * so invalidating on the bare path matched nothing — keys are compared
+   * element-wise, and a partial string is not a prefix of an array element.
+   * Every mutation below routes through this instead.
+   */
+  const invalidateList = () =>
+    queryClient.invalidateQueries({
+      predicate: (q) =>
+        typeof q.queryKey[0] === "string" &&
+        (q.queryKey[0] as string).startsWith("/api/admin/servicemen/list"),
+    });
+
   const refreshList = () => {
-    queryClient.invalidateQueries({ queryKey: [query.key] });
+    invalidateList();
     selection.clear();
   };
 
@@ -85,6 +101,8 @@ export default function PartnersPage() {
       { header: "Name", value: (p: any) => p.partnerName },
       { header: "Phone", value: (p: any) => p.phone },
       { header: "Email", value: (p: any) => p.email },
+      { header: "Pin code", value: (p: any) => p.pinCode ?? "" },
+      { header: "Address", value: (p: any) => p.address ?? "" },
       { header: "Verification", value: (p: any) => p.documentVerificationStatus },
       { header: "Active", value: (p: any) => (p.isActive ? "yes" : "no") },
       { header: "Wallet", value: (p: any) => p.walletBalance },
@@ -103,23 +121,19 @@ export default function PartnersPage() {
       return await apiRequest("POST", "/api/admin/servicemen/create", partnerData);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      const wasEdit = !!selectedPartner;
+      invalidateList();
       setIsAddModalOpen(false);
-      setNewPartner({
-        partnerName: '',
-        email: '',
-        phone: '',
-        password: '',
-        partnerType: 'Individual',
-        services: [],
-        location: '',
-        businessName: '',
-        address: ''
-      });
-      toast({ title: "Employee added successfully" });
+      setSelectedPartner(null);
+      setNewPartner({ ...blankPartner });
+      toast({ title: wasEdit ? "Employee updated" : "Employee added successfully" });
     },
     onError: (error: any) => {
-      toast({ title: "Error adding partner", description: error.message, variant: "destructive" });
+      toast({
+        title: selectedPartner ? "Error updating employee" : "Error adding employee",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   });
 
@@ -128,7 +142,7 @@ export default function PartnersPage() {
       return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/${action}`, { reason });
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      invalidateList();
       toast({ title: `Employee ${variables.action} successful` });
     },
     onError: (error: any) => {
@@ -153,7 +167,7 @@ export default function PartnersPage() {
       return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/topup`, { amount, description: "Admin manual topup" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      invalidateList();
       setIsTopupModalOpen(false);
       setTopupAmount("");
       toast({ title: "Wallet topup successful" });
@@ -168,7 +182,7 @@ export default function PartnersPage() {
       return await apiRequest("POST", `/api/admin/servicemen/${partnerId}/deduct`, { amount, description: reason });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      invalidateList();
       queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen", selectedPartner?.id, "transactions"] });
       setIsDeductModalOpen(false);
       setDeductAmount("");
@@ -185,7 +199,7 @@ export default function PartnersPage() {
       return await apiRequest("DELETE", `/api/admin/servicemen/${partnerId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/servicemen/list"] });
+      invalidateList();
       toast({ title: "Employee deleted successfully" });
     },
     onError: (error: any) => {
@@ -196,6 +210,12 @@ export default function PartnersPage() {
   const handleAddPartner = () => {
     if (!newPartner.partnerName || !newPartner.email || !newPartner.phone || !newPartner.location) {
       toast({ title: "Missing fields", description: "Please fill in all required fields", variant: "destructive" });
+      return;
+    }
+    // `location` is the pin code field; the server rejects anything else, so
+    // catch it here rather than round-tripping for a 400.
+    if (!/^\d{6}$/.test(newPartner.location.trim())) {
+      toast({ title: "Invalid pin code", description: "Pin code must be exactly 6 digits", variant: "destructive" });
       return;
     }
     addPartnerMutation.mutate(newPartner);
@@ -216,15 +236,30 @@ export default function PartnersPage() {
           <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)] mb-2">Employees</h2>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide">Manage employees, verification, and wallets</p>
         </div>
-        <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+        {/* One shared DialogContent serves both Add and Edit; `selectedPartner`
+            is what tells them apart. Closing must clear it, otherwise the next
+            "Add Employee" click silently PATCHes the last employee edited
+            instead of creating a new one. */}
+        <Dialog
+          open={isAddModalOpen}
+          onOpenChange={(open) => {
+            setIsAddModalOpen(open);
+            if (!open) setSelectedPartner(null);
+          }}
+        >
           <DialogTrigger asChild>
-            <Button className="flex items-center gap-2 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] transition-all active:scale-[0.97]">
+            <Button
+              onClick={() => { setSelectedPartner(null); setNewPartner(blankPartner); }}
+              className="flex items-center gap-2 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] transition-all active:scale-[0.97]"
+            >
               <Plus className="w-4 h-4" /> Add Employee
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)] overflow-y-auto max-h-[85vh] custom-scrollbar">
             <DialogHeader>
-              <DialogTitle className="text-xl text-white">Register New Employee</DialogTitle>
+              <DialogTitle className="text-xl text-white">
+                {selectedPartner ? `Edit ${selectedPartner.partnerName || 'Employee'}` : 'Register New Employee'}
+              </DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
@@ -251,12 +286,16 @@ export default function PartnersPage() {
               </div>
               <div className="space-y-2">
                 <Label className="text-[hsl(210,20%,85%)]">Pin Code *</Label>
-                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value })} />
+                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" inputMode="numeric" maxLength={6} placeholder="6 digits" value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value.replace(/\D/g, '').slice(0, 6) })} />
               </div>
-              <div className="space-y-2">
-                <Label className="text-[hsl(210,20%,85%)]">Password *</Label>
-                <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
-              </div>
+              {/* Only offered on create — the edit route does not change
+                  passwords, so showing the field would imply it does. */}
+              {!selectedPartner && (
+                <div className="space-y-2">
+                  <Label className="text-[hsl(210,20%,85%)]">Password *</Label>
+                  <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
+                </div>
+              )}
               <div className="col-span-2 space-y-2">
                 <Label className="text-[hsl(210,20%,85%)]">Address</Label>
                 <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.address} onChange={e => setNewPartner({ ...newPartner, address: e.target.value })} />
@@ -286,7 +325,9 @@ export default function PartnersPage() {
               </div>
             </div>
             <DialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4">
-              <Button onClick={handleAddPartner} className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] transition-all active:scale-[0.97]">Register Employee</Button>
+              <Button onClick={handleAddPartner} disabled={addPartnerMutation.isPending} className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] transition-all active:scale-[0.97]">
+                {selectedPartner ? 'Save Changes' : 'Register Employee'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -351,6 +392,15 @@ export default function PartnersPage() {
                             <p className="font-bold text-[hsl(210,20%,90%)]">{partner.partnerName}</p>
                             <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{partner.partnerId} <span className="mx-1">•</span> {partner.partnerType}</p>
                             <p className="text-xs text-[hsl(215,20%,45%)] mt-0.5">{partner.phone || 'No phone'} <span className="mx-1">•</span> {partner.email || 'No email'}</p>
+                            <p className="text-xs text-[hsl(215,20%,45%)] mt-0.5" title={partner.address || undefined}>
+                              {partner.pinCode
+                                ? <span className="text-[hsl(215,20%,60%)]">PIN {partner.pinCode}</span>
+                                : <span className="text-[hsl(38,92%,60%)]">No pin code</span>}
+                              <span className="mx-1">•</span>
+                              <span className="inline-block max-w-[16rem] truncate align-bottom">
+                                {partner.address || 'No address'}
+                              </span>
+                            </p>
                           </div>
                         </div>
                       </td>

@@ -1024,6 +1024,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ilike(employees.businessName, term),
           ilike(users.phone, term),
           ilike(users.email, term),
+          ilike(users.pinCode, term),
+          ilike(users.homeAddress, term),
         ));
       }
 
@@ -1039,7 +1041,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(where as any);
 
       const rows = await db
-        .select({ employee: employees, userEmail: users.email, userPhone: users.phone, username: users.username })
+        .select({
+          employee: employees,
+          userEmail: users.email,
+          userPhone: users.phone,
+          username: users.username,
+          // Address and pin code live on `users` — the employees table has no
+          // such columns. They were never selected here and `location` was
+          // hardcoded to '', so everything an expert entered during signup was
+          // invisible in the directory and the Edit dialog opened blank.
+          homeAddress: users.homeAddress,
+          pinCode: users.pinCode,
+        })
         .from(employees)
         .leftJoin(users, eq(users.id, employees.userId))
         .where(where as any)
@@ -1048,13 +1061,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .offset(params.offset);
 
       // Field aliases kept for admin dashboard backward compat.
-      const data = rows.map(({ employee: p, userEmail, userPhone, username }) => ({
+      const data = rows.map(({ employee: p, userEmail, userPhone, username, homeAddress, pinCode }) => ({
         ...p,
         partnerName: p.fullName || username || 'Unknown',
         verificationStatus: p.documentVerificationStatus || 'pending',
         email: userEmail || '',
         phone: userPhone || '',
-        location: '',
+        // `location` is the dashboard's historical name for the pin code — the
+        // create form labels that same field "Pin Code". Both names are sent so
+        // neither the form nor the table has to care which it reads.
+        location: pinCode || '',
+        pinCode: pinCode || '',
+        address: homeAddress || '',
+        homeAddress: homeAddress || '',
         services: p.services || [],
       }));
 
@@ -1140,6 +1159,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { partnerName, email, phone, password, partnerType, services, location, address } = req.body;
 
+      // `location` is the pin code — same field the edit route accepts under
+      // either name. Validated here so create and edit cannot disagree.
+      if (location && !/^\d{6}$/.test(String(location).trim())) {
+        return res.status(400).json({ success: false, message: "Pin code must be exactly 6 digits" });
+      }
+
       // 1. Create the user account first
       const hashedPassword = await bcrypt.hash(password || 'Temp123!', 10);
       const user = await storage.createUser({
@@ -1150,8 +1175,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: 'serviceman',
         isVerified: true,
         isActive: true,
-        pinCode: location,
-        homeAddress: address
+        pinCode: location ? String(location).trim() : null,
+        homeAddress: address ? String(address).trim() : null
       });
 
       // 2. Create the provider profile
@@ -1172,18 +1197,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update service provider details
+  /**
+   * An employee's record is split across two tables: trade details live on
+   * `employees`, identity and address live on `users`. This route used to hand
+   * the whole request body to storage.updateServiceProvider, which writes only
+   * to `employees` — so email, phone, address and pin code were silently
+   * dropped by Drizzle as unknown columns and the edit appeared to do nothing.
+   */
   app.patch("/api/admin/servicemen/:id", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
-      const updates = req.body;
-      
-      const provider = await storage.updateServiceProvider(id, updates);
+      const b = req.body ?? {};
 
-      if (!provider) {
+      const [existing] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
+      if (!existing) {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
 
-      res.json({ success: true, message: "Provider updated", data: provider });
+      // --- fields that belong to `users` -------------------------------------
+      const userUpdates: any = {};
+      // The dashboard calls the pin code "location"; accept either name.
+      const pin = b.pinCode ?? b.location;
+      const addr = b.homeAddress ?? b.address;
+      if (b.partnerName !== undefined) userUpdates.username = b.partnerName;
+      if (b.email !== undefined) userUpdates.email = String(b.email).trim() || null;
+      if (b.phone !== undefined) userUpdates.phone = String(b.phone).trim() || null;
+      if (pin !== undefined) userUpdates.pinCode = String(pin).trim() || null;
+      if (addr !== undefined) userUpdates.homeAddress = String(addr).trim() || null;
+
+      if (userUpdates.pinCode && !/^\d{6}$/.test(userUpdates.pinCode)) {
+        return res.status(400).json({ success: false, message: "Pin code must be exactly 6 digits" });
+      }
+
+      // Phone and email are unique on `users`; a clash would otherwise surface
+      // as a raw 23505 with no indication of which field caused it.
+      for (const [field, column] of [['email', users.email], ['phone', users.phone]] as const) {
+        const value = userUpdates[field];
+        if (!value) continue;
+        const [clash] = await db.select({ id: users.id }).from(users)
+          .where(eq(column as any, value)).limit(1);
+        if (clash && clash.id !== existing.userId) {
+          return res.status(400).json({
+            success: false,
+            message: `That ${field} is already registered to another account`,
+          });
+        }
+      }
+
+      if (Object.keys(userUpdates).length > 0) {
+        await db.update(users)
+          .set({ ...userUpdates, updatedAt: new Date() })
+          .where(eq(users.id, existing.userId));
+      }
+
+      // --- fields that belong to `employees` ---------------------------------
+      const employeeUpdates: any = {};
+      if (b.partnerName !== undefined) employeeUpdates.fullName = b.partnerName;
+      if (b.partnerType !== undefined) employeeUpdates.partnerType = b.partnerType;
+      if (b.businessName !== undefined) employeeUpdates.businessName = b.businessName;
+      if (b.services !== undefined) employeeUpdates.services = b.services;
+      if (b.skills !== undefined) employeeUpdates.skills = b.skills;
+      if (b.experienceYears !== undefined) employeeUpdates.experienceYears = b.experienceYears;
+      if (b.qualifications !== undefined) employeeUpdates.qualifications = b.qualifications;
+      if (b.emergencyContact !== undefined) employeeUpdates.emergencyContact = b.emergencyContact;
+
+      const provider = Object.keys(employeeUpdates).length > 0
+        ? await storage.updateServiceProvider(id, employeeUpdates)
+        : existing;
+
+      const [user] = await db.select().from(users).where(eq(users.id, existing.userId)).limit(1);
+
+      res.json({
+        success: true,
+        message: "Provider updated",
+        data: {
+          ...provider,
+          partnerName: provider?.fullName || user?.username || 'Unknown',
+          email: user?.email || '',
+          phone: user?.phone || '',
+          location: user?.pinCode || '',
+          pinCode: user?.pinCode || '',
+          address: user?.homeAddress || '',
+          homeAddress: user?.homeAddress || '',
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -2954,6 +3051,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       void BookingNotifications.expertDenied(serviceId, provider.id, reason);
 
       res.json({ success: true, message: "Service denied. It will be reassigned.", service: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ==================== APP VERSION CHECK ====================
+  app.get("/api/client/app-version", async (req, res, next) => {
+    try {
+      const platform = req.query.platform as string || 'android';
+      
+      // Default to 21 (current version) if not found in db
+      const minVersionCode = await configService.get('APP_CONFIG.MIN_VERSION_CODE', 21);
+      const latestVersionCode = await configService.get('APP_CONFIG.LATEST_VERSION_CODE', 21);
+      const updateUrl = await configService.get('APP_CONFIG.UPDATE_URL', 'market://details?id=com.unitefix.app');
+      
+      res.json({
+        success: true,
+        data: {
+          minVersionCode,
+          latestVersionCode,
+          updateUrl,
+          platform
+        }
+      });
     } catch (error) {
       next(error);
     }
