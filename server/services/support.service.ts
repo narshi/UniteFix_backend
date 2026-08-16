@@ -99,11 +99,12 @@ export class SupportTicketService {
     const total = Number(countResult?.count || 0);
 
     // Get tickets with user info
-    const tickets = await db
+    const rows = await db
       .select({
         ticket: supportTickets,
         customerName: users.username,
         customerEmail: users.email,
+        customerPhone: users.phone,
       })
       .from(supportTickets)
       .leftJoin(users, eq(supportTickets.userId, users.id))
@@ -124,6 +125,24 @@ export class SupportTicketService {
       )
       .limit(limit)
       .offset(offset);
+
+    // Flattened to the shape the admin table actually renders. The query
+    // returns { ticket, customerName, ... }, so every field the page reads
+    // (status, subject, createdAt) was undefined — `ticket.status.replace(...)`
+    // threw and took the whole page down as soon as a single ticket existed.
+    const tickets = rows.map(({ ticket, customerName, customerEmail, customerPhone }) => ({
+      ...ticket,
+      user: {
+        fullName: customerName ?? 'Unknown',
+        phone: customerPhone ?? '',
+        email: customerEmail ?? '',
+        role: 'user',
+      },
+      // Kept alongside `user` so any existing caller reading the flat aliases
+      // does not break.
+      customerName,
+      customerEmail,
+    }));
 
     const pages = Math.ceil(total / limit);
 

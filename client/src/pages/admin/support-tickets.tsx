@@ -37,6 +37,16 @@ interface Ticket {
     }[];
 }
 
+/**
+ * date-fns format() throws RangeError on an invalid date instead of returning
+ * something printable, so one bad row would unmount the whole page.
+ */
+function formatTicketDate(value?: string | null): string {
+    if (!value) return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "—" : format(d, "dd MMM yyyy, HH:mm");
+}
+
 export default function SupportTicketsPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -174,11 +184,11 @@ export default function SupportTicketsPage() {
                                     </TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className={getStatusColor(ticket.status)}>
-                                            {ticket.status.replace('_', ' ').toUpperCase()}
+                                            {(ticket.status ?? 'unknown').replace('_', ' ').toUpperCase()}
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-white/60 text-sm">
-                                        {format(new Date(ticket.createdAt), "dd MMM yyyy, HH:mm")}
+                                        {formatTicketDate(ticket.createdAt)}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); fetchTicketDetails(ticket.id); }}>View</Button>
