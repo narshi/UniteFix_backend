@@ -125,7 +125,9 @@
       "status_in_progress": "In Progress",
       "status_completed": "Completed",
       "status_cancelled": "Cancelled",
-      "status_denied": "Denied"
+      "status_denied": "Denied",
+      "unserviceable_title": "Your area is not covered yet",
+      "unserviceable_subtitle": "We do not take bookings in pin code {{pinCode}} yet, so no jobs will be assigned to you here. Update your pin code in your profile if you have moved."
     },
     "auth": {
       "login_title": "Login / Sign Up",

@@ -14,9 +14,11 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell } from 'lucide-react-native';
+import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell, AlertTriangle } from 'lucide-react-native';
 import { useAssignments } from '../../hooks/usePartnerData';
-import { useUnreadNotificationCount } from '../../hooks/useCustomerData';
+import { useProfile, useUnreadNotificationCount } from '../../hooks/useCustomerData';
+import { useServiceability } from '../../hooks/useServiceability';
+import { useAuthStore } from '../../stores/auth.store';
 import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -82,6 +84,20 @@ export function IncomingServicesScreen() {
     const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
 
+    /**
+     * Experts get the same serviceability answer customers do, because it
+     * decides whether they will ever be sent work: jobs are only dispatched in
+     * pin codes we cover, so an expert registered outside one sits on an empty
+     * queue forever with nothing explaining why.
+     *
+     * Shown as a banner ABOVE the list rather than replacing it — unlike the
+     * customer screen, which swaps out the catalogue. An expert may already have
+     * live jobs, and hiding those to display a notice would stop them working.
+     */
+    const { data: profile } = useProfile();
+    const storedPin = useAuthStore((s) => s.user?.pinCode);
+    const { isServiceable, pinCode } = useServiceability(profile?.pinCode ?? storedPin);
+
     // Show incoming (non-completed, non-denied) first
     const incoming = (assignments || []).filter(
         (a: Assignment) => !['completed', 'cancelled', 'denied'].includes(a.status)
@@ -120,6 +136,25 @@ export function IncomingServicesScreen() {
         return (
             <FlatList
                 data={incoming}
+                ListHeaderComponent={
+                    isServiceable === false ? (
+                        <View style={styles.unserviceableCard}>
+                            <AlertTriangle size={22} color={colors.warning} />
+                            <View style={styles.unserviceableContent}>
+                                <Text style={styles.unserviceableTitle}>
+                                    {t('partner.unserviceable_title', 'Your area is not covered yet')}
+                                </Text>
+                                <Text style={styles.unserviceableSubtitle}>
+                                    {t(
+                                        'partner.unserviceable_subtitle',
+                                        'We do not take bookings in pin code {{pinCode}} yet, so no jobs will be assigned to you here. Update your pin code in your profile if you have moved.',
+                                        { pinCode },
+                                    )}
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null
+                }
                 renderItem={({ item }) => (
                     <AssignmentCard
                         item={item}
@@ -224,4 +259,18 @@ const styles = StyleSheet.create({
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
     infoText: { ...typography.small, color: colors.textSecondary, flex: 1 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
+
+    // Mirrors the customer home banner so the two apps read as one product.
+    unserviceableCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: colors.warningLight,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
+        gap: spacing.md,
+        marginBottom: spacing.lg,
+    },
+    unserviceableContent: { flex: 1 },
+    unserviceableTitle: { ...typography.bodyMedium, color: colors.warningDark, marginBottom: 2 },
+    unserviceableSubtitle: { ...typography.caption, color: colors.textSecondary, lineHeight: 20 },
 });

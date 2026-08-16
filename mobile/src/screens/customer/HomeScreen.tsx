@@ -49,6 +49,7 @@ import { ServiceCard } from '../../components/services/ServiceCard';
 import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
+import { useServiceability } from '../../hooks/useServiceability';
 
 // Trust indicators data
 const TRUST_ITEMS = [
@@ -78,7 +79,9 @@ export function HomeScreen() {
     const { t } = useTranslation();
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
-    const [isServiceable, setIsServiceable] = React.useState<boolean | null>(null);
+
+    // Shared with the expert app so the two cannot drift apart.
+    const { isServiceable } = useServiceability(profile?.pinCode);
 
     // `isLoading` drives skeletons on first paint; `isRefetching` drives the
     // pull-to-refresh spinner. Binding the spinner to isLoading made it appear
@@ -121,21 +124,6 @@ export function HomeScreen() {
         };
         autoFetchLocation();
     }, [profile?.homeAddress]);
-
-    React.useEffect(() => {
-        if (profile?.pinCode) {
-            const cleanPin = profile.pinCode.replace(/\s+/g, '');
-            customerApi.validatePincode(cleanPin).then(res => {
-                const isAvail = res.data?.available || res.data?.serviceable;
-                setIsServiceable(isAvail ?? true);
-            }).catch(err => {
-                console.error('Pincode validation error', err);
-                setIsServiceable(true);
-            });
-        } else {
-            setIsServiceable(null);
-        }
-    }, [profile?.pinCode]);
 
     return (
         <View style={styles.container}>
