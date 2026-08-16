@@ -60,18 +60,11 @@ export async function getAllProductOrders(): Promise<ProductOrder[]> {
 // ==================== INVOICES ====================
 
 export async function createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
-    let next = await nextSequentialNumber('invoices', 'invoice_id', 'INV');
-    for (let attempt = 0; attempt < 6; attempt++) {
-        const invoiceId = `INV${String(next).padStart(6, '0')}`;
-        try {
-            const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
-            return invoice;
-        } catch (err: any) {
-            if (err?.code === '23505') { next++; continue; }
-            throw err;
-        }
-    }
-    throw new Error('Could not allocate a unique invoice id after several attempts');
+    const { generateInvoiceIdWithRetry } = await import('../lib/sequential-id.js');
+    return generateInvoiceIdWithRetry(async (invoiceId) => {
+        const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
+        return invoice;
+    });
 }
 
 export async function getInvoice(id: number): Promise<Invoice | undefined> {

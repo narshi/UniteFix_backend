@@ -636,32 +636,19 @@ export class PaymentService {
             sgst = totalGst - cgst;
         }
 
-        const invoiceId = `UF-INV-${serviceRequestId}-${Date.now().toString(36).toUpperCase()}`;
+        const { storage } = await import('../storage');
+        const invoice = await storage.createInvoice({
+            serviceRequestId,
+            userId: customerId,
+            providerId,
+            baseAmount: baseAmount.toString(),
+            cgst: cgst.toString(),
+            sgst: sgst.toString(),
+            discount: bookingFee.toString(),
+            totalAmount: totalAmount.toString()
+        });
 
-        // Insert invoice using correct Drizzle schema columns
-        await db.execute(sql`
-            INSERT INTO invoices (
-                invoice_id,
-                service_request_id,
-                user_id,
-                provider_id,
-                base_amount,
-                cgst,
-                sgst,
-                discount,
-                total_amount
-            ) VALUES (
-                ${invoiceId},
-                ${serviceRequestId},
-                ${customerId},
-                ${providerId},
-                ${baseAmount},
-                ${cgst},
-                ${sgst},
-                ${bookingFee},
-                ${totalAmount}
-            )
-        `);
+        const invoiceId = invoice.invoiceId;
 
         return { invoiceId };
     }
