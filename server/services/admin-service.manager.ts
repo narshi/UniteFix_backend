@@ -12,7 +12,7 @@
  */
 
 import { db } from "../db";
-import { sql, eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { sql, eq, and, desc, gte, lte, inArray, count as sqlCount } from "drizzle-orm";
 import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
 
@@ -29,8 +29,19 @@ export class AdminServiceManager {
     /**
      * Get all service bookings with pagination and filters
      */
+    /** Columns the Service Requests table may be sorted by. */
+    static readonly SORTABLE = {
+        createdAt: serviceRequests.createdAt,
+        serviceId: serviceRequests.serviceId,
+        status: serviceRequests.status,
+        totalAmount: serviceRequests.totalAmount,
+        serviceType: serviceRequests.serviceType,
+        updatedAt: serviceRequests.updatedAt,
+        completedAt: serviceRequests.completedAt,
+    };
+
     static async getServiceBookings(
-        filters: ServiceFilters = {},
+        filters: ServiceFilters & { q?: string; from?: Date; to?: Date; orderBy?: any } = {},
         page: number = 1,
         limit: number = 20
     ): Promise<{ services: any[]; total: number; page: number; pages: number }> {
@@ -57,6 +68,27 @@ export class AdminServiceManager {
             conditions.push(sql`${serviceRequests.address} ILIKE ${'%' + filters.pincode + '%'}`);
         }
 
+        // Free text across the fields an admin actually searches by. Customer and
+        // technician names live in joined tables, hence the subquery form — a
+        // plain WHERE could not see them from the count query below.
+        if (filters.q) {
+            const term = `%${filters.q}%`;
+            conditions.push(sql`(
+                ${serviceRequests.serviceId} ILIKE ${term}
+                OR ${serviceRequests.serviceType} ILIKE ${term}
+                OR ${serviceRequests.brand} ILIKE ${term}
+                OR ${serviceRequests.model} ILIKE ${term}
+                OR ${serviceRequests.address} ILIKE ${term}
+                OR EXISTS (SELECT 1 FROM users u WHERE u.id = ${serviceRequests.userId}
+                           AND (u.username ILIKE ${term} OR u.phone ILIKE ${term}))
+                OR EXISTS (SELECT 1 FROM employees e WHERE e.id = ${serviceRequests.providerId}
+                           AND e.full_name ILIKE ${term})
+            )`);
+        }
+
+        if (filters.from) conditions.push(gte(serviceRequests.createdAt, filters.from));
+        if (filters.to) conditions.push(lte(serviceRequests.createdAt, filters.to));
+
         if (filters.startDate) {
             conditions.push(gte(serviceRequests.createdAt, new Date(filters.startDate)));
         }
@@ -65,16 +97,12 @@ export class AdminServiceManager {
             conditions.push(lte(serviceRequests.createdAt, new Date(filters.endDate)));
         }
 
-        const countResult = await db.execute(sql`
-      SELECT COUNT(*) as count
-      FROM service_requests
-      ${conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``}
-    `) as any;
+        const [countRow] = await db
+            .select({ c: sqlCount() })
+            .from(serviceRequests)
+            .where(conditions.length > 0 ? and(...conditions) : undefined);
 
-        const total = (() => {
-            const raw = Array.isArray(countResult) ? countResult : (countResult?.rows || []);
-            return parseInt(raw?.[0]?.count || "0");
-        })();
+        const total = Number(countRow?.c ?? 0);
 
         // Get services with customer and technician details
         const services = await db
@@ -107,7 +135,7 @@ export class AdminServiceManager {
             .leftJoin(users, eq(serviceRequests.userId, users.id))
             .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
             .where(conditions.length > 0 ? and(...conditions) : undefined)
-            .orderBy(desc(serviceRequests.createdAt))
+            .orderBy(filters.orderBy ?? desc(serviceRequests.createdAt))
             .limit(limit)
             .offset(offset);
 

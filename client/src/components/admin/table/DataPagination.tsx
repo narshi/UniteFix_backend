@@ -8,7 +8,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { TableQuery } from "./useTableQuery";
+import type { TableQueryLike } from "./useTableQuery";
 
 export interface PaginationMeta {
     page: number;
@@ -19,7 +19,7 @@ export interface PaginationMeta {
 }
 
 interface Props {
-    query: TableQuery;
+    query: TableQueryLike;
     pagination?: PaginationMeta;
     /** Rows on the current page, used for the window when total is 0. */
     rowCount?: number;

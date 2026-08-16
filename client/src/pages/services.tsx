@@ -10,11 +10,19 @@ import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 import { useToast } from "@/hooks/use-toast";
+import {
+  useTableQuery, DataToolbar, DataPagination, SortableHeader,
+  useRowSelection, BulkActionBar, SelectAllCheckbox, RowCheckbox,
+  exportCsv, timestampedName,
+} from "@/components/admin/table";
 
 export default function ServicesPage() {
   const { toast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const query = useTableQuery("/api/admin/services", {
+    defaultSort: "createdAt",
+    initialFilters: { status: "all" },
+  });
+  const selection = useRowSelection<any>();
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
@@ -51,29 +59,32 @@ export default function ServicesPage() {
     }
   };
   
-  const { data: services = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ["/api/admin/services"],
-    select: (data: any) => {
-      if (Array.isArray(data)) return data;
-      if (data && Array.isArray(data.services)) return data.services;
-      return [];
-    }
+  const { data: response, isLoading, isError, refetch } = useQuery<any>({
+    queryKey: [query.key],
   });
 
-  // Filter services based on search term and status
-  const filteredServices = Array.isArray(services) ? services.filter((service: any) => {
-    const matchesSearch = searchTerm === '' || (
-      service.serviceType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.id?.toString().includes(searchTerm) ||
-      service.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.status?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    
-    const matchesStatus = statusFilter === 'all' || service.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  }) : [];
+  // Searching, filtering, sorting and paging all happen server-side now — the
+  // page renders exactly the rows it was given.
+  const services = response?.data ?? [];
+  const pagination = response?.pagination;
+  const filteredServices = services;
+
+  const handleExport = () => {
+    exportCsv(timestampedName("service-requests"), selection.rows, [
+      { header: "Service ID", value: (s: any) => s.serviceId ?? s.id },
+      { header: "Type", value: (s: any) => s.serviceType },
+      { header: "Customer", value: (s: any) => s.customerName },
+      { header: "Customer phone", value: (s: any) => s.customerPhone },
+      { header: "Brand", value: (s: any) => s.brand },
+      { header: "Model", value: (s: any) => s.model },
+      { header: "Employee", value: (s: any) => s.technicianName },
+      { header: "Status", value: (s: any) => s.status },
+      { header: "Total", value: (s: any) => s.totalAmount },
+      { header: "Address", value: (s: any) => s.address },
+      { header: "Created", value: (s: any) => (s.createdAt ? new Date(s.createdAt).toLocaleString() : "") },
+    ]);
+    toast({ title: `Exported ${selection.count} service request(s)` });
+  };
   
   // Function to download individual service invoice from FROZEN billing snapshot
   const downloadServiceInvoice = (service: any) => {
@@ -242,43 +253,31 @@ Generated on: ${new Date().toLocaleString('en-IN')}
         </div>
 
         <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
-            <div className="flex justify-between items-center w-full">
-              <CardTitle className="text-xl text-white">All Service Requests</CardTitle>
-              <div className="flex space-x-3">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
-                  <Input
-                    placeholder="Search services..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-64 pl-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
-                  />
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
-                    <div className="flex items-center">
-                      <Filter className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
-                      <SelectValue placeholder="Filter by status" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="created">Created</SelectItem>
-                    <SelectItem value="assigned">Assigned</SelectItem>
-                    <SelectItem value="accepted">Accepted</SelectItem>
-                    <SelectItem value="reached">Reached</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="pending_payment">Payment Due</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                    <SelectItem value="disputed">Disputed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+          <CardHeader className="flex flex-col gap-4 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">
+              All Service Requests{pagination?.total ? <span className="text-[hsl(215,20%,55%)] text-sm font-normal ml-2">({pagination.total})</span> : null}
+            </CardTitle>
+            <DataToolbar
+              query={query}
+              searchPlaceholder="Service ID, type, brand, customer, employee…"
+              filters={[{
+                key: "status",
+                label: "All Status",
+                options: [
+                  { value: "created", label: "Created" },
+                  { value: "assigned", label: "Assigned" },
+                  { value: "accepted", label: "Accepted" },
+                  { value: "reached", label: "Reached" },
+                  { value: "in_progress", label: "In Progress" },
+                  { value: "pending_payment", label: "Payment Due" },
+                  { value: "completed", label: "Completed" },
+                  { value: "cancelled", label: "Cancelled" },
+                  { value: "disputed", label: "Disputed" },
+                ],
+              }]}
+            />
           </CardHeader>
-          <CardContent className="pt-6">
+          <CardContent className="p-0">
             {isLoading ? (
               <div className="space-y-4 skeleton-shimmer">
                 {[...Array(5)].map((_, i) => (
@@ -294,6 +293,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                 ))}
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full glass-table">
                   <thead>
@@ -303,19 +303,22 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Brand/Model</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Assigned Employee</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Created</th>
+                      <SortableHeader query={query} field="status">Status</SortableHeader>
+                      <SortableHeader query={query} field="totalAmount">Amount</SortableHeader>
+                      <SortableHeader query={query} field="createdAt">Created</SortableHeader>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {isError && <TableErrorState colSpan={9} onRetry={() => refetch()} message="Could not load service requests." />}
+                    {isError && <TableErrorState colSpan={10} onRetry={() => refetch()} message="Could not load service requests." />}
                     {!isError && filteredServices.length === 0 && (
-                      <TableEmptyState colSpan={9} icon="build" title={services.length === 0 ? "No service requests yet" : "No matching service requests"} description={services.length === 0 ? "Bookings created in the mobile app will appear here." : "Try a different search term or filter."} />
+                      <TableEmptyState colSpan={10} icon="build" title={services.length === 0 ? "No service requests yet" : "No matching service requests"} description={services.length === 0 ? "Bookings created in the mobile app will appear here." : "Try a different search term or filter."} />
                     )}
                     {!isError && filteredServices.map((service: any) => (
-                      <tr key={service.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                      <tr key={service.id} className={`border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group ${selection.isSelected(service.id) ? 'bg-[hsla(217,91%,60%,0.06)]' : ''}`}>
+                        <td className="p-4">
+                          <RowCheckbox checked={selection.isSelected(service.id)} onToggle={() => selection.toggle(service)} />
+                        </td>
                         <td className="p-4">
                           <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceId || service.id}</p>
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
@@ -399,9 +402,20 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </tbody>
                 </table>
               </div>
+              <DataPagination query={query} pagination={pagination} rowCount={filteredServices.length} />
+              </>
             )}
           </CardContent>
         </Card>
+
+        <BulkActionBar
+          count={selection.count}
+          onClear={selection.clear}
+          noun="request"
+          actions={[
+            { label: "Export CSV", icon: <Download className="w-3.5 h-3.5" />, onClick: handleExport },
+          ]}
+        />
 
         {/* Service Details Modal */}
         <Dialog open={!!selectedService} onOpenChange={() => setSelectedService(null)}>

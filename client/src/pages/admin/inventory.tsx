@@ -1,6 +1,9 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  useClientTableQuery, DataToolbar, DataPagination, SortableHeader,
+} from "@/components/admin/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,8 +45,16 @@ export default function InventoryPage() {
     const queryClient = useQueryClient();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
-    const [categoryFilter, setCategoryFilter] = useState<string>("all");
+    // Inventory is configuration data with inline stock editing and optimistic
+    // updates, so it stays a single fetch and is filtered/sorted/paged in memory.
+    const table = useClientTableQuery<Product>({
+        defaultSort: "name",
+        defaultOrder: "asc",
+        defaultLimit: 25,
+        initialFilters: { category: "all" },
+        searchFields: (p) => [p.name, (p as any).sku, (p as any).brand, p.category],
+        dateField: (p) => (p as any).createdAt,
+    });
     const [selectedProducts, setSelectedProducts] = useState<number[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,11 +72,7 @@ export default function InventoryPage() {
         queryKey: ["/api/admin/inventory"],
     });
 
-    const filteredProducts = products?.filter(p => {
-        const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesCategory = categoryFilter === "all" || p.category === categoryFilter;
-        return matchesSearch && matchesCategory;
-    });
+    const { rows: filteredProducts, pagination } = table.apply(products ?? []);
 
     const handleSelectAll = (checked: boolean) => {
         if (checked && filteredProducts) {
@@ -245,29 +252,19 @@ export default function InventoryPage() {
             </div>
 
             <Card className="glass-card border-[rgba(255,255,255,0.08)] mb-6 relative z-10 stagger-enter">
-                <CardContent className="p-4 flex gap-4 items-center">
-                    <div className="flex-1">
-                        <Input
-                            placeholder="Search products..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
-                        />
-                    </div>
-                    <div className="w-[200px]">
-                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                            <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
-                                <SelectValue placeholder="Category" />
-                            </SelectTrigger>
-                            <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
-                                <SelectItem value="all">All Categories</SelectItem>
-                                {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                <CardContent className="p-4">
+                    <DataToolbar
+                        query={table}
+                        searchPlaceholder="Product name, SKU, brand…"
+                        showDateRange={false}
+                        filters={[{
+                            key: "category",
+                            label: "All Categories",
+                            options: CATEGORIES.map((c) => ({ value: c, label: c })),
+                        }]}
+                    />
                 </CardContent>
             </Card>
-
             <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
                 <CardContent className="p-0">
                     <div className="overflow-x-auto custom-scrollbar">
@@ -339,6 +336,7 @@ export default function InventoryPage() {
                         </tbody>
                     </table>
                     </div>
+                    <DataPagination query={table} pagination={pagination} rowCount={filteredProducts.length} />
                 </CardContent>
             </Card>
 

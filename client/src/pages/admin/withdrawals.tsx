@@ -24,6 +24,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
+import {
+  useTableQuery, DataToolbar, DataPagination, SortableHeader,
+  useRowSelection, BulkActionBar, SelectAllCheckbox, RowCheckbox,
+  exportCsv, timestampedName,
+} from "@/components/admin/table";
+import { Download } from "lucide-react";
 
 type Withdrawal = {
   request: {
@@ -61,9 +67,31 @@ export default function WithdrawalsPage() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: Withdrawal[] }>({
-    queryKey: ["/api/admin/withdrawals"],
+  const query = useTableQuery("/api/admin/withdrawals", {
+    defaultSort: "createdAt",
+    initialFilters: { status: "all" },
   });
+  const selection = useRowSelection<any>();
+
+  const { data, isLoading, isError, refetch } = useQuery<any>({
+    queryKey: [query.key],
+  });
+
+  const handleExport = () => {
+    exportCsv(timestampedName("withdrawals"), selection.rows, [
+      { header: "Request ID", value: (w: any) => w.request.id },
+      { header: "Date", value: (w: any) => (w.request.createdAt ? new Date(w.request.createdAt).toLocaleString() : "") },
+      { header: "Partner", value: (w: any) => w.employee.fullName },
+      { header: "Phone", value: (w: any) => w.user.phone },
+      { header: "Amount", value: (w: any) => w.request.amount },
+      { header: "Method", value: (w: any) => w.request.method },
+      { header: "UPI", value: (w: any) => w.employee.upiId },
+      { header: "Bank account", value: (w: any) => w.employee.bankAccountNumber },
+      { header: "Status", value: (w: any) => w.request.status },
+      { header: "Payout ref", value: (w: any) => w.request.razorpayPayoutId },
+    ]);
+    toast({ title: "Exported " + selection.count + " withdrawal(s)" });
+  };
 
   const closeDialog = () => {
     setActionDialog({ isOpen: false, type: 'approveManual', request: null });
@@ -153,7 +181,10 @@ export default function WithdrawalsPage() {
     }
   };
 
-  const withdrawals = data?.data || [];
+  // The rows are { request, employee, user }; row selection needs a numeric id,
+  // so surface the request id at the top level.
+  const withdrawals = (data?.data || []).map((w: any) => ({ ...w, id: w.request.id }));
+  const pagination = data?.pagination;
 
   return (
     <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden bg-transparent">
@@ -167,23 +198,44 @@ export default function WithdrawalsPage() {
       </div>
 
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-        <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
-          <CardTitle className="text-xl text-white">Payout Requests</CardTitle>
+        <CardHeader className="flex flex-col gap-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">
+            Payout Requests{pagination?.total ? <span className="text-[hsl(215,20%,55%)] text-sm font-normal ml-2">({pagination.total})</span> : null}
+          </CardTitle>
+          <DataToolbar
+            query={query}
+            searchPlaceholder="Partner, phone, UPI, account, payout ref…"
+            filters={[{
+              key: "status",
+              label: "All Status",
+              options: [
+                { value: "pending", label: "Pending" },
+                { value: "processing", label: "Processing" },
+                { value: "completed", label: "Completed" },
+                { value: "failed", label: "Failed" },
+                { value: "rejected", label: "Rejected" },
+              ],
+            }]}
+          />
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center p-8 text-[hsl(215,20%,65%)]">Loading...</div>
           ) : (
+            <>
             <div className="overflow-x-auto custom-scrollbar">
             <Table className="glass-table">
               <TableHeader>
                 <TableRow className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.02)]">
-                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Date</TableHead>
-                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Partner</TableHead>
-                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Amount (₹)</TableHead>
+                  <TableHead className="w-10">
+                    <SelectAllCheckbox state={selection.pageState(withdrawals)} onToggle={() => selection.togglePage(withdrawals)} />
+                  </TableHead>
+                  <SortableHeader query={query} field="createdAt">Date</SortableHeader>
+                  <SortableHeader query={query} field="fullName">Partner</SortableHeader>
+                  <SortableHeader query={query} field="amount">Amount (₹)</SortableHeader>
                   <TableHead className="text-[hsl(215,20%,65%)] font-medium">Method</TableHead>
                   <TableHead className="text-[hsl(215,20%,65%)] font-medium">Details</TableHead>
-                  <TableHead className="text-[hsl(215,20%,65%)] font-medium">Status</TableHead>
+                  <SortableHeader query={query} field="status">Status</SortableHeader>
                   <TableHead className="text-right text-[hsl(215,20%,65%)] font-medium">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -192,7 +244,7 @@ export default function WithdrawalsPage() {
                   /* Distinct from "none found" — a failed load must not read as
                      an empty queue when real payout requests may be waiting. */
                   <TableRow className="border-b border-[rgba(255,255,255,0.04)]">
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <p className="text-[hsl(347,77%,65%)] font-medium">Could not load withdrawal requests.</p>
                       <p className="text-xs text-[hsl(215,20%,55%)] mt-1">
                         This is a loading failure, not an empty queue.
@@ -209,13 +261,16 @@ export default function WithdrawalsPage() {
                   </TableRow>
                 ) : withdrawals.length === 0 ? (
                   <TableRow className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)]">
-                    <TableCell colSpan={7} className="text-center text-[hsl(215,20%,50%)] py-8">
+                    <TableCell colSpan={8} className="text-center text-[hsl(215,20%,50%)] py-8">
                       No withdrawal requests found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  withdrawals.map((w) => (
-                    <TableRow key={w.request.id} className="border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)] group transition-colors">
+                  withdrawals.map((w: any) => (
+                    <TableRow key={w.request.id} className={"border-b border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.03)] group transition-colors " + (selection.isSelected(w.id) ? "bg-[hsla(217,91%,60%,0.06)]" : "")}>
+                      <TableCell>
+                        <RowCheckbox checked={selection.isSelected(w.id)} onToggle={() => selection.toggle(w)} />
+                      </TableCell>
                       <TableCell className="text-[hsl(210,20%,90%)]">
                         {format(new Date(w.request.createdAt), 'MMM dd, yyyy HH:mm')}
                       </TableCell>
@@ -314,9 +369,20 @@ export default function WithdrawalsPage() {
               </TableBody>
             </Table>
             </div>
+            <DataPagination query={query} pagination={pagination} rowCount={withdrawals.length} />
+            </>
           )}
         </CardContent>
       </Card>
+
+      <BulkActionBar
+        count={selection.count}
+        onClear={selection.clear}
+        noun="request"
+        actions={[
+          { label: "Export CSV", icon: <Download className="w-3.5 h-3.5" />, onClick: handleExport },
+        ]}
+      />
 
       <AlertDialog open={actionDialog.isOpen} onOpenChange={(open) => !open && closeDialog()}>
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">

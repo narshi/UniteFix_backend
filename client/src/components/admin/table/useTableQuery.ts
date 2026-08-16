@@ -120,3 +120,29 @@ export function useTableQuery(basePath: string, options: TableQueryOptions = {})
 }
 
 export type TableQuery = ReturnType<typeof useTableQuery>;
+
+/**
+ * What the presentation components (DataToolbar, SortableHeader,
+ * DataPagination) actually need. Both useTableQuery and useClientTableQuery
+ * satisfy it, so a page can switch between server- and client-side paging
+ * without touching its markup.
+ */
+export interface TableQueryLike {
+    page: number;
+    setPage: (page: number) => void;
+    limit: number;
+    setLimit: (limit: number) => void;
+    sort: string;
+    order: SortOrder;
+    toggleSort: (field: string) => void;
+    search: string;
+    searchDraft: string;
+    setSearchDraft: (value: string) => void;
+    applySearch: () => void;
+    dateRange: DateRange;
+    applyDateRange: (range: DateRange) => void;
+    filters: Record<string, string>;
+    setFilter: (key: string, value: string) => void;
+    activeFilterCount: number;
+    reset: () => void;
+}

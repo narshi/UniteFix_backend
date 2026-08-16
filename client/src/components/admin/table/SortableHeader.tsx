@@ -5,10 +5,10 @@
  */
 
 import { ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
-import type { TableQuery } from "./useTableQuery";
+import type { TableQueryLike } from "./useTableQuery";
 
 interface Props {
-    query: TableQuery;
+    query: TableQueryLike;
     field: string;
     children: React.ReactNode;
     align?: "left" | "right";

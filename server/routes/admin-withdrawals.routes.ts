@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { db } from "../db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count } from "drizzle-orm";
 import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, users } from "@shared/schema";
 import { RazorpayXService } from "../services/razorpayx.service";
 import { uploadImageBuffer } from "../services/cloudinary.service";
@@ -9,6 +9,9 @@ import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
 import { recordAudit } from "../lib/audit";
 import { BookingNotifications } from "../services/booking-notifications";
+import {
+    parseListParams, buildOrderBy, dateRangeConditions, combine, paginationMeta,
+} from "../lib/list-query";
 
 // Payment-proof screenshot for manual payouts: one image, max 5MB.
 const proofUpload = multer({
@@ -29,11 +32,49 @@ export function registerAdminWithdrawalRoutes(app: Express) {
      * GET /api/admin/withdrawals
      * Fetch all withdrawal requests
      */
+    const WITHDRAWAL_SORTABLE = {
+        createdAt: withdrawalRequests.createdAt,
+        amount: withdrawalRequests.amount,
+        status: withdrawalRequests.status,
+        fullName: employees.fullName,
+    };
+
     app.get("/api/admin/withdrawals", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
         try {
+            const listOptions = { defaultSort: 'createdAt', sortable: WITHDRAWAL_SORTABLE };
+            const params = parseListParams(req.query, listOptions);
+
+            const conditions: any[] = [];
+
+            // Filtered and paged in SQL. This previously selected every payout
+            // request ever made and filtered the array in memory.
             const statusFilter = req.query.status as string;
-            
-            let query = db.select({
+            if (statusFilter && statusFilter !== 'all') {
+                conditions.push(eq(withdrawalRequests.status, statusFilter as any));
+            }
+
+            if (params.q) {
+                const term = `%${params.q}%`;
+                conditions.push(or(
+                    ilike(employees.fullName, term),
+                    ilike(employees.upiId, term),
+                    ilike(employees.bankAccountNumber, term),
+                    ilike(users.phone, term),
+                    ilike(withdrawalRequests.razorpayPayoutId, term),
+                ));
+            }
+
+            conditions.push(...dateRangeConditions(params, withdrawalRequests.createdAt));
+            const where = combine(conditions);
+
+            const [{ total }] = await db
+                .select({ total: count() })
+                .from(withdrawalRequests)
+                .innerJoin(employees, eq(withdrawalRequests.partnerId, employees.id))
+                .innerJoin(users, eq(employees.userId, users.id))
+                .where(where as any);
+
+            const results = await db.select({
                 request: withdrawalRequests,
                 employee: {
                     id: employees.id,
@@ -49,16 +90,12 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             .from(withdrawalRequests)
             .innerJoin(employees, eq(withdrawalRequests.partnerId, employees.id))
             .innerJoin(users, eq(employees.userId, users.id))
-            .orderBy(desc(withdrawalRequests.createdAt));
-            
-            const results = await query;
-            
-            // Filter in memory for simplicity if status provided
-            const finalResults = statusFilter 
-                ? results.filter(r => r.request.status === statusFilter)
-                : results;
-                
-            res.json({ success: true, data: finalResults });
+            .where(where as any)
+            .orderBy(buildOrderBy(params, listOptions))
+            .limit(params.limit)
+            .offset(params.offset);
+
+            res.json({ success: true, data: results, pagination: paginationMeta(params, Number(total)) });
         } catch (error) {
             next(error);
         }

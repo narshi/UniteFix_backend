@@ -52,17 +52,41 @@ export class SupportTicketService {
   /**
    * Get all tickets (admin view)
    */
+  /** Columns the Support Tickets table may be sorted by. */
+  static readonly SORTABLE = {
+    createdAt: supportTickets.createdAt,
+    ticketId: supportTickets.ticketId,
+    status: supportTickets.status,
+    priority: supportTickets.priority,
+    category: supportTickets.category,
+  };
+
   static async getTickets(
     status?: string,
     category?: string,
     page: number = 1,
-    limit: number = 20
+    limit: number = 20,
+    options: { q?: string; from?: Date; to?: Date; orderBy?: any } = {},
   ): Promise<{ tickets: any[]; total: number; page: number; pages: number }> {
     const offset = (page - 1) * limit;
     const conditions: any[] = [];
 
     if (status) conditions.push(eq(supportTickets.status, status as any));
     if (category) conditions.push(eq(supportTickets.category, category as any));
+
+    if (options.q) {
+      const term = `%${options.q}%`;
+      conditions.push(sql`(
+        ${supportTickets.ticketId} ILIKE ${term}
+        OR ${supportTickets.subject} ILIKE ${term}
+        OR ${supportTickets.description} ILIKE ${term}
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = ${supportTickets.userId}
+                   AND (u.username ILIKE ${term} OR u.email ILIKE ${term}))
+      )`);
+    }
+
+    if (options.from) conditions.push(sql`${supportTickets.createdAt} >= ${options.from}`);
+    if (options.to) conditions.push(sql`${supportTickets.createdAt} <= ${options.to}`);
 
     const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -84,12 +108,19 @@ export class SupportTicketService {
       .from(supportTickets)
       .leftJoin(users, eq(supportTickets.userId, users.id))
       .where(whereCondition)
+      // Default keeps urgent tickets on top; an explicit sort from the admin
+      // table replaces it entirely, since mixing the two would make a "sort by
+      // date" click appear not to work for anything below an urgent ticket.
       .orderBy(
-        sql`CASE WHEN ${supportTickets.priority} = 'urgent' THEN 1
+        ...(options.orderBy
+          ? [options.orderBy]
+          : [
+            sql`CASE WHEN ${supportTickets.priority} = 'urgent' THEN 1
                      WHEN ${supportTickets.priority} = 'high' THEN 2
                      WHEN ${supportTickets.priority} = 'medium' THEN 3
                      ELSE 4 END`,
-        desc(supportTickets.createdAt)
+            desc(supportTickets.createdAt),
+          ])
       )
       .limit(limit)
       .offset(offset);

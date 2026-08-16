@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Search, RotateCcw } from "lucide-react";
 import { DateRangeFilter } from "./DateRangeFilter";
-import { ALL, type TableQuery } from "./useTableQuery";
+import { ALL, type TableQueryLike } from "./useTableQuery";
 
 export interface FilterSpec {
     /** Query-string key, e.g. "status". */
@@ -24,7 +24,7 @@ export interface FilterSpec {
 }
 
 interface Props {
-    query: TableQuery;
+    query: TableQueryLike;
     searchPlaceholder?: string;
     filters?: FilterSpec[];
     /** Set false for tables with no meaningful date column. */

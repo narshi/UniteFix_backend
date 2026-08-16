@@ -14,7 +14,7 @@
  */
 
 import { db } from "../db";
-import { sql, eq, and, desc } from "drizzle-orm";
+import { sql, eq, and, desc, gte, lte } from "drizzle-orm";
 import { productOrders, shipments, auditLogs } from "@shared/schema";
 import axios from "axios";
 import crypto from "crypto";
@@ -29,10 +29,19 @@ export class AdminOrderManager {
     /**
      * Get all product orders with pagination
      */
+    /** Columns the Product Orders table may be sorted by. */
+    static readonly SORTABLE = {
+        createdAt: productOrders.createdAt,
+        orderId: productOrders.orderId,
+        status: productOrders.status,
+        totalAmount: productOrders.totalAmount,
+    };
+
     static async getOrders(
         status?: string,
         page: number = 1,
-        limit: number = 20
+        limit: number = 20,
+        options: { q?: string; from?: Date; to?: Date; orderBy?: any } = {},
     ): Promise<{ orders: any[]; total: number; page: number; pages: number }> {
         const offset = (page - 1) * limit;
 
@@ -41,13 +50,26 @@ export class AdminOrderManager {
             conditions.push(eq(productOrders.status, status as any));
         }
 
+        if (options.q) {
+            const term = `%${options.q}%`;
+            conditions.push(sql`(
+                ${productOrders.orderId} ILIKE ${term}
+                OR ${productOrders.address} ILIKE ${term}
+                OR EXISTS (SELECT 1 FROM users u WHERE u.id = ${productOrders.userId}
+                           AND (u.username ILIKE ${term} OR u.phone ILIKE ${term}))
+            )`);
+        }
+
+        if (options.from) conditions.push(gte(productOrders.createdAt, options.from));
+        if (options.to) conditions.push(lte(productOrders.createdAt, options.to));
+
         const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
         const [orders, countResult] = await Promise.all([
             db.select()
                 .from(productOrders)
                 .where(whereClause)
-                .orderBy(desc(productOrders.createdAt))
+                .orderBy(options.orderBy ?? desc(productOrders.createdAt))
                 .limit(limit)
                 .offset(offset),
             db.select({ count: sql<number>`count(*)::int` })

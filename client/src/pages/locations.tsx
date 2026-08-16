@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  useClientTableQuery, DataToolbar, DataPagination, SortableHeader,
+} from "@/components/admin/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +46,17 @@ export default function LocationsPage() {
 
   const { data: locations = [], isLoading } = useQuery<LocationData[]>({
     queryKey: ["/api/admin/locations"],
+  });
+
+  // Serviceability config with inline toggling, so it stays one fetch and is
+  // filtered, sorted and paged in memory.
+  const table = useClientTableQuery<any>({
+    defaultSort: "pincode",
+    defaultOrder: "asc",
+    defaultLimit: 25,
+    initialFilters: { status: "all" },
+    searchFields: (l) => [l.pincode, l.area, l.district, l.state],
+    accessor: (l, field) => (field === "status" ? (l.isActive ? "active" : "inactive") : l[field]),
   });
 
   const { data: districts } = useQuery<District[]>({
@@ -221,6 +235,8 @@ export default function LocationsPage() {
     setEditingLocation({ ...location, _originalPincode: location.pincode } as any);
     setIsEditModalOpen(true);
   };
+
+  const { rows: pagedLocations, pagination } = table.apply((locations as any[]) ?? []);
 
   return (
     <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
@@ -452,10 +468,25 @@ export default function LocationsPage() {
 
       {/* Locations Table */}
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-        <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
-          <CardTitle className="text-xl text-white">All Serviceable Locations</CardTitle>
+        <CardHeader className="flex flex-col gap-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+          <CardTitle className="text-xl text-white">
+            All Serviceable Locations{pagination.total ? <span className="text-[hsl(215,20%,55%)] text-sm font-normal ml-2">({pagination.total})</span> : null}
+          </CardTitle>
+          <DataToolbar
+            query={table}
+            searchPlaceholder="Pin code, area, district, state…"
+            showDateRange={false}
+            filters={[{
+              key: "status",
+              label: "All Status",
+              options: [
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+              ],
+            }]}
+          />
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="p-0">
           {isLoading ? (
             <div className="space-y-4 skeleton-shimmer">
               {[...Array(5)].map((_, i) => (
@@ -471,20 +502,21 @@ export default function LocationsPage() {
               ))}
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full glass-table">
                 <thead>
                   <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Pin Code</th>
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Area/Locality</th>
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">District</th>
+                    <SortableHeader query={table} field="pincode">Pin Code</SortableHeader>
+                    <SortableHeader query={table} field="area">Area/Locality</SortableHeader>
+                    <SortableHeader query={table} field="district">District</SortableHeader>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">State</th>
-                    <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
+                    <SortableHeader query={table} field="status">Status</SortableHeader>
                     <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(locations as any[])?.map((location: any) => (
+                  {pagedLocations.map((location: any) => (
                     <tr key={location.pincode} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                       <td className="p-4">
                         <span className="font-medium text-[hsl(210,20%,90%)]">{location.pincode}</span>
@@ -528,7 +560,7 @@ export default function LocationsPage() {
                       </td>
                     </tr>
                   ))}
-                  {(!locations || (locations as any[]).length === 0) && (
+                  {pagedLocations.length === 0 && (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-[hsl(215,20%,50%)]">
                         No locations found. Add your first serviceable location.
@@ -538,6 +570,8 @@ export default function LocationsPage() {
                 </tbody>
               </table>
             </div>
+            <DataPagination query={table} pagination={pagination} rowCount={pagedLocations.length} />
+            </>
           )}
         </CardContent>
       </Card>

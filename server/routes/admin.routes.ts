@@ -19,6 +19,9 @@ import { platformConfig, auditLogs, adminUsers } from "@shared/schema";
 import { configService } from "../services/config.service";
 import { recordAudit } from "../lib/audit";
 import { requireSuperAdmin } from "../middleware/auth.middleware";
+import {
+    parseListParams, buildOrderBy, dateRangeConditions, combine, paginationMeta,
+} from "../lib/list-query";
 
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
@@ -30,25 +33,32 @@ export function registerAdminRoutes(app: Express) {
      */
     app.get("/api/admin/services", async (req: Request, res: Response) => {
         try {
-            if (!(req as any).user?.isAdmin) {
-                return res.status(403).json({ error: "Admin access required" });
-            }
+            const listOptions = { defaultSort: 'createdAt', sortable: AdminServiceManager.SORTABLE };
+            const params = parseListParams(req.query, listOptions);
 
-            const filters = {
-                status: req.query.status as string,
-                technicianId: req.query.technicianId ? parseInt(req.query.technicianId as string) : undefined,
-                customerId: req.query.customerId ? parseInt(req.query.customerId as string) : undefined,
-                startDate: req.query.startDate as string,
-                endDate: req.query.endDate as string,
-                pincode: req.query.pincode as string,
-            };
+            const result = await AdminServiceManager.getServiceBookings(
+                {
+                    status: req.query.status as string,
+                    technicianId: req.query.technicianId ? parseInt(req.query.technicianId as string) : undefined,
+                    customerId: req.query.customerId ? parseInt(req.query.customerId as string) : undefined,
+                    pincode: req.query.pincode as string,
+                    q: params.q || undefined,
+                    from: params.from,
+                    to: params.to,
+                    orderBy: buildOrderBy(params, listOptions),
+                },
+                params.page,
+                params.limit,
+            );
 
-            const page = parseInt(req.query.page as string) || 1;
-            const limit = parseInt(req.query.limit as string) || 20;
-
-            const result = await AdminServiceManager.getServiceBookings(filters, page, limit);
-
-            res.json(result);
+            // `services` is kept alongside `data` so any older caller reading the
+            // previous shape keeps working.
+            res.json({
+                success: true,
+                data: result.services,
+                services: result.services,
+                pagination: paginationMeta(params, result.total),
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }
@@ -448,13 +458,28 @@ export function registerAdminRoutes(app: Express) {
                 return res.status(403).json({ error: "Admin access required" });
             }
 
+            const listOptions = { defaultSort: 'createdAt', sortable: AdminOrderManager.SORTABLE };
+            const params = parseListParams(req.query, listOptions);
             const status = req.query.status as string;
-            const page = parseInt(req.query.page as string) || 1;
-            const limit = parseInt(req.query.limit as string) || 20;
 
-            const result = await AdminOrderManager.getOrders(status, page, limit);
+            const result = await AdminOrderManager.getOrders(
+                status && status !== 'all' ? status : undefined,
+                params.page,
+                params.limit,
+                {
+                    q: params.q || undefined,
+                    from: params.from,
+                    to: params.to,
+                    orderBy: buildOrderBy(params, listOptions),
+                },
+            );
 
-            res.json(result);
+            res.json({
+                success: true,
+                data: result.orders,
+                orders: result.orders,
+                pagination: paginationMeta(params, result.total),
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }
@@ -520,14 +545,32 @@ export function registerAdminRoutes(app: Express) {
                 return res.status(403).json({ error: "Admin access required" });
             }
 
+            const listOptions = { defaultSort: 'createdAt', sortable: SupportTicketService.SORTABLE };
+            const params = parseListParams(req.query, listOptions);
             const status = req.query.status as string;
             const category = req.query.category as string;
-            const page = parseInt(req.query.page as string) || 1;
-            const limit = parseInt(req.query.limit as string) || 20;
 
-            const result = await SupportTicketService.getTickets(status, category, page, limit);
+            const result = await SupportTicketService.getTickets(
+                status && status !== 'all' ? status : undefined,
+                category && category !== 'all' ? category : undefined,
+                params.page,
+                params.limit,
+                {
+                    q: params.q || undefined,
+                    from: params.from,
+                    to: params.to,
+                    // Only override the priority-first default when the admin
+                    // actually clicked a column.
+                    orderBy: req.query.sort ? buildOrderBy(params, listOptions) : undefined,
+                },
+            );
 
-            res.json(result);
+            res.json({
+                success: true,
+                data: result.tickets,
+                tickets: result.tickets,
+                pagination: paginationMeta(params, result.total),
+            });
         } catch (error: any) {
             res.status(500).json({ error: error.message });
         }

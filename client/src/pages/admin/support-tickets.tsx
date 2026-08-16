@@ -1,4 +1,7 @@
 import { useState } from "react";
+import {
+  useTableQuery, DataToolbar, DataPagination, SortableHeader,
+} from "@/components/admin/table";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -41,18 +44,24 @@ export default function SupportTicketsPage() {
     const [replyMessage, setReplyMessage] = useState("");
     const [isInternal, setIsInternal] = useState(false);
 
-    const { data, isLoading } = useQuery({
-        queryKey: ['/api/admin/tickets'],
+    const query = useTableQuery("/api/admin/tickets", {
+        defaultSort: "createdAt",
+        initialFilters: { status: "all", category: "all" },
+    });
+
+    const { data, isLoading } = useQuery<any>({
+        queryKey: [query.key],
         queryFn: async () => {
-            const res = await fetch('/api/admin/tickets', {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+            const res = await fetch(query.key, {
+                headers: { Authorization: `Bearer ${localStorage.getItem("adminToken")}` }
             });
             if (!res.ok) throw new Error("Failed to fetch tickets");
             return res.json();
         }
     });
 
-    const tickets: Ticket[] = data?.tickets || [];
+    const tickets: Ticket[] = data?.data ?? data?.tickets ?? [];
+    const pagination = data?.pagination;
 
     const fetchTicketDetails = async (id: number) => {
         try {
@@ -109,17 +118,40 @@ export default function SupportTicketsPage() {
 
     return (
         <div className="p-6">
-            <h1 className="text-2xl font-bold mb-6 text-white">Support Tickets</h1>
+            <h1 className="text-2xl font-bold mb-2 text-white">Support Tickets</h1>
+            <p className="text-[hsl(215,20%,65%)] mb-6">
+                {pagination?.total ? pagination.total + " ticket(s)" : "Customer support queue"}
+            </p>
+
+            <div className="mb-4">
+                <DataToolbar
+                    query={query}
+                    searchPlaceholder="Ticket ID, subject, description, customer…"
+                    filters={[
+                        {
+                            key: "status",
+                            label: "All Status",
+                            options: [
+                                { value: "open", label: "Open" },
+                                { value: "in_progress", label: "In Progress" },
+                                { value: "escalated", label: "Escalated" },
+                                { value: "resolved", label: "Resolved" },
+                                { value: "closed", label: "Closed" },
+                            ],
+                        },
+                    ]}
+                />
+            </div>
 
             <div className="bg-surface border border-white/10 rounded-xl overflow-hidden">
                 <Table>
                     <TableHeader>
                         <TableRow className="border-white/10 hover:bg-white/5">
-                            <TableHead className="text-white/60">ID</TableHead>
+                            <SortableHeader query={query} field="ticketId">ID</SortableHeader>
                             <TableHead className="text-white/60">Customer</TableHead>
                             <TableHead className="text-white/60">Subject</TableHead>
-                            <TableHead className="text-white/60">Status</TableHead>
-                            <TableHead className="text-white/60">Date</TableHead>
+                            <SortableHeader query={query} field="status">Status</SortableHeader>
+                            <SortableHeader query={query} field="createdAt">Date</SortableHeader>
                             <TableHead className="text-white/60 text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -156,6 +188,7 @@ export default function SupportTicketsPage() {
                         )}
                     </TableBody>
                 </Table>
+                <DataPagination query={query} pagination={pagination} rowCount={tickets.length} />
             </div>
 
             <Dialog open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>

@@ -16,6 +16,7 @@ import {
   paymentTransactions,
   users,
   employees,
+  invoices as invoicesTable,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -28,6 +29,7 @@ import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pa
 // PHASE 7: Import modular route registrations
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerAdminManagementRoutes } from "./routes/admin-management.routes";
+import { AdminOrderManager } from "./services/admin-order.manager";
 import { registerManualBillRoutes } from "./routes/manual-bill.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
 import { registerProductRoutes } from "./routes/product.routes";
@@ -58,7 +60,7 @@ import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
 import { InvoiceGenerator } from "./services/invoice-generator";
 import { db } from "./db";
-import { eq, inArray, desc, and, or, ilike, count } from "drizzle-orm";
+import { eq, inArray, desc, and, or, ilike, count, isNull, isNotNull } from "drizzle-orm";
 import {
   parseListParams,
   buildOrderBy,
@@ -2180,14 +2182,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all orders (admin)
+  // Registered here AND in admin.routes.ts; this one wins because routes.ts runs
+  // first. Both now use the same list contract via AdminOrderManager, so which
+  // one Express picks no longer changes the response shape.
+  // Also drops a full-table read: it previously fetched every order and sliced
+  // the array in memory.
   app.get("/api/admin/orders", async (req, res, next) => {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
+      const listOptions = { defaultSort: 'createdAt', sortable: AdminOrderManager.SORTABLE };
+      const params = parseListParams(req.query, listOptions);
+      const status = req.query.status as string | undefined;
 
-      const orders = await storage.getAllProductOrders();
-      const result = paginate(orders, page, limit);
-      res.json({ success: true, data: result.data, pagination: result.pagination });
+      const result = await AdminOrderManager.getOrders(
+        status && status !== 'all' ? status : undefined,
+        params.page,
+        params.limit,
+        {
+          q: params.q || undefined,
+          from: params.from,
+          to: params.to,
+          orderBy: buildOrderBy(params, listOptions),
+        },
+      );
+
+      res.json({
+        success: true,
+        data: result.orders,
+        pagination: paginationMeta(params, result.total),
+      });
     } catch (error) {
       next(error);
     }
@@ -2325,11 +2347,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const INVOICE_SORTABLE = {
+    createdAt: invoicesTable.createdAt,
+    invoiceId: invoicesTable.invoiceId,
+    totalAmount: invoicesTable.totalAmount,
+    baseAmount: invoicesTable.baseAmount,
+  };
+
   app.get("/api/admin/invoices", async (req, res, next) => {
     try {
-      const invoices = await storage.getAllInvoices();
-      const serviceRequestIds = invoices
-        .map(i => i.serviceRequestId)
+      const listOptions = { defaultSort: 'createdAt', sortable: INVOICE_SORTABLE };
+      const params = parseListParams(req.query, listOptions);
+
+      const conditions: any[] = [];
+
+      if (params.q) {
+        const term = `%${params.q}%`;
+        conditions.push(or(
+          ilike(invoicesTable.invoiceId, term),
+          ilike(users.username, term),
+          ilike(users.phone, term),
+        ));
+      }
+      conditions.push(...dateRangeConditions(params, invoicesTable.createdAt));
+
+      // 'manual' / 'service' / 'product' — which billing path produced it.
+      const source = req.query.source as string | undefined;
+      if (source === 'manual') {
+        conditions.push(and(isNull(invoicesTable.serviceRequestId), isNull(invoicesTable.productOrderId)));
+      } else if (source === 'service') {
+        conditions.push(isNotNull(invoicesTable.serviceRequestId));
+      } else if (source === 'product') {
+        conditions.push(isNotNull(invoicesTable.productOrderId));
+      }
+
+      const where = combine(conditions);
+
+      const [{ total }] = await db
+        .select({ total: count() })
+        .from(invoicesTable)
+        .leftJoin(users, eq(users.id, invoicesTable.userId))
+        .where(where as any);
+
+      const rows = await db
+        .select({ invoice: invoicesTable, customerName: users.username, customerPhone: users.phone })
+        .from(invoicesTable)
+        .leftJoin(users, eq(users.id, invoicesTable.userId))
+        .where(where as any)
+        .orderBy(buildOrderBy(params, listOptions))
+        .limit(params.limit)
+        .offset(params.offset);
+
+      // Payment status only for the page being shown — the old version fetched
+      // every invoice and every transaction on every load.
+      const serviceRequestIds = rows
+        .map(r => r.invoice.serviceRequestId)
         .filter((id): id is number => id !== null);
 
       let payments: any[] = [];
@@ -2344,16 +2416,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(paymentTransactions.createdAt));
       }
 
-      const enrichedInvoices = invoices.map(inv => {
-        const tx = payments.find(p => p.serviceRequestId === inv.serviceRequestId);
+      const data = rows.map(({ invoice, customerName, customerPhone }) => {
+        const tx = payments.find(p => p.serviceRequestId === invoice.serviceRequestId);
+        const isManual = !invoice.serviceRequestId && !invoice.productOrderId;
         return {
-          ...inv,
-          paymentStatus: tx?.status || 'pending',
+          ...invoice,
+          customerName,
+          customerPhone,
+          source: isManual ? 'manual' : invoice.serviceRequestId ? 'service' : 'product',
+          // A manual bill is settled at the counter, so it has no Razorpay
+          // transaction and must not be shown as perpetually 'pending'.
+          paymentStatus: isManual ? 'paid' : (tx?.status || 'pending'),
           razorpayPaymentId: tx?.razorpayPaymentId || null,
         };
       });
 
-      res.json(enrichedInvoices);
+      res.json({ success: true, data, pagination: paginationMeta(params, Number(total)) });
     } catch (error) {
       next(error);
     }

@@ -44,6 +44,12 @@ CREATE INDEX IF NOT EXISTS employees_verification_created_idx
 
 CREATE INDEX IF NOT EXISTS service_requests_status_created_idx
     ON service_requests (status, created_at);
+
+-- Schema drift: shared/schema.ts declares withdrawal_requests.payment_proof_url
+-- (the manual-payout proof screenshot) but the column was never added to some
+-- databases, so ANY select of the table 500s with "column does not exist".
+ALTER TABLE withdrawal_requests
+    ADD COLUMN IF NOT EXISTS payment_proof_url TEXT;
 `;
 
 const url = process.env.DATABASE_URL;

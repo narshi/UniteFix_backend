@@ -8,11 +8,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState } from "react";
 import { Search, Download, Filter, Package } from "lucide-react";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
+import {
+  useTableQuery, DataToolbar, DataPagination, SortableHeader,
+  useRowSelection, BulkActionBar, SelectAllCheckbox, RowCheckbox,
+  exportCsv, timestampedName,
+} from "@/components/admin/table";
+import { useToast } from "@/hooks/use-toast";
 
 export default function OrdersPage() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
+  const { toast } = useToast();
+  const query = useTableQuery("/api/admin/orders", {
+    defaultSort: "createdAt",
+    initialFilters: { status: "all" },
+  });
+  const selection = useRowSelection<any>();
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
 
   // Product categories
@@ -21,33 +30,27 @@ export default function OrdersPage() {
     'Microwave', 'Television', 'Mobile Phone', 'Tablet', 'Other'
   ];
   
-  const { data: orders = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ["/api/admin/orders"],
-    select: (data) => Array.isArray(data) ? data : []
+  const { data: response, isLoading, isError, refetch } = useQuery<any>({
+    queryKey: [query.key],
   });
 
-  // Filter orders based on search term, status, and category
-  const filteredOrders = orders.filter((order: any) => {
-    const matchesSearch = searchTerm === '' || (
-      order.orderId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.user?.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.user?.phone?.includes(searchTerm) ||
-      order.status?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.products?.some((product: any) => 
-        product.name?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
-    
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    
-    const matchesCategory = categoryFilter === 'all' || 
-      order.products?.some((product: any) => 
-        product.category === categoryFilter || 
-        product.name?.toLowerCase().includes(categoryFilter.toLowerCase())
-      );
-    
-    return matchesSearch && matchesStatus && matchesCategory;
-  });
+  // Searching, filtering, sorting and paging all happen server-side now.
+  const orders = response?.data ?? [];
+  const pagination = response?.pagination;
+  const filteredOrders = orders;
+
+  const handleExport = () => {
+    exportCsv(timestampedName("product-orders"), selection.rows, [
+      { header: "Order ID", value: (o: any) => o.orderId },
+      { header: "Status", value: (o: any) => o.status },
+      { header: "Total", value: (o: any) => o.totalAmount },
+      { header: "Address", value: (o: any) => o.address },
+      { header: "Date", value: (o: any) => (o.createdAt ? new Date(o.createdAt).toLocaleString() : "") },
+    ]);
+    toast({ title: `Exported ${selection.count} order(s)` });
+  };
+
+
 
   // Function to download individual order invoice
   const downloadOrderInvoice = (order: any) => {
@@ -124,53 +127,28 @@ export default function OrdersPage() {
         </div>
 
         <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
-            <div className="flex justify-between items-center w-full">
-              <CardTitle className="text-xl text-white">All Product Orders</CardTitle>
-              <div className="flex space-x-3">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
-                  <Input
-                    placeholder="Search orders..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-64 pl-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
-                  />
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
-                    <div className="flex items-center">
-                      <Filter className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
-                      <SelectValue placeholder="Filter by status" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="placed">Order Placed</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="in_transit">In Transit</SelectItem>
-                    <SelectItem value="out_for_delivery">Out for Delivery</SelectItem>
-                    <SelectItem value="delivered">Delivered</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger className="w-48 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
-                    <div className="flex items-center">
-                      <Package className="mr-2 h-4 w-4 text-[hsl(215,20%,50%)]" />
-                      <SelectValue placeholder="Filter by category" />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {productCategories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+          <CardHeader className="flex flex-col gap-4 pb-4 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+            <CardTitle className="text-xl text-white">
+              All Product Orders{pagination?.total ? <span className="text-[hsl(215,20%,55%)] text-sm font-normal ml-2">({pagination.total})</span> : null}
+            </CardTitle>
+            <DataToolbar
+              query={query}
+              searchPlaceholder="Order ID, customer, phone, address…"
+              filters={[{
+                key: "status",
+                label: "All Status",
+                options: [
+                  { value: "placed", label: "Placed" },
+                  { value: "confirmed", label: "Confirmed" },
+                  { value: "shipped", label: "Shipped" },
+                  { value: "in_transit", label: "In Transit" },
+                  { value: "out_for_delivery", label: "Out for Delivery" },
+                  { value: "delivered", label: "Delivered" },
+                  { value: "cancelled", label: "Cancelled" },
+                  { value: "refunded", label: "Refunded" },
+                ],
+              }]}
+            />
           </CardHeader>
           <CardContent className="pt-6">
             {isLoading ? (
@@ -188,27 +166,34 @@ export default function OrdersPage() {
                 ))}
               </div>
             ) : (
+              <>
               <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full glass-table">
                   <thead>
                     <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Order ID</th>
+                      <th className="p-4 w-10">
+                        <SelectAllCheckbox state={selection.pageState(filteredOrders)} onToggle={() => selection.togglePage(filteredOrders)} />
+                      </th>
+                      <SortableHeader query={query} field="orderId">Order ID</SortableHeader>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Products</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Address</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Status</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount</th>
+                      <SortableHeader query={query} field="status">Status</SortableHeader>
+                      <SortableHeader query={query} field="totalAmount">Amount</SortableHeader>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Download Invoice</th>
-                      <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Date</th>
+                      <SortableHeader query={query} field="createdAt">Date</SortableHeader>
                     </tr>
                   </thead>
                   <tbody>
-                    {isError && <TableErrorState colSpan={8} onRetry={() => refetch()} message="Could not load orders." />}
+                    {isError && <TableErrorState colSpan={9} onRetry={() => refetch()} message="Could not load orders." />}
                     {!isError && filteredOrders.length === 0 && (
-                      <TableEmptyState colSpan={8} icon="shopping_cart" title={orders.length === 0 ? "No product orders yet" : "No matching orders"} description={orders.length === 0 ? "Product ordering is currently paused in the mobile app." : "Try a different search term or filter."} />
+                      <TableEmptyState colSpan={9} icon="shopping_cart" title={orders.length === 0 ? "No product orders yet" : "No matching orders"} description={orders.length === 0 ? "Product ordering is currently paused in the mobile app." : "Try a different search term or filter."} />
                     )}
                     {!isError && filteredOrders?.map((order: any) => (
-                      <tr key={order.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
+                      <tr key={order.id} className={"border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group " + (selection.isSelected(order.id) ? "bg-[hsla(217,91%,60%,0.06)]" : "")}>
+                        <td className="p-4">
+                          <RowCheckbox checked={selection.isSelected(order.id)} onToggle={() => selection.toggle(order)} />
+                        </td>
                         <td className="p-4">
                           <p className="font-medium text-[hsl(210,20%,90%)]">{order.orderId}</p>
                         </td>
@@ -257,9 +242,20 @@ export default function OrdersPage() {
                   </tbody>
                 </table>
               </div>
+              <DataPagination query={query} pagination={pagination} rowCount={filteredOrders.length} />
+              </>
             )}
           </CardContent>
         </Card>
+
+        <BulkActionBar
+          count={selection.count}
+          onClear={selection.clear}
+          noun="order"
+          actions={[
+            { label: "Export CSV", icon: <Download className="w-3.5 h-3.5" />, onClick: handleExport },
+          ]}
+        />
       </div>
   );
 }
