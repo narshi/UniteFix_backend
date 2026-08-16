@@ -397,6 +397,17 @@ export class NotificationService {
         }
 
         if (audience === "experts" || audience === "all") {
+            // Deliberately NOT filtered on users.isActive.
+            //
+            // Experts are created with users.is_active = false ("employees need
+            // admin approval"), and approving one only flips employees.is_active
+            // — the user row is never updated. Requiring it here meant every
+            // service expert resolved to zero, however many were verified and
+            // had devices registered.
+            //
+            // employees.isActive + documentVerificationStatus IS the activation
+            // state for an expert; users.deletedAt is what distinguishes a
+            // deleted account from an unapproved one.
             const rows = await db
                 .select({ id: users.id })
                 .from(users)
@@ -404,7 +415,6 @@ export class NotificationService {
                 .where(
                     and(
                         eq(users.role, "serviceman"),
-                        eq(users.isActive, true),
                         isNull(users.deletedAt),
                         eq(employees.isActive, true),
                         eq(employees.documentVerificationStatus, "verified")

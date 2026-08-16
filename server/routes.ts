@@ -1190,6 +1190,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Approve/Verify service provider
+  // This is the route the Employees page "Verify" button calls — NOT
+  // PATCH /api/admin/employees/:id/verify. Both must notify the expert and keep
+  // the user row in step, or which button an admin happens to press changes the
+  // outcome.
   app.post("/api/admin/servicemen/:id/approve", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
@@ -1201,6 +1205,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
+
+      // Experts are created with users.is_active = false pending approval, and
+      // this route previously never cleared it — leaving approved experts marked
+      // inactive on the user row forever.
+      await storage.updateUser(provider.userId, { isActive: true });
+
+      // Approval is the moment an expert can finally receive work. Without this
+      // they had to keep reopening the app to find out.
+      void BookingNotifications.verificationDecision(id, 'verified');
 
       res.json({ success: true, message: "Provider approved", data: provider });
     } catch (error) {
@@ -1223,6 +1236,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
 
+      await storage.updateUser(provider.userId, { isActive: false });
+
+      // Being suspended silently is the worst version of this: the expert keeps
+      // opening the app wondering why no jobs arrive.
+      void BookingNotifications.verificationDecision(id, "suspended", reason);
+
       res.json({ success: true, message: "Provider suspended", data: provider });
     } catch (error) {
       next(error);
@@ -1242,6 +1261,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!provider) {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
+
+      await storage.updateUser(provider.userId, { isActive: true });
+
+      void BookingNotifications.verificationDecision(id, "verified");
 
       res.json({ success: true, message: "Provider activated", data: provider });
     } catch (error) {
