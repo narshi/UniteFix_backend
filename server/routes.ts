@@ -55,7 +55,7 @@ import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes
 import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { registerPartnerProfileRoutes } from "./routes/partner-profile.routes";
-import { authLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
+import { authLimiter, identityLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
@@ -184,8 +184,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // fire. Brute-force protection on the Truecaller/OTP/reset paths was therefore
   // absent entirely, and unlimited OTP requests could reset the 5-attempt
   // lockout by simply asking for a fresh code.
-  app.use("/api/auth", authLimiter);
-  app.use("/api/otp", authLimiter); // Protect OTP generation strongly
+  /**
+   * Two tiers under /api/auth.
+   *
+   * Phone/OTP identity verification gets the generous `identityLimiter`; the
+   * strict 5-per-15-minutes limit applied to everything here, and a single
+   * signup legitimately spends several of those (check-phone, verify, a retry),
+   * so users were locked out after two or three attempts. Because the limiter
+   * keys on IP and mobile carriers NAT thousands of subscribers behind one
+   * address, it also punished unrelated users rather than any attacker.
+   *
+   * Password login, signup-by-password and password reset keep the strict limit
+   * — those are the endpoints where guessing actually gets you something.
+   */
+  const IDENTITY_PATHS = /^\/(check-phone|truecaller|fallback|email)/;
+
+  app.use("/api/auth", (req, res, next) => {
+    if (IDENTITY_PATHS.test(req.path)) return identityLimiter(req, res, next);
+    return authLimiter(req, res, next);
+  });
+  app.use("/api/otp", identityLimiter); // OTP send/verify — same reasoning
   app.use("/api/admin/auth", authLimiter); // Admin login protection
 
   app.use("/api/admin", adminLimiter);

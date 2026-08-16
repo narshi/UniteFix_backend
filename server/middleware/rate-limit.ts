@@ -10,6 +10,20 @@ export const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+/**
+ * Phone/OTP identity verification. See RATE_LIMIT_CONFIG.identity for why this
+ * is much looser than `authLimiter` — in short, the strict limit was locking out
+ * real users mid-signup and, being per-IP, punished everyone behind a carrier
+ * NAT rather than any attacker.
+ */
+export const identityLimiter = rateLimit({
+    windowMs: RATE_LIMIT_CONFIG.identity.windowMs,
+    max: RATE_LIMIT_CONFIG.identity.max,
+    message: { success: false, message: RATE_LIMIT_CONFIG.identity.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 export const mobileLimiter = rateLimit({
     windowMs: RATE_LIMIT_CONFIG.mobileApi.windowMs,
     max: RATE_LIMIT_CONFIG.mobileApi.max,

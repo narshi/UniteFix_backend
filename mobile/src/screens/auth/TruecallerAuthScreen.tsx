@@ -51,13 +51,39 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     await loginWithTruecaller(data);
   };
 
-  /** Maps the server's explicit login/signup rejections to actionable copy. */
+  /**
+   * Maps the server's explicit login/signup rejections, and Firebase's own
+   * error codes, to copy a user can act on.
+   *
+   * Firebase throws its own English strings ("The SMS code has expired. Please
+   * re-send the verification code to try again.") which are both alarming and
+   * often wrong from the user's point of view — session-expired usually means
+   * Android already auto-verified, not that they were slow. Map the codes we
+   * can actually act on and keep the rest generic.
+   */
   const describeAuthFailure = (err: any): string => {
     const payload = err?.response?.data;
     if (payload?.code === 'ACCOUNT_NOT_FOUND') {
       return 'No UniteFix account found for this number. Please create an account first.';
     }
-    return payload?.message || err?.message || 'Authentication failed';
+
+    switch (err?.code) {
+      case 'auth/invalid-verification-code':
+        return 'That code does not match. Please check the SMS and try again.';
+      case 'auth/session-expired':
+      case 'auth/code-expired':
+        return 'That code has timed out. Tap Resend to get a new one.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts from this device. Wait a few minutes, or continue with Truecaller.';
+      case 'auth/invalid-phone-number':
+        return 'That phone number does not look right. Please check and try again.';
+      case 'auth/network-request-failed':
+        return 'Network problem. Check your connection and try again.';
+      case 'auth/quota-exceeded':
+        return 'Verification is temporarily unavailable. Please try again shortly.';
+      default:
+        return payload?.message || err?.message || 'Authentication failed';
+    }
   };
 
   // UI state
@@ -71,6 +97,8 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
+  /** Seconds until Resend is allowed again. See startResendCooldown. */
+  const [resendIn, setResendIn] = useState(0);
 
   // Firebase confirmation ref
   const confirmationRef = useRef<any>(null);
@@ -95,42 +123,88 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
     }
   }, [isAvailable, tcLoading]);
 
-  // Listen for Firebase auto-verification (Android specific)
-  useEffect(() => {
-    const subscriber = auth().onAuthStateChanged(async (user) => {
-      // If we have a user and we are in the middle of authenticating (e.g. OTP step)
-      if (user && otpStep === 'otp') {
+  /**
+   * Exchanges a signed-in Firebase user for a UniteFix session.
+   *
+   * SINGLE ENTRY POINT, ON PURPOSE. Android can verify a number without the
+   * user ever typing the code, so a sign-in can arrive from the auto-verify
+   * listener OR from confirm(otp). Previously both called this independently:
+   * the listener consumed the session first, then confirm(otp) threw
+   * auth/session-expired and the user was told their correct code had expired.
+   *
+   * The ref latch means whichever arrives first wins and the other is a no-op.
+   * It is a ref rather than state because both callers can fire within the same
+   * tick, before React would have re-rendered.
+   */
+  const completedRef = useRef(false);
+
+  /**
+   * Android auto-verification (instant verification / SMS auto-retrieval).
+   *
+   * Only acts on sign-ins that happen AFTER we asked for a code in this attempt.
+   * Firebase persists currentUser across app launches and onAuthStateChanged
+   * fires immediately on subscribe, so without the `awaitingVerification` guard
+   * this fired with a previous session — sometimes for a different phone number
+   * entirely — the moment the OTP step mounted.
+   */
+  const awaitingVerification = useRef(false);
+
+
+  const exchangeFirebaseUser = async (user: any, source: 'auto' | 'manual') => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+
+    try {
+      setIsAuthenticating(true);
+      const idToken = await user.getIdToken();
+      const normalized = phone.replace(/[^0-9]/g, '');
+
+      const { data } = await authApi.firebaseVerify({
+        idToken,
+        phone: normalized,
+        role,
+        mode,
+      });
+
+      if (data.requiresProfile) {
+        // Still mid-flow — the profile step reuses this token.
+        awaitingVerification.current = false;
+        setTempToken(idToken);
+        setOtpStep('profile');
+      } else if (data.success) {
+        awaitingVerification.current = false;
+        setAuthSuccess(true);
+        await handleAuthSuccess(data);
+
+        // We hold our own JWT now, so the Firebase session has served its
+        // purpose. Leaving it signed in is exactly what made the next attempt
+        // fire the auto-verify listener with a stale user.
         try {
-          setIsAuthenticating(true);
-          const idToken = await user.getIdToken();
-          const normalized = phone.replace(/[^0-9]/g, '');
-
-          const { data } = await authApi.firebaseVerify({
-            idToken,
-            phone: normalized,
-            role,
-            mode,
-          });
-
-          if (data.requiresProfile) {
-            setTempToken(idToken);
-            setOtpStep('profile');
-          } else if (data.success) {
-            setAuthSuccess(true);
-            await handleAuthSuccess(data);
-          } else {
-            setAuthError(data.message || 'Auto-verification failed');
-          }
-        } catch (err: any) {
-          if (__DEV__) console.error('[Firebase Auto-Verify]', err);
-          setAuthError(describeAuthFailure(err));
-        } finally {
-          setIsAuthenticating(false);
+          await auth().signOut();
+        } catch {
+          // Nothing depends on this succeeding.
         }
+      } else {
+        completedRef.current = false; // let them retry
+        setAuthError(data.message || 'Verification failed');
       }
+    } catch (err: any) {
+      completedRef.current = false;
+      if (__DEV__) console.error(`[Firebase ${source}]`, err);
+      setAuthError(describeAuthFailure(err));
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  useEffect(() => {
+    const subscriber = auth().onAuthStateChanged((user) => {
+      if (!user) return;
+      if (!awaitingVerification.current) return;
+      void exchangeFirebaseUser(user, 'auto');
     });
     return subscriber; // unsubscribe on unmount
-  }, [otpStep, phone, role]);
+  }, [phone, role, mode]);
 
   const isValidIndianPhone = (num: string) => /^[6-9]\d{9}$/.test(num.replace(/[\s\-()]/g, ''));
 
@@ -195,18 +269,54 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
         }
       }
 
+      // Clear any leftover Firebase session before asking for a new code.
+      // Firebase persists currentUser indefinitely, and a stale one both fires
+      // the auto-verify listener spuriously and lets instant verification
+      // short-circuit the SMS for a number the user may no longer be using.
+      try {
+        if (auth().currentUser) await auth().signOut();
+      } catch {
+        // Not being signed in is the desired state anyway.
+      }
+
+      completedRef.current = false;
+      awaitingVerification.current = true;
+
       const fullPhone = '+91' + normalized;
       const confirmation = await auth().signInWithPhoneNumber(fullPhone);
       confirmationRef.current = confirmation;
       setOtpStep('otp');
+      startResendCooldown();
     } catch (err: any) {
+      awaitingVerification.current = false;
       if (__DEV__) console.error('[Firebase OTP]', err);
-      // In release mode, surface the exact error code to the UI so we can debug it
-      const errorMessage = err?.code ? `[${err.code}] ${err.message}` : (err.message || 'Failed to send OTP. Please try again.');
-      setAuthError(errorMessage);
+      setAuthError(describeAuthFailure(err));
     } finally {
       setIsAuthenticating(false);
     }
+  };
+
+  /**
+   * Resend cooldown.
+   *
+   * Firebase throttles per number and per device, and every re-send counts
+   * toward that. Without a cooldown a user tapping resend after each failure
+   * reached auth/too-many-requests in about three attempts, which is what was
+   * being read as "the app blocked me".
+   */
+  const startResendCooldown = () => setResendIn(45);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  const handleResendOtp = async () => {
+    if (resendIn > 0 || isAuthenticating) return;
+    setOtp('');
+    setAuthError(null);
+    await handleSendOtp();
   };
 
   /**
@@ -217,35 +327,40 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
       setAuthError('Please enter the 6-digit OTP');
       return;
     }
+    // The auto-verify listener may already be mid-exchange.
+    if (completedRef.current) return;
+
     setIsAuthenticating(true);
     setAuthError(null);
     try {
+      if (!confirmationRef.current) {
+        setAuthError('That code has timed out. Tap Resend to get a new one.');
+        return;
+      }
+
       const userCredential = await confirmationRef.current.confirm(otp);
-      const idToken = await userCredential.user.getIdToken();
-      const normalized = phone.replace(/[^0-9]/g, '');
-
-      const { data } = await authApi.firebaseVerify({
-        idToken,
-        phone: normalized,
-        role,
-        mode,
-      });
-
-      if (data.requiresProfile) {
-        setTempToken(idToken);
-        setOtpStep('profile');
-      } else if (data.success) {
-        setAuthSuccess(true);
-        await handleAuthSuccess(data);
-      } else {
-        setAuthError(data.message || 'Verification failed');
-      }
+      await exchangeFirebaseUser(userCredential.user, 'manual');
     } catch (err: any) {
-      if (err.code === 'auth/invalid-verification-code') {
-        setAuthError('Invalid OTP. Please check and try again.');
-      } else {
-        setAuthError(describeAuthFailure(err));
+      // THE "CORRECT CODE SAYS EXPIRED" CASE.
+      //
+      // On Android, Firebase can verify the number on its own and consume the
+      // confirmation. The user's genuinely-correct code then fails with
+      // session-expired, because there is no session left to spend — not
+      // because they were slow. If a Firebase user actually exists at this
+      // point, verification DID succeed, so carry on with it instead of
+      // showing an error and sending them round the loop again.
+      const alreadyVerified =
+        (err?.code === 'auth/session-expired' || err?.code === 'auth/code-expired') &&
+        auth().currentUser;
+
+      if (alreadyVerified) {
+        if (__DEV__) console.log('[Firebase] Auto-verified; using existing session');
+        await exchangeFirebaseUser(auth().currentUser, 'manual');
+        return;
       }
+
+      if (__DEV__) console.error('[Firebase confirm]', err);
+      setAuthError(describeAuthFailure(err));
     } finally {
       setIsAuthenticating(false);
     }
@@ -470,9 +585,31 @@ export function TruecallerAuthScreen({ navigation, route }: Props) {
                         </Text>
                       </Pressable>
 
+                      {/* Resend is throttled: every request counts toward
+                          Firebase's per-number limit, and hammering it is what
+                          used to get people locked out. */}
                       <Pressable
                         style={styles.resendBtn}
-                        onPress={() => { setOtpStep('phone'); setOtp(''); setAuthError(null); }}
+                        onPress={handleResendOtp}
+                        disabled={resendIn > 0 || isAuthenticating}
+                      >
+                        <Text style={[styles.resendText, resendIn > 0 && styles.resendTextDisabled]}>
+                          {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.resendBtn}
+                        onPress={() => {
+                          setOtpStep('phone');
+                          setOtp('');
+                          setAuthError(null);
+                          // Leaving this attempt behind: stop the listener acting
+                          // on a sign-in for the number they just abandoned.
+                          awaitingVerification.current = false;
+                          completedRef.current = false;
+                          confirmationRef.current = null;
+                        }}
                       >
                         <Text style={styles.resendText}>Change Number</Text>
                       </Pressable>
@@ -587,4 +724,5 @@ const styles = StyleSheet.create({
   securityText: { fontSize: fontSizes.xs, color: colors.textDisabled },
   resendBtn: { alignItems: 'center', paddingVertical: 12 },
   resendText: { fontSize: fontSizes.sm, color: colors.primary, fontWeight: fontWeights.medium },
+  resendTextDisabled: { color: colors.textDisabled },
 });

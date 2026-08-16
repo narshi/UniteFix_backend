@@ -12,11 +12,32 @@ export interface RateLimitConfig {
 }
 
 export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
-    // Authentication endpoints - strict limits to prevent brute force
+    // Credential endpoints — password login, password reset. Strict, because
+    // these are the ones worth brute-forcing.
     auth: {
         windowMs: 15 * 60 * 1000, // 15 minutes
         max: 5,                    // 5 attempts per window
         message: 'Too many authentication attempts. Please try again later.',
+    },
+
+    // Phone/OTP identity verification — Truecaller, Firebase, phone checks.
+    //
+    // Deliberately far more generous than `auth`, for two reasons:
+    //
+    //  1. A normal signup legitimately makes several calls (check-phone, then a
+    //     verification, sometimes a retry). At 5 per 15 minutes users were being
+    //     locked out after two or three attempts — which read as "the app blocked
+    //     me" and was the actual cause, not Firebase.
+    //
+    //  2. This limiter keys on IP, and mobile carriers put thousands of
+    //     subscribers behind one NAT gateway. A tight per-IP limit here does not
+    //     stop an attacker (who can rotate IPs) but does lock out unrelated real
+    //     users sharing a carrier. The genuine abuse protection for phone auth is
+    //     Firebase's own per-number throttle and the SMS cost itself.
+    identity: {
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 40,
+        message: 'Too many verification attempts. Please wait a few minutes and try again.',
     },
 
     // Mobile app endpoints - moderate limits
