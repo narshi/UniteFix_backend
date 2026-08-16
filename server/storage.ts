@@ -98,7 +98,7 @@ import { configService } from "./services/config.service";
 
 // Geo utilities: single source of truth
 import { calculateHaversineDistance } from "./lib/geo";
-import { nextSequentialNumber } from "./lib/sequential-id";
+import { nextSequentialNumber, generateInvoiceIdWithRetry } from "./lib/sequential-id";
 
 export interface IStorage {
   // User management
@@ -143,6 +143,9 @@ export interface IStorage {
   updateProviderLocation(id: number, lat: number, long: number): Promise<Employee | undefined>;
   getProvidersSortedByDistance(lat: number, long: number, status?: string): Promise<(Employee & { distance: number })[]>;
   deleteServiceProvider(id: number): Promise<boolean>;
+  purgeAccountCascade(opts: { userId?: number; employeeId?: number; dryRun?: boolean }): Promise<{
+    userId: number; employeeId: number | null; username: string | null; counts: Record<string, number>;
+  } | null>;
 
   // Service requests
   createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
@@ -659,6 +662,128 @@ export class DatabaseStorage implements IStorage {
    * first and the employee delete then failed, leaving the partner locked out
    * of an account the admin had been told was NOT deleted.
    */
+  /**
+   * HARD delete an account and every record connected to it.
+   *
+   * Distinct from deleteServiceProvider() below, which only deactivates. This
+   * one actually removes rows, for manual cleanup of test/junk accounts.
+   *
+   * "Connected services" means every service_request the person is on — as the
+   * customer OR as the assigned expert — plus everything hanging off those jobs
+   * (invoices, payments, ratings, OTPs, wallet ledger rows). Deleting an expert
+   * therefore removes those jobs from the customer's history as well; that is
+   * unavoidable, since service_requests.provider_id cannot be orphaned and the
+   * job has no meaning without them.
+   *
+   * NOT deleted: audit_logs. The trail of what happened — including this purge —
+   * outlives the account. Nothing references it by foreign key, so it is safe.
+   *
+   * @param opts.dryRun run every delete, report the counts, then roll back. The
+   *   preview endpoint uses this so what an admin is shown is produced by the
+   *   exact same statements that will run for real.
+   */
+  async purgeAccountCascade(
+    opts: { userId?: number; employeeId?: number; dryRun?: boolean }
+  ): Promise<{ userId: number; employeeId: number | null; username: string | null; counts: Record<string, number> } | null> {
+    // Resolve both identities — they are two halves of one account.
+    let userId = opts.userId ?? null;
+    let employeeId = opts.employeeId ?? null;
+
+    if (employeeId && !userId) {
+      const [e] = await db.select({ userId: employees.userId }).from(employees).where(eq(employees.id, employeeId));
+      if (!e) return null;
+      userId = e.userId;
+    }
+    if (!userId) return null;
+
+    const [user] = await db
+      .select({ id: users.id, username: users.username, role: users.role })
+      .from(users)
+      .where(eq(users.id, userId));
+    if (!user) return null;
+
+    // Platform admins are managed in admin_users; refuse to purge one from here.
+    if (user.role === 'admin') {
+      throw new Error('Refusing to purge an admin account');
+    }
+
+    if (!employeeId) {
+      const [e] = await db.select({ id: employees.id }).from(employees).where(eq(employees.userId, userId));
+      employeeId = e?.id ?? null;
+    }
+
+    const counts: Record<string, number> = {};
+    // employeeId may be null; -1 never matches a serial primary key, which keeps
+    // the SQL below uniform instead of branching every statement.
+    const empId = employeeId ?? -1;
+
+    const ROLLBACK_SENTINEL = 'PURGE_DRY_RUN_ROLLBACK';
+
+    try {
+      await db.transaction(async (tx: any) => {
+        const run = async (label: string, statement: any) => {
+          const res: any = await tx.execute(statement);
+          counts[label] = res?.rowCount ?? 0;
+        };
+
+        // Scope sets, resolved once and reused. Jobs are matched on either side.
+        const jobIds = sql`(SELECT id FROM service_requests
+                            WHERE user_id = ${userId} OR provider_id = ${empId} OR cash_collected_by = ${empId})`;
+        const orderPks = sql`(SELECT id FROM product_orders WHERE user_id = ${userId})`;
+        const orderRefs = sql`(SELECT order_id FROM product_orders WHERE user_id = ${userId})`;
+        const ticketIds = sql`(SELECT id FROM support_tickets
+                               WHERE user_id = ${userId}
+                                  OR service_request_id IN ${jobIds}
+                                  OR product_order_id IN ${orderPks})`;
+        const returnIds = sql`(SELECT id FROM return_requests
+                               WHERE user_id = ${userId} OR order_id IN ${orderRefs})`;
+        const txnIds = sql`(SELECT id FROM payment_transactions
+                            WHERE service_request_id IN ${jobIds} OR order_id IN ${orderRefs})`;
+
+        // Children first — every statement is scoped to this account only.
+        await run('refunds', sql`DELETE FROM refunds
+          WHERE payment_transaction_id IN ${txnIds} OR return_request_id IN ${returnIds}`);
+        await run('return_requests', sql`DELETE FROM return_requests WHERE id IN ${returnIds}`);
+        await run('payment_transactions', sql`DELETE FROM payment_transactions WHERE id IN ${txnIds}`);
+        await run('notifications', sql`DELETE FROM notifications WHERE user_id = ${userId}`);
+        await run('device_tokens', sql`DELETE FROM device_tokens WHERE user_id = ${userId}`);
+        await run('social_auth_providers', sql`DELETE FROM social_auth_providers WHERE user_id = ${userId}`);
+        await run('ratings', sql`DELETE FROM ratings
+          WHERE service_request_id IN ${jobIds} OR from_user_id = ${userId} OR to_provider_id = ${empId}`);
+        await run('service_otps', sql`DELETE FROM service_otps WHERE service_request_id IN ${jobIds}`);
+        await run('shipments', sql`DELETE FROM shipments WHERE order_id IN ${orderRefs}`);
+        await run('service_charges', sql`DELETE FROM service_charges WHERE service_request_id IN ${jobIds}`);
+        await run('ticket_messages', sql`DELETE FROM ticket_messages WHERE ticket_id IN ${ticketIds}`);
+        await run('support_tickets', sql`DELETE FROM support_tickets WHERE id IN ${ticketIds}`);
+        await run('inventory_transactions', sql`DELETE FROM inventory_transactions WHERE service_request_id IN ${jobIds}`);
+        await run('withdrawal_requests', sql`DELETE FROM withdrawal_requests WHERE partner_id = ${empId}`);
+        await run('wallet_transactions_v2', sql`DELETE FROM wallet_transactions_v2
+          WHERE partner_id = ${empId} OR service_request_id IN ${jobIds}`);
+        await run('partner_wallets', sql`DELETE FROM partner_wallets WHERE partner_id = ${empId}`);
+        await run('invoices', sql`DELETE FROM invoices
+          WHERE service_request_id IN ${jobIds} OR user_id = ${userId}
+             OR provider_id = ${empId} OR product_order_id IN ${orderPks}`);
+        await run('cart_items', sql`DELETE FROM cart_items WHERE user_id = ${userId}`);
+        await run('product_orders', sql`DELETE FROM product_orders WHERE id IN ${orderPks}`);
+        await run('wallet_transactions', sql`DELETE FROM wallet_transactions
+          WHERE provider_id = ${empId} OR service_request_id IN ${jobIds}`);
+        await run('service_requests', sql`DELETE FROM service_requests WHERE id IN ${jobIds}`);
+        await run('refresh_tokens', sql`DELETE FROM refresh_tokens WHERE user_id = ${userId}`);
+        await run('employees', sql`DELETE FROM employees WHERE id = ${empId}`);
+        await run('customers', sql`DELETE FROM customers WHERE user_id = ${userId}`);
+        await run('users', sql`DELETE FROM users WHERE id = ${userId}`);
+
+        // Drizzle rolls back when the callback throws — the only way to undo the
+        // work after measuring it.
+        if (opts.dryRun) throw new Error(ROLLBACK_SENTINEL);
+      });
+    } catch (err: any) {
+      if (err?.message !== ROLLBACK_SENTINEL) throw err;
+    }
+
+    return { userId, employeeId, username: user.username, counts };
+  }
+
   async deleteServiceProvider(id: number): Promise<boolean> {
     const [employee] = await db.select().from(employees).where(eq(employees.id, id)).limit(1);
     if (!employee) return false;
@@ -1697,21 +1822,10 @@ export class DatabaseStorage implements IStorage {
 
   // Invoices
   async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
-    // Only INV-format ids are counted; the main invoice path uses UF-INV-* ids,
-    // which this regexp deliberately ignores so the two schemes never collide.
-    let next = await nextSequentialNumber('invoices', 'invoice_id', 'INV');
-
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const invoiceId = `INV${String(next).padStart(6, '0')}`;
-      try {
-        const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
-        return invoice;
-      } catch (err: any) {
-        if (err?.code === '23505') { next++; continue; }
-        throw err;
-      }
-    }
-    throw new Error('Could not allocate a unique invoice id after several attempts');
+    return generateInvoiceIdWithRetry(async (invoiceId) => {
+      const [invoice] = await db.insert(invoices).values({ ...insertInvoice, invoiceId }).returning();
+      return invoice;
+    });
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {

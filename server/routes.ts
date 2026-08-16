@@ -1056,6 +1056,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== HARD ACCOUNT PURGE ====================
+  // Distinct from DELETE /api/admin/servicemen/:id above, which only
+  // deactivates. These remove the account and every connected record.
+  //
+  // `kind` is 'user' (customers, by users.id) or 'employee' (by employees.id).
+  // Both resolve to the same account — an expert has a row in each table.
+
+  /**
+   * GET /api/admin/accounts/:kind/:id/deletion-impact
+   * What a purge would remove. Runs the real deletes and rolls back, so the
+   * numbers cannot drift from what the purge actually does.
+   */
+  app.get("/api/admin/accounts/:kind/:id/deletion-impact", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const kind = req.params.kind;
+      if (Number.isNaN(id) || (kind !== 'user' && kind !== 'employee')) {
+        return res.status(400).json({ success: false, message: "Invalid account kind or id" });
+      }
+
+      const result = await storage.purgeAccountCascade({
+        ...(kind === 'user' ? { userId: id } : { employeeId: id }),
+        dryRun: true,
+      });
+
+      if (!result) return res.status(404).json({ success: false, message: "Account not found" });
+
+      const total = Object.values(result.counts).reduce((a, b) => a + b, 0);
+      res.json({ success: true, data: { ...result, totalRows: total } });
+    } catch (error: any) {
+      if (/Refusing to purge/.test(error.message)) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  });
+
+  /**
+   * DELETE /api/admin/accounts/:kind/:id
+   * Irreversible. Requires ?confirm=true so it cannot fire from a stray click.
+   */
+  app.delete("/api/admin/accounts/:kind/:id", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      const kind = req.params.kind;
+      if (Number.isNaN(id) || (kind !== 'user' && kind !== 'employee')) {
+        return res.status(400).json({ success: false, message: "Invalid account kind or id" });
+      }
+      if (req.query.confirm !== 'true') {
+        return res.status(428).json({
+          success: false,
+          requiresConfirmation: true,
+          message: "This permanently deletes the account and all connected services. Re-send with ?confirm=true.",
+        });
+      }
+
+      const result = await storage.purgeAccountCascade({
+        ...(kind === 'user' ? { userId: id } : { employeeId: id }),
+      });
+
+      if (!result) return res.status(404).json({ success: false, message: "Account not found" });
+
+      const total = Object.values(result.counts).reduce((a, b) => a + b, 0);
+      const adminId = (req as any).admin?.userId ?? (req as any).user?.userId;
+
+      logger.warn(`[ADMIN_PURGE] ${result.username ?? 'account'} (users.id=${result.userId}) purged by admin ${adminId} — ${total} rows`);
+
+      // Written after the purge, deliberately: audit_logs survives the account so
+      // there is a permanent record of who removed what.
+      await storage.logAuditEvent({
+        entityType: 'user',
+        entityId: result.userId,
+        action: 'account_purged',
+        changedBy: adminId,
+        metadata: {
+          username: result.username,
+          employeeId: result.employeeId,
+          totalRows: total,
+          counts: result.counts,
+        },
+      }).catch(() => { /* never fail the purge over its own audit row */ });
+
+      res.json({
+        success: true,
+        message: `Deleted ${result.username ?? 'account'} and ${total} connected row(s).`,
+        data: { ...result, totalRows: total },
+      });
+    } catch (error: any) {
+      if (/Refusing to purge/.test(error.message)) {
+        return res.status(403).json({ success: false, message: error.message });
+      }
+      next(error);
+    }
+  });
+
   // Top up provider wallet
   app.post("/api/admin/servicemen/:id/topup", async (req, res, next) => {
     try {

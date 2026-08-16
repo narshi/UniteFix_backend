@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Eye, UserCheck, UserX, Phone, Mail, MapPin, Calendar, Share2 } from "lucide-react";
+import { Search, Eye, UserCheck, UserX, Phone, Mail, MapPin, Calendar, Share2, Trash2 } from "lucide-react";
+import { PurgeAccountDialog } from "@/components/admin/purge-account-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +17,7 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -191,6 +193,18 @@ export default function UsersPage() {
                           >
                             {user.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
                           </Button>
+                          {/* Admins are managed in admin_users; the API refuses to purge them. */}
+                          {user.role !== 'admin' && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Delete permanently (with all connected services)"
+                              className="h-8 w-8 text-[hsl(215,20%,65%)] hover:text-[hsl(347,77%,65%)] hover:bg-[hsla(347,77%,50%,0.1)] transition-colors"
+                              onClick={() => setPurgeTarget(user)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -281,6 +295,17 @@ export default function UsersPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {purgeTarget && (
+        <PurgeAccountDialog
+          kind="user"
+          id={purgeTarget.id}
+          name={purgeTarget.username || `User #${purgeTarget.id}`}
+          open={!!purgeTarget}
+          onOpenChange={(o) => !o && setPurgeTarget(null)}
+          invalidateKeys={["/api/admin/users", "/api/admin/stats"]}
+        />
+      )}
     </div>
   );
 }

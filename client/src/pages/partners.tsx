@@ -10,6 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle, Clock, Ban, ShieldCheck, Trash2, Wallet, Plus, Minus, History } from "lucide-react";
+import { PurgeAccountDialog } from "@/components/admin/purge-account-dialog";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
@@ -20,6 +21,7 @@ export default function PartnersPage() {
   const [isDeductModalOpen, setIsDeductModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
+  const [purgeTarget, setPurgeTarget] = useState<any>(null);
   const [topupAmount, setTopupAmount] = useState("");
   const [deductAmount, setDeductAmount] = useState("");
   const [deductReason, setDeductReason] = useState("");
@@ -481,23 +483,37 @@ export default function PartnersPage() {
                                 but since we need the Edit button in the loop, we use this trigger pattern. */}
                           </Dialog>
 
+                          {/* Deactivate — reversible, keeps all history. */}
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button size="icon" variant="ghost" className="h-8 w-8 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors">
-                                <Trash2 className="w-4 h-4" />
+                              <Button size="icon" variant="ghost" title="Deactivate (reversible)" className="h-8 w-8 text-[hsl(38,92%,60%)] hover:bg-[hsla(38,92%,50%,0.15)] transition-colors">
+                                <Ban className="w-4 h-4" />
                               </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)] backdrop-blur-xl">
                               <AlertDialogHeader>
-                                <AlertDialogTitle className="text-white">Delete Employee?</AlertDialogTitle>
-                                <AlertDialogDescription className="text-[hsl(215,20%,65%)]">This will permanently remove the employee profile and wallet history.</AlertDialogDescription>
+                                <AlertDialogTitle className="text-white">Deactivate Employee?</AlertDialogTitle>
+                                <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
+                                  Blocks login and removes them from assignment eligibility. All jobs, wallet and history are kept, and this can be undone.
+                                </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter className="border-t border-[rgba(255,255,255,0.08)] pt-4 mt-4">
                                 <AlertDialogCancel className="bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)]">Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => deletePartnerMutation.mutate(partner.id)} className="bg-[hsl(347,77%,55%)] hover:bg-[hsl(347,77%,50%)] text-white shadow-[0_4px_14px_hsla(347,77%,50%,0.3)]">Delete</AlertDialogAction>
+                                <AlertDialogAction onClick={() => deletePartnerMutation.mutate(partner.id)} className="bg-[hsl(38,92%,50%)] hover:bg-[hsl(38,92%,45%)] text-white">Deactivate</AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
+
+                          {/* Permanent purge — account + every connected service. */}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Delete permanently (with all connected services)"
+                            className="h-8 w-8 text-[hsl(347,77%,60%)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors"
+                            onClick={() => setPurgeTarget(partner)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -602,6 +618,16 @@ export default function PartnersPage() {
         </DialogContent>
       </Dialog>
 
+      {purgeTarget && (
+        <PurgeAccountDialog
+          kind="employee"
+          id={purgeTarget.id}
+          name={purgeTarget.fullName || purgeTarget.businessName || `Employee #${purgeTarget.id}`}
+          open={!!purgeTarget}
+          onOpenChange={(o) => !o && setPurgeTarget(null)}
+          invalidateKeys={["/api/admin/servicemen/list", "/api/admin/stats"]}
+        />
+      )}
     </div>
   );
 }
