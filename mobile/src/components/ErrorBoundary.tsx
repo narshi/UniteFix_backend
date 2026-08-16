@@ -39,8 +39,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
     componentDidCatch(error: Error, errorInfo: ErrorInfo) {
         this.setState({ errorInfo });
-        // Log to crash reporting service in production
-        console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+        // Logged unconditionally so `adb logcat -s ReactNativeJS` picks it up on a
+        // release build, which is the only way to read it off a real device.
+        console.error(
+            '[ErrorBoundary] Caught error:',
+            error?.message ?? String(error),
+            '\n',
+            errorInfo?.componentStack ?? '(no component stack)',
+        );
     }
 
     handleReset = () => {
@@ -68,13 +74,24 @@ export class ErrorBoundary extends Component<Props, State> {
                             <Text style={styles.retryText}>Try Again</Text>
                         </TouchableOpacity>
 
-                        {__DEV__ && this.state.error && (
+                        {/*
+                          * Shown in RELEASE builds too, not just __DEV__.
+                          *
+                          * This screen is the only trace a crash leaves — there is no crash
+                          * reporter wired up — and gating the message behind __DEV__ meant a
+                          * user hitting this could report nothing beyond "it crashed", which
+                          * is not enough to find the cause. The text is selectable so it can
+                          * be copied or screenshotted straight into a bug report.
+                          */}
+                        {this.state.error && (
                             <ScrollView style={styles.debugCard} contentContainerStyle={styles.debugContent}>
-                                <Text style={styles.debugTitle}>Debug Info</Text>
-                                <Text style={styles.debugText}>{this.state.error.toString()}</Text>
+                                <Text style={styles.debugTitle}>Error details</Text>
+                                <Text style={styles.debugText} selectable>
+                                    {this.state.error.toString()}
+                                </Text>
                                 {this.state.errorInfo?.componentStack && (
-                                    <Text style={styles.debugText}>
-                                        {this.state.errorInfo.componentStack.slice(0, 500)}
+                                    <Text style={styles.debugText} selectable>
+                                        {this.state.errorInfo.componentStack.trim().slice(0, 800)}
                                     </Text>
                                 )}
                             </ScrollView>

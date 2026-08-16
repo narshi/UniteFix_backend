@@ -49,6 +49,9 @@ function AppShell() {
 }
 
 export default function App() {
+  // NOTE: the update check belongs in AppShell, not here. Calling it in both
+  // ran it twice on every launch — two version requests and, when an update was
+  // available, two stacked dialogs.
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>

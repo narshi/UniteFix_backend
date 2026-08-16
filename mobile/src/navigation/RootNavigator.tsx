@@ -27,9 +27,13 @@ import {
     addNotificationReceivedListener,
     addNotificationResponseListener,
 } from '../services/notifications';
+import * as SecureStore from 'expo-secure-store';
 import { colors } from '../theme/colors';
 
 const RootStack = createNativeStackNavigator();
+
+/** Identifier of the notification response already replayed on a cold start. */
+const LAST_NOTIFICATION_KEY = 'uf_last_notification_response';
 
 function LoadingScreen() {
     return (
@@ -146,19 +150,43 @@ export function RootNavigator() {
      * Cold start: the app was launched by tapping a notification. The response
      * listener above does not fire for that case, so replay the last response
      * once navigation is ready and the correct stack has mounted.
+     *
+     * getLastNotificationResponseAsync() is PERSISTENT — it keeps returning the
+     * same response on every subsequent launch, not just the one that opened the
+     * app. Without the guard below, every cold start (including one Android
+     * triggers by killing the app in the background) re-navigated to whatever
+     * screen was last tapped days ago, with an id that may no longer exist. So
+     * each response is replayed at most once, keyed on its identifier.
      */
     useEffect(() => {
         if (!isAuthenticated) return;
 
         let cancelled = false;
-        NotificationService.getLastNotificationResponse().then((response) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        (async () => {
+            const response = await NotificationService.getLastNotificationResponse();
             if (cancelled || !response) return;
+
+            const id = response.notification.request.identifier;
+            const alreadyHandled = await SecureStore.getItemAsync(LAST_NOTIFICATION_KEY);
+            if (cancelled || (id && alreadyHandled === id)) return;
+
+            if (id) {
+                // Recorded BEFORE navigating: if the target screen throws, we must
+                // not replay the same crash on the next launch.
+                await SecureStore.setItemAsync(LAST_NOTIFICATION_KEY, id).catch(() => {});
+            }
+
             // Defer a tick so the navigator has finished mounting the branch.
-            setTimeout(() => openNotification(response.notification), 400);
+            timer = setTimeout(() => openNotification(response.notification), 400);
+        })().catch(() => {
+            // A replay failure must never stop the app from starting.
         });
 
         return () => {
             cancelled = true;
+            if (timer) clearTimeout(timer);
         };
     }, [isAuthenticated, user?.role]);
 

@@ -142,8 +142,17 @@ export const PremiumAlertProvider = () => {
 
     if (!state.visible && (fadeAnim as any)._value === 0) return null;
 
-    // Determine Icon and Color based on Title Keywords
-    const titleLower = state.title.toLowerCase();
+    // Determine Icon and Color based on Title Keywords.
+    // Coerced rather than read directly: Alert.alert's title is optional, and
+    // every Alert.alert call in the app is routed here by the interceptor in
+    // App.tsx — so `Alert.alert(undefined, msg)` or a non-string title threw
+    // "Cannot read property 'toLowerCase' of undefined" during render. This
+    // provider sits OUTSIDE the ErrorBoundary, so that took the whole app down
+    // rather than showing the fallback screen.
+    const titleLower = typeof state.title === 'string' ? state.title.toLowerCase() : '';
+    const buttons = Array.isArray(state.buttons) && state.buttons.length > 0
+        ? state.buttons
+        : [{ text: 'OK' } as AlertButton];
     let IconComponent: any = LucideIcons.Info;
     let iconColor: string = colors.primary;
     let iconBg: string = colors.primaryLight + '20';
@@ -182,7 +191,7 @@ export const PremiumAlertProvider = () => {
                         <IconComponent size={28} color={iconColor} strokeWidth={2.5} />
                     </View>
 
-                    <Text style={styles.titleText}>{state.title}</Text>
+                    <Text style={styles.titleText}>{typeof state.title === "string" ? state.title : ""}</Text>
                     {!!state.message && (
                         <Text style={styles.messageText}>{state.message}</Text>
                     )}
@@ -193,13 +202,13 @@ export const PremiumAlertProvider = () => {
                         off-screen. */}
                     <View style={[
                         styles.buttonContainer,
-                        state.buttons.length > 2 && styles.buttonContainerStacked,
+                        buttons.length > 2 && styles.buttonContainerStacked,
                     ]}>
-                        {state.buttons.map((btn, index) => {
+                        {buttons.map((btn, index) => {
                             const isDestructive = btn.style === 'destructive';
                             const isCancel = btn.style === 'cancel';
 
-                            const buttonStyle = state.buttons.length === 2
+                            const buttonStyle = buttons.length === 2
                                 ? styles.buttonFlex
                                 : styles.buttonFull;
 
