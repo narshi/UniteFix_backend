@@ -11,6 +11,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '../../stores/auth.store';
 import { customerApi, SavedAddress } from '../../api/customer.api';
 import { queryKeys } from '../../hooks/useCustomerData';
 import { Button } from '../../components/ui/Button';
@@ -31,7 +32,11 @@ type ParamList = {
     // `fromCheckout` is forwarded by SavedAddressesScreen when the picker was
     // opened mid-booking, so the newly created address can be handed straight
     // back to ServiceRequest instead of being stranded one screen away.
-    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean };
+    // `mode: 'onboarding'` is the permission-free route through the mandatory
+    // location step. It writes homeAddress and pinCode on the PROFILE, not just
+    // savedAddresses — onboarding completeness is derived from those two fields,
+    // so saving only a saved-address would leave the account stuck on this step.
+    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' };
 };
 
 export function MapAddressPickerScreen() {
@@ -39,6 +44,7 @@ export function MapAddressPickerScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
     const fromCheckout = route.params?.fromCheckout;
+    const isOnboarding = route.params?.mode === 'onboarding';
 
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -209,6 +215,17 @@ export function MapAddressPickerScreen() {
             return;
         }
 
+        // Onboarding cannot complete without a pin code — getPendingOnboardingSteps
+        // requires both fields, so saving an address alone would loop the user
+        // straight back to this step with no explanation.
+        if (isOnboarding && !/^\d{6}$/.test(postalCode)) {
+            Alert.alert(
+                'Pin code not found',
+                'We could not read a 6-digit pin code for that point. Move the pin closer to a road or building and try again.',
+            );
+            return;
+        }
+
         setSaving(true);
         try {
             const profileRes = await customerApi.getProfile();
@@ -226,10 +243,24 @@ export function MapAddressPickerScreen() {
 
             const updatedAddresses = [...existingAddresses, newAddress];
 
-            await customerApi.updateProfile({ savedAddresses: updatedAddresses });
+            await customerApi.updateProfile({
+                savedAddresses: updatedAddresses,
+                // During onboarding this IS the profile address, not merely one
+                // of several saved ones.
+                ...(isOnboarding ? { homeAddress: addressText, pinCode: postalCode } : {}),
+            });
             // This write bypasses the useUpdateProfile mutation, so nothing would
             // otherwise invalidate the cached profile that other screens read.
             queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+
+            if (isOnboarding) {
+                // Let the onboarding stack re-evaluate what is still outstanding
+                // rather than guessing the next screen from here.
+                await useAuthStore.getState().refreshOnboardingStatus();
+                setSaving(false);
+                navigation.goBack();
+                return;
+            }
 
             Alert.alert('Success', 'Address saved successfully!', [
                 {

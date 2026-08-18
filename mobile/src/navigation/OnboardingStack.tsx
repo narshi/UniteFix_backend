@@ -17,6 +17,7 @@ import { useAuthStore } from '../stores/auth.store';
 
 import { OnboardingProfileScreen } from '../screens/onboarding/OnboardingProfileScreen';
 import { OnboardingLocationScreen } from '../screens/onboarding/OnboardingLocationScreen';
+import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
 import { ExpertiseSelectionScreen } from '../screens/auth/ExpertiseSelectionScreen';
 import { ExpertCodeOfConductScreen } from '../screens/onboarding/ExpertCodeOfConductScreen';
 
@@ -75,6 +76,10 @@ export function OnboardingStack() {
             <Stack.Screen name="OnboardingLocation" component={OnboardingLocationScreen} />
             <Stack.Screen name="ExpertiseSelection" component={ExpertiseSelectionScreen} />
             <Stack.Screen name="ExpertCodeOfConduct" component={ExpertCodeOfConductScreen} />
+            {/* The permission-free half of the mandatory location step. Registered
+                here as well as in CustomerStack because onboarding runs in its own
+                navigator and cannot reach the customer one. */}
+            <Stack.Screen name="OnboardingMapPicker" component={MapAddressPickerScreen} />
         </Stack.Navigator>
     );
 }

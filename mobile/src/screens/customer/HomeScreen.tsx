@@ -50,6 +50,7 @@ import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
+import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 
 // Trust indicators data
 const TRUST_ITEMS = [
@@ -82,6 +83,11 @@ export function HomeScreen() {
 
     // Shared with the expert app so the two cannot drift apart.
     const { isServiceable } = useServiceability(profile?.pinCode);
+
+    // Accounts created before location became mandatory, and anyone who denied
+    // the permission, have no address at all. Nothing can be booked in that
+    // state, so the prompt blocks the screen rather than sitting under it.
+    const profileGaps = isProfileIncomplete(profile);
 
     // `isLoading` drives skeletons on first paint; `isRefetching` drives the
     // pull-to-refresh spinner. Binding the spinner to isLoading made it appear
@@ -128,6 +134,13 @@ export function HomeScreen() {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" backgroundColor={colors.backgroundDark} />
+
+            {/* Waits for the profile to load, so it cannot flash on a slow request. */}
+            <ProfileCompletionGate
+                visible={!isProfileLoading && !!profile && profileGaps.incomplete}
+                missingAddress={profileGaps.missingAddress}
+                missingPinCode={profileGaps.missingPinCode}
+            />
 
             {/* Hero Header */}
             <View style={[styles.header, { paddingTop: headerTop }]}>

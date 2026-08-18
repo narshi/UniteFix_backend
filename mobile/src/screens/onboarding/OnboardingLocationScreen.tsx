@@ -23,7 +23,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Location from 'expo-location';
-import { MapPin, Navigation, AlertCircle, CheckCircle2 } from 'lucide-react-native';
+import { MapPin, Navigation, AlertCircle, CheckCircle2, Map } from 'lucide-react-native';
 import { OnboardingStackParamList } from '../../types/navigation.types';
 import { useAuthStore } from '../../stores/auth.store';
 import { customerApi, SavedAddress } from '../../api/customer.api';
@@ -58,7 +58,10 @@ export function OnboardingLocationScreen() {
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
-                setError('Location permission denied. You can type your address instead.');
+                setError(
+                    'Location permission denied. Pick your location on the map instead — ' +
+                    'we cannot serve you without it.',
+                );
                 return;
             }
 
@@ -163,11 +166,13 @@ export function OnboardingLocationScreen() {
                     <MapPin size={28} color={colors.primary} strokeWidth={2.2} />
                 </View>
 
-                <Text style={styles.title}>Where are you located?</Text>
+                <Text style={styles.title}>
+                    {isTechnician ? 'What is your base location?' : 'Where are you located?'}
+                </Text>
                 <Text style={styles.subtitle}>
                     {isTechnician
-                        ? 'We use this to match you with nearby jobs.'
-                        : 'We use this to find technicians near you.'}
+                        ? 'Your base location decides which jobs reach you. Allow location access or pick it on the map — this is required.'
+                        : 'We use this to find technicians near you. Allow location access or pick it on the map — this is required.'}
                 </Text>
 
                 <Pressable
@@ -185,9 +190,23 @@ export function OnboardingLocationScreen() {
                     </Text>
                 </Pressable>
 
+                {/* The second of the two ways in. Denying the permission has to
+                    leave a route that still produces a real address, or the
+                    account carries on with nothing — which is exactly how
+                    existing accounts ended up blank. */}
+                <Pressable
+                    style={styles.mapBtn}
+                    onPress={() =>
+                        navigation.navigate('OnboardingMapPicker', { mode: 'onboarding' })
+                    }
+                >
+                    <Map size={18} color={colors.primary} strokeWidth={2.2} />
+                    <Text style={styles.detectText}>Choose on map</Text>
+                </Pressable>
+
                 <View style={styles.form}>
                     <Input
-                        label="Address *"
+                        label={isTechnician ? 'Address (Base Location) *' : 'Address *'}
                         value={address}
                         onChangeText={(t: string) => { setAddress(t); setError(null); }}
                         placeholder="House / street / landmark"
@@ -196,7 +215,7 @@ export function OnboardingLocationScreen() {
                     />
 
                     <Input
-                        label="Pin Code *"
+                        label={isTechnician ? 'Pin Code (Base Location) *' : 'Pin Code *'}
                         value={pinCode}
                         onChangeText={(t: string) => {
                             const digits = t.replace(/[^0-9]/g, '').slice(0, 6);
@@ -246,6 +265,12 @@ export function OnboardingLocationScreen() {
 }
 
 const styles = StyleSheet.create({
+    mapBtn: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: spacing.sm, paddingVertical: spacing.md, marginTop: spacing.sm,
+        borderRadius: radii.lg, borderWidth: 1.5, borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
     container: { flex: 1, backgroundColor: colors.background },
     content: { paddingHorizontal: spacing.xl, flexGrow: 1 },
     iconWrap: {

@@ -25,6 +25,7 @@ export type OnboardingStackParamList = {
     OnboardingLocation: undefined;
     ExpertiseSelection: undefined;
     ExpertCodeOfConduct: undefined;
+    OnboardingMapPicker: { mode?: 'onboarding' } | undefined;
 };
 
 

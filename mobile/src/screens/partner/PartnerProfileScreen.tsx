@@ -52,6 +52,9 @@ export function PartnerProfileScreen() {
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [homeAddress, setHomeAddress] = useState('');
+    // The expert app never offered a pin code field, so experts had no way to
+    // supply the one value serviceability and dispatch are decided on.
+    const [pinCode, setPinCode] = useState('');
     const [upiId, setUpiId] = useState('');
     const [fetchingLocation, setFetchingLocation] = useState(false);
     // PHASE 3: Online/offline toggle (Task 3.4)
@@ -64,6 +67,7 @@ export function PartnerProfileScreen() {
             setEmail(profile.email ? String(profile.email) : '');
             setPhone(profile.phone ? String(profile.phone) : '');
             setHomeAddress(profile.homeAddress ? String(profile.homeAddress) : '');
+            setPinCode(profile.pinCode ? String(profile.pinCode) : '');
         }
     }, [profile]);
 
@@ -91,8 +95,13 @@ export function PartnerProfileScreen() {
             return;
         }
 
+        if (pinCode && !/^\d{6}$/.test(pinCode)) {
+            Alert.alert('Validation Error', 'Pin code must be exactly 6 digits.');
+            return;
+        }
+
         updateProfile(
-            { username, email, homeAddress },
+            { username, email, homeAddress, pinCode },
             { onSuccess: () => { setEditing(false); Alert.alert('Saved', 'Profile updated.'); } },
         );
     };
@@ -116,6 +125,9 @@ export function PartnerProfileScreen() {
                 const addr = geocode[0];
                 const addressString = `${addr.name ? addr.name + ', ' : ''}${addr.street ? addr.street + ', ' : ''}${addr.city ? addr.city + ', ' : ''}${addr.region || ''}`.replace(/,\s*$/, "");
                 setHomeAddress(addressString);
+                // Filled from the same lookup — leaving it blank was the whole
+                // reason experts ended up with an address but no pin code.
+                if (addr.postalCode) setPinCode(String(addr.postalCode));
             }
         } catch (error) {
             console.error('Error fetching location:', error);
@@ -241,9 +253,12 @@ export function PartnerProfileScreen() {
                         <Input label="Full Name" value={username} onChangeText={setUsername} icon={<User size={18} color={colors.textSecondary} />} />
                         <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" icon={<Mail size={18} color={colors.textSecondary} />} />
                         <Input label="Phone (Read-only)" value={phone} editable={false} style={{ color: colors.textSecondary }} icon={<Phone size={18} color={colors.textSecondary} />} />
-                        <Input 
-                            label="Address" 
-                            value={homeAddress} 
+                        {/* "Base location", not "address": for an expert this is
+                            where they work FROM, and it decides which jobs reach
+                            them - not somewhere a technician is sent. */}
+                        <Input
+                            label="Address (Base Location)"
+                            value={homeAddress}
                             onChangeText={setHomeAddress} 
                             icon={<MapPin size={18} color={colors.textSecondary} />} 
                             rightElement={
@@ -260,6 +275,15 @@ export function PartnerProfileScreen() {
                                 </TouchableOpacity>
                             }
                         />
+                        <Input
+                            label="Pin Code (Base Location)"
+                            value={pinCode}
+                            onChangeText={(t: string) => setPinCode(t.replace(/\D/g, '').slice(0, 6))}
+                            keyboardType="number-pad"
+                            maxLength={6}
+                            placeholder="6 digits"
+                            icon={<Shield size={18} color={colors.textSecondary} />}
+                        />
                         <View style={styles.editActions}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditing(false)}>
                                 <Text style={styles.cancelText}>Cancel</Text>
@@ -274,7 +298,8 @@ export function PartnerProfileScreen() {
                         <InfoRow icon={User} label="Name" value={displayName} />
                         <InfoRow icon={Mail} label="Email" value={profile?.email || 'Not set'} />
                         <InfoRow icon={Phone} label="Phone" value={profile?.phone || 'Not set'} />
-                        <InfoRow icon={MapPin} label="Address" value={profile?.homeAddress || 'Not set'} />
+                        <InfoRow icon={MapPin} label="Address (Base Location)" value={profile?.homeAddress || 'Not set'} />
+                        <InfoRow icon={Shield} label="Pin Code (Base Location)" value={profile?.pinCode || 'Not set'} />
                     </View>
                 )}
             </View>

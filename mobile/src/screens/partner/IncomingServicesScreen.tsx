@@ -18,6 +18,7 @@ import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell, AlertTriangle } f
 import { useAssignments } from '../../hooks/usePartnerData';
 import { useProfile, useUnreadNotificationCount } from '../../hooks/useCustomerData';
 import { useServiceability } from '../../hooks/useServiceability';
+import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { useAuthStore } from '../../stores/auth.store';
 import { Assignment } from '../../api/partner.api';
 import { colors } from '../../theme/colors';
@@ -97,6 +98,13 @@ export function IncomingServicesScreen() {
     const { data: profile } = useProfile();
     const storedPin = useAuthStore((s) => s.user?.pinCode);
     const { isServiceable, pinCode } = useServiceability(profile?.pinCode ?? storedPin);
+
+    // An expert with no base location is never assigned anything, and nothing
+    // on screen says why. Blocks rather than warns, for the same reason.
+    const profileGaps = isProfileIncomplete({
+        homeAddress: profile?.homeAddress,
+        pinCode: profile?.pinCode ?? storedPin,
+    });
 
     // Show incoming (non-completed, non-denied) first
     const incoming = (assignments || []).filter(
@@ -181,6 +189,13 @@ export function IncomingServicesScreen() {
 
     return (
         <View style={styles.container}>
+            <ProfileCompletionGate
+                visible={!!profile && profileGaps.incomplete}
+                isExpert
+                missingAddress={profileGaps.missingAddress}
+                missingPinCode={profileGaps.missingPinCode}
+            />
+
             <View style={[styles.header, { paddingTop: headerTop }]}>
                 <View style={styles.headerRow}>
                     <View style={styles.headerTextCol}>
