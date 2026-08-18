@@ -91,6 +91,17 @@ export function registerTechnicianTypeRoutes(app: Express) {
                 });
             }
 
+            // The app strips digits as they are typed, but this list is shared
+            // across every expert and an admin has to curate it — so the rule is
+            // enforced here too rather than trusting the client. Letters of any
+            // script are fine; "Electrician123" is not.
+            if (/[0-9]/.test(name)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "A trade name cannot contain numbers.",
+                });
+            }
+
             const existing = await findByName(name);
             if (existing) {
                 // Reactivate rather than leaving the expert unable to pick a trade

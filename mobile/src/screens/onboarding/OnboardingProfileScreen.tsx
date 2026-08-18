@@ -24,6 +24,11 @@ import { OnboardingStackParamList } from '../../types/navigation.types';
 import { useAuthStore } from '../../stores/auth.store';
 import { customerApi } from '../../api/customer.api';
 import { getApiErrorMessage } from '../../api/client';
+import {
+    sanitizePersonName,
+    hasDisallowedPersonChars,
+    validatePersonName,
+} from '../../utils/nameInput';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
@@ -53,8 +58,9 @@ export function OnboardingProfileScreen() {
     }, [user?.username, user?.email]);
 
     const handleContinue = async () => {
-        if (!fullName.trim()) {
-            setError('Please enter your full name');
+        const nameError = validatePersonName(fullName);
+        if (nameError) {
+            setError(nameError);
             return;
         }
         if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
@@ -111,11 +117,21 @@ export function OnboardingProfileScreen() {
                 </Text>
 
                 <View style={styles.form}>
+                    {/* Digits and symbols are stripped as they are typed rather
+                        than rejected on submit — the field simply will not take
+                        a number, so there is nothing to correct later. */}
                     <Input
                         label="Full Name *"
                         value={fullName}
-                        onChangeText={(t: string) => { setFullName(t); setError(null); }}
+                        onChangeText={(t: string) => {
+                            setFullName(sanitizePersonName(t));
+                            setError(hasDisallowedPersonChars(t)
+                                ? 'Your name can only contain letters.'
+                                : null);
+                        }}
                         placeholder="e.g. Ravi Kumar"
+                        autoCapitalize="words"
+                        maxLength={60}
                         icon={<User size={18} color={colors.textSecondary} />}
                     />
 

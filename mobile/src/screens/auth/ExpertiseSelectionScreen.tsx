@@ -20,7 +20,7 @@
  *       → RootNavigator switches to the partner app / pending-verification screen
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -40,6 +40,12 @@ import { useAuthStore } from '../../stores/auth.store';
 import { apiClient } from '../../api/client';
 import { useScreenInsets } from '../../theme/layout';
 import { useNavigation } from '@react-navigation/native';
+import {
+  sanitizeTradeName,
+  hasDisallowedTradeChars,
+  validateTradeName,
+  nameKey,
+} from '../../utils/nameInput';
 
 interface TradeOption {
   id: number;
@@ -87,6 +93,7 @@ export function ExpertiseSelectionScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingCustom, setIsAddingCustom] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const listRef = useRef<FlatList<TradeOption>>(null);
 
   useEffect(() => {
     fetchServices();
@@ -135,8 +142,31 @@ export function ExpertiseSelectionScreen() {
     const value = customText.trim();
     if (!value || isAddingCustom) return;
 
-    if (value.length < 3) {
-      setError('Please enter at least 3 characters.');
+    const lengthError = validateTradeName(value);
+    if (lengthError) {
+      setError(lengthError);
+      return;
+    }
+
+    const key = nameKey(value);
+
+    // Already ticked — say so instead of silently doing nothing, which read as
+    // a broken button.
+    if (selected.some((s) => nameKey(s) === key)) {
+      setError(`You have already added "${value}".`);
+      return;
+    }
+
+    // Already in the curated list — tick it rather than asking the server to
+    // create a duplicate. The server dedupes case-insensitively too, but this
+    // way the expert sees the existing entry get selected, and a search that
+    // simply missed the row (different spacing, different case) still works.
+    const existing = options.find((o) => nameKey(o.name) === key);
+    if (existing) {
+      setSelected((prev) => [...prev, existing.name]);
+      setCustomText('');
+      setQuery('');
+      setError(null);
       return;
     }
 
@@ -148,18 +178,24 @@ export function ExpertiseSelectionScreen() {
       const name: string = created?.name ?? value;
 
       // Show it in the list immediately so the tick is visible, not just chipped.
+      // The server may return a canonical spelling ("electrician" -> "Electrician"),
+      // so dedupe on the returned name, not the typed one.
       setOptions((prev) =>
-        prev.some((o) => o.name.toLowerCase() === name.toLowerCase())
+        prev.some((o) => nameKey(o.name) === nameKey(name))
           ? prev
           : [...prev, { id: created?.id ?? -Date.now(), name }],
       );
-      setSelected((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      setSelected((prev) =>
+        prev.some((s) => nameKey(s) === nameKey(name)) ? prev : [...prev, name],
+      );
       setCustomText('');
       setQuery('');
     } catch (err: any) {
       // Offline or rejected — keep it locally so signup is not blocked. The
       // name still saves onto the profile; it just is not in the shared list.
-      if (!selected.includes(value)) setSelected((prev) => [...prev, value]);
+      setSelected((prev) =>
+        prev.some((s) => nameKey(s) === key) ? prev : [...prev, value],
+      );
       setCustomText('');
       console.warn('[EXPERTISE] Could not register trade:', err?.message);
     } finally {
@@ -276,10 +312,16 @@ export function ExpertiseSelectionScreen() {
           </View>
         ) : (
           <FlatList
+            ref={listRef}
             data={filtered}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderRow}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            // Without flex:1 the list sizes itself to its content inside the
+            // flex column, overflows the screen and cannot be scrolled — which
+            // is why the trades below the fold were unreachable.
+            style={styles.list}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
@@ -294,9 +336,23 @@ export function ExpertiseSelectionScreen() {
                   <TextInput
                     style={styles.customInput}
                     value={customText}
-                    onChangeText={(t) => { setCustomText(t); setError(null); }}
+                    onChangeText={(t) => {
+                      setCustomText(sanitizeTradeName(t));
+                      setError(hasDisallowedTradeChars(t)
+                        ? 'A trade name cannot contain numbers.'
+                        : null);
+                    }}
+                    // This input is the last thing in the list, so the keyboard
+                    // opens straight over it. Scrolling to the end once the
+                    // keyboard has begun animating lifts it into view.
+                    onFocus={() => {
+                      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 120);
+                    }}
                     placeholder="e.g. Welder"
                     placeholderTextColor={colors.textDisabled}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    maxLength={50}
                     returnKeyType="done"
                     onSubmitEditing={addCustom}
                   />
@@ -390,7 +446,8 @@ const styles = StyleSheet.create({
     flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12,
   },
   loadingText: { fontSize: fontSizes.sm, color: colors.textSecondary },
-  listContent: { paddingHorizontal: 24, paddingBottom: 24 },
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: 24, paddingBottom: 24, flexGrow: 1 },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 14, paddingHorizontal: 16, marginBottom: 8,
