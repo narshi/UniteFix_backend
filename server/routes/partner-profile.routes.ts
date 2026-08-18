@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { authenticatePartner as requireAuth } from "../middleware/auth.middleware";
 import { RazorpayXService } from "../services/razorpayx.service";
 import logger from "../lib/logger";
+import { syncEmployeeTechnicianTypes } from "../lib/expertise-matching";
 
 import { Express } from "express";
 
@@ -128,6 +129,18 @@ export function registerPartnerProfileRoutes(app: Express) {
         .set({ services: cleanedServices, updatedAt: new Date() })
         .where(eq(employees.id, employee.id))
         .returning();
+
+      // Mirror the names into employee_technician_types. That id table is what
+      // assignment matching joins on; employees.services stays the display copy.
+      // Not fatal if it fails — the expert has still saved their trades, and the
+      // migration backfill can repair the link.
+      try {
+        await syncEmployeeTechnicianTypes(employee.id, cleanedServices);
+      } catch (syncError: any) {
+        logger.warn("[PARTNER_PROFILE] Could not sync technician type ids", {
+          employeeId: employee.id, error: syncError.message,
+        });
+      }
 
       res.json({ success: true, message: "Expertise updated successfully", data: updated });
     } catch (error: any) {

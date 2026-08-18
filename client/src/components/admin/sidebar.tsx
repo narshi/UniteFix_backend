@@ -17,6 +17,7 @@ const navigation: Array<{ name: string; href: string; icon: string; superAdminOn
   { name: "Service Catalog", href: "/admin/catalog", icon: "category" },
   { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long" },
   { name: "Technician Types", href: "/admin/technician-types", icon: "engineering" },
+  { name: "Category Expertise", href: "/admin/category-expertise", icon: "hub" },
   { name: "Product Orders", href: "/orders", icon: "shopping_cart" },
   { name: "Inventory", href: "/admin/inventory", icon: "inventory_2" },
   { name: "Employees", href: "/partners", icon: "handyman" },

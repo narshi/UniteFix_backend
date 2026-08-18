@@ -13,7 +13,7 @@
 
 import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray, count as sqlCount } from "drizzle-orm";
-import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories } from "@shared/schema";
+import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
 
 interface ServiceFilters {
@@ -468,6 +468,7 @@ export class AdminServiceManager {
                 createdAt: serviceRequests.createdAt,
                 customerName: users.username,
                 customerPhone: users.phone,
+                categoryId: serviceCategories.id,
                 categoryName: serviceCategories.name,
                 serviceName: servicesCatalog.name,
             })
@@ -550,6 +551,61 @@ export class AdminServiceManager {
             })
         );
 
+        // 2b. Attach expertise matching.
+        //
+        // The queue UI used to compare an employee’s trade names against the
+        // booking’s serviceType (a catalog SERVICE name), which are different
+        // vocabularies, so nothing ever matched. Both sides are now resolved
+        // through technician type IDS via the category mapping.
+        //
+        // Two small lookups for the whole page rather than one per row — both
+        // tables are tiny (a handful of trades per category).
+        const categoryTypeRows = await db
+            .select({
+                categoryId: serviceCategoryTechnicianTypes.categoryId,
+                typeId: serviceCategoryTechnicianTypes.technicianTypeId,
+                typeName: technicianTypes.name,
+            })
+            .from(serviceCategoryTechnicianTypes)
+            .innerJoin(technicianTypes, eq(technicianTypes.id, serviceCategoryTechnicianTypes.technicianTypeId));
+
+        const employeeTypeRows = await db
+            .select({
+                employeeId: employeeTechnicianTypes.employeeId,
+                typeId: employeeTechnicianTypes.technicianTypeId,
+            })
+            .from(employeeTechnicianTypes);
+
+        const typesByCategory = new Map<number, { ids: number[]; names: string[] }>();
+        for (const r of categoryTypeRows) {
+            const entry = typesByCategory.get(r.categoryId) ?? { ids: [], names: [] };
+            entry.ids.push(r.typeId);
+            entry.names.push(r.typeName);
+            typesByCategory.set(r.categoryId, entry);
+        }
+
+        const typesByEmployee = new Map<number, number[]>();
+        for (const r of employeeTypeRows) {
+            typesByEmployee.set(r.employeeId, [...(typesByEmployee.get(r.employeeId) ?? []), r.typeId]);
+        }
+
+        const queueWithExpertise = queue.map((r) => {
+            const mapped = r.categoryId != null ? typesByCategory.get(r.categoryId) : undefined;
+            return {
+                ...r,
+                // Empty means unrestricted — either the booking carries no catalog
+                // service, or the category has no trades mapped. The client must
+                // treat that as “everyone qualifies”, never “nobody does”.
+                requiredTechnicianTypeIds: mapped?.ids ?? [],
+                requiredTechnicianTypeNames: mapped?.names ?? [],
+            };
+        });
+
+        const employeesWithTypes = enrichedEmployees.map((e) => ({
+            ...e,
+            technicianTypeIds: typesByEmployee.get(e.id) ?? [],
+        }));
+
         // 3. Compute stats
         const totalPending = queue.length;
         const urgentCount = queue.filter((r) => r.urgency === 'urgent').length;
@@ -561,8 +617,8 @@ export class AdminServiceManager {
             : 0;
 
         return {
-            queue,
-            employees: enrichedEmployees,
+            queue: queueWithExpertise,
+            employees: employeesWithTypes,
             stats: { totalPending, urgentCount, avgWaitHours, oldestHours },
         };
     }

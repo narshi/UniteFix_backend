@@ -27,6 +27,7 @@ import MarketingPage from "@/pages/admin/marketing";
 import AdminsPage from "@/pages/admin/admins";
 import ManualBillPage from "@/pages/admin/manual-bill";
 import TechnicianTypesPage from "@/pages/admin/technician-types";
+import CategoryExpertisePage from "@/pages/admin/category-expertise";
 import { useAdminMe } from "@/lib/admin-auth";
 
 /**
@@ -179,6 +180,7 @@ function Router() {
           </Route>
           <Route path="/admin/manual-bill" component={ManualBillPage} />
           <Route path="/admin/technician-types" component={TechnicianTypesPage} />
+          <Route path="/admin/category-expertise" component={CategoryExpertisePage} />
           <Route path="/admin/catalog" component={ServiceCatalogPage} />
           <Route path="/admin/assignments" component={AssignmentQueuePage} />
           <Route path="/admin/support-tickets" component={SupportTicketsPage} />

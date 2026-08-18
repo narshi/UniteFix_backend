@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, json, jsonb, doublePrecision, decimal, index, uniqueIndex, pgEnum, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, json, jsonb, doublePrecision, decimal, index, uniqueIndex, pgEnum, varchar, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -781,6 +781,46 @@ export const technicianTypes = pgTable("technician_types", {
   // migration — Drizzle cannot express a functional index here, and without it
   // "Electrician" and "electrician" would both be creatable.
   activeSortIdx: index("technician_types_active_sort_idx").on(table.isActive, table.sortOrder),
+}));
+
+/**
+ * Which trades can take work from a service category.
+ *
+ * Assignment needs to answer "who can do this job?", and until now the queue
+ * compared employees.services (trade names, "Computer Technician") against
+ * service_requests.service_type (catalog service names, "CCTV Installation").
+ * Those are different vocabularies, so the match never fired and every expert
+ * looked equally suitable.
+ *
+ * Mapped at CATEGORY level, not per service: services inside a category are
+ * done by the same trades, so per-service rows would be admin busywork with no
+ * extra signal. A category with no rows here means "no trade restriction known"
+ * and every expert stays eligible — see resolveEligibleEmployeeIds.
+ */
+export const serviceCategoryTechnicianTypes = pgTable("service_category_technician_types", {
+  categoryId: integer("category_id").notNull().references(() => serviceCategories.id, { onDelete: "cascade" }),
+  technicianTypeId: integer("technician_type_id").notNull().references(() => technicianTypes.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.categoryId, table.technicianTypeId] }),
+  typeIdx: index("sctt_technician_type_idx").on(table.technicianTypeId),
+}));
+
+/**
+ * An expert's trades, by id.
+ *
+ * employees.services stores trade NAMES, so renaming a type in the admin CRUD
+ * page silently detached every expert holding it. This table is the durable
+ * link; employees.services is kept in step as a display copy so existing
+ * readers (admin table, CSV export, the app's profile screen) keep working.
+ */
+export const employeeTechnicianTypes = pgTable("employee_technician_types", {
+  employeeId: integer("employee_id").notNull().references(() => employees.id, { onDelete: "cascade" }),
+  technicianTypeId: integer("technician_type_id").notNull().references(() => technicianTypes.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.employeeId, table.technicianTypeId] }),
+  typeIdx: index("ett_technician_type_idx").on(table.technicianTypeId),
 }));
 
 // Counter-sale bills raised at the shop for in-house visits.

@@ -34,6 +34,11 @@ interface QueueItem {
   customerName: string;
   customerPhone: string;
   waitingHours: number;
+  categoryId?: number | null;
+  categoryName?: string | null;
+  /** Trades that can work this booking. Empty means no restriction. */
+  requiredTechnicianTypeIds?: number[];
+  requiredTechnicianTypeNames?: string[];
 }
 
 interface EmployeeItem {
@@ -42,6 +47,8 @@ interface EmployeeItem {
   partnerId: string;
   phone: string;
   services: string[];
+  /** Trade ids the expert holds. Matched against a booking's requirement. */
+  technicianTypeIds?: number[];
   isOnline: boolean;
   activeJobCount: number;
   completedJobCount: number;
@@ -114,13 +121,37 @@ export default function AssignmentQueuePage() {
     return filtered;
   }, [queue, searchTerm, urgencyFilter, serviceTypeFilter]);
 
-  // Sort employees: matching service type first, then by fewest active jobs
+  /**
+   * Is this expert qualified for the selected booking?
+   *
+   * Previously this compared emp.services (trade names, "Computer Technician")
+   * against request.serviceType (a catalog SERVICE name, "CCTV Installation").
+   * Those are different vocabularies, so it was always false — the Match badge
+   * never appeared and the sort did nothing. Both sides are now technician type
+   * IDS, resolved server-side through the category mapping.
+   *
+   * An empty requirement list means the category has no trades mapped (or the
+   * booking carries no catalog service). That reads as "no restriction known",
+   * so EVERYONE qualifies — never nobody.
+   */
+  const isQualified = (emp: EmployeeItem, request: QueueItem | null): boolean => {
+    if (!request) return false;
+    const required = request.requiredTechnicianTypeIds ?? [];
+    if (required.length === 0) return true;
+    return (emp.technicianTypeIds ?? []).some((id) => required.includes(id));
+  };
+
+  /** True when the booking imposes no trade requirement at all. */
+  const isUnrestricted = (request: QueueItem | null): boolean =>
+    !request || (request.requiredTechnicianTypeIds ?? []).length === 0;
+
+  // Sort employees: qualified first, then by fewest active jobs
   const sortedEmployees = useMemo(() => {
     const sorted = [...employees];
     sorted.sort((a, b) => {
       if (selectedRequest) {
-        const aMatches = a.services?.includes(selectedRequest.serviceType) ? 1 : 0;
-        const bMatches = b.services?.includes(selectedRequest.serviceType) ? 1 : 0;
+        const aMatches = isQualified(a, selectedRequest) ? 1 : 0;
+        const bMatches = isQualified(b, selectedRequest) ? 1 : 0;
         if (aMatches !== bMatches) return bMatches - aMatches;
       }
       // Online first
@@ -130,6 +161,11 @@ export default function AssignmentQueuePage() {
     });
     return sorted;
   }, [employees, selectedRequest]);
+
+  const qualifiedCount = useMemo(
+    () => sortedEmployees.filter((e) => isQualified(e, selectedRequest)).length,
+    [sortedEmployees, selectedRequest],
+  );
 
   // Assign mutation
   const assignMutation = useMutation({
@@ -375,8 +411,43 @@ export default function AssignmentQueuePage() {
                 </div>
               ) : (
                 <div className="space-y-2">
+                  {/* States why experts are ordered the way they are — without it
+                      the Match badges look arbitrary. */}
+                  <div className="mb-3 px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.06)]">
+                    {isUnrestricted(selectedRequest) ? (
+                      <p className="text-[11px] text-[hsl(215,20%,60%)]">
+                        No trade mapped for{" "}
+                        <span className="text-[hsl(210,20%,80%)]">
+                          {selectedRequest.categoryName ?? "this booking"}
+                        </span>
+                        {" "}— every expert is eligible.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-[11px] text-[hsl(215,20%,60%)] mb-1">
+                          {selectedRequest.categoryName} needs:
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {(selectedRequest.requiredTechnicianTypeNames ?? []).map((t) => (
+                            <Badge
+                              key={t}
+                              className="bg-[hsla(217,91%,60%,0.15)] text-[hsl(217,91%,70%)] border-0 text-[10px] px-1.5 py-0"
+                            >
+                              {t}
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-[hsl(215,20%,45%)] mt-1.5">
+                          {qualifiedCount} of {sortedEmployees.length} available experts qualify. Others can still be assigned.
+                        </p>
+                      </>
+                    )}
+                  </div>
                   {sortedEmployees.map((emp) => {
-                    const matchesService = emp.services?.includes(selectedRequest.serviceType);
+                    const matchesService = isQualified(emp, selectedRequest);
+                    // No badge when nothing is required — flagging every expert
+                    // as a "Match" would make the badge meaningless.
+                    const showMatchBadge = matchesService && !isUnrestricted(selectedRequest);
                     return (
                       <div
                         key={emp.id}
@@ -393,7 +464,7 @@ export default function AssignmentQueuePage() {
                               {emp.isOnline && (
                                 <span className="w-2 h-2 bg-[hsl(160,84%,60%)] shadow-[0_0_8px_hsla(160,84%,60%,0.8)] rounded-full" title="Online" />
                               )}
-                              {matchesService && (
+                              {showMatchBadge && (
                                 <Badge className="bg-[hsla(217,91%,60%,0.2)] text-[hsl(217,91%,70%)] border-0 text-[10px] px-1.5 py-0">
                                   Match
                                 </Badge>
@@ -424,6 +495,16 @@ export default function AssignmentQueuePage() {
                               disabled={assignMutation.isPending}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // Advisory, not a gate. On a night when nobody
+                                // with the right trade is free the job still has
+                                // to go out, so this confirms rather than blocks.
+                                if (!matchesService) {
+                                  const trades = (selectedRequest.requiredTechnicianTypeNames ?? []).join(", ");
+                                  const ok = window.confirm(
+                                    `${emp.fullName} is not registered for ${trades || "this work"}.\n\nAssign anyway?`
+                                  );
+                                  if (!ok) return;
+                                }
                                 assignMutation.mutate({
                                   requestId: selectedRequest.id,
                                   employeeId: emp.id,

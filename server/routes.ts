@@ -17,6 +17,9 @@ import {
   users,
   employees,
   invoices as invoicesTable,
+  serviceCategories,
+  serviceCategoryTechnicianTypes,
+  technicianTypes,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -25,6 +28,8 @@ import crypto from "crypto";
 import { TokenService } from "./services/token.service";
 import { configService } from "./services/config.service";
 import logger from "./lib/logger";
+import { recordAudit } from "./lib/audit";
+import { syncEmployeeTechnicianTypes, getCategoryTechnicianTypes, setCategoryTechnicianTypes } from "./lib/expertise-matching";
 import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pagination";
 // PHASE 7: Import modular route registrations
 import { registerAdminRoutes } from "./routes/admin.routes";
@@ -1264,6 +1269,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const provider = Object.keys(employeeUpdates).length > 0
         ? await storage.updateServiceProvider(id, employeeUpdates)
         : existing;
+
+      // Keep the technician-type ids in step whenever an admin edits the trade
+      // list, so assignment matching does not go stale behind the display copy.
+      if (b.services !== undefined) {
+        try {
+          await syncEmployeeTechnicianTypes(id, Array.isArray(b.services) ? b.services : []);
+        } catch (syncError: any) {
+          logger.warn("[ADMIN] Could not sync technician type ids", { employeeId: id, error: syncError.message });
+        }
+      }
 
       const [user] = await db.select().from(users).where(eq(users.id, existing.userId)).limit(1);
 
@@ -2735,6 +2750,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serviceable: isServiceable, // Match mobile app expectation
         valid: isServiceable,       // Keep for backward compatibility
         message: isServiceable ? "Valid pin code" : "Service not available in your area"
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // ============ CATEGORY -> TECHNICIAN TYPE MAPPING ============
+  //
+  // Decides which trades are suitable for a booking in a given category, which
+  // is what the assignment queue ranks experts on. Mapped per CATEGORY, not per
+  // service: services inside a category are worked by the same trades, so
+  // per-service rows would be admin busywork with no extra signal.
+  //
+  // A category with NO rows means "no trade restriction known" and leaves every
+  // expert eligible — that is the correct reading for Professional & Property,
+  // Transport, Events and Specialized, where no technician type applies.
+
+  /** All categories with their mapped trades, for the admin editor. */
+  app.get("/api/admin/category-technician-types", authenticateAdmin, async (req, res, next) => {
+    try {
+      const rows = await db
+        .select({
+          categoryId: serviceCategories.id,
+          categoryName: serviceCategories.name,
+          technicianTypeId: serviceCategoryTechnicianTypes.technicianTypeId,
+          technicianTypeName: technicianTypes.name,
+        })
+        .from(serviceCategories)
+        .leftJoin(
+          serviceCategoryTechnicianTypes,
+          eq(serviceCategoryTechnicianTypes.categoryId, serviceCategories.id),
+        )
+        .leftJoin(
+          technicianTypes,
+          eq(technicianTypes.id, serviceCategoryTechnicianTypes.technicianTypeId),
+        )
+        .orderBy(serviceCategories.sortOrder, serviceCategories.name);
+
+      const byCategory = new Map<number, any>();
+      for (const r of rows) {
+        if (!byCategory.has(r.categoryId)) {
+          byCategory.set(r.categoryId, {
+            categoryId: r.categoryId,
+            categoryName: r.categoryName,
+            technicianTypes: [] as { id: number; name: string }[],
+          });
+        }
+        if (r.technicianTypeId != null) {
+          byCategory.get(r.categoryId).technicianTypes.push({
+            id: r.technicianTypeId,
+            name: r.technicianTypeName,
+          });
+        }
+      }
+
+      res.json({ success: true, data: Array.from(byCategory.values()) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /** Trades mapped to one category. */
+  app.get("/api/admin/categories/:id/technician-types", authenticateAdmin, async (req, res, next) => {
+    try {
+      const categoryId = parseInt(req.params.id);
+      if (!Number.isInteger(categoryId)) {
+        return res.status(400).json({ success: false, message: "Invalid category id" });
+      }
+      const data = await getCategoryTechnicianTypes(categoryId);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Replace a category's trade mapping.
+   * Sending an empty array is meaningful — it makes the category unrestricted.
+   */
+  app.put("/api/admin/categories/:id/technician-types", authenticateAdmin, async (req, res, next) => {
+    try {
+      const categoryId = parseInt(req.params.id);
+      if (!Number.isInteger(categoryId)) {
+        return res.status(400).json({ success: false, message: "Invalid category id" });
+      }
+
+      const [category] = await db
+        .select({ id: serviceCategories.id, name: serviceCategories.name })
+        .from(serviceCategories)
+        .where(eq(serviceCategories.id, categoryId))
+        .limit(1);
+      if (!category) {
+        return res.status(404).json({ success: false, message: "Category not found" });
+      }
+
+      const raw = req.body?.technicianTypeIds;
+      if (!Array.isArray(raw)) {
+        return res.status(400).json({ success: false, message: "technicianTypeIds must be an array" });
+      }
+
+      const saved = await setCategoryTechnicianTypes(categoryId, raw.map(Number));
+
+      // recordAudit never throws by design, so no catch is needed here.
+      await recordAudit({
+        entityType: "service_category",
+        entityId: categoryId,
+        action: "category_trades_updated",
+        changedBy: (req as any).admin?.userId ?? null,
+        metadata: { categoryName: category.name, technicianTypeIds: saved },
+      });
+
+      const data = await getCategoryTechnicianTypes(categoryId);
+      res.json({
+        success: true,
+        message: saved.length === 0
+          ? `${category.name} is now unrestricted — every expert stays eligible`
+          : `${category.name} mapped to ${saved.length} trade(s)`,
+        data,
       });
     } catch (error) {
       next(error);

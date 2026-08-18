@@ -24,6 +24,7 @@ export type AuditEntity =
     | 'product_order'
     | 'return_request'
     | 'payment'
+    | 'service_category'
     | 'db_console'
     | 'admin_user';
 
