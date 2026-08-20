@@ -101,7 +101,11 @@ apiClient.interceptors.response.use(
             try {
                 const refreshToken = useAuthStore.getState().refreshToken;
                 if (!refreshToken) {
-                    throw new Error('No refresh token');
+                    // Nothing to refresh with - this really is a signed-out state,
+                    // unlike the network failures handled below.
+                    processQueue(error, null);
+                    useAuthStore.getState().logout();
+                    return Promise.reject(error);
                 }
 
                 const { data } = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
@@ -116,7 +120,29 @@ apiClient.interceptors.response.use(
                 return apiClient(originalRequest);
             } catch (refreshError) {
                 processQueue(refreshError, null);
-                useAuthStore.getState().logout();
+
+                // Only sign out when the SERVER has actually rejected the refresh
+                // token. Previously any failure here logged the user out, so a
+                // dropped connection at a 15-minute token boundary - a tunnel, a
+                // lift, a moment of bad signal, a 502 during a deploy - ended the
+                // session and forced a fresh OTP. That is what was burning the
+                // SMS quota and what users were reporting as random logouts.
+                //
+                // A network error means "we do not know yet", not "you are signed
+                // out". The request fails, the session survives, and the next
+                // request retries the refresh.
+                const status = (refreshError as AxiosError)?.response?.status;
+                const rejectedByServer = status === 401 || status === 403;
+
+                if (rejectedByServer) {
+                    useAuthStore.getState().logout();
+                } else if (__DEV__) {
+                    console.warn(
+                        '[API] Token refresh failed without a server rejection - keeping the session.',
+                        status ?? (refreshError as Error)?.message,
+                    );
+                }
+
                 return Promise.reject(refreshError);
             } finally {
                 isRefreshing = false;

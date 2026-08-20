@@ -7,6 +7,26 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/**
+ * Is this response the admin session ending?
+ *
+ * The middleware now returns 401 for an EXPIRED admin token and keeps 403 for a
+ * malformed or revoked one. Both mean the dashboard has to send the user back
+ * to the login screen, and both used to be treated as ordinary errors on the
+ * 403 path — leaving an expired admin staring at failing pages with a dead
+ * token still in localStorage.
+ */
+function isAdminSessionOver(status: number, url: string): boolean {
+    const isAdminCall = url.includes("/api/admin/") || url.includes("/api/service-partners");
+    return isAdminCall && (status === 401 || status === 403);
+}
+
+function endAdminSession(): void {
+    localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminUser");
+    window.location.reload();
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -31,11 +51,8 @@ export async function apiRequest(
   });
 
   if (!res.ok) {
-    if (res.status === 401 && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
-      // Admin token expired or invalid, clear storage and redirect to login
-      localStorage.removeItem("adminToken");
-      localStorage.removeItem("adminUser");
-      window.location.reload();
+    if (isAdminSessionOver(res.status, url)) {
+      endAdminSession();
       return;
     }
 
@@ -70,18 +87,13 @@ export const getQueryFn: <T>(options: {
         headers,
       });
 
-      if (res.status === 401) {
-        if (url.includes("/api/admin/") || url.includes("/api/service-partners")) {
-          // Admin token expired or invalid, clear storage and redirect to login
-          localStorage.removeItem("adminToken");
-          localStorage.removeItem("adminUser");
-          window.location.reload();
-          return;
-        }
+      if (isAdminSessionOver(res.status, url)) {
+        endAdminSession();
+        return;
+      }
 
-        if (unauthorizedBehavior === "returnNull") {
-          return null;
-        }
+      if (res.status === 401 && unauthorizedBehavior === "returnNull") {
+        return null;
       }
 
       await throwIfResNotOk(res);

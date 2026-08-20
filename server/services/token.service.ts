@@ -44,6 +44,12 @@ export interface TokenPair {
 export class TokenService {
     static readonly ACCESS_TOKEN_EXPIRY = '15m';
     static readonly REFRESH_TOKEN_EXPIRY_DAYS = 30;
+    /**
+     * How long a just-rotated refresh token keeps working. Long enough to
+     * survive a lost write or a retry, short enough that a leaked token is
+     * useless almost immediately.
+     */
+    static readonly ROTATION_GRACE_MS = 60 * 1000;
 
     /**
      * Generate access + refresh token pair.
@@ -108,6 +114,17 @@ export class TokenService {
             return null;
         }
 
+        // Inside the grace window this is a token we rotated moments ago. Not an
+        // error - it is the retry path that keeps a client with a lost write
+        // signed in - but worth seeing, because repeated reuse of one token from
+        // different devices is what theft looks like.
+        if (stored.expiresAt.getTime() - Date.now() <= this.ROTATION_GRACE_MS) {
+            logger.info('Refresh token reused inside rotation grace window', {
+                userId: stored.userId,
+                msLeft: stored.expiresAt.getTime() - Date.now(),
+            });
+        }
+
         if (new Date() > stored.expiresAt) {
             // Delete expired token
             await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
@@ -115,8 +132,23 @@ export class TokenService {
             return null;
         }
 
-        // Rotate: invalidate old token
-        await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
+        // Rotate, but with a GRACE WINDOW rather than an immediate delete.
+        //
+        // Deleting straight away meant any client that failed to persist the new
+        // token got permanently signed out: the app is killed mid-refresh, or the
+        // SecureStore write fails, and the next launch presents a token the
+        // server has already destroyed. The only way back is a fresh OTP, which
+        // is what was burning the SMS quota.
+        //
+        // Keeping the old row valid for a few more seconds lets exactly that case
+        // recover, while still ending the token’s life almost immediately. Reuse
+        // is logged so a genuinely stolen token is still visible.
+        const graceUntil = new Date(Date.now() + this.ROTATION_GRACE_MS);
+        if (stored.expiresAt > graceUntil) {
+            await db.update(refreshTokens)
+                .set({ expiresAt: graceUntil })
+                .where(eq(refreshTokens.id, stored.id));
+        }
 
         // Generate new pair with the stored payload
         const payload: TokenPayload = {

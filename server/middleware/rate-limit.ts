@@ -24,6 +24,19 @@ export const identityLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+/**
+ * Token refresh and logout. See RATE_LIMIT_CONFIG.session — refreshing is a
+ * routine operation on a 15-minute cycle, not a credential guess, and the
+ * strict auth limit was signing users out and costing them an OTP.
+ */
+export const sessionLimiter = rateLimit({
+    windowMs: RATE_LIMIT_CONFIG.session.windowMs,
+    max: RATE_LIMIT_CONFIG.session.max,
+    message: { success: false, message: RATE_LIMIT_CONFIG.session.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 export const mobileLimiter = rateLimit({
     windowMs: RATE_LIMIT_CONFIG.mobileApi.windowMs,
     max: RATE_LIMIT_CONFIG.mobileApi.max,

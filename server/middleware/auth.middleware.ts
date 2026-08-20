@@ -198,7 +198,25 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
     let decoded: any;
     try {
         decoded = jwt.verify(token, JWT_SECRET) as any;
-    } catch (error) {
+    } catch (error: any) {
+        // 401, not 403, when the token has simply EXPIRED.
+        //
+        // 403 means "we know who you are and you may not do this", which is not
+        // what an 8-hour-old admin token is. The dashboard only treats 401 as
+        // "session over", so returning 403 left an expired admin looking at a
+        // page of errors with a dead token still in localStorage, instead of
+        // being sent to the login screen.
+        //
+        // Deliberately NOT changed for the customer/partner middleware: the
+        // mobile client refreshes on 403, so moving those to 401 would break
+        // token refresh entirely.
+        if (error?.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Admin session expired. Please sign in again.',
+                code: 'SESSION_EXPIRED',
+            });
+        }
         return res.status(403).json({
             success: false,
             message: 'Invalid or expired admin token'

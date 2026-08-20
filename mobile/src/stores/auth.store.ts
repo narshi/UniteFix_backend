@@ -54,8 +54,16 @@ interface AuthState {
 async function secureSet(key: string, value: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(key, value);
-  } catch (err) {
-    console.warn(`[AUTH_STORE] Failed to write ${key}:`, err);
+  } catch (firstError) {
+    // Retried once before giving up. A dropped write here used to be invisible
+    // and fatal: the rotated refresh token lived only in memory, so the next
+    // launch presented the old one, the server had already rotated it away, and
+    // the user was signed out and had to request a new OTP.
+    try {
+      await SecureStore.setItemAsync(key, value);
+      return;
+    } catch { /* fall through to the warning below */ }
+    console.warn(`[AUTH_STORE] Failed to write ${key} (after retry):`, firstError);
   }
 }
 

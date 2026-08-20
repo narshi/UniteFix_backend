@@ -60,7 +60,7 @@ import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes
 import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { registerPartnerProfileRoutes } from "./routes/partner-profile.routes";
-import { authLimiter, identityLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
+import { authLimiter, identityLimiter, sessionLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
@@ -204,7 +204,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   const IDENTITY_PATHS = /^\/(check-phone|truecaller|fallback|email)/;
 
+  /**
+   * Session upkeep, NOT authentication. Access tokens live 15 minutes, so every
+   * signed-in device hits /refresh about four times an hour. Under the strict
+   * 5-per-15-minutes auth limit — keyed on IP, and carriers NAT thousands of
+   * subscribers behind one — refreshes started returning 429, the app treated
+   * that as a dead session and signed people out, and each logout cost a fresh
+   * OTP. There is no credential to guess here: refresh presents a 64-byte random
+   * token.
+   */
+  const SESSION_PATHS = /^\/(refresh|logout)/;
+
   app.use("/api/auth", (req, res, next) => {
+    if (SESSION_PATHS.test(req.path)) return sessionLimiter(req, res, next);
     if (IDENTITY_PATHS.test(req.path)) return identityLimiter(req, res, next);
     return authLimiter(req, res, next);
   });

@@ -40,6 +40,27 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
         message: 'Too many verification attempts. Please wait a few minutes and try again.',
     },
 
+    /**
+     * Token refresh and logout.
+     *
+     * These were falling under `auth` (5 per 15 minutes, keyed on IP) and that
+     * was the cause of the short-interval logouts. Access tokens live 15
+     * minutes, so every signed-in device refreshes roughly every 15 minutes, and
+     * mobile carriers NAT thousands of subscribers behind one address — a
+     * handful of users on the same carrier IP exhausted the window almost
+     * immediately. The refresh then 429'd and the app signed them out, so they
+     * had to request a fresh OTP.
+     *
+     * A strict limit buys nothing here anyway: refresh presents a 64-byte random
+     * token, so there is no credential to guess. This is generous enough for
+     * many devices behind one NAT while still capping a runaway client.
+     */
+    session: {
+        windowMs: 15 * 60 * 1000,
+        max: 300,
+        message: 'Too many session requests. Please try again shortly.',
+    },
+
     // Mobile app endpoints - moderate limits
     mobileApi: {
         windowMs: 60 * 1000,  // 1 minute
