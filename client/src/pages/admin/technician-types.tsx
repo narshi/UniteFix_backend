@@ -129,7 +129,7 @@ export default function TechnicianTypesPage() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8 relative z-10 stagger-enter">
         <div>
           <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">
-            Technician Types
+            Service Expert Types
           </h1>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">
             The trades a service expert picks during signup. At least one is required to finish signup.
@@ -202,7 +202,7 @@ export default function TechnicianTypesPage() {
                     {rows.length === 0 && (
                       <tr>
                         <td colSpan={6} className="text-center py-10 text-[hsl(215,20%,55%)]">
-                          {query.activeFilterCount > 0 ? "No types match these filters" : "No technician types yet."}
+                          {query.activeFilterCount > 0 ? "No types match these filters" : "No service expert types yet."}
                         </td>
                       </tr>
                     )}
@@ -281,7 +281,7 @@ export default function TechnicianTypesPage() {
         <DialogContent className="max-w-md glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.9)]">
           <DialogHeader>
             <DialogTitle className="text-xl text-white">
-              {editing ? `Edit "${editing.name}"` : "New technician type"}
+              {editing ? `Edit "${editing.name}"` : "New service expert type"}
             </DialogTitle>
             <DialogDescription className="text-[hsl(215,20%,60%)]">
               {editing?.source === "expert"

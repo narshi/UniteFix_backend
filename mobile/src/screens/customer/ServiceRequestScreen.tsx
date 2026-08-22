@@ -236,7 +236,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
                                                 Alert.alert(
                                                     'Booking Confirmed! ✅',
-                                                    `Your ₹${bookingFee} booking fee has been paid. We will assign a technician soon.`,
+                                                    `Your ₹${bookingFee} booking fee has been paid. We will assign a service expert soon.`,
                                                     [{ text: 'OK', onPress: () => navigation.reset({
                                                         index: 0,
                                                         routes: [{
@@ -265,7 +265,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                             // No payment required (Razorpay not configured / dev mode)
                                             Alert.alert(
                                                 'Request Submitted! ✅',
-                                                'Your service request has been created. We will assign a technician soon.',
+                                                'Your service request has been created. We will assign a service expert soon.',
                                                 [{ text: 'OK', onPress: () => navigation.reset({
                                                     index: 0,
                                                     routes: [{

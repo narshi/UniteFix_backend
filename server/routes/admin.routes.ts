@@ -116,7 +116,7 @@ export function registerAdminRoutes(app: Express) {
 
             const updated = await AdminServiceManager.assignTechnician(serviceId, technicianId, adminId);
 
-            res.json({ message: "Technician assigned successfully", service: updated });
+            res.json({ message: "Service expert assigned successfully", service: updated });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }
@@ -143,7 +143,7 @@ export function registerAdminRoutes(app: Express) {
                 adminId
             );
 
-            res.json({ message: "Technician reassigned successfully", service: updated });
+            res.json({ message: "Service expert reassigned successfully", service: updated });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }

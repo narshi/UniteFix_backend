@@ -463,7 +463,7 @@ export default function ServiceCatalogPage() {
                     <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>GST ({gstPct}%)</span><span className="font-mono">₹{breakdown.gst.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Platform fee ({feePct}%)</span><span className="font-mono">₹{breakdown.fee.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Booking charge (upfront)</span><span className="font-mono">₹{breakdown.booking.toFixed(2)}</span></div>
-                    <div className="flex justify-between text-[hsl(160,84%,65%)] font-semibold border-t border-[rgba(255,255,255,0.06)] pt-1.5"><span>Technician earns</span><span className="font-mono">₹{breakdown.technician.toFixed(2)}</span></div>
+                    <div className="flex justify-between text-[hsl(160,84%,65%)] font-semibold border-t border-[rgba(255,255,255,0.06)] pt-1.5"><span>Service Expert earns</span><span className="font-mono">₹{breakdown.technician.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(215,20%,55%)] text-xs pt-1">
                       <span>Customer pays ₹{bookingCharge} now, ₹{(Number(priceInput) - bookingCharge).toFixed(0)} after</span>
                       <span>Σ ₹{breakdown.sum.toFixed(2)}</span>

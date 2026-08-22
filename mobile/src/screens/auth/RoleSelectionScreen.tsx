@@ -45,7 +45,7 @@ const ROLES: RoleOption[] = [
     id: 'user',
     title: 'Customer',
     subtitle: 'Book services & shop products',
-    description: 'Get expert repair services at your doorstep. Book technicians, track jobs, and shop quality products.',
+    description: 'Get expert repair services at your doorstep. Book service experts, track jobs, and shop quality products.',
     icon: User,
     gradient: [colors.primary, colors.primaryDark],
   },

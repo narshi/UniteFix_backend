@@ -205,7 +205,7 @@ export function PartnerProfileScreen() {
                 </View>
                 <Text style={styles.displayName}>{displayName}</Text>
                 <View style={styles.rolePill}>
-                    <Text style={styles.roleText}>🔧 Employee / Technician</Text>
+                    <Text style={styles.roleText}>🔧 Service Expert</Text>
                 </View>
 
                 {/* Verification status */}

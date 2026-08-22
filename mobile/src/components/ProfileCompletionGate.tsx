@@ -79,7 +79,7 @@ export function ProfileCompletionGate({
                         We still need {what}.{' '}
                         {isExpert
                             ? 'Your base location decides which jobs reach you — without it you will not be assigned any work.'
-                            : 'We use it to check that we serve your area and to send a technician to the right place.'}
+                            : 'We use it to check that we serve your area and to send a service expert to the right place.'}
                     </Text>
 
                     <Pressable style={styles.button} onPress={goToProfile}>

@@ -2249,7 +2249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isAdmin && !cancellableStates.includes(service.status)) {
         return res.status(400).json({
           success: false,
-          message: "Cannot cancel after technician has been assigned. Please contact support.",
+          message: "Cannot cancel after a service expert has been assigned. Please contact support.",
           data: {
             whatsappLink: `https://wa.me/${process.env.WHATSAPP_BUSINESS_NUMBER || '919999999999'}?text=${encodeURIComponent(`Booking #${service.id}: I need to cancel`)}`,
           },

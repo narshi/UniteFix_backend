@@ -15,7 +15,7 @@ type NavigationProp = NativeStackNavigationProp<HomeStackParamList & CustomerTab
 
 // Banner copy per category; anything unmapped gets the generic line.
 const CATEGORY_TAGLINES: Record<string, string> = {
-    'IT & Security': 'Installation & repair by certified technicians',
+    'IT & Security': 'Installation & repair by certified service experts',
     'Appliances & Utilities': 'Keep your home running smoothly',
     'Repairs & Maintenance': 'Quick fixes by skilled professionals',
     'Professional & Property': 'Consultants & experts you can trust',

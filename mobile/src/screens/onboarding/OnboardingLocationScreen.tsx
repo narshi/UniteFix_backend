@@ -172,7 +172,7 @@ export function OnboardingLocationScreen() {
                 <Text style={styles.subtitle}>
                     {isTechnician
                         ? 'Your base location decides which jobs reach you. Allow location access or pick it on the map — this is required.'
-                        : 'We use this to find technicians near you. Allow location access or pick it on the map — this is required.'}
+                        : 'We use this to find service experts near you. Allow location access or pick it on the map — this is required.'}
                 </Text>
 
                 <Pressable

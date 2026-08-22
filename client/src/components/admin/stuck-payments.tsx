@@ -110,7 +110,7 @@ export function StuckPayments() {
                 <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Booking</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
-                  <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Technician</th>
+                  <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service Expert</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Amount Due</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Waiting</th>
                   <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider text-right">Action</th>

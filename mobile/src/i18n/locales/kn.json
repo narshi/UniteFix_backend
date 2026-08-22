@@ -92,10 +92,10 @@
       "request_id": "ವಿನಂತಿ ಐಡಿ",
       "status": "ಸ್ಥಿತಿ",
       "service_type": "ಸೇವೆಯ ಪ್ರಕಾರ",
-      "technician": "ತಂತ್ರಜ್ಞ",
+      "technician": "ಸೇವಾ ತಜ್ಞ",
       "call_technician": "ಕರೆ ಮಾಡಿ",
       "otp_for_service": "ಸೇವಾ OTP",
-      "share_otp_msg": "ತಂತ್ರಜ್ಞರು ಬಂದಾಗ ಈ OTP ಯನ್ನು ಹಂಚಿಕೊಳ್ಳಿ",
+      "share_otp_msg": "ಸೇವಾ ತಜ್ಞರು ಬಂದಾಗ ಈ OTP ಯನ್ನು ಹಂಚಿಕೊಳ್ಳಿ",
       "cancel_request": "ವಿನಂತಿಯನ್ನು ರದ್ದುಗೊಳಿಸಿ",
       "total_amount": "ಒಟ್ಟು ಮೊತ್ತ",
       "pay_now": "ಈಗ ಪಾವತಿಸಿ"

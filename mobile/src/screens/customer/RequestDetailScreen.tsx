@@ -81,9 +81,9 @@ const SERVICE_ICONS: Record<string, { icon: any; color: string }> = {
 // Full state machine timeline matching AI_CONTEXT.md §3.B
 const getTimelineSteps = (bookingFee: number) => [
     { key: 'created', label: 'Booking Created', sublabel: `Paid ₹${bookingFee} booking fee`, icon: CreditCard },
-    { key: 'assigned', label: 'Technician Assigned', sublabel: 'On the way to your location', icon: User },
-    { key: 'accepted', label: 'Technician Accepted', sublabel: 'OTP generated for verification', icon: Shield },
-    { key: 'reached', label: 'Technician Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
+    { key: 'assigned', label: 'Service Expert Assigned', sublabel: 'On the way to your location', icon: User },
+    { key: 'accepted', label: 'Service Expert Accepted', sublabel: 'OTP generated for verification', icon: Shield },
+    { key: 'reached', label: 'Service Expert Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
     { key: 'in_progress', label: 'Service In Progress', sublabel: 'OTP verified, work started', icon: Wrench },
     { key: 'pending_payment', label: 'Payment Due', sublabel: 'Final bill ready for payment', icon: IndianRupee },
     { key: 'completed', label: 'Completed', sublabel: 'Service successfully finished', icon: CheckCircle },
@@ -357,7 +357,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 
                 // Verify payment
                 await customerApi.verifyPayment(paymentResponse);
-                Alert.alert('Success', 'Booking fee paid successfully. We will assign a technician soon.', [
+                Alert.alert('Success', 'Booking fee paid successfully. We will assign a service expert soon.', [
                     { text: 'OK', onPress: () => navigation.goBack() }
                 ]);
             }
@@ -572,7 +572,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 {request.servicemanName && (
                     <View style={styles.techCard}>
                         <Text style={styles.sectionTitle}>
-                            {isTerminal ? 'Service Partner' : 'Assigned Technician'}
+                            {isTerminal ? 'Service Partner' : 'Assigned Service Expert'}
                         </Text>
                         <View style={styles.techRow}>
                             <View style={styles.techAvatar}>

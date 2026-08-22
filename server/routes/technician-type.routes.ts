@@ -249,7 +249,7 @@ export function registerTechnicianTypeRoutes(app: Express) {
 
             const [existing] = await db.select().from(technicianTypes).where(eq(technicianTypes.id, id));
             if (!existing) {
-                return res.status(404).json({ success: false, message: "Technician type not found" });
+                return res.status(404).json({ success: false, message: "Service expert type not found" });
             }
 
             const updates: any = { updatedAt: new Date() };
@@ -309,7 +309,7 @@ export function registerTechnicianTypeRoutes(app: Express) {
 
             const [existing] = await db.select().from(technicianTypes).where(eq(technicianTypes.id, id));
             if (!existing) {
-                return res.status(404).json({ success: false, message: "Technician type not found" });
+                return res.status(404).json({ success: false, message: "Service expert type not found" });
             }
 
             // How many experts already list this trade, so the admin is told

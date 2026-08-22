@@ -92,10 +92,10 @@
       "request_id": "Request ID",
       "status": "Status",
       "service_type": "Service Type",
-      "technician": "Technician",
+      "technician": "Service Expert",
       "call_technician": "Call",
       "otp_for_service": "Service OTP",
-      "share_otp_msg": "Share this with technician upon arrival",
+      "share_otp_msg": "Share this with your service expert upon arrival",
       "cancel_request": "Cancel Request",
       "total_amount": "Total Amount",
       "pay_now": "Pay Now"

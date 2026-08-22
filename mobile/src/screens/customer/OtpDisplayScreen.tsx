@@ -120,7 +120,7 @@ export function OtpDisplayScreen({ navigation, route }: Props) {
                     <ShieldCheck size={36} color={colors.textInverse} />
                 </View>
 
-                <Text style={styles.title}>Show this code to your technician</Text>
+                <Text style={styles.title}>Show this code to your service expert</Text>
                 <Text style={styles.subtitle}>
                     Share this OTP with the assigned technician to verify the service handshake
                 </Text>
@@ -182,9 +182,9 @@ export function OtpDisplayScreen({ navigation, route }: Props) {
                 {/* Info */}
                 <View style={styles.infoCard}>
                     <Text style={styles.infoTitle}>How it works</Text>
-                    <Text style={styles.infoStep}>1. The technician arrives at your location</Text>
+                    <Text style={styles.infoStep}>1. The service expert arrives at your location</Text>
                     <Text style={styles.infoStep}>2. Share this OTP code verbally</Text>
-                    <Text style={styles.infoStep}>3. Technician enters the OTP to start service</Text>
+                    <Text style={styles.infoStep}>3. The service expert enters the OTP to start service</Text>
                 </View>
             </View>
         </View>

@@ -218,7 +218,7 @@ export class AdminServiceManager {
             .where(eq(employees.id, technicianId));
 
         if (!technician || !technician.isActive) {
-            throw new Error("Technician not found or inactive");
+            throw new Error("Service expert not found or inactive");
         }
 
         // Update service
@@ -282,7 +282,7 @@ export class AdminServiceManager {
             .where(eq(employees.id, newTechnicianId));
 
         if (!newTech || !newTech.isActive) {
-            throw new Error("New technician not found or inactive");
+            throw new Error("New service expert not found or inactive");
         }
 
         // Update service
