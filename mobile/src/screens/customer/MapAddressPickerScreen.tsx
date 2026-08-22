@@ -3,7 +3,7 @@ import {
     View, StyleSheet, Text, TouchableOpacity, TextInput,
     ActivityIndicator, Alert, FlatList, Keyboard, Platform,
 } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { ArrowLeft, MapPin, Search, X, Navigation } from 'lucide-react-native';
@@ -39,6 +39,12 @@ type ParamList = {
     MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' | 'profile' };
 };
 
+/**
+ * Where the map opens when the device will not say where it is: the middle of
+ * the area we actually serve, rather than the null island the map defaults to.
+ */
+const FALLBACK_COORDS = { latitude: 14.9637, longitude: 74.7094 }; // Yellapur
+
 export function MapAddressPickerScreen() {
     const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
@@ -52,6 +58,8 @@ export function MapAddressPickerScreen() {
 
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** Separate from the search debounce above; they fire independently. */
+    const geocodeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [region, setRegion] = useState<Region | null>(null);
     const [markerCoordinate, setMarkerCoordinate] = useState<{ latitude: number, longitude: number } | null>(null);
@@ -60,6 +68,12 @@ export function MapAddressPickerScreen() {
     const [label, setLabel] = useState('Home');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    // True while the map is moving under the pin, so the sheet can say
+    // "Locating…" instead of showing the previous address as if it were current.
+    const [isMoving, setIsMoving] = useState(false);
+    // The centre the map settled on. Kept in a ref as well as state because
+    // onRegionChangeComplete fires outside React's batching on Android.
+    const centreRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
     // Autocomplete state
     const [searchQuery, setSearchQuery] = useState('');
@@ -69,24 +83,40 @@ export function MapAddressPickerScreen() {
 
     useEffect(() => {
         (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Permission to access location was denied');
-                setLoading(false);
-                return;
-            }
-
-            let location = await Location.getCurrentPositionAsync({});
-            const initialCoords = {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
+            /**
+             * Start somewhere usable even without permission.
+             *
+             * This screen is the permission-free half of the mandatory location
+             * step, so denying the prompt has to leave a working map. Previously
+             * it showed an alert and left region null, which opened the map
+             * zoomed out on the whole world with nothing to drag from - exactly
+             * the user we most need to help.
+             */
+            const start = async () => {
+                try {
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (status !== 'granted') return null;
+                    const pos = await Location.getCurrentPositionAsync({
+                        accuracy: Location.Accuracy.Balanced,
+                    });
+                    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                } catch {
+                    return null;
+                }
             };
+
+            const coords = await start();
+            const initialCoords = coords ?? FALLBACK_COORDS;
+
             setRegion({
                 ...initialCoords,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
+                // Wider when we are guessing, so the user can see enough to
+                // recognise where to drag to.
+                latitudeDelta: coords ? 0.01 : 0.08,
+                longitudeDelta: coords ? 0.01 : 0.08,
             });
             setMarkerCoordinate(initialCoords);
+            centreRef.current = initialCoords;
             reverseGeocode(initialCoords.latitude, initialCoords.longitude);
             setLoading(false);
         })();
@@ -96,6 +126,7 @@ export function MapAddressPickerScreen() {
     useEffect(() => {
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
+            if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
         };
     }, []);
 
@@ -188,7 +219,13 @@ export function MapAddressPickerScreen() {
                 };
                 setRegion(newRegion);
                 setMarkerCoordinate({ latitude: lat, longitude: lng });
-                mapRef.current?.animateToRegion(newRegion, 1000);
+                centreRef.current = { latitude: lat, longitude: lng };
+                // The map animates and settles under the same fixed pin, so the
+                // search result and a manual drag end up in the same state.
+                mapRef.current?.animateToRegion(newRegion, 600);
+                // The formatted address from Places is better than our reverse
+                // geocode, so suppress the settle-triggered lookup that follows.
+                if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
                 setAddressText(json.result.formatted_address || prediction.description);
 
                 const postal = (json.result.address_components || []).find(
@@ -207,10 +244,44 @@ export function MapAddressPickerScreen() {
         setShowSuggestions(false);
     };
 
-    const handleMapPress = (e: any) => {
-        const coords = e.nativeEvent.coordinate;
-        setMarkerCoordinate(coords);
-        reverseGeocode(coords.latitude, coords.longitude);
+    /**
+     * The map stopped moving — whatever is under the centre pin is the choice.
+     *
+     * Debounced because a drag settles in bursts and every call is a geocode;
+     * without it a single flick could fire several lookups and the last one to
+     * return, not the last one requested, would win.
+     */
+    const handleRegionSettled = (next: Region) => {
+        const centre = { latitude: next.latitude, longitude: next.longitude };
+        centreRef.current = centre;
+        setMarkerCoordinate(centre);
+        setIsMoving(false);
+
+        if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
+        geocodeDebounce.current = setTimeout(() => {
+            reverseGeocode(centre.latitude, centre.longitude);
+        }, 350);
+    };
+
+    /** Back to the user's own position after dragging away. */
+    const recentreOnUser = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Location permission denied', 'Drag the map to your location instead.');
+                return;
+            }
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            mapRef.current?.animateToRegion({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+            }, 600);
+            // onRegionChangeComplete picks the address up from here.
+        } catch {
+            Alert.alert('Could not find you', 'Drag the map to your location instead.');
+        }
     };
 
     const handleSave = async () => {
@@ -311,17 +382,46 @@ export function MapAddressPickerScreen() {
                 <View style={{ width: 24 }} />
             </View>
 
-            <MapView
-                ref={mapRef}
-                style={styles.map}
-                region={region || undefined}
-                onPress={handleMapPress}
-                showsUserLocation
-            >
-                {markerCoordinate && (
-                    <Marker coordinate={markerCoordinate} />
-                )}
-            </MapView>
+            {/*
+              * The pin is FIXED at the centre of the screen and the map moves
+              * underneath it — the pattern every delivery app uses. Tapping an
+              * exact rooftop is fiddly on a phone; dragging the map is a coarse
+              * gesture that lands accurately.
+              *
+              * initialRegion, NOT region. A controlled `region` prop re-centres
+              * the map on every state update, which fights the user's own drag
+              * and makes it stutter or snap back. Programmatic moves go through
+              * animateToRegion instead.
+              */}
+            <View style={styles.mapWrap}>
+                <MapView
+                    ref={mapRef}
+                    style={styles.map}
+                    initialRegion={region || undefined}
+                    onRegionChange={() => { if (!isMoving) setIsMoving(true); }}
+                    onRegionChangeComplete={handleRegionSettled}
+                    showsUserLocation
+                    showsMyLocationButton={false}
+                />
+
+                {/* pointerEvents none, or the pin would swallow the drag. */}
+                <View style={styles.pinWrap} pointerEvents="none">
+                    <MapPin
+                        size={40}
+                        color={colors.primary}
+                        fill={colors.primary}
+                        strokeWidth={1.5}
+                        // Lifts while moving, so it reads as hovering over the map.
+                        style={{ transform: [{ translateY: isMoving ? -8 : 0 }] }}
+                    />
+                    {/* Marks the exact point the pin refers to. */}
+                    <View style={styles.pinDot} />
+                </View>
+
+                <TouchableOpacity style={styles.locateBtn} onPress={recentreOnUser}>
+                    <Navigation size={20} color={colors.primary} />
+                </TouchableOpacity>
+            </View>
 
             {/* Search Bar + Autocomplete */}
             <View style={styles.searchContainer}>
@@ -390,7 +490,15 @@ export function MapAddressPickerScreen() {
                     ))}
                 </View>
 
-                <Text style={styles.labelTitle}>Address</Text>
+                <View style={styles.addressHeader}>
+                    <Text style={styles.labelTitle}>Address</Text>
+                    {isMoving && (
+                        <View style={styles.locatingRow}>
+                            <ActivityIndicator size="small" color={colors.primary} />
+                            <Text style={styles.locatingText}>Locating…</Text>
+                        </View>
+                    )}
+                </View>
                 <View style={styles.addressInputContainer}>
                     <MapPin size={20} color={colors.primary} style={styles.addressIcon} />
                     <TextInput
@@ -405,6 +513,7 @@ export function MapAddressPickerScreen() {
                     title="Save Address"
                     onPress={handleSave}
                     loading={saving}
+                    disabled={isMoving || !addressText.trim()}
                     fullWidth
                     style={{ marginTop: 20 }}
                 />
@@ -487,7 +596,33 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
-    map: { flex: 1 },
+    mapWrap: { flex: 1 },
+    addressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    locatingRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    locatingText: { ...typography.caption, color: colors.primary },
+    map: { ...StyleSheet.absoluteFillObject },
+    pinWrap: {
+        ...StyleSheet.absoluteFillObject,
+        alignItems: 'center',
+        justifyContent: 'center',
+        // The pin's point sits at its bottom edge, so shift the icon up by half
+        // its height to put that point exactly on the map centre.
+        marginBottom: 40,
+    },
+    pinDot: {
+        width: 8, height: 8, borderRadius: 4,
+        backgroundColor: colors.primary,
+        borderWidth: 1.5, borderColor: '#fff',
+        marginTop: -4,
+    },
+    locateBtn: {
+        position: 'absolute', right: 16, bottom: 16,
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: '#fff',
+        alignItems: 'center', justifyContent: 'center',
+        shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 }, elevation: 4,
+    },
     bottomSheet: {
         backgroundColor: colors.surface,
         padding: 20,
