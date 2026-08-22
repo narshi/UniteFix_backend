@@ -36,7 +36,7 @@ type ParamList = {
     // location step. It writes homeAddress and pinCode on the PROFILE, not just
     // savedAddresses — onboarding completeness is derived from those two fields,
     // so saving only a saved-address would leave the account stuck on this step.
-    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' };
+    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' | 'profile' };
 };
 
 export function MapAddressPickerScreen() {
@@ -44,7 +44,11 @@ export function MapAddressPickerScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
     const fromCheckout = route.params?.fromCheckout;
-    const isOnboarding = route.params?.mode === 'onboarding';
+    // Both modes set the PROFILE address, not merely a saved address:
+    // onboarding cannot complete without homeAddress + pinCode, and the profile
+    // screen offers this as the search/pick alternative to typing it by hand.
+    const mode = route.params?.mode;
+    const isOnboarding = mode === 'onboarding' || mode === 'profile';
 
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);

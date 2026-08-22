@@ -21,7 +21,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable } from 'react-native';
 import { MapPinOff } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { spacing, radii, shadows } from '../theme/spacing';
@@ -44,6 +44,18 @@ export function ProfileCompletionGate({
 }: Props) {
     const navigation = useNavigation<any>();
 
+    /**
+     * Only while the host screen is focused.
+     *
+     * The tab navigator keeps Home mounted when you switch tabs, and a React
+     * Native Modal renders above everything regardless of navigation. So tapping
+     * "Update Profile" took the user to the profile tab with this prompt still
+     * covering it - they could not edit the very field it was asking for. It
+     * also suppressed other modals, including the app-update prompt, because
+     * Android shows one Modal at a time.
+     */
+    const isFocused = useIsFocused();
+
     const addressWord = isExpert ? 'address (base location)' : 'address';
 
     const what = missingAddress && missingPinCode
@@ -60,7 +72,7 @@ export function ProfileCompletionGate({
 
     return (
         <Modal
-            visible={visible}
+            visible={visible && isFocused}
             transparent
             animationType="fade"
             // No-op: the prompt must not be dismissable with the hardware back

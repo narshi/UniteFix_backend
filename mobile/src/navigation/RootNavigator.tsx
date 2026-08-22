@@ -35,6 +35,27 @@ const RootStack = createNativeStackNavigator();
 /** Identifier of the notification response already replayed on a cold start. */
 const LAST_NOTIFICATION_KEY = 'uf_last_notification_response';
 
+/**
+ * A key that is stable for one notification response and never empty.
+ *
+ * request.identifier alone is not enough: FCM data-only messages can arrive
+ * with it blank, and the old guard treated a blank id as "not seen before" on
+ * every launch. Falling back to the delivery time plus the payload gives
+ * something that still matches the same response across restarts.
+ */
+function notificationKey(response: any): string {
+    const request = response?.notification?.request;
+    const parts = [
+        request?.identifier,
+        response?.actionIdentifier,
+        response?.notification?.date,
+        JSON.stringify(request?.content?.data ?? {}),
+        request?.content?.title,
+    ].filter(Boolean);
+    // SecureStore values are size-limited; the head is plenty to disambiguate.
+    return parts.join('|').slice(0, 180) || 'unknown';
+}
+
 function LoadingScreen() {
     return (
         <View style={styles.loading}>
@@ -100,9 +121,15 @@ export function RootNavigator() {
      * 'RequestDetail' silently did nothing. The route carries the owning stack so
      * we can address the nested screen explicitly.
      */
-    const openNotification = (notification: any) => {
+    const openNotification = (notification: any, opts: { skipGeneric?: boolean } = {}) => {
         const route = NotificationService.getNavigationRoute(notification);
         if (!route || !navigationRef.current) return;
+
+        // A cold start is not proof the user tapped anything — the last response
+        // persists forever, so a generic marketing push would send them to the
+        // notifications screen every single launch. Only a real tap (the response
+        // listener) follows the catch-all destination.
+        if (opts.skipGeneric && route.generic) return;
 
         // The target stack only exists when the signed-in user's role matches it.
         // Ignoring a mismatch beats crashing on an unknown route name.
@@ -168,18 +195,20 @@ export function RootNavigator() {
             const response = await NotificationService.getLastNotificationResponse();
             if (cancelled || !response) return;
 
-            const id = response.notification.request.identifier;
+            // Keyed on more than request.identifier, which FCM data-only
+            // messages can deliver as an empty string. When that happened the
+            // guard below was skipped, nothing was ever recorded, and the same
+            // response replayed on every launch.
+            const id = notificationKey(response);
             const alreadyHandled = await SecureStore.getItemAsync(LAST_NOTIFICATION_KEY);
-            if (cancelled || (id && alreadyHandled === id)) return;
+            if (cancelled || alreadyHandled === id) return;
 
-            if (id) {
-                // Recorded BEFORE navigating: if the target screen throws, we must
-                // not replay the same crash on the next launch.
-                await SecureStore.setItemAsync(LAST_NOTIFICATION_KEY, id).catch(() => {});
-            }
+            // Recorded BEFORE navigating: if the target screen throws, we must
+            // not replay the same crash on the next launch.
+            await SecureStore.setItemAsync(LAST_NOTIFICATION_KEY, id).catch(() => { });
 
             // Defer a tick so the navigator has finished mounting the branch.
-            timer = setTimeout(() => openNotification(response.notification), 400);
+            timer = setTimeout(() => openNotification(response.notification, { skipGeneric: true }), 400);
         })().catch(() => {
             // A replay failure must never stop the app from starting.
         });

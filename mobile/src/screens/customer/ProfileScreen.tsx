@@ -27,6 +27,7 @@ import {
     Navigation,
     MessageCircle,
     Globe,
+    Map as MapIcon,
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
@@ -226,6 +227,11 @@ export function ProfileScreen() {
                             style={{ color: colors.textSecondary }}
                             icon={<Phone size={18} color={colors.textSecondary} />}
                         />
+                        {/* Three ways to set an address, because any one of them
+                            fails for somebody: GPS needs a permission and is wrong
+                            indoors, the map needs the user to recognise where they
+                            are, and typing needs no permission at all. Typing stays
+                            the fallback that always works. */}
                         <View style={{ position: 'relative' }}>
                             <Input
                                 label={t('profile.address')}
@@ -245,12 +251,21 @@ export function ProfileScreen() {
                                 )}
                             </TouchableOpacity>
                         </View>
+                        <TouchableOpacity
+                            style={styles.mapPickBtn}
+                            onPress={() => navigation.navigate('MapAddressPicker', { mode: 'profile' })}
+                        >
+                            <MapIcon size={17} color={colors.primary} strokeWidth={2.2} />
+                            <Text style={styles.mapPickText}>Search or pick on map</Text>
+                        </TouchableOpacity>
+
                         <Input
                             label={t('profile.pin_code')}
                             value={pinCode}
-                            onChangeText={setPinCode}
+                            onChangeText={(v: string) => setPinCode(v.replace(/\D/g, '').slice(0, 6))}
                             keyboardType="number-pad"
                             maxLength={6}
+                            placeholder="6 digits"
                         />
                         <View style={styles.editActions}>
                             <TouchableOpacity style={styles.cancelEditBtn} onPress={() => setEditing(false)}>
@@ -353,11 +368,18 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 }
 
 const styles = StyleSheet.create({
+    mapPickBtn: {
+        flexDirection: "row", alignItems: "center", justifyContent: "center",
+        gap: 8, paddingVertical: 12, marginTop: 4, marginBottom: 4,
+        borderRadius: 12, borderWidth: 1.5, borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
+    mapPickText: { ...typography.bodyMedium, color: colors.primary },
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
     scrollContent: {},
     profileHeader: {
-        alignItems: 'center',
+        alignItems: 'center',
         paddingBottom: spacing.xl,
         backgroundColor: colors.background,
         borderBottomLeftRadius: radii['2xl'],

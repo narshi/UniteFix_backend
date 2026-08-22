@@ -11,6 +11,7 @@ import { InvoiceViewScreen } from '../screens/partner/InvoiceViewScreen';
 import { SubmitBillScreen } from '../screens/partner/SubmitBillScreen';
 import { ServiceHistoryDetailScreen } from '../screens/partner/ServiceHistoryDetailScreen';
 import { ManageExpertiseScreen } from '../screens/partner/ManageExpertiseScreen';
+import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
 import { LegalScreen } from '../screens/LegalScreen';
 // Shared with the customer stack — an expert needs the same durable record of
 // assignments, wallet credits and verification decisions.
@@ -30,6 +31,9 @@ export function PartnerStack() {
             <Stack.Screen name="ManageExpertise" component={ManageExpertiseScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
+            {/* Search/pick a base location. Shared with the customer and onboarding
+                stacks; each navigator needs its own registration. */}
+            <Stack.Screen name="MapAddressPicker" component={MapAddressPickerScreen} />
         </Stack.Navigator>
     );
 }

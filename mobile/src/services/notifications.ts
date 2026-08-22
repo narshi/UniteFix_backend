@@ -213,6 +213,12 @@ export class NotificationService {
         stack: 'CustomerMain' | 'EmployeeMain';
         screen: string;
         params?: Record<string, any>;
+        /**
+         * True when the type was not recognised and this is only the catch-all
+         * destination, not somewhere the notification actually points. A cold
+         * start must not follow these — see RootNavigator.
+         */
+        generic?: boolean;
     } | null {
         const data = notification.request.content.data as Record<string, any> | undefined;
         if (!data) return null;
@@ -280,9 +286,12 @@ export class NotificationService {
 
             default:
                 // Marketing and system notifications have nowhere specific to go.
+                // Flagged generic so a cold-start replay ignores it: following
+                // this on every launch is what dumped customers on the
+                // notifications screen instead of home.
                 return isExpert
-                    ? { stack: 'EmployeeMain', screen: 'PartnerTabs', params: { screen: 'ProfileTab' } }
-                    : { stack: 'CustomerMain', screen: 'Notifications' };
+                    ? { stack: 'EmployeeMain', screen: 'PartnerTabs', params: { screen: 'ProfileTab' }, generic: true }
+                    : { stack: 'CustomerMain', screen: 'Notifications', generic: true };
         }
     }
 

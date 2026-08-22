@@ -17,8 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase
-} from 'lucide-react-native';
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase, Map as MapIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
 import * as Location from 'expo-location';
@@ -275,6 +274,14 @@ export function PartnerProfileScreen() {
                                 </TouchableOpacity>
                             }
                         />
+                        <TouchableOpacity
+                            style={styles.mapPickBtn}
+                            onPress={() => navigation.navigate('MapAddressPicker', { mode: 'profile' })}
+                        >
+                            <MapIcon size={17} color={colors.primary} strokeWidth={2.2} />
+                            <Text style={styles.mapPickText}>Search or pick on map</Text>
+                        </TouchableOpacity>
+
                         <Input
                             label="Pin Code (Base Location)"
                             value={pinCode}
@@ -428,6 +435,13 @@ function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value
 }
 
 const styles = StyleSheet.create({
+    mapPickBtn: {
+        flexDirection: "row", alignItems: "center", justifyContent: "center",
+        gap: 8, paddingVertical: 12, marginTop: 4, marginBottom: 4,
+        borderRadius: 12, borderWidth: 1.5, borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
+    mapPickText: { ...typography.bodyMedium, color: colors.primary },
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
     scrollContent: {},
