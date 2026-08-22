@@ -129,12 +129,9 @@ export function IncomingServicesScreen() {
                 <View style={styles.center}>
                     <EmptyState
                         icon={<WifiOff size={36} color={colors.error} />}
-                        title={t('common.something_went_wrong', 'Could not load assignments')}
-                        description={t(
-                            'common.check_connection',
-                            'Check your internet connection and try again.',
-                        )}
-                        actionLabel={t('common.retry', 'Retry')}
+                        title={t('partner.assignments_load_failed')}
+                        description={t('common.check_connection')}
+                        actionLabel={t('common.retry')}
                         onAction={() => refetch()}
                     />
                 </View>

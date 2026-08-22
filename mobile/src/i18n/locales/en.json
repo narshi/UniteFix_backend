@@ -38,7 +38,9 @@
       "customer": "Customer",
       "employee": "Employee",
       "switch_to_partner": "Switch to Partner Mode",
-      "switch_to_customer": "Switch to Customer Mode"
+      "switch_to_customer": "Switch to Customer Mode",
+      "phone": "Phone",
+      "name": "Name"
     },
     "service_booking": {
       "select_location": "Select Location",
@@ -127,7 +129,8 @@
       "status_cancelled": "Cancelled",
       "status_denied": "Denied",
       "unserviceable_title": "Your area is not covered yet",
-      "unserviceable_subtitle": "We do not take bookings in pin code {{pinCode}} yet, so no jobs will be assigned to you here. Update your pin code in your profile if you have moved."
+      "unserviceable_subtitle": "We do not take bookings in pin code {{pinCode}} yet, so no jobs will be assigned to you here. Update your pin code in your profile if you have moved.",
+      "assignments_load_failed": "Could not load assignments"
     },
     "auth": {
       "login_title": "Login / Sign Up",
@@ -149,13 +152,10 @@
       "success": "Success",
       "retry": "Retry",
       "yes": "Yes",
-      "no": "No"
+      "no": "No",
+      "something_went_wrong": "Something went wrong",
+      "check_connection": "Check your internet connection and try again.",
+      "unavailable": "Unavailable"
     }
-  },
-  "common": {
-    "something_went_wrong": "Could not load assignments",
-    "check_connection": "Check your internet connection and try again.",
-    "retry": "Retry",
-    "unavailable": "Unavailable"
   }
 }
