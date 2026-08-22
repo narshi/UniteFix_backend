@@ -250,7 +250,7 @@ export function HomeScreen() {
 
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent + 80 }]}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent + 48 }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
@@ -582,7 +582,7 @@ const styles = StyleSheet.create({
         lineHeight: 20,
     },
 
-    // Customer Care FAB
+    // Customer Care FAB — 3D raised effect
     fab: {
         position: 'absolute',
         bottom: 90,
@@ -590,16 +590,22 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        backgroundColor: colors.accent,
+        backgroundColor: '#10B981',
         paddingVertical: 12,
         paddingHorizontal: 18,
         borderRadius: radii.full,
-        ...shadows.lg,
-        shadowColor: colors.accentDark,
+        borderBottomWidth: 4,
+        borderBottomColor: '#059669',
+        shadowColor: '#065F46',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 10,
+        elevation: 12,
     },
     fabText: {
         fontSize: 13,
-        fontWeight: '600',
+        fontWeight: '700',
         color: '#FFFFFF',
+        letterSpacing: 0.2,
     },
 });

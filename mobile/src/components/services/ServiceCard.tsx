@@ -22,12 +22,14 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
                 onPress={onPress}
                 activeOpacity={0.7}
             >
-                <View style={[styles.iconContainer, styles.moreIconContainer]}>
-                    <Grid size={24} color={colors.primary} />
+                <View style={styles.moreContent}>
+                    <View style={[styles.iconContainer, styles.moreIconContainer]}>
+                        <Grid size={22} color={colors.primary} />
+                    </View>
+                    <Text style={styles.moreTitle}>More Services</Text>
+                    <Text style={styles.moreSubtitle}>· 25+ Categories</Text>
                 </View>
-                <Text style={styles.title}>More Services</Text>
-                <Text style={styles.moreSubtitle}>· 25+ Categories</Text>
-                <View style={styles.footer}>
+                <View style={styles.moreFooter}>
                     <Text style={styles.exploreText}>Explore</Text>
                     <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
                 </View>
@@ -88,7 +90,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
 const styles = StyleSheet.create({
     card: {
         width: '100%',
-        minHeight: 165,
+        minHeight: 140,
         backgroundColor: colors.surfaceElevated,
         borderRadius: 20,
         padding: 12,
@@ -103,10 +105,31 @@ const styles = StyleSheet.create({
         opacity: 0.75,
     },
     moreCard: {
-        backgroundColor: colors.primaryLight + '20',
+        backgroundColor: colors.primarySurface,
         borderWidth: 1,
         borderColor: colors.primaryLight,
-        borderStyle: 'dashed',
+        justifyContent: 'space-between',
+    },
+    moreContent: {
+        flex: 1,
+    },
+    moreTitle: {
+        fontSize: 13.5,
+        fontWeight: '700',
+        lineHeight: 18,
+        letterSpacing: -0.1,
+        color: colors.textPrimary,
+        marginBottom: 2,
+    },
+    moreSubtitle: {
+        fontSize: 12,
+        color: colors.textSecondary,
+    },
+    moreFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginTop: 8,
     },
     iconContainer: {
         width: 44,
