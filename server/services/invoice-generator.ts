@@ -21,6 +21,8 @@ interface InvoiceData {
      * time of supply is only valid if it appears on the invoice itself.
      */
     discountAmount: number;
+    /** Reason printed beside the discount, e.g. "Discount (Monsoon Offer):". */
+    discountLabel: string;
     /** Pre-discount value, so the customer can see what they saved. */
     grossBeforeDiscount: number;
     cgst: number;
@@ -109,6 +111,7 @@ export class InvoiceGenerator {
         // Hoisted like the parts values above: the snapshot is only in scope
         // inside the service branch below, but the totals block needs this.
         let discountAmount = 0;
+        let discountLabel = "";
 
         // If Service Invoice
         if (invoice.serviceRequestId) {
@@ -128,6 +131,7 @@ export class InvoiceGenerator {
                 // an invoice reprinted after a promotion ends must still show the
                 // promotion that was actually applied.
                 discountAmount = round2(Number(snapshot?.discountAmount ?? 0));
+                discountLabel = typeof snapshot?.discountLabel === 'string' ? snapshot.discountLabel.slice(0, 40) : "";
                 if (snapshot?.extraPartsCost > 0) {
                     approvedPartsCost = Number(snapshot.extraPartsCost);
                     approvedPartsNote = typeof snapshot.partsNote === 'string' ? snapshot.partsNote : "";
@@ -293,6 +297,7 @@ export class InvoiceGenerator {
             items,
             subtotal: taxableAmount,
             discountAmount,
+            discountLabel,
             grossBeforeDiscount: round2(taxableAmount + discountAmount),
             cgst,
             sgst,
@@ -428,7 +433,12 @@ export class InvoiceGenerator {
                 doc.text(inr(data.grossBeforeDiscount), 470, y, { width: 90, align: "right" });
 
                 y += 15;
-                doc.text("Discount:", 350, y, { width: 110, align: "right" });
+                // The reason belongs on the invoice, not just in the app: a GST
+                // discount is only valid if the invoice itself accounts for it.
+                const discountCaption = data.discountLabel
+                    ? `Discount (${data.discountLabel}):`
+                    : "Discount:";
+                doc.text(discountCaption, 260, y, { width: 200, align: "right" });
                 doc.text("-" + inr(data.discountAmount), 470, y, { width: 90, align: "right" });
             }
 

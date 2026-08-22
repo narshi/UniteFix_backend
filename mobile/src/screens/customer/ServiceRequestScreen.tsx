@@ -32,6 +32,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
 import { SavedAddress } from '../../api/customer.api';
+import { applyDiscount } from '../../utils/discount';
 
 type Props = NativeStackScreenProps<any, 'ServiceRequest'>;
 
@@ -105,7 +106,13 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     const bookingFee = publicConfig?.bookingFee ?? 99;
     const isFixedPrice = basePrice > 0;
-    const finalAfterBooking = Math.max(0, basePrice - bookingFee);
+
+    // The server bills from the pricing snapshot, which already has the discount
+    // carved in. Quoting the raw catalog price here meant showing one number and
+    // charging another.
+    const discount = applyDiscount(basePrice, publicConfig);
+    const payable = discount.payable;
+    const finalAfterBooking = Math.max(0, payable - bookingFee);
 
     // Get device GPS location on mount for geofence support
     useEffect(() => {
@@ -203,8 +210,13 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
         // Confirm booking fee before proceeding. For a fixed-price service, show the
         // full split so the customer knows the total and what's left to pay later.
+        // Naming the offer matters as much as the number — "you save ₹80" reads
+        // as arbitrary, "you save ₹80 — Monsoon Offer" reads as a reason.
+        const savingLine = discount.active
+            ? `\n\nYou save ₹${discount.saving}${discount.label ? ` — ${discount.label}` : ''}.`
+            : '';
         const confirmMessage = isFixedPrice
-            ? `Total for ${serviceName}: ₹${basePrice}.\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
+            ? `Total for ${serviceName}: ₹${payable}.${savingLine}\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
             : `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`;
         Alert.alert(
             'Confirm Booking',

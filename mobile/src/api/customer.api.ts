@@ -247,6 +247,9 @@ export const customerApi = {
             gstRate: number;
             cancelFee: number;
             platformFeePercent: number;
+            /** Platform-wide promotional discount, and why it is being given. */
+            discountPercent: number;
+            discountLabel: string;
             supportWindowHours: number;
             minWalletRedemption: number;
             whatsappNumber: string;

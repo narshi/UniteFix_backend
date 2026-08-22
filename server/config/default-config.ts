@@ -75,6 +75,14 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         isEditable: true,
     },
     {
+        key: 'BUSINESS_CONFIG.DISCOUNT_LABEL',
+        value: '',
+        valueType: 'string',
+        category: 'BUSINESS_CONFIG',
+        description: 'Why the discount is being given, e.g. "Monsoon Offer". Shown to the customer in the app and printed beside the discount line on the invoice. Frozen per booking, so a reprinted invoice names the offer that actually applied.',
+        isEditable: true,
+    },
+    {
         key: 'BUSINESS_CONFIG.CANCELLATION_FEE',
         value: '150',
         valueType: 'number',

@@ -20,6 +20,7 @@ export default function SettingsPage() {
     defaultBookingFee: 99,
     platformFeePercent: 15,
     discountPercent: 0,
+    discountLabel: '',
     gstPercentage: 18,
     cancellationFee: 150,
     maxAssignmentDays: 7,
@@ -73,6 +74,7 @@ export default function SettingsPage() {
     'BUSINESS_CONFIG.BASE_SERVICE_FEE': { field: 'defaultBookingFee', parse: Number },
     'BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT': { field: 'platformFeePercent', parse: Number },
     'BUSINESS_CONFIG.DISCOUNT_PERCENT': { field: 'discountPercent', parse: Number },
+    'BUSINESS_CONFIG.DISCOUNT_LABEL': { field: 'discountLabel', parse: String },
     'BUSINESS_CONFIG.GST_PERCENTAGE': { field: 'gstPercentage', parse: Number },
     'BUSINESS_CONFIG.CANCELLATION_FEE': { field: 'cancellationFee', parse: Number },
     'BUSINESS_CONFIG.WALLET_HOLD_DAYS': { field: 'walletHoldDays', parse: Number },
@@ -168,6 +170,7 @@ export default function SettingsPage() {
       defaultBookingFee: 99,
       platformFeePercent: 12,
       discountPercent: 0,
+      discountLabel: '',
       gstPercentage: 18,
       cancellationFee: 150,
       maxAssignmentDays: 7,
@@ -270,6 +273,23 @@ export default function SettingsPage() {
                       </p>
                     );
                   })()}
+                </div>
+                <div className="col-span-full">
+                  <Label htmlFor="discountLabel" className="text-[hsl(215,20%,75%)]">Discount Reason</Label>
+                  <Input
+                    id="discountLabel"
+                    maxLength={40}
+                    placeholder="e.g. Monsoon Offer"
+                    value={settings.discountLabel}
+                    onChange={(e) => setSettings(prev => ({ ...prev, discountLabel: e.target.value.slice(0, 40) }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                  />
+                  <p className="text-xs text-[hsl(215,20%,55%)] mt-1">
+                    Shown to customers beside the discounted price and printed on the invoice. Max 40 characters.
+                    {Number(settings.discountPercent) > 0 && !settings.discountLabel.trim()
+                      ? " A discount is active with no reason given — customers will just see a lower price."
+                      : ""}
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="gstPercentage" className="text-[hsl(215,20%,75%)]">GST Rate (%)</Label>

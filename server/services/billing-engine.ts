@@ -21,6 +21,12 @@ export interface PricingSnapshot {
   platformFeePercent: number; // 15 — from config at creation time
   gstPercent: number;         // 18 — from config at creation time
   discountPercent: number;    // 0  — promotional discount, frozen like the rates above
+  /**
+   * Why the discount was given ("Monsoon Offer"). Frozen with the percentage
+   * for the same reason: an invoice reprinted next year has to name the offer
+   * that actually applied, not whatever promotion is running when it is opened.
+   */
+  discountLabel?: string;
 
   // Frozen at bill submission (by employee)
   sparePartsCost?: number;    // ₹500 — entered by technician
@@ -64,6 +70,12 @@ function round2(x: number): number {
   return Math.round(x * 100) / 100;
 }
 
+/** Trim and cap the reason so it cannot overflow the invoice or a price card. */
+function cleanLabel(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().replace(/\s+/g, ' ').slice(0, 40);
+}
+
 /**
  * A discount is a percentage, and nothing else. A NaN from a malformed config
  * value would otherwise propagate silently through every downstream figure and
@@ -88,6 +100,7 @@ export class BillingEngine {
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
     const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
     const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');
+    const discountLabelStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_LABEL');
 
     return {
       bookingFee: Math.round(parseFloat(bookingFeeStr || '99')),
@@ -96,6 +109,7 @@ export class BillingEngine {
       // Frozen here for the same reason as the rates: ending a promotion must
       // not change the bill of a booking taken while it was running.
       discountPercent: clampPercent(parseFloat(discountStr || '0')),
+      discountLabel: clampPercent(parseFloat(discountStr || '0')) > 0 ? cleanLabel(discountLabelStr) : '',
       snapshotVersion: 1,
       createdAt: new Date().toISOString(),
     };
@@ -126,7 +140,13 @@ export class BillingEngine {
     const bookingFee = Math.round(parseFloat(bookingFeeStr || '99'));
     const platformFeePercent = parseFloat(feePercentStr || '12');
     const gstPercent = parseFloat(gstPercentStr || '18');
+    const discountLabelStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_LABEL');
     const discountPercent = clampPercent(parseFloat(discountStr || '0'));
+    // Only when a discount is actually being given. Freezing "Monsoon Offer"
+    // onto a booking that got 0% would put a reason on an invoice that shows no
+    // discount, and would make the app and the bill disagree about whether an
+    // offer applied.
+    const discountLabel = discountPercent > 0 ? cleanLabel(discountLabelStr) : '';
 
     const listPrice = Math.round(basePrice);
 
@@ -168,6 +188,7 @@ export class BillingEngine {
       platformFeePercent,
       gstPercent,
       discountPercent,
+      discountLabel,
       listPrice,
       discountAmount,
       platformSubsidised,
@@ -244,6 +265,7 @@ export class BillingEngine {
       platformFeePercent,
       gstPercent,
       discountPercent,
+      discountLabel: discountPercent > 0 ? cleanLabel(existingSnapshot.discountLabel) : '',
       snapshotVersion: existingSnapshot.snapshotVersion,
       createdAt: existingSnapshot.createdAt,
 
