@@ -26,7 +26,11 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
                     <Grid size={24} color={colors.primary} />
                 </View>
                 <Text style={styles.title}>More Services</Text>
-                <Text style={styles.subtitle}>25+ Categories</Text>
+                <Text style={styles.moreSubtitle}>· 25+ Categories</Text>
+                <View style={styles.footer}>
+                    <Text style={styles.exploreText}>Explore</Text>
+                    <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
+                </View>
             </TouchableOpacity>
         );
     }
@@ -62,13 +66,17 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
             </Text>
             
             <View style={styles.footer}>
-                <Text style={styles.subtitle} numberOfLines={2}>
-                    {service.subtitle || 'Professional service'}
-                </Text>
+                {service.basePrice != null && service.basePrice > 0 ? (
+                    <Text style={styles.priceText}>
+                        From ₹{service.basePrice}
+                    </Text>
+                ) : (
+                    <Text style={styles.subtitle} numberOfLines={2}>
+                        {service.subtitle || 'Professional service'}
+                    </Text>
+                )}
                 {service.status === 'ACTIVE' && (
-                    <View style={styles.arrowWrap}>
-                        <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
-                    </View>
+                    <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
                 )}
             </View>
             
@@ -95,12 +103,10 @@ const styles = StyleSheet.create({
         opacity: 0.75,
     },
     moreCard: {
-        backgroundColor: colors.primaryLight + '20', // 20% opacity
+        backgroundColor: colors.primaryLight + '20',
         borderWidth: 1,
         borderColor: colors.primaryLight,
         borderStyle: 'dashed',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     iconContainer: {
         width: 44,
@@ -122,9 +128,14 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
         marginBottom: 4,
     },
+    moreSubtitle: {
+        fontSize: 12,
+        color: colors.textSecondary,
+        marginBottom: 4,
+    },
     footer: {
         flexDirection: 'row',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         justifyContent: 'space-between',
         marginTop: 'auto',
     },
@@ -135,13 +146,15 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         marginRight: 6,
     },
-    arrowWrap: {
-        width: 28,
-        height: 28,
-        borderRadius: radii.full,
-        backgroundColor: colors.primarySurface,
-        alignItems: 'center',
-        justifyContent: 'center',
+    priceText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.accent,
+    },
+    exploreText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.primary,
     },
     badgeComingSoon: {
         position: 'absolute',

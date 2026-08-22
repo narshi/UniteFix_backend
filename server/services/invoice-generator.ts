@@ -15,6 +15,14 @@ interface InvoiceData {
     providerName?: string;
     items: Array<{ description: string; quantity: number; unitPrice: number; total: number }>;
     subtotal: number;
+    /**
+     * Shown as its own line before tax. A GST invoice has to account for why
+     * tax was charged on less than the listed value — a discount applied at the
+     * time of supply is only valid if it appears on the invoice itself.
+     */
+    discountAmount: number;
+    /** Pre-discount value, so the customer can see what they saved. */
+    grossBeforeDiscount: number;
     cgst: number;
     sgst: number;
     otherCharges: number;
@@ -98,6 +106,9 @@ export class InvoiceGenerator {
         // the invoice does not add up to what the customer actually paid.
         let approvedPartsCost = 0;
         let approvedPartsNote = "";
+        // Hoisted like the parts values above: the snapshot is only in scope
+        // inside the service branch below, but the totals block needs this.
+        let discountAmount = 0;
 
         // If Service Invoice
         if (invoice.serviceRequestId) {
@@ -113,6 +124,10 @@ export class InvoiceGenerator {
 
                 // PREFER pricing snapshot for accurate billing breakdown
                 const snapshot = service.pricingSnapshot as any;
+                // Read straight off the frozen snapshot, never recomputed here -
+                // an invoice reprinted after a promotion ends must still show the
+                // promotion that was actually applied.
+                discountAmount = round2(Number(snapshot?.discountAmount ?? 0));
                 if (snapshot?.extraPartsCost > 0) {
                     approvedPartsCost = Number(snapshot.extraPartsCost);
                     approvedPartsNote = typeof snapshot.partsNote === 'string' ? snapshot.partsNote : "";
@@ -277,6 +292,8 @@ export class InvoiceGenerator {
             providerName,
             items,
             subtotal: taxableAmount,
+            discountAmount,
+            grossBeforeDiscount: round2(taxableAmount + discountAmount),
             cgst,
             sgst,
             otherCharges,
@@ -402,6 +419,19 @@ export class InvoiceGenerator {
             // than a claimed percentage: v2 fixed-price bookings carve GST out
             // of the catalog price, so a hardcoded "(18%)" label would not
             // match the numbers on the page.
+            // Only when there was one — an invoice with a "Discount: ₹0.00" line
+            // reads like a mistake.
+            if (data.discountAmount > 0.01) {
+                y += 15;
+                doc.font("Helvetica");
+                doc.text("Value Before Discount:", 320, y, { width: 140, align: "right" });
+                doc.text(inr(data.grossBeforeDiscount), 470, y, { width: 90, align: "right" });
+
+                y += 15;
+                doc.text("Discount:", 350, y, { width: 110, align: "right" });
+                doc.text("-" + inr(data.discountAmount), 470, y, { width: 90, align: "right" });
+            }
+
             y += 15;
             doc.font("Helvetica-Bold");
             doc.text("Taxable Amount:", 350, y, { width: 110, align: "right" });

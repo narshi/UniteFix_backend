@@ -18,6 +18,7 @@
       "popular_services": "ಜನಪ್ರಿಯ ಸೇವೆಗಳು",
       "view_all": "ಎಲ್ಲವನ್ನು ವೀಕ್ಷಿಸಿ",
       "book_now": "ಈಗ ಬುಕ್ ಮಾಡಿ",
+      "book_service": "ಸೇವೆ ಬುಕ್ ಮಾಡಿ",
       "coming_soon": "ಶೀಘ್ರದಲ್ಲಿ ಬರಲಿದೆ"
     },
     "profile": {
@@ -65,6 +66,8 @@
       "detecting": "ಪತ್ತೆಹಚ್ಚಲಾಗುತ್ತಿದೆ...",
       "set_location": "ನಿಮ್ಮ ಸ್ಥಳವನ್ನು ಹೊಂದಿಸಿ",
       "verified_experts": "ಪರಿಶೀಲಿಸಿದ ತಜ್ಞರು",
+      "best_rated": "ಅತ್ಯುತ್ತಮ ರೇಟಿಂಗ್",
+      "prompt_service": "ತ್ವರಿತ ಸೇವೆ",
       "rated": "4.8★ ರೇಟೆಡ್",
       "fast_response": "60-ನಿಮಿಷದ ಪ್ರತಿಕ್ರಿಯೆ",
       "support_247": "24/7 ಬೆಂಬಲ"

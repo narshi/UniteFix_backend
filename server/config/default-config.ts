@@ -67,6 +67,14 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         isEditable: true,
     },
     {
+        key: 'BUSINESS_CONFIG.DISCOUNT_PERCENT',
+        value: '0',
+        valueType: 'number',
+        category: 'BUSINESS_CONFIG',
+        description: 'Promotional discount % off the service price. Comes out of the platform fee — the technician earning is held at the undiscounted level. Frozen into each booking at creation, so changing it never alters an existing bill.',
+        isEditable: true,
+    },
+    {
         key: 'BUSINESS_CONFIG.CANCELLATION_FEE',
         value: '150',
         valueType: 'number',

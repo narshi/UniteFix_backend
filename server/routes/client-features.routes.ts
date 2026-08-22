@@ -88,6 +88,9 @@ export function registerClientFeatureRoutes(app: Express) {
             const gstRate = await configService.get('BUSINESS_CONFIG.GST_PERCENTAGE', 18);
             const cancelFee = await configService.get('BUSINESS_CONFIG.CANCELLATION_FEE', 150);
             const platformFeePercent = await configService.get('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT', 15);
+            // Exposed so the app can show a struck-through list price rather than
+            // silently charging less than the catalog says.
+            const discountPercent = await configService.get('BUSINESS_CONFIG.DISCOUNT_PERCENT', 0);
             const supportWindowHours = await configService.get('BUSINESS_CONFIG.SUPPORT_WINDOW_HOURS', 48);
             const minWalletRedemption = await configService.get('BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', 500);
             const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
@@ -98,6 +101,7 @@ export function registerClientFeatureRoutes(app: Express) {
                 data: {
                     bookingFee: Number(bookingFee),
                     gstRate: Number(gstRate),
+                    discountPercent: Number(discountPercent) || 0,
                     cancelFee: Number(cancelFee),
                     platformFeePercent: Number(platformFeePercent),
                     supportWindowHours: Number(supportWindowHours),

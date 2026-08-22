@@ -18,6 +18,7 @@
       "popular_services": "Popular Services",
       "view_all": "View All",
       "book_now": "Book Now",
+      "book_service": "Book a Service",
       "coming_soon": "Coming Soon"
     },
     "profile": {
@@ -65,6 +66,8 @@
       "detecting": "Detecting...",
       "set_location": "Set your location",
       "verified_experts": "Verified Experts",
+      "best_rated": "Best Rated",
+      "prompt_service": "Prompt Service",
       "rated": "4.8★ Rated",
       "fast_response": "60-min Response",
       "support_247": "24/7 Support"

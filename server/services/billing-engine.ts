@@ -20,6 +20,7 @@ export interface PricingSnapshot {
   bookingFee: number;         // ₹99 — what customer pays upfront
   platformFeePercent: number; // 15 — from config at creation time
   gstPercent: number;         // 18 — from config at creation time
+  discountPercent: number;    // 0  — promotional discount, frozen like the rates above
 
   // Frozen at bill submission (by employee)
   sparePartsCost?: number;    // ₹500 — entered by technician
@@ -38,7 +39,15 @@ export interface PricingSnapshot {
   // In v2 the whole bill is known up front from the service's catalog price,
   // so there is no separate bill-submission step. GST, fee and the booking
   // charge are carved OUT of basePrice (they are NOT added on top).
-  basePrice?: number;          // ₹799 — the customer's all-in, GST-inclusive price P
+  listPrice?: number;          // ₹799 — catalog price BEFORE discount (the "was" price)
+  discountAmount?: number;     // ₹79.90 — listPrice × discountPercent%
+  /**
+   * True when the discount exceeded the platform fee, i.e. UniteFix is paying
+   * to do the job. Never hidden: a loss-leader can be a deliberate choice, but
+   * it must be a visible one.
+   */
+  platformSubsidised?: boolean;
+  basePrice?: number;          // ₹719.10 — what the customer actually pays, all-in
   gst?: number;                // ₹143.82 — cgst + sgst (= P × gstPercent%)
   technicianEarning?: number;  // ₹460.30 — P − gst − platformFee − bookingCharge
   extraPartsCost?: number;     // customer-approved parts add-on (pass-through to technician)
@@ -55,6 +64,16 @@ function round2(x: number): number {
   return Math.round(x * 100) / 100;
 }
 
+/**
+ * A discount is a percentage, and nothing else. A NaN from a malformed config
+ * value would otherwise propagate silently through every downstream figure and
+ * end up on a customer's invoice.
+ */
+function clampPercent(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  return Math.min(100, Math.max(0, x));
+}
+
 // ─── Engine ─────────────────────────────────────────────────────────
 
 export class BillingEngine {
@@ -68,11 +87,15 @@ export class BillingEngine {
     const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
     const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
+    const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');
 
     return {
       bookingFee: Math.round(parseFloat(bookingFeeStr || '99')),
       platformFeePercent: parseFloat(feePercentStr || '12'),
       gstPercent: parseFloat(gstPercentStr || '18'),
+      // Frozen here for the same reason as the rates: ending a promotion must
+      // not change the bill of a booking taken while it was running.
+      discountPercent: clampPercent(parseFloat(discountStr || '0')),
       snapshotVersion: 1,
       createdAt: new Date().toISOString(),
     };
@@ -98,26 +121,56 @@ export class BillingEngine {
     const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
     const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
+    const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');
 
     const bookingFee = Math.round(parseFloat(bookingFeeStr || '99'));
     const platformFeePercent = parseFloat(feePercentStr || '12');
     const gstPercent = parseFloat(gstPercentStr || '18');
+    const discountPercent = clampPercent(parseFloat(discountStr || '0'));
 
-    const P = Math.round(basePrice);
+    const listPrice = Math.round(basePrice);
+
+    // The technician's earning is computed from the UNDISCOUNTED price and then
+    // held there. A promotion is a decision the business makes; making the
+    // technician fund it is how you lose the technician. Same reasoning as the
+    // platform fee being the thing that flexes.
+    const gstOnList = round2(listPrice * gstPercent / 100);
+    const feeOnList = round2(listPrice * platformFeePercent / 100);
+    const technicianEarning = round2(listPrice - gstOnList - feeOnList - bookingFee);
+
+    // The customer-facing total stays a WHOLE RUPEE, as it was before discounts
+    // existed — service_requests.total_amount is an integer column, and a price
+    // of "₹719.10" on a catalog listing reads like a rounding error anyway. The
+    // paise settle in platformFee, which is already the balancing bucket.
+    const P = Math.round(listPrice - round2(listPrice * discountPercent / 100));
+    const discountAmount = round2(listPrice - P);   // exact, so the two reconcile
+
+    // GST follows the real transaction value, not the list price — the discount
+    // is given at the time of supply and shown on the invoice, so tax is due on
+    // the reduced amount.
     const gst = round2(P * gstPercent / 100);
-    const platformFee = round2(P * platformFeePercent / 100);
     const cgst = round2(gst / 2);
     const sgst = round2(gst - cgst);
-    const serviceValue = round2(P - gst - platformFee);          // 0.70P — customer's service line
-    const technicianEarning = round2(serviceValue - bookingFee); // 0.70P − 99
-    const taxableAmount = round2(serviceValue + platformFee);    // = P − gst
-    const finalTotal = P - bookingFee;                            // customer pays after the booking fee
+
+    // Whatever is left after tax, the booking charge and the technician is the
+    // platform's. It shrinks by the discount less the tax saved, and it can go
+    // negative — that is a real loss-leader, flagged rather than hidden.
+    const platformFee = round2(P - gst - bookingFee - technicianEarning);
+    const platformSubsidised = platformFee < 0;
+
+    const serviceValue = round2(P - gst - platformFee);          // = technician + booking charge
+    const taxableAmount = round2(P - gst);
+    const finalTotal = Math.max(0, round2(P - bookingFee));       // customer pays after the booking fee
 
     const now = new Date().toISOString();
     return {
       bookingFee,
       platformFeePercent,
       gstPercent,
+      discountPercent,
+      listPrice,
+      discountAmount,
+      platformSubsidised,
       basePrice: P,
 
       // Mapped so the existing invoice generator & payment paths work unchanged:
@@ -163,22 +216,34 @@ export class BillingEngine {
     existingSnapshot: PricingSnapshot
   ): PricingSnapshot {
     const { bookingFee, platformFeePercent, gstPercent } = existingSnapshot;
+    // Frozen at booking creation. Older snapshots predate the field entirely,
+    // so they read as 0 and bill exactly as they always did.
+    const discountPercent = clampPercent(Number(existingSnapshot.discountPercent ?? 0));
 
     const subtotal = Math.round(sparePartsCost + serviceLaborCost);
     const platformFee = Math.round(subtotal * platformFeePercent / 100);
-    const taxableAmount = subtotal + platformFee;
+
+    // Discount comes off the pre-tax value, so GST is charged on what the
+    // customer actually pays. The technician's earning is the subtotal and is
+    // untouched by it.
+    const grossOfDiscount = subtotal + platformFee;
+    const discountAmount = Math.round(grossOfDiscount * discountPercent / 100);
+    const taxableAmount = grossOfDiscount - discountAmount;
+
     const totalGst = Math.round(taxableAmount * gstPercent / 100);
     const cgst = Math.round(totalGst / 2);
     const sgst = totalGst - cgst; // Remainder to avoid rounding loss
     const grossTotal = taxableAmount + totalGst;
     const bookingFeeCredit = bookingFee;
     const finalTotal = Math.max(0, grossTotal - bookingFeeCredit);
+    const platformSubsidised = discountAmount > platformFee;
 
     return {
       // Preserved from booking creation
       bookingFee,
       platformFeePercent,
       gstPercent,
+      discountPercent,
       snapshotVersion: existingSnapshot.snapshotVersion,
       createdAt: existingSnapshot.createdAt,
 
@@ -187,6 +252,8 @@ export class BillingEngine {
       serviceLaborCost: Math.round(serviceLaborCost),
       subtotal,
       platformFee,
+      discountAmount,
+      platformSubsidised,
       taxableAmount,
       cgst,
       sgst,
@@ -258,6 +325,10 @@ export class BillingEngine {
       bookingFee,
       platformFeePercent: 15,
       gstPercent: 18,
+      // Legacy bookings predate discounts entirely; reverse-engineering one
+      // from stored totals would be a guess, and a guess on a historical
+      // invoice is worse than the absence of a discount line.
+      discountPercent: 0,
       subtotal: Math.max(0, subtotal),
       platformFee,
       taxableAmount,

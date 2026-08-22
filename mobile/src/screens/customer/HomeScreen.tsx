@@ -1,13 +1,14 @@
 /**
- * Home Screen — Premium customer landing page
+ * Home Screen — Premium customer landing page (Redesigned)
  *
  * Features:
  * - Dark hero header with avatar + greeting
- * - Location pill with change action
- * - Service category grid from API
- * - "My Bookings" quick access card
- * - Trust indicators section
- * - Floating tab bar padding
+ * - Location pill with city/state display
+ * - Language toggle (ಕನ್ನಡ / EN)
+ * - Trust indicators (Verified Experts, Best Rated, Prompt Service)
+ * - Service category grid with pricing
+ * - "Book a Service" CTA button
+ * - Customer Care FAB (opens dialer)
  */
 
 import React from 'react';
@@ -19,30 +20,30 @@ import {
     TouchableOpacity,
     RefreshControl,
     StatusBar,
-    Animated,
     Alert,
+    Linking,
 } from 'react-native';
 import {
-    Wrench,
     Bell,
     ChevronRight,
     MapPin,
     Star,
     Shield,
     Clock,
-    Headphones,
+    Phone,
+    CalendarPlus,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useProfile, useUnreadNotificationCount } from '../../hooks/useCustomerData';
+import { useProfile, useUnreadNotificationCount, usePublicConfig } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
+import { useLanguageStore } from '../../stores/languageStore';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Skeleton, CardSkeleton } from '../../components/Skeleton';
 import * as Location from 'expo-location';
 import { customerApi } from '../../api/customer.api';
-import { SectionHeader } from '../../components/ui/SectionHeader';
 import { useTranslation } from 'react-i18next';
 
 import { ServiceCard } from '../../components/services/ServiceCard';
@@ -52,12 +53,11 @@ import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 
-// Trust indicators data
+// Trust indicators — non-committing labels as requested
 const TRUST_ITEMS = [
-    { icon: Shield, labelKey: 'home_extra.verified_experts', color: colors.primary },
-    { icon: Star, labelKey: 'home_extra.rated', color: colors.warning },
-    { icon: Clock, labelKey: 'home_extra.fast_response', color: colors.success },
-    { icon: Headphones, labelKey: 'home_extra.support_247', color: colors.info },
+    { icon: Shield, labelKey: 'home_extra.verified_experts', fallback: 'Verified Experts' },
+    { icon: Star, labelKey: 'home_extra.best_rated', fallback: 'Best Rated' },
+    { icon: Clock, labelKey: 'home_extra.prompt_service', fallback: 'Prompt Service' },
 ];
 
 export function HomeScreen() {
@@ -77,7 +77,9 @@ export function HomeScreen() {
     } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const { data: unreadCount = 0 } = useUnreadNotificationCount();
+    const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
+    const { language, setLanguage } = useLanguageStore();
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
 
@@ -102,6 +104,25 @@ export function HomeScreen() {
 
     const displayName = profile?.username || user?.username || 'User';
     const firstName = displayName.split(' ')[0];
+
+    // Build a short location label: "City, State" from the full address
+    const locationLabel = React.useMemo(() => {
+        if (isFetchingLocation) return t('home_extra.detecting', 'Detecting...');
+        if (!profile?.homeAddress) return t('home_extra.set_location', 'Set your location');
+        // Try to extract last 2 meaningful parts (city, state) from comma-separated address
+        const parts = profile.homeAddress.split(',').map((s: string) => s.trim()).filter(Boolean);
+        if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
+        return profile.homeAddress;
+    }, [profile?.homeAddress, isFetchingLocation, t]);
+
+    const supportNumber = publicConfig?.whatsappNumber || '919448850679';
+
+    const openDialer = React.useCallback(() => {
+        const phoneUrl = `tel:+${supportNumber}`;
+        Linking.openURL(phoneUrl).catch(() => {
+            Alert.alert('Error', 'Unable to open the phone dialer.');
+        });
+    }, [supportNumber]);
 
     React.useEffect(() => {
         const autoFetchLocation = async () => {
@@ -181,23 +202,55 @@ export function HomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Location Pill */}
-                <TouchableOpacity
-                    style={styles.locationPill}
-                    onPress={() => navigation.navigate('LocationSelection')}
-                    activeOpacity={0.8}
-                >
-                    <MapPin size={14} color={colors.primary} strokeWidth={2.5} />
-                    <Text style={styles.locationText} numberOfLines={1}>
-                        {isFetchingLocation ? t('home_extra.detecting') : (profile?.homeAddress || t('home_extra.set_location'))}
-                    </Text>
-                    <ChevronRight size={14} color="rgba(255,255,255,0.4)" />
-                </TouchableOpacity>
+                {/* Location Pill + Language Toggle Row */}
+                <View style={styles.headerBottomRow}>
+                    <TouchableOpacity
+                        style={styles.locationPill}
+                        onPress={() => navigation.navigate('LocationSelection')}
+                        activeOpacity={0.8}
+                    >
+                        <MapPin size={14} color={colors.accent} strokeWidth={2.5} />
+                        <Text style={styles.locationText} numberOfLines={1}>
+                            {locationLabel}
+                        </Text>
+                        <ChevronRight size={14} color="rgba(255,255,255,0.4)" />
+                    </TouchableOpacity>
+
+                    {/* Language Toggle */}
+                    <View style={styles.langToggle}>
+                        <TouchableOpacity
+                            style={[
+                                styles.langOption,
+                                language === 'kn' && styles.langOptionActive,
+                            ]}
+                            onPress={() => setLanguage('kn')}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={[
+                                styles.langText,
+                                language === 'kn' && styles.langTextActive,
+                            ]}>ಕನ್ನಡ</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[
+                                styles.langOption,
+                                language === 'en' && styles.langOptionActive,
+                            ]}
+                            onPress={() => setLanguage('en')}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={[
+                                styles.langText,
+                                language === 'en' && styles.langTextActive,
+                            ]}>EN</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
             </View>
 
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent }]}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent + 80 }]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
@@ -208,14 +261,14 @@ export function HomeScreen() {
                     />
                 }
             >
-                {/* Trust Indicators */}
+                {/* Trust Indicators — inline row */}
                 <View style={styles.trustRow}>
                     {TRUST_ITEMS.map((item, i) => (
                         <View key={i} style={styles.trustItem}>
-                            <View style={[styles.trustIcon, { backgroundColor: item.color + '15' }]}>
-                                <item.icon size={16} color={item.color} strokeWidth={2.2} />
-                            </View>
-                            <Text style={styles.trustLabel}>{t(item.labelKey)}</Text>
+                            <item.icon size={16} color={colors.textSecondary} strokeWidth={2} />
+                            <Text style={styles.trustLabel}>
+                                {t(item.labelKey, item.fallback)}
+                            </Text>
                         </View>
                     ))}
                 </View>
@@ -233,13 +286,28 @@ export function HomeScreen() {
                     </View>
                 ) : (
                     <>
-                        {/* Services Section */}
-                        <SectionHeader
-                            title={t('home.categories', 'Our Services')}
-                            subtitle={t('home.what_do_you_need', 'What do you need help with?')}
-                            actionLabel="View all"
-                            onAction={() => navigation.navigate('AllServices')}
-                        />
+                        {/* Categories Header with Book a Service button */}
+                        <View style={styles.categoriesHeader}>
+                            <View>
+                                <Text style={styles.categoriesTitle}>
+                                    {t('home.categories', 'Categories')}
+                                </Text>
+                                <Text style={styles.categoriesSubtitle}>
+                                    {t('home.what_do_you_need', 'What do you need help with?')}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                style={styles.bookServiceBtn}
+                                onPress={() => navigation.navigate('AllServices')}
+                                activeOpacity={0.8}
+                            >
+                                <CalendarPlus size={14} color={colors.textInverse} strokeWidth={2.5} />
+                                <Text style={styles.bookServiceBtnText}>
+                                    {t('home.book_service', 'Book a Service')}
+                                </Text>
+                                <ChevronRight size={14} color={colors.textInverse} />
+                            </TouchableOpacity>
+                        </View>
 
                         <View style={styles.categoryGrid}>
                             {isServicesLoading ? (
@@ -288,25 +356,18 @@ export function HomeScreen() {
                         </View>
                     </>
                 )}
-
-                {/* Quick Access — My Bookings */}
-                <TouchableOpacity
-                    style={styles.bookingsCard}
-                    onPress={() => navigation.navigate('BookingsTab')}
-                    activeOpacity={0.7}
-                >
-                    <View style={styles.bookingsLeft}>
-                        <View style={styles.bookingsIconWrap}>
-                            <Wrench size={18} color={colors.primary} />
-                        </View>
-                        <View>
-                            <Text style={styles.bookingsTitle}>{t('home_extra.my_service_requests')}</Text>
-                            <Text style={styles.bookingsSubtitle}>{t('home_extra.track_bookings')}</Text>
-                        </View>
-                    </View>
-                    <ChevronRight size={18} color={colors.textDisabled} />
-                </TouchableOpacity>
             </ScrollView>
+
+            {/* Customer Care FAB */}
+            <TouchableOpacity
+                style={styles.fab}
+                onPress={openDialer}
+                activeOpacity={0.85}
+                accessibilityLabel="Customer care"
+            >
+                <Phone size={18} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={styles.fabText}>Customer care</Text>
+            </TouchableOpacity>
         </View>
     );
 }
@@ -380,8 +441,15 @@ const styles = StyleSheet.create({
     },
     bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
 
-    // Location Pill
+    // Header bottom row: location + language
+    headerBottomRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        marginTop: spacing.lg,
+    },
     locationPill: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.xs,
@@ -389,12 +457,35 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.sm,
         paddingHorizontal: spacing.base,
         borderRadius: radii.full,
-        marginTop: spacing.lg,
     },
     locationText: {
         ...typography.small,
         color: 'rgba(255,255,255,0.7)',
         flex: 1,
+    },
+
+    // Language Toggle
+    langToggle: {
+        flexDirection: 'row',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: radii.full,
+        padding: 3,
+    },
+    langOption: {
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: radii.full,
+    },
+    langOptionActive: {
+        backgroundColor: colors.primary,
+    },
+    langText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: 'rgba(255,255,255,0.5)',
+    },
+    langTextActive: {
+        color: colors.textInverse,
     },
 
     // Scroll
@@ -406,31 +497,56 @@ const styles = StyleSheet.create({
         paddingTop: spacing.xl,
     },
 
-    // Trust Row
+    // Trust Row — inline, no circle backgrounds
     trustRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
         marginBottom: spacing['2xl'],
+        paddingVertical: spacing.md,
     },
     trustItem: {
+        flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
-    },
-    trustIcon: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.xs,
+        gap: spacing.xs,
     },
     trustLabel: {
         ...typography.small,
         color: colors.textSecondary,
-        textAlign: 'center',
     },
 
-    // Services
+    // Categories Section Header
+    categoriesHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: spacing.lg,
+    },
+    categoriesTitle: {
+        ...typography.h3,
+        color: colors.textPrimary,
+    },
+    categoriesSubtitle: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: 2,
+    },
+    bookServiceBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.backgroundDark,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: radii.lg,
+    },
+    bookServiceBtnText: {
+        ...typography.buttonSmall,
+        fontSize: 12,
+        color: colors.textInverse,
+    },
+
+    // Services Grid
     categoryGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -438,43 +554,8 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
     },
     serviceCardWrapper: {
-        width: '47.5%', // Slightly reduced to prevent edge overlap
+        width: '47.5%',
         marginBottom: spacing.md,
-    },
-
-    // Bookings Card
-    bookingsCard: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        backgroundColor: colors.background,
-        borderRadius: radii.xl,
-        padding: spacing.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        ...shadows.sm,
-    },
-    bookingsLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-    },
-    bookingsIconWrap: {
-        width: 40,
-        height: 40,
-        borderRadius: radii.lg,
-        backgroundColor: colors.primarySurface,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    bookingsTitle: {
-        ...typography.bodyMedium,
-        color: colors.textPrimary,
-    },
-    bookingsSubtitle: {
-        ...typography.small,
-        color: colors.textSecondary,
-        marginTop: 1,
     },
 
     // Unserviceable
@@ -499,5 +580,26 @@ const styles = StyleSheet.create({
         ...typography.caption,
         color: colors.textSecondary,
         lineHeight: 20,
+    },
+
+    // Customer Care FAB
+    fab: {
+        position: 'absolute',
+        bottom: 90,
+        right: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: colors.accent,
+        paddingVertical: 12,
+        paddingHorizontal: 18,
+        borderRadius: radii.full,
+        ...shadows.lg,
+        shadowColor: colors.accentDark,
+    },
+    fabText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#FFFFFF',
     },
 });

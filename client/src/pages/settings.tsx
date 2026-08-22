@@ -19,6 +19,7 @@ export default function SettingsPage() {
     systemName: "UniteFix App",
     defaultBookingFee: 99,
     platformFeePercent: 15,
+    discountPercent: 0,
     gstPercentage: 18,
     cancellationFee: 150,
     maxAssignmentDays: 7,
@@ -71,6 +72,7 @@ export default function SettingsPage() {
   const CONFIG_MAP: Record<string, { field: string; parse: (v: string) => any }> = {
     'BUSINESS_CONFIG.BASE_SERVICE_FEE': { field: 'defaultBookingFee', parse: Number },
     'BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT': { field: 'platformFeePercent', parse: Number },
+    'BUSINESS_CONFIG.DISCOUNT_PERCENT': { field: 'discountPercent', parse: Number },
     'BUSINESS_CONFIG.GST_PERCENTAGE': { field: 'gstPercentage', parse: Number },
     'BUSINESS_CONFIG.CANCELLATION_FEE': { field: 'cancellationFee', parse: Number },
     'BUSINESS_CONFIG.WALLET_HOLD_DAYS': { field: 'walletHoldDays', parse: Number },
@@ -165,6 +167,7 @@ export default function SettingsPage() {
       ...prev,
       defaultBookingFee: 99,
       platformFeePercent: 12,
+      discountPercent: 0,
       gstPercentage: 18,
       cancellationFee: 150,
       maxAssignmentDays: 7,
@@ -229,6 +232,44 @@ export default function SettingsPage() {
                     className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
                   />
                   <p className="text-xs text-[hsl(215,20%,55%)] mt-1">Config: UNITEFIX_FEE_PERCENT</p>
+                </div>
+                <div>
+                  <Label htmlFor="discountPercent" className="text-[hsl(215,20%,75%)]">Service Discount (%)</Label>
+                  <Input
+                    id="discountPercent"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.5"
+                    value={settings.discountPercent}
+                    onChange={(e) => setSettings(prev => ({
+                      ...prev,
+                      discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                    }))}
+                    className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                  />
+                  {(() => {
+                    /*
+                     * The discount is funded from the platform fee, and the
+                     * point where it eats the whole margin is worth showing
+                     * rather than discovering in a settlement report.
+                     *
+                     * platformFee = P × (fee% − discount% × (1 − gst%/100)),
+                     * so it reaches zero at fee% / (1 − gst%/100) — independent
+                     * of the job's price.
+                     */
+                    const fee = Number(settings.platformFeePercent) || 0;
+                    const gst = Number(settings.gstPercentage) || 0;
+                    const breakEven = gst < 100 ? fee / (1 - gst / 100) : fee;
+                    const over = Number(settings.discountPercent) > breakEven;
+                    return (
+                      <p className={`text-xs mt-1 ${over ? 'text-[hsl(38,92%,60%)]' : 'text-[hsl(215,20%,55%)]'}`}>
+                        {over
+                          ? `Above ${breakEven.toFixed(1)}% you pay to do the job — the discount now exceeds the platform fee. Service experts are still paid in full.`
+                          : `Config: DISCOUNT_PERCENT · comes out of the platform fee, break-even at ${breakEven.toFixed(1)}%`}
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div>
                   <Label htmlFor="gstPercentage" className="text-[hsl(215,20%,75%)]">GST Rate (%)</Label>
