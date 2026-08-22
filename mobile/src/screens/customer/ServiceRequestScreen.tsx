@@ -63,6 +63,30 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         }
     }, [route.params?.serviceType]);
 
+    /**
+     * Abandon the draft when the user leaves this screen for good.
+     *
+     * The description, urgency and photos live in a zustand store rather than
+     * local state on purpose: stepping out to Saved Addresses or the map picker
+     * must not wipe a half-written request. The cost was that nothing cleared it
+     * on the way OUT either - clearDraft() ran only after a successful booking -
+     * so backing out and opening any service again showed the previous
+     * description and photos still attached.
+     *
+     * 'beforeRemove' is the right signal precisely because it distinguishes the
+     * two: it fires when this screen is actually removed from the stack (back
+     * gesture, goBack, the reset after a successful booking) and NOT when it is
+     * merely covered by a screen pushed on top of it. A focus/blur listener
+     * would have cleared the draft on the way to Saved Addresses, which is the
+     * bug this store was introduced to fix.
+     */
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('beforeRemove', () => {
+            clearDraft();
+        });
+        return unsubscribe;
+    }, [navigation, clearDraft]);
+
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
     const [uploading, setUploading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
