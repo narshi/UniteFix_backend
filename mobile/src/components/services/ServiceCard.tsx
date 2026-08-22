@@ -121,10 +121,6 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
         marginBottom: 2,
     },
-    moreSubtitle: {
-        fontSize: 12,
-        color: colors.textSecondary,
-    },
     moreFooter: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -61,7 +61,7 @@ const TRUST_ITEMS = [
 ];
 
 export function HomeScreen() {
-    const { headerTop, tabContent } = useScreenInsets();
+    const { headerTop, tabContent, fabBottom } = useScreenInsets();
     const { user } = useAuthStore();
     const {
         data: profile,
@@ -359,8 +359,12 @@ export function HomeScreen() {
             </ScrollView>
 
             {/* Customer Care FAB */}
+            {/* Positioned from the real safe-area inset, not a fixed offset.
+                bottom:90 was measured on one handset; on a device with a taller
+                gesture-navigation bar the floating tab bar sits higher and this
+                button disappeared behind it. */}
             <TouchableOpacity
-                style={styles.fab}
+                style={[styles.fab, { bottom: fabBottom }]}
                 onPress={openDialer}
                 activeOpacity={0.85}
                 accessibilityLabel="Customer care"
@@ -585,7 +589,7 @@ const styles = StyleSheet.create({
     // Customer Care FAB — 3D raised effect
     fab: {
         position: 'absolute',
-        bottom: 90,
+        // `bottom` is supplied at render time from useScreenInsets().fabBottom.
         right: 20,
         flexDirection: 'row',
         alignItems: 'center',

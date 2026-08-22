@@ -42,6 +42,11 @@ const MIN_BOTTOM_PAD = spacing.base;
  * - `bottomBar`   → paddingBottom for a fixed bottom action bar.
  * - `tabContent`  → paddingBottom for scroll content inside a TAB screen,
  *                   clearing the floating tab bar.
+ * - `fabBottom`   → `bottom` for a floating button on a TAB screen, so it sits
+ *                   just above the tab bar on every device. A hardcoded value
+ *                   here is the classic bug: it looks right on the phone it was
+ *                   written on and slides behind the tab bar on any device with
+ *                   a taller gesture-navigation inset.
  * - `scrollBottom`→ paddingBottom for scroll content on a pushed (non-tab) screen.
  */
 export function useScreenInsets() {
@@ -53,6 +58,7 @@ export function useScreenInsets() {
         bottomInset: insets.bottom,
         bottomBar: Math.max(insets.bottom, MIN_BOTTOM_PAD),
         tabContent: insets.bottom + TAB_BAR_HEIGHT + TAB_BAR_GAP + spacing.xl,
+        fabBottom: insets.bottom + TAB_BAR_HEIGHT + TAB_BAR_GAP + spacing.sm,
         scrollBottom: Math.max(insets.bottom, MIN_BOTTOM_PAD) + spacing.xl,
     };
 }

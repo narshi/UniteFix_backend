@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Region, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
+import { useScreenInsets } from '../../theme/layout';
 import { ArrowLeft, Search, MapPin, Check, Navigation, X } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -28,6 +29,14 @@ interface PlacePrediction {
 }
 
 export function LocationSelectionScreen() {
+    const { bottomBar: sheetPad } = useScreenInsets();
+    /**
+     * Measured, not assumed. The button used to sit at a hardcoded bottom:210,
+     * chosen to clear the sheet on one handset — but the sheet grows with the
+     * safe-area inset and with its own content, so on a device with a taller
+     * gesture-navigation bar the button ended up behind it.
+     */
+    const [sheetHeight, setSheetHeight] = useState(0);
     const navigation = useNavigation();
     const { refetch } = useProfile();
     const mapRef = useRef<MapView>(null);
@@ -328,12 +337,18 @@ export function LocationSelectionScreen() {
             </View>
 
             {/* My Location FAB */}
-            <TouchableOpacity style={styles.myLocationButton} onPress={getCurrentLocation}>
+            <TouchableOpacity
+                style={[styles.myLocationButton, { bottom: sheetHeight + spacing.lg }]}
+                onPress={getCurrentLocation}
+            >
                 <Navigation color={colors.primary} size={22} />
             </TouchableOpacity>
 
             {/* Bottom Sheet */}
-            <View style={styles.bottomSheet}>
+            <View
+                style={[styles.bottomSheet, { paddingBottom: spacing.xl + sheetPad }]}
+                onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
+            >
                 <Text style={styles.sheetTitle}>Selected Location</Text>
                 <View style={styles.addressRow}>
                     <MapPin color={colors.textSecondary} size={20} style={{ marginTop: 2 }} />
@@ -464,7 +479,7 @@ const styles = StyleSheet.create({
     },
     myLocationButton: {
         position: 'absolute',
-        bottom: 210,
+        // `bottom` comes from the measured sheet height at render time.
         right: spacing.xl,
         backgroundColor: colors.surface,
         width: 50,
