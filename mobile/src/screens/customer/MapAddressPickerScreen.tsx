@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, StyleSheet, Text, TouchableOpacity, TextInput,
     ActivityIndicator, Alert, FlatList, Keyboard, Platform,
+    KeyboardAvoidingView, ScrollView,
 } from 'react-native';
 import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -13,6 +14,7 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/auth.store';
 import { customerApi, SavedAddress } from '../../api/customer.api';
+import { useScreenInsets } from '../../theme/layout';
 import { queryKeys } from '../../hooks/useCustomerData';
 import { Button } from '../../components/ui/Button';
 
@@ -48,6 +50,14 @@ const FALLBACK_COORDS = { latitude: 14.9637, longitude: 74.7094 }; // Yellapur
 export function MapAddressPickerScreen() {
     const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
+    const { headerTop, bottomBar } = useScreenInsets();
+    /**
+     * Measured, not computed. The search box floats below the header, and the
+     * header height now varies with the safe-area inset AND with the user's
+     * system font size. Any arithmetic here would be right on one device and
+     * overlap the title on another.
+     */
+    const [headerHeight, setHeaderHeight] = useState(0);
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
     const fromCheckout = route.params?.fromCheckout;
     // Both modes set the PROFILE address, not merely a saved address:
@@ -374,7 +384,14 @@ export function MapAddressPickerScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
+            {/* paddingTop from the measured status-bar inset. The old
+                `Platform.OS === 'ios' ? 56 : 50` clipped the title on
+                punch-hole and notched devices — the exact pattern
+                theme/layout.ts exists to replace. */}
+            <View
+                style={[styles.header, { paddingTop: headerTop }]}
+                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -424,7 +441,7 @@ export function MapAddressPickerScreen() {
             </View>
 
             {/* Search Bar + Autocomplete */}
-            <View style={styles.searchContainer}>
+            <View style={[styles.searchContainer, { top: headerHeight + spacing.md }]}>
                 <View style={styles.searchBox}>
                     <Search color={colors.textSecondary} size={20} />
                     <TextInput
@@ -476,7 +493,28 @@ export function MapAddressPickerScreen() {
                 )}
             </View>
 
-            <View style={styles.bottomSheet}>
+            {/*
+              * Three things were putting Save out of reach:
+              *   1. no bottom inset, so on a gesture-navigation device the
+              *      button sat underneath the system nav bar;
+              *   2. the address field is editable, and an open keyboard pushed
+              *      the button off a short screen;
+              *   3. on a small handset the sheet's own content was taller than
+              *      the space left for it.
+              * The inset fixes the first, KeyboardAvoidingView the second, and
+              * making the sheet scroll with a capped height the third.
+              */}
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={styles.sheetWrap}
+            >
+              <ScrollView
+                style={styles.bottomSheet}
+                contentContainerStyle={{ paddingBottom: bottomBar }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
                 <Text style={styles.labelTitle}>Save As</Text>
                 <View style={styles.labelRow}>
                     {['Home', 'Work', 'Other'].map((l) => (
@@ -517,7 +555,8 @@ export function MapAddressPickerScreen() {
                     fullWidth
                     style={{ marginTop: 20 }}
                 />
-            </View>
+              </ScrollView>
+            </KeyboardAvoidingView>
         </View>
     );
 }
@@ -529,7 +568,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: 16,
-        paddingTop: Platform.OS === 'ios' ? 56 : 50,
+        // paddingTop is supplied at render time from useScreenInsets().headerTop.
         backgroundColor: colors.surface,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
@@ -542,7 +581,7 @@ const styles = StyleSheet.create({
     // ── Search + Autocomplete ──
     searchContainer: {
         position: 'absolute',
-        top: Platform.OS === 'ios' ? 130 : 110,
+        // `top` is supplied at render time from the measured header height.
         left: spacing.lg,
         right: spacing.lg,
         zIndex: 15,
@@ -623,6 +662,9 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
         shadowOffset: { width: 0, height: 2 }, elevation: 4,
     },
+    // Caps how much of a small screen the sheet may take, so the map never
+    // disappears and the sheet scrolls instead of overflowing.
+    sheetWrap: { maxHeight: '55%' },
     bottomSheet: {
         backgroundColor: colors.surface,
         padding: 20,

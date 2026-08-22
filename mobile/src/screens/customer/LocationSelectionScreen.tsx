@@ -37,6 +37,7 @@ export function LocationSelectionScreen() {
      * gesture-navigation bar the button ended up behind it.
      */
     const [sheetHeight, setSheetHeight] = useState(0);
+    const [headerHeight, setHeaderHeight] = useState(0);
     const navigation = useNavigation();
     const { refetch } = useProfile();
     const mapRef = useRef<MapView>(null);
@@ -261,8 +262,11 @@ export function LocationSelectionScreen() {
 
     // ── Render ──
     return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.header}>
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+            <View
+                style={styles.header}
+                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                     <ArrowLeft color={colors.textPrimary} size={24} />
                 </TouchableOpacity>
@@ -283,7 +287,7 @@ export function LocationSelectionScreen() {
             </MapView>
 
             {/* Search Bar + Autocomplete Dropdown */}
-            <View style={styles.searchContainer}>
+            <View style={[styles.searchContainer, { top: headerHeight + spacing.md }]}>
                 <View style={styles.searchBox}>
                     <Search color={colors.textSecondary} size={20} />
                     <TextInput
@@ -419,7 +423,7 @@ const styles = StyleSheet.create({
     // ── Search + Autocomplete ──
     searchContainer: {
         position: 'absolute',
-        top: Platform.OS === 'ios' ? 120 : 100,
+        // `top` is supplied at render time from the measured header height.
         left: spacing.lg,
         right: spacing.lg,
         zIndex: 15,
