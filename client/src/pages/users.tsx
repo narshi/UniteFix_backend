@@ -100,6 +100,7 @@ export default function UsersPage() {
               options: [
                 { value: "active", label: "Active" },
                 { value: "deactivated", label: "Deactivated" },
+                { value: "incomplete", label: "No address / pin code" },
               ],
             }]}
           />

@@ -66,7 +66,7 @@ import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
 import { InvoiceGenerator } from "./services/invoice-generator";
 import { db } from "./db";
-import { eq, inArray, desc, and, or, ilike, count, isNull, isNotNull } from "drizzle-orm";
+import { eq, inArray, desc, and, or, ilike, count, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   parseListParams,
   buildOrderBy,
@@ -87,7 +87,7 @@ const JWT_SECRET: string = process.env.JWT_SECRET;
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
 // Import canonical auth middleware (single source of truth)
-import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin } from "./middleware/auth.middleware";
+import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCompleteProfile } from "./middleware/auth.middleware";
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -913,6 +913,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (req.query.status === 'active') conditions.push(eq(users.isActive, true));
       if (req.query.status === 'deactivated') conditions.push(eq(users.isActive, false));
+      // Finds the accounts that predate server-side enforcement, so they can be
+      // chased rather than only discovered when someone tries to book.
+      if (req.query.status === 'incomplete') {
+        conditions.push(sql`(
+          ${users.homeAddress} IS NULL OR btrim(${users.homeAddress}) = ''
+          OR ${users.pinCode} IS NULL OR btrim(${users.pinCode}) = ''
+        )`);
+      }
 
       if (params.q) {
         const term = `%${params.q}%`;
@@ -2078,7 +2086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== USER APP ROUTES ====================
 
   // Create service request with booking charge (₹99 default, dynamic from config)
-  app.post("/api/services/create", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  app.post("/api/services/create", authenticateToken, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       // Catalog service id (distinct from the booking's own serviceId string).
       // Read before the schema parse so it survives, and so it can't be spoofed
@@ -2409,7 +2417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Place order
-  app.post("/api/orders/place", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  app.post("/api/orders/place", authenticateToken, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
 

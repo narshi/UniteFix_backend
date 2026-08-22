@@ -286,6 +286,78 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
         });
 }
 
+
+/**
+ * Refuse anything that needs an address until the account actually has one.
+ *
+ * WHY THIS EXISTS
+ * Onboarding collects the address and pin code, but that was enforced ONLY by
+ * the mobile navigator: the server reported `pendingOnboardingSteps` in the
+ * auth response and then trusted the client to honour it. A rule the client
+ * enforces is not a rule — anyone on an app build from before the onboarding
+ * stack existed, or any client that ignores the field, signed up and went
+ * straight past it. That is why accounts with no address exist.
+ *
+ * Deliberately applied ONLY to endpoints where acting without an address is
+ * meaningless — placing a booking, placing an order. It must never cover auth,
+ * profile read/update or config, or the user would be locked out of the very
+ * screens that fix the problem.
+ *
+ * Answers with a specific code so the app can send them to the right screen
+ * rather than showing a generic failure.
+ */
+export async function requireCompleteProfile(req: Request, res: Response, next: NextFunction) {
+    const userId = (req as any).user?.userId ?? (req as any).partner?.userId;
+    if (!userId) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    try {
+        const [row] = await db
+            .select({ homeAddress: users.homeAddress, pinCode: users.pinCode })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+
+        const missingAddress = !row?.homeAddress || !String(row.homeAddress).trim();
+        const missingPinCode = !row?.pinCode || !String(row.pinCode).trim();
+
+        if (missingAddress || missingPinCode) {
+            const missing = [
+                missingAddress ? 'address' : null,
+                missingPinCode ? 'pin code' : null,
+            ].filter(Boolean).join(' and ');
+
+            logger.info('[PROFILE_GATE] Blocked request from an incomplete profile', {
+                userId, path: req.path, missingAddress, missingPinCode,
+            });
+
+            // 422, not 403. The mobile client treats a 403 as "the access token
+            // may have expired" and fires a token refresh before retrying — which
+            // would rotate a refresh token on every blocked booking, for a
+            // condition that has nothing to do with authentication. 422 says
+            // "you are who you say you are, but the account is not in a state
+            // that allows this", which is exactly the situation.
+            return res.status(422).json({
+                success: false,
+                code: 'PROFILE_INCOMPLETE',
+                message: `Please add your ${missing} to your profile before continuing.`,
+                missing: { address: missingAddress, pinCode: missingPinCode },
+            });
+        }
+
+        return next();
+    } catch (error: any) {
+        logger.error('[PROFILE_GATE] Lookup failed', { userId, error: error.message });
+        // Fail CLOSED here, unlike most guards: letting a booking through on a
+        // database hiccup is what produced the unaddressed accounts to begin with.
+        return res.status(503).json({
+            success: false,
+            message: 'Could not verify your profile just now. Please try again.',
+        });
+    }
+}
+
 /**
  * Restrict a route to super_admins. Must run AFTER authenticateAdmin, which is
  * what populates `req.admin` with the role read from the database.
