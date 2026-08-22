@@ -323,8 +323,11 @@ export async function requireCompleteProfile(req: Request, res: Response, next: 
         const missingPinCode = !row?.pinCode || !String(row.pinCode).trim();
 
         if (missingAddress || missingPinCode) {
+            // A service expert's address is their BASE LOCATION - where they
+            // work from - so it is named that way for them, matching the app.
+            const isExpert = ((req as any).user?.role ?? (req as any).partner?.role) === 'serviceman';
             const missing = [
-                missingAddress ? 'address' : null,
+                missingAddress ? (isExpert ? 'address (base location)' : 'address') : null,
                 missingPinCode ? 'pin code' : null,
             ].filter(Boolean).join(' and ');
 

@@ -1341,6 +1341,43 @@ export function registerClientFeatureRoutes(app: Express) {
                 });
             }
 
+            /**
+             * A base location is required to go ONLINE, never to go offline.
+             *
+             * Checked inline rather than with requireCompleteProfile, because
+             * that middleware would gate the whole endpoint — trapping an expert
+             * with an incomplete profile in the online state with no way to
+             * switch off. Going offline must always be possible.
+             *
+             * Without a base location an expert cannot be matched to anything:
+             * dispatch is decided by pin code, so they would sit "online" and
+             * available while never receiving a single job.
+             */
+            if (isOnline) {
+                const [account] = await db
+                    .select({ homeAddress: users.homeAddress, pinCode: users.pinCode })
+                    .from(users)
+                    .where(eq(users.id, userId))
+                    .limit(1);
+
+                const missingAddress = !account?.homeAddress || !String(account.homeAddress).trim();
+                const missingPinCode = !account?.pinCode || !String(account.pinCode).trim();
+
+                if (missingAddress || missingPinCode) {
+                    const missing = [
+                        missingAddress ? "address (base location)" : null,
+                        missingPinCode ? "pin code" : null,
+                    ].filter(Boolean).join(" and ");
+
+                    return res.status(422).json({
+                        success: false,
+                        code: "PROFILE_INCOMPLETE",
+                        message: `Add your ${missing} before going online — jobs are matched to your base location, so you would not receive any.`,
+                        missing: { address: missingAddress, pinCode: missingPinCode },
+                    });
+                }
+            }
+
             const [updated] = await db.update(employees)
                 .set({ isOnline, updatedAt: new Date() })
                 .where(eq(employees.id, employee.id))
