@@ -18,6 +18,7 @@ import {
     walletTransactionsV2,
     serviceOtps,
     notifications,
+    serviceRequests,
 } from "@shared/schema";
 import logger from "../lib/logger";
 import { BookingNotifications } from "./booking-notifications";
@@ -354,6 +355,52 @@ let intervals: NodeJS.Timeout[] = [];
  * Start all background jobs.
  * Call this from server startup after DB is ready.
  */
+
+/**
+ * Remove bookings whose fee was never paid.
+ *
+ * The service_requests row has to exist before payment — the Razorpay order is
+ * raised against it — so a customer who dismisses the payment sheet leaves a
+ * created/pending row behind. The app tries to clean that up itself, but only
+ * if it is still alive to do it: kill the app on the payment screen, or lose
+ * signal, and the row survives. It then sits in the customer's list as a
+ * booking they cannot pay for and cannot cancel.
+ *
+ * Thirty minutes is deliberately generous — a Razorpay payment resolves in
+ * seconds, so anything still unpaid after half an hour was abandoned. Only
+ * created/pending rows are touched: once a booking is assigned, or the fee is
+ * paid, or the fee was zero, it is out of scope.
+ */
+async function expireAbandonedBookings(): Promise<void> {
+    try {
+        /**
+         * The cutoff is computed by POSTGRES, not by Node.
+         *
+         * created_at is `timestamp without time zone` and is written by the
+         * database default, so it holds server-local wall clock. Drizzle
+         * serialises a JS Date as UTC, so passing `new Date(Date.now() - 30m)`
+         * compared IST against UTC and the job silently deleted nothing —
+         * the effective cutoff drifted by the whole timezone offset.
+         */
+        const result = await db
+            .delete(serviceRequests)
+            .where(
+                and(
+                    eq(serviceRequests.status, 'created' as any),
+                    eq(serviceRequests.bookingFeeStatus, 'pending' as any),
+                    sql`${serviceRequests.createdAt} < NOW() - INTERVAL '30 minutes'`,
+                )
+            );
+
+        const removed = (result as any).rowCount || 0;
+        if (removed > 0) {
+            logger.info(`[CRON] Removed ${removed} abandoned unpaid booking(s)`);
+        }
+    } catch (error: any) {
+        logger.error('[CRON] Abandoned-booking cleanup failed', { error: error.message });
+    }
+}
+
 export function startBackgroundJobs(): void {
     logger.info('[CRON] Starting background job scheduler');
 
@@ -368,6 +415,11 @@ export function startBackgroundJobs(): void {
 
     // Run OTP cleanup daily
     intervals.push(setInterval(cleanupExpiredOtps, DAY));
+
+    // Runs on the same cadence as the assignment sweeps; abandoned payments are
+    // discovered quickly enough that a customer retrying is not blocked by one.
+    void expireAbandonedBookings();
+    intervals.push(setInterval(expireAbandonedBookings, FIFTEEN_MINUTES));
     setTimeout(cleanupExpiredOtps, 40000);
 
     // Run notification cleanup weekly
@@ -391,7 +443,7 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(remindPendingAssignments, FIFTEEN_MINUTES));
     setTimeout(remindPendingAssignments, 90000);
 
-    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m)');
+    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m), abandoned-bookings(15m)');
 }
 
 /**

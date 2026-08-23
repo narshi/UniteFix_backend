@@ -973,9 +973,20 @@ export class DatabaseStorage implements IStorage {
       statusCondition = inArray(serviceRequests.status, DatabaseStorage.ACTIVE_STATES as any);
     }
 
-    const whereCondition = statusCondition
-      ? and(eq(serviceRequests.userId, userId), statusCondition)
-      : eq(serviceRequests.userId, userId);
+    /**
+     * A booking whose fee was never paid is not something the customer has.
+     *
+     * The row is written before payment, so a dismissed Razorpay sheet leaves a
+     * created/pending record behind — and 'created' is an ACTIVE state, so it
+     * sat in the customer's list looking like a live booking they could not get
+     * rid of. Excluded here rather than only in the app, so it disappears for
+     * everyone already on an older build.
+     */
+    const whereCondition = and(
+      eq(serviceRequests.userId, userId),
+      EXCLUDE_UNPAID_DRAFTS,
+      ...(statusCondition ? [statusCondition] : []),
+    );
 
     // Count total
     const [countResult] = await db
