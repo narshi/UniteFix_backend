@@ -21,7 +21,8 @@
     "test:e2e:ui": "npx playwright test --ui",
     "test:e2e:headed": "npx playwright test --headed",
     "test:e2e:report": "npx playwright show-report",
-    "migrate:expertise": "node scripts/apply-expertise-mapping-migration.mjs"
+    "migrate:expertise": "node scripts/apply-expertise-mapping-migration.mjs",
+    "inspect:booking": "node scripts/inspect-booking.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

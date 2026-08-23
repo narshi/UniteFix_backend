@@ -351,9 +351,31 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           {getStatusBadge(service.status)}
                         </td>
                         <td className="p-4">
-                          <p className="font-medium text-[hsl(160,84%,65%)] font-mono">₹{service.totalAmount || service.bookingFee}</p>
-                          {service.totalAmount && (
-                            <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">Booking: ₹{service.bookingFee}</p>
+                          {/*
+                            * Say WHICH number this is. It was rendering
+                            * `totalAmount || bookingFee` under a bare "Amount"
+                            * heading, so a booking with no total silently showed
+                            * the booking fee instead — indistinguishable from a
+                            * service that genuinely costs that much, and it read
+                            * as money collected on a job nobody had done yet.
+                            *
+                            * For a fixed-price catalog booking the total IS known
+                            * at creation, so showing it before the work happens is
+                            * correct — it just has to be labelled as quoted
+                            * rather than earned.
+                            */}
+                          {service.totalAmount ? (
+                            <>
+                              <p className="font-medium text-[hsl(160,84%,65%)] font-mono">₹{service.totalAmount}</p>
+                              <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">
+                                {service.status === 'completed' ? 'collected' : 'quoted'} · booking ₹{service.bookingFee}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-medium text-[hsl(215,20%,70%)] font-mono">₹{service.bookingFee}</p>
+                              <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">booking fee only — not yet billed</p>
+                            </>
                           )}
                         </td>
                         <td className="p-4">
