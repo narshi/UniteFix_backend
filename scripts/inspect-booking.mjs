@@ -1,8 +1,9 @@
 /**
  * Explain the amount shown against a service request.
  *
- *   npm run inspect:booking            -- the 10 most recent bookings
- *   npm run inspect:booking UF-1234    -- one booking, in full
+ *   npm run inspect:booking                 -- the 10 most recent bookings
+ *   npm run inspect:booking UF-1234         -- by service id, or numeric id
+ *   npm run inspect:booking 6360743483      -- every booking for a phone number
  *
  * Answers the question "why does an unfulfilled job show a price?" by printing
  * where each number comes from: the stored total, the booking fee, and the
@@ -35,12 +36,18 @@ try {
                 sr.booking_fee, sr.booking_fee_status,
                 sr.total_amount, sr.commission_amount,
                 sr.catalog_service_id, s.name AS catalog_name, s.base_price,
-                sr.pricing_snapshot, sr.created_at
+                sr.pricing_snapshot, sr.created_at,
+                u.phone AS customer_phone, u.username AS customer_name,
+                (SELECT COUNT(*) FROM payment_transactions pt
+                  WHERE pt.service_request_id = sr.id AND pt.status = 'captured')::int AS captured_payments,
+                (SELECT COUNT(*) FROM payment_transactions pt
+                  WHERE pt.service_request_id = sr.id)::int AS payment_rows
          FROM service_requests sr
          LEFT JOIN services s ON s.id = sr.catalog_service_id
-         ${target ? 'WHERE sr.service_id = $1 OR sr.id::text = $1' : ''}
+         LEFT JOIN users u ON u.id = sr.user_id
+         ${target ? "WHERE sr.service_id = $1 OR sr.id::text = $1 OR u.phone = $1 OR u.phone LIKE '%' || $1" : ''}
          ORDER BY sr.created_at DESC
-         LIMIT ${target ? 1 : 10}`,
+         LIMIT ${target ? 20 : 10}`,
         target ? [target] : [],
     );
 
@@ -55,6 +62,31 @@ try {
 
         console.log(`\n─ ${r.service_id}  (#${r.id})  ${r.status}`);
         console.log(`  ${r.service_type}`);
+        console.log(`  customer                    : ${r.customer_name ?? '—'}  ${r.customer_phone ?? ''}`);
+        console.log(`  created                     : ${new Date(r.created_at).toLocaleString()}`);
+
+        /**
+         * Was money actually taken? The old code marked a booking PAID when
+         * Razorpay was unavailable, so "paid" alone proves nothing.
+         */
+        const feePaid = r.booking_fee_status === 'paid';
+        if (feePaid && r.captured_payments === 0) {
+            console.log(`  !! marked PAID with no captured payment — the old Razorpay bypass`);
+            console.log(`     (${r.payment_rows} payment row(s) in total, none captured)`);
+        } else if (feePaid) {
+            console.log(`  payment evidence            : ${r.captured_payments} captured transaction(s)`);
+        }
+
+        // What the cancel endpoint would do with this row.
+        if (r.status !== 'created') {
+            console.log(`  cancel would                : refuse — only a 'created' booking is cancellable by the customer`);
+        } else if (r.booking_fee_status === 'pending') {
+            console.log(`  cancel would                : hard-delete it (unpaid)`);
+            console.log(`  visible to the customer     : NO — hidden as an abandoned draft, and swept after 30 min`);
+        } else {
+            console.log(`  cancel would                : mark cancelled, and attempt a refund`);
+            console.log(`  visible to the customer     : YES — it counts as a paid, active booking`);
+        }
         console.log(`  admin "Amount" column shows : ${rupees(shown)}`);
         console.log(`    total_amount              : ${rupees(r.total_amount)}${r.total_amount == null ? '   <- null, so the column falls back to the booking fee' : ''}`);
         console.log(`    booking_fee               : ${rupees(r.booking_fee)} (${r.booking_fee_status})`);

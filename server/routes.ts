@@ -2329,7 +2329,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let refundedAmount = 0;
       let refundFailed = false;
 
-      if (service.bookingFeeStatus === 'paid') {
+      /**
+       * "Paid" does not prove money moved. Until the Razorpay bypass was closed,
+       * a failed payment marked the booking paid anyway — so a booking can be
+       * flagged paid with no captured transaction behind it. Attempting a refund
+       * on one of those fails, and the customer is then told their "refund needs
+       * manual processing", which is alarming and untrue.
+       */
+      const [{ captured }] = await db
+        .select({ captured: count() })
+        .from(paymentTransactions)
+        .where(and(
+          eq(paymentTransactions.serviceRequestId, service.id),
+          eq(paymentTransactions.status, 'captured' as any),
+        ));
+
+      if (service.bookingFeeStatus === 'paid' && captured === 0) {
+          logger.warn(
+              `[CANCEL] Booking ${service.id} is marked paid but has no captured payment — cancelling without a refund`,
+          );
+      }
+
+      if (service.bookingFeeStatus === 'paid' && captured > 0) {
           try {
               const refund = await PaymentService.refundBookingCharge(service.id);
               refundInitiated = true;
