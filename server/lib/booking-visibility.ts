@@ -10,11 +10,16 @@
  * counts, the recent-activity list or the services table, where they read as
  * jobs waiting to be dispatched and inflate every figure they touch.
  *
- * Deliberately narrow: it excludes ONLY the combination of created AND pending.
- * A booking that has moved past 'created' is real regardless of what its fee
- * field says, and a fee status of anything other than 'pending' — paid, waived,
- * or null on an older row — is left visible. Hiding data is easy to get wrong in
- * the direction that loses real work.
+ * Deliberately narrow: it keys on the fee never having been paid. 'cancelled'
+ * is included alongside 'created' because abandoned bookings are now cancelled
+ * rather than deleted — without it they would simply move from the customer's
+ * active list into their history, which is not an improvement.
+ *
+ * A fee status of anything other than 'pending' — paid, refunded, waived, or
+ * null on an older row — stays visible, as does any booking that reached
+ * 'assigned' or beyond. A cancellation AFTER payment is real history and must
+ * be kept. Hiding data is easy to get wrong in the direction that loses real
+ * work.
  *
  * Nothing is unreachable: the admin services list takes `includeDrafts=true` to
  * show them, which is how you would go looking for abandoned payments.
@@ -31,7 +36,7 @@ import { serviceRequests } from "@shared/schema";
  * opposite of what it is for.
  */
 const IS_ABANDONED_DRAFT = sql`(
-    ${serviceRequests.status} = 'created'
+    ${serviceRequests.status} IN ('created', 'cancelled')
     AND COALESCE(${serviceRequests.bookingFeeStatus}::text, '') = 'pending'
 )`;
 

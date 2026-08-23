@@ -382,8 +382,14 @@ async function expireAbandonedBookings(): Promise<void> {
          * compared IST against UTC and the job silently deleted nothing —
          * the effective cutoff drifted by the whole timezone offset.
          */
+        // Cancelled, not deleted — see the cancel route for why. Nine tables
+        // hold a NO ACTION foreign key to service_requests, and a booking that
+        // reached the payment sheet already has a payment_transactions row, so
+        // a bulk DELETE failed on the first such row and abandoned the whole
+        // sweep. Nothing was ever cleaned up.
         const result = await db
-            .delete(serviceRequests)
+            .update(serviceRequests)
+            .set({ status: 'cancelled' as any, updatedAt: new Date() })
             .where(
                 and(
                     eq(serviceRequests.status, 'created' as any),
@@ -394,7 +400,7 @@ async function expireAbandonedBookings(): Promise<void> {
 
         const removed = (result as any).rowCount || 0;
         if (removed > 0) {
-            logger.info(`[CRON] Removed ${removed} abandoned unpaid booking(s)`);
+            logger.info(`[CRON] Cancelled ${removed} abandoned unpaid booking(s)`);
         }
     } catch (error: any) {
         logger.error('[CRON] Abandoned-booking cleanup failed', { error: error.message });

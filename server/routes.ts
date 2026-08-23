@@ -2310,13 +2310,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: "Cannot cancel a completed service." });
       }
 
-      // Hard-delete unpaid bookings (e.g. if the user backed out of Razorpay)
+      /**
+       * Unpaid bookings are CANCELLED, not deleted.
+       *
+       * This used to hard-delete the row, and nine tables carry a NO ACTION
+       * foreign key to service_requests — payment_transactions among them. The
+       * Razorpay order-creation step writes an 'order_created' row against the
+       * booking, so by the time a customer backs out of the payment sheet there
+       * is already a child row referencing it. The delete then failed with a
+       * foreign key violation, the endpoint returned 500, and the app rolled its
+       * optimistic update back: the booking reappeared and cancelling looked
+       * like it had done nothing at all.
+       *
+       * Marking it cancelled is terminal, so it leaves the active list, keeps
+       * the payment trail intact, and cannot lose a race with any of those nine
+       * tables.
+       */
       if (service.status === 'created' && service.bookingFeeStatus === 'pending') {
-          await db.delete(serviceRequests).where(eq(serviceRequests.id, service.id));
-          return res.json({ 
-              success: true, 
-              message: "Unpaid booking removed successfully", 
-              data: { ...service, status: 'deleted' } 
+          const [cancelled] = await db.update(serviceRequests)
+              .set({ status: 'cancelled', updatedAt: new Date() })
+              .where(eq(serviceRequests.id, service.id))
+              .returning();
+          return res.json({
+              success: true,
+              message: "Booking cancelled successfully",
+              data: cancelled,
           });
       }
 
