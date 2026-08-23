@@ -15,6 +15,7 @@ import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray, count as sqlCount } from "drizzle-orm";
 import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
+import logger from "../lib/logger";
 
 interface ServiceFilters {
     status?: string;
@@ -560,21 +561,45 @@ export class AdminServiceManager {
         //
         // Two small lookups for the whole page rather than one per row — both
         // tables are tiny (a handful of trades per category).
-        const categoryTypeRows = await db
-            .select({
-                categoryId: serviceCategoryTechnicianTypes.categoryId,
-                typeId: serviceCategoryTechnicianTypes.technicianTypeId,
-                typeName: technicianTypes.name,
-            })
-            .from(serviceCategoryTechnicianTypes)
-            .innerJoin(technicianTypes, eq(technicianTypes.id, serviceCategoryTechnicianTypes.technicianTypeId));
+        /**
+         * Trade ranking is a NICETY; dispatch is the job.
+         *
+         * These two tables are created by `npm run migrate:expertise`. Reading
+         * them unguarded meant that on any environment where the migration had
+         * not run, the missing relation threw and took the ENTIRE assignment
+         * queue down — admins saw an empty queue and no error, with paid
+         * bookings sitting undispatched. A feature that only sorts the expert
+         * list must never be able to do that.
+         *
+         * Degrades to "no trade information": every expert stays eligible,
+         * which is the same reading an unmapped category already gets.
+         */
+        let categoryTypeRows: Array<{ categoryId: number; typeId: number; typeName: string }> = [];
+        let employeeTypeRows: Array<{ employeeId: number; typeId: number }> = [];
 
-        const employeeTypeRows = await db
-            .select({
-                employeeId: employeeTechnicianTypes.employeeId,
-                typeId: employeeTechnicianTypes.technicianTypeId,
-            })
-            .from(employeeTechnicianTypes);
+        try {
+            categoryTypeRows = await db
+                .select({
+                    categoryId: serviceCategoryTechnicianTypes.categoryId,
+                    typeId: serviceCategoryTechnicianTypes.technicianTypeId,
+                    typeName: technicianTypes.name,
+                })
+                .from(serviceCategoryTechnicianTypes)
+                .innerJoin(technicianTypes, eq(technicianTypes.id, serviceCategoryTechnicianTypes.technicianTypeId));
+
+            employeeTypeRows = await db
+                .select({
+                    employeeId: employeeTechnicianTypes.employeeId,
+                    typeId: employeeTechnicianTypes.technicianTypeId,
+                })
+                .from(employeeTechnicianTypes);
+        } catch (error: any) {
+            logger.warn(
+                "[ASSIGNMENT] Expertise tables unavailable — falling back to an unranked queue. " +
+                "Run `npm run migrate:expertise` to enable trade matching.",
+                { error: error?.message },
+            );
+        }
 
         const typesByCategory = new Map<number, { ids: number[]; names: string[] }>();
         for (const r of categoryTypeRows) {
