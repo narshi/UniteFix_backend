@@ -88,6 +88,8 @@ import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
 // Import canonical auth middleware (single source of truth)
 import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCompleteProfile } from "./middleware/auth.middleware";
+/** True on Render. Guards the development-only payment bypass below. */
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -2175,24 +2177,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
-          } else {
-            logger.warn(`[BOOKING] Razorpay keys missing. Skipping payment (dev mode).`);
+          } else if (!IS_PRODUCTION) {
+            logger.warn(`[BOOKING] Razorpay keys missing. Marking paid (development only).`);
             await db.update(serviceRequests)
               .set({ bookingFeeStatus: 'paid' as any })
               .where(eq(serviceRequests.id, service.id));
+          } else {
+            // Keys missing in production is a configuration fault, not a reason
+            // to hand out free bookings.
+            await db.delete(serviceRequests).where(eq(serviceRequests.id, service.id));
+            logger.error('[BOOKING] Razorpay keys missing in production — booking rejected');
+            return res.status(503).json({
+              success: false,
+              message: 'Payments are temporarily unavailable. Please try again shortly.',
+            });
           }
         } catch (payError: any) {
-          logger.warn(`[BOOKING] Razorpay order creation skipped: ${payError.message}`);
-          // Don't block booking — proceed without payment for dev/testing
-          await db.update(serviceRequests)
-            .set({ bookingFeeStatus: 'paid' as any })
-            .where(eq(serviceRequests.id, service.id));
+          if (!IS_PRODUCTION) {
+            logger.warn(`[BOOKING] Razorpay order failed, marking paid (development only): ${payError.message}`);
+            await db.update(serviceRequests)
+              .set({ bookingFeeStatus: 'paid' as any })
+              .where(eq(serviceRequests.id, service.id));
+          } else {
+            /**
+             * This used to mark the booking PAID and carry on, commented
+             * "don't block booking — proceed without payment for dev/testing".
+             * In production that turns any Razorpay outage, or a bad key, into
+             * free bookings that go straight to dispatch with no money taken —
+             * silently, because the customer never sees a payment screen.
+             *
+             * The draft is removed and the customer is asked to retry, so a
+             * failed payment leaves nothing behind.
+             */
+            await db.delete(serviceRequests).where(eq(serviceRequests.id, service.id));
+            logger.error('[BOOKING] Razorpay order creation failed — booking rejected', {
+              serviceRequestId: service.id, error: payError.message,
+            });
+            return res.status(503).json({
+              success: false,
+              message: 'Could not start the payment. Please try again.',
+            });
+          }
         }
       } else {
         logger.info(`[BOOKING] Free booking created for service ${service.id}.`);
       }
 
-      void BookingNotifications.bookingCreated(service.id);
+      /**
+       * Only a genuinely FREE booking is announced here.
+       *
+       * This used to fire unconditionally at creation, which is why the
+       * notification arrived the moment the Razorpay sheet opened — before the
+       * customer had paid anything, and even if they then abandoned it. For a
+       * paid booking the announcement now happens in the payment-verification
+       * path, once the fee is confirmed.
+       */
+      if (pricingSnapshot.bookingFee === 0) {
+        void BookingNotifications.bookingCreated(service.id);
+      }
 
       res.status(201).json({
         success: true,

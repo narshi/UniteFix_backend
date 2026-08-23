@@ -849,9 +849,24 @@ export function registerPaymentRoutes(app: Express) {
                             void BookingNotifications.serviceCompleted(serviceId);
                         } else {
                             // Booking fee or other payment
-                            await db.update(serviceRequests)
+                            const [updated] = await db.update(serviceRequests)
                                 .set({ bookingFeeStatus: 'paid' as any, updatedAt: new Date() })
-                                .where(eq(serviceRequests.id, serviceId));
+                                .where(eq(serviceRequests.id, serviceId))
+                                .returning({ id: serviceRequests.id, status: serviceRequests.status });
+
+                            /**
+                             * The booking is announced HERE, not at creation.
+                             * Firing it when the row was inserted meant the
+                             * notification landed as the Razorpay sheet opened —
+                             * before payment, and regardless of whether the
+                             * customer went through with it.
+                             *
+                             * Guarded on the row having actually moved to paid so
+                             * a duplicate webhook cannot announce it twice.
+                             */
+                            if (updated?.id) {
+                                void BookingNotifications.bookingCreated(serviceId);
+                            }
                         }
                     }
                 }
