@@ -46,6 +46,9 @@ export function registerAdminRoutes(app: Express) {
                     from: params.from,
                     to: params.to,
                     orderBy: buildOrderBy(params, listOptions),
+                    // Off by default; ?includeDrafts=true surfaces bookings whose
+                    // payment was abandoned, for chasing or clean-up.
+                    includeDrafts: req.query.includeDrafts === 'true',
                 },
                 params.page,
                 params.limit,

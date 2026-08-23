@@ -16,6 +16,7 @@ import { sql, eq, and, desc, gte, lte, inArray, count as sqlCount } from "drizzl
 import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
 import logger from "../lib/logger";
+import { EXCLUDE_UNPAID_DRAFTS } from "../lib/booking-visibility";
 
 interface ServiceFilters {
     status?: string;
@@ -42,7 +43,7 @@ export class AdminServiceManager {
     };
 
     static async getServiceBookings(
-        filters: ServiceFilters & { q?: string; from?: Date; to?: Date; orderBy?: any } = {},
+        filters: ServiceFilters & { q?: string; from?: Date; to?: Date; orderBy?: any; includeDrafts?: boolean } = {},
         page: number = 1,
         limit: number = 20
     ): Promise<{ services: any[]; total: number; page: number; pages: number }> {
@@ -50,6 +51,20 @@ export class AdminServiceManager {
 
         // Build where conditions
         const conditions: any[] = [];
+
+        /**
+         * Abandoned drafts are hidden by default.
+         *
+         * The row is written before the customer pays, so a dismissed payment
+         * sheet leaves a created/pending record behind. In this table it reads
+         * as a job waiting to be dispatched, which it is not.
+         *
+         * `includeDrafts` brings them back, so nothing becomes unreachable -
+         * that is how you would go looking for abandoned payments.
+         */
+        if (!filters.includeDrafts) {
+            conditions.push(EXCLUDE_UNPAID_DRAFTS);
+        }
 
         if (filters.status) {
             conditions.push(eq(serviceRequests.status, filters.status as any));

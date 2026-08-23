@@ -88,6 +88,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne, isNull } from "drizzle-orm";
+import { EXCLUDE_UNPAID_DRAFTS } from "./lib/booking-visibility";
 import logger from "./lib/logger";
 import crypto from "crypto";
 // PHASE 2: State machine imports
@@ -2079,6 +2080,8 @@ export class DatabaseStorage implements IStorage {
       .select({ count: count() })
       .from(serviceRequests)
       .where(
+        and(
+        EXCLUDE_UNPAID_DRAFTS,
         or(
           eq(serviceRequests.status, 'created'),
           eq(serviceRequests.status, 'assigned'),
@@ -2086,6 +2089,7 @@ export class DatabaseStorage implements IStorage {
           eq(serviceRequests.status, 'reached'),
           eq(serviceRequests.status, 'in_progress'),
           eq(serviceRequests.status, 'pending_payment')
+        )
         )
       );
 
@@ -2159,6 +2163,8 @@ export class DatabaseStorage implements IStorage {
       .from(serviceRequests)
       .leftJoin(users, eq(serviceRequests.userId, users.id))
       .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
+      // An abandoned, never-paid draft is not recent activity.
+      .where(EXCLUDE_UNPAID_DRAFTS)
       .orderBy(desc(serviceRequests.createdAt))
       .limit(limit);
   }
