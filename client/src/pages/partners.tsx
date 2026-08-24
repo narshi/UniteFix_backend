@@ -221,13 +221,28 @@ export default function PartnersPage() {
     addPartnerMutation.mutate(newPartner);
   };
 
-  // Dynamic expertise categories from service catalog
-  const { data: categoriesData } = useQuery({
-    queryKey: ["/api/services/categories"],
+  /**
+   * TECHNICIAN TYPES, not service categories.
+   *
+   * Whatever is ticked here is written verbatim into employees.services, and
+   * syncEmployeeTechnicianTypes then matches those strings BY NAME against the
+   * technician_types table to populate employee_technician_types — which is what
+   * assignment matching actually joins on.
+   *
+   * This list used to come from /api/services/categories, so an admin ticking
+   * "Technology Services" wrote a string matching no trade. The expert ended up
+   * with zero trade ids and was never flagged as qualified for anything, with
+   * nothing on screen suggesting a problem. The hardcoded fallback beneath it
+   * ("AC Repair", "Laptop Repair"…) named trades that exist nowhere either, so
+   * a failed request silently produced the same result.
+   *
+   * Same source the expert app uses when they pick their own trades, so both
+   * sides of the record speak one vocabulary.
+   */
+  const { data: tradesData, isLoading: tradesLoading, isError: tradesError } = useQuery({
+    queryKey: ["/api/technician-types"],
   });
-  const availableServices = (categoriesData as any)?.data?.map((c: any) => c.name) 
-    || ["AC Repair", "Laptop Repair", "Water Heater Repair", "Refrigerator Repair",
-        "Washing Machine Repair", "Microwave Repair", "TV Repair", "Mobile Phone Repair"];
+  const availableServices: string[] = ((tradesData as any)?.data ?? []).map((t: any) => t.name);
 
   return (
     <div className="flex-1 p-4 sm:p-6 xl:p-8 min-w-0 min-h-screen relative overflow-hidden">
@@ -301,8 +316,28 @@ export default function PartnersPage() {
                 <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" value={newPartner.address} onChange={e => setNewPartner({ ...newPartner, address: e.target.value })} />
               </div>
               <div className="col-span-2 space-y-2">
-                <Label className="text-[hsl(210,20%,85%)]">Services Offered *</Label>
+                <Label className="text-[hsl(210,20%,85%)]">Trades *</Label>
+                <p className="text-xs text-[hsl(215,20%,55%)]">
+                  What this expert does — the same list they pick from during signup. Jobs are matched
+                  to these, so an expert with none ticked will never appear as qualified.
+                </p>
                 <div className="grid grid-cols-2 gap-2 border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 rounded-md h-40 overflow-y-auto custom-scrollbar">
+                  {tradesLoading && (
+                    <p className="col-span-2 text-sm text-[hsl(215,20%,55%)]">Loading trades…</p>
+                  )}
+                  {/* No invented fallback list. A trade that is not a real
+                      technician_types row cannot match anything, so offering one
+                      would just recreate the bug in a quieter form. */}
+                  {tradesError && (
+                    <p className="col-span-2 text-sm text-[hsl(38,92%,60%)]">
+                      Could not load the trade list. Save the rest and add trades once it loads.
+                    </p>
+                  )}
+                  {!tradesLoading && !tradesError && availableServices.length === 0 && (
+                    <p className="col-span-2 text-sm text-[hsl(38,92%,60%)]">
+                      No trades defined yet — add them under Service Expert Types first.
+                    </p>
+                  )}
                   {availableServices.map((service: string) => (
                     <div key={service} className="flex items-center space-x-2">
                       <input
