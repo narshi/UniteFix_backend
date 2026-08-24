@@ -34,6 +34,9 @@ interface QueueItem {
   customerName: string;
   customerPhone: string;
   waitingHours: number;
+  /** Where the job is. Read off the address when it contains one, else the customer's profile. */
+  pinCode?: string | null;
+  pinCodeSource?: 'address' | 'profile' | null;
   categoryId?: number | null;
   categoryName?: string | null;
   /** Trades that can work this booking. Empty means no restriction. */
@@ -49,6 +52,8 @@ interface EmployeeItem {
   services: string[];
   /** Trade ids the expert holds. Matched against a booking's requirement. */
   technicianTypeIds?: number[];
+  /** The expert's base-location pincode. */
+  pinCode?: string | null;
   isOnline: boolean;
   activeJobCount: number;
   completedJobCount: number;
@@ -67,6 +72,8 @@ export default function AssignmentQueuePage() {
   const [urgencyFilter, setUrgencyFilter] = useState("all");
   const [serviceTypeFilter, setServiceTypeFilter] = useState("all");
   const [selectedRequest, setSelectedRequest] = useState<QueueItem | null>(null);
+  // Off by default: seeing everyone who *could* take the job is the point.
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const { toast } = useToast();
 
   // Fetch assignment queue data
@@ -145,22 +152,40 @@ export default function AssignmentQueuePage() {
   const isUnrestricted = (request: QueueItem | null): boolean =>
     !request || (request.requiredTechnicianTypeIds ?? []).length === 0;
 
-  // Sort employees: qualified first, then by fewest active jobs
+  /** Same pincode as the job. Blank on either side is not a match, not a guess. */
+  const isSameArea = (emp: EmployeeItem, request: QueueItem | null): boolean => {
+    const jobPin = String(request?.pinCode ?? '').trim();
+    const empPin = String(emp.pinCode ?? '').trim();
+    return jobPin.length > 0 && jobPin === empPin;
+  };
+
+  /**
+   * Trade first, then area, then availability, then workload.
+   *
+   * Trade outranks area because the wrong trade cannot do the job at all,
+   * whereas a nearby expert is only a convenience. Online outranks workload so
+   * that among equally suitable people the reachable one surfaces — but offline
+   * experts are still listed and still assignable: an admin scheduling
+   * tomorrow's work needs everyone who could take it, not just whoever has the
+   * app open.
+   */
   const sortedEmployees = useMemo(() => {
-    const sorted = [...employees];
+    const sorted = [...employees].filter((e) => (onlineOnly ? e.isOnline : true));
     sorted.sort((a, b) => {
       if (selectedRequest) {
-        const aMatches = isQualified(a, selectedRequest) ? 1 : 0;
-        const bMatches = isQualified(b, selectedRequest) ? 1 : 0;
-        if (aMatches !== bMatches) return bMatches - aMatches;
+        const aQ = isQualified(a, selectedRequest) ? 1 : 0;
+        const bQ = isQualified(b, selectedRequest) ? 1 : 0;
+        if (aQ !== bQ) return bQ - aQ;
+
+        const aArea = isSameArea(a, selectedRequest) ? 1 : 0;
+        const bArea = isSameArea(b, selectedRequest) ? 1 : 0;
+        if (aArea !== bArea) return bArea - aArea;
       }
-      // Online first
       if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
-      // Fewest active jobs first
       return a.activeJobCount - b.activeJobCount;
     });
     return sorted;
-  }, [employees, selectedRequest]);
+  }, [employees, selectedRequest, onlineOnly]);
 
   const qualifiedCount = useMemo(
     () => sortedEmployees.filter((e) => isQualified(e, selectedRequest)).length,
@@ -413,6 +438,30 @@ export default function AssignmentQueuePage() {
                 <div className="space-y-2">
                   {/* States why experts are ordered the way they are — without it
                       the Match badges look arbitrary. */}
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-[hsl(215,20%,60%)]">
+                      {selectedRequest.pinCode ? (
+                        <>
+                          Job pincode{" "}
+                          <span className="font-mono text-[hsl(210,20%,85%)]">{selectedRequest.pinCode}</span>
+                          <span className="text-[hsl(215,20%,45%)]">
+                            {" "}({selectedRequest.pinCodeSource === "address" ? "from address" : "from customer profile"})
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[hsl(38,92%,60%)]">No pincode on this booking — area matching unavailable</span>
+                      )}
+                    </p>
+                    <button
+                      onClick={() => setOnlineOnly((v) => !v)}
+                      className={`text-[10px] px-2 py-1 rounded border transition-colors whitespace-nowrap ${onlineOnly
+                        ? "border-[hsla(160,84%,39%,0.4)] text-[hsl(160,84%,65%)] bg-[hsla(160,84%,39%,0.12)]"
+                        : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,60%)] hover:text-white"}`}
+                    >
+                      {onlineOnly ? "Online only" : "All experts"}
+                    </button>
+                  </div>
+
                   <div className="mb-3 px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.06)]">
                     {isUnrestricted(selectedRequest) ? (
                       <p className="text-[11px] text-[hsl(215,20%,60%)]">
@@ -438,13 +487,14 @@ export default function AssignmentQueuePage() {
                           ))}
                         </div>
                         <p className="text-[10px] text-[hsl(215,20%,45%)] mt-1.5">
-                          {qualifiedCount} of {sortedEmployees.length} available experts qualify. Others can still be assigned.
+                          {qualifiedCount} of {sortedEmployees.length} experts qualify. Others can still be assigned.
                         </p>
                       </>
                     )}
                   </div>
                   {sortedEmployees.map((emp) => {
                     const matchesService = isQualified(emp, selectedRequest);
+                    const sameArea = isSameArea(emp, selectedRequest);
                     // No badge when nothing is required — flagging every expert
                     // as a "Match" would make the badge meaningless.
                     const showMatchBadge = matchesService && !isUnrestricted(selectedRequest);
@@ -461,8 +511,19 @@ export default function AssignmentQueuePage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-white text-sm">{emp.fullName}</p>
-                              {emp.isOnline && (
+                              {emp.isOnline ? (
                                 <span className="w-2 h-2 bg-[hsl(160,84%,60%)] shadow-[0_0_8px_hsla(160,84%,60%,0.8)] rounded-full" title="Online" />
+                              ) : (
+                                // Named, not merely absent. A missing dot is too
+                                // easy to miss when deciding who to call.
+                                <span className="text-[10px] text-[hsl(215,20%,45%)] border border-[rgba(255,255,255,0.1)] rounded px-1">
+                                  offline
+                                </span>
+                              )}
+                              {sameArea && (
+                                <Badge className="bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)] border-0 text-[10px] px-1.5 py-0">
+                                  Same area
+                                </Badge>
                               )}
                               {showMatchBadge && (
                                 <Badge className="bg-[hsla(217,91%,60%,0.2)] text-[hsl(217,91%,70%)] border-0 text-[10px] px-1.5 py-0">
@@ -480,6 +541,13 @@ export default function AssignmentQueuePage() {
                               <span className="text-xs text-[hsl(215,20%,40%)]">•</span>
                               <span className="text-xs text-[hsl(215,20%,65%)]">{emp.completedJobCount} done</span>
                             </div>
+                            {emp.pinCode ? (
+                              <p className="text-[10px] text-[hsl(215,20%,50%)] font-mono mt-0.5">
+                                PIN {emp.pinCode}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-[hsl(38,92%,55%)] mt-0.5">no base pincode set</p>
+                            )}
                             {emp.services && emp.services.length > 0 && (
                               <p className="text-[11px] text-[hsl(215,20%,50%)] mt-1 truncate">
                                 {emp.services.slice(0, 3).join(", ")}

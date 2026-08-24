@@ -484,6 +484,11 @@ export class AdminServiceManager {
                 createdAt: serviceRequests.createdAt,
                 customerName: users.username,
                 customerPhone: users.phone,
+                // service_requests stores a free-text address and no pincode, so
+                // the customer's profile pincode is the fallback. The address is
+                // preferred when it contains one, because that is the actual job
+                // location and may not be their home.
+                customerPinCode: users.pinCode,
                 categoryId: serviceCategories.id,
                 categoryName: serviceCategories.name,
                 serviceName: servicesCatalog.name,
@@ -500,14 +505,36 @@ export class AdminServiceManager {
             )
             .orderBy(desc(serviceRequests.createdAt));
 
+        /** First 6-digit run in an address, if there is one. */
+        const pinFromAddress = (address?: string | null): string | null => {
+            const match = String(address ?? '').match(/\b(\d{6})\b/);
+            return match ? match[1] : null;
+        };
+
         // Calculate waiting hours for each request
         const queue = pendingRequests.map((req) => {
             const createdMs = req.createdAt ? new Date(req.createdAt).getTime() : now.getTime();
             const waitingHours = Math.round(((now.getTime() - createdMs) / (1000 * 60 * 60)) * 10) / 10;
-            return { ...req, waitingHours };
+            const addressPin = pinFromAddress(req.address);
+            return {
+                ...req,
+                waitingHours,
+                // What to match experts against, and where it came from — an
+                // admin should be able to tell a pincode read off the address
+                // from one inferred from the customer's profile.
+                pinCode: addressPin ?? req.customerPinCode ?? null,
+                pinCodeSource: addressPin ? 'address' : (req.customerPinCode ? 'profile' : null),
+            };
         });
 
         // 2. Get all verified + active employees with active job counts
+        // Joined rather than a users lookup per employee — the previous version
+        // issued one query per row purely to fetch a phone number. The pincode
+        // comes from the same join, so matching costs nothing extra.
+        //
+        // Deliberately NOT filtered on isOnline: an admin assigning tomorrow
+        // morning's work needs to see everyone who could take it, not only who
+        // happens to have the app open right now.
         const employeeRows = await db
             .select({
                 id: employees.id,
@@ -519,8 +546,11 @@ export class AdminServiceManager {
                 totalServicesCompleted: employees.totalServicesCompleted,
                 averageRating: employees.averageRating,
                 userId: employees.userId,
+                phone: users.phone,
+                pinCode: users.pinCode,
             })
             .from(employees)
+            .leftJoin(users, eq(users.id, employees.userId))
             .where(
                 and(
                     eq(employees.documentVerificationStatus, 'verified'),
@@ -545,27 +575,19 @@ export class AdminServiceManager {
         }
 
         // Enrich employees with phone and active job count
-        const enrichedEmployees = await Promise.all(
-            employeeRows.map(async (emp) => {
-                // Get phone from users table
-                const [user] = await db
-                    .select({ phone: users.phone })
-                    .from(users)
-                    .where(eq(users.id, emp.userId));
-
-                return {
-                    id: emp.id,
-                    fullName: emp.fullName,
-                    partnerId: emp.partnerId,
-                    phone: user?.phone || '',
-                    services: emp.services || [],
-                    isOnline: emp.isOnline,
-                    activeJobCount: jobCountMap.get(emp.id) || 0,
-                    completedJobCount: emp.totalServicesCompleted || 0,
-                    averageRating: emp.averageRating || '0.00',
-                };
-            })
-        );
+        const enrichedEmployees = employeeRows.map((emp) => ({
+            id: emp.id,
+            fullName: emp.fullName,
+            partnerId: emp.partnerId,
+            phone: emp.phone || '',
+            // The expert's BASE location — what decides which jobs suit them.
+            pinCode: emp.pinCode || '',
+            services: emp.services || [],
+            isOnline: emp.isOnline,
+            activeJobCount: jobCountMap.get(emp.id) || 0,
+            completedJobCount: emp.totalServicesCompleted || 0,
+            averageRating: emp.averageRating || '0.00',
+        }));
 
         // 2b. Attach expertise matching.
         //
