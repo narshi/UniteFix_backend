@@ -27,6 +27,8 @@ interface InvoiceData {
     grossBeforeDiscount: number;
     cgst: number;
     sgst: number;
+    /** Half the GST rate — printed beside each line, e.g. "CGST (9%)". */
+    halfGstRate: number;
     otherCharges: number;
     otherChargesLabel: string;
     otherChargesNote: string;
@@ -112,6 +114,14 @@ export class InvoiceGenerator {
         // inside the service branch below, but the totals block needs this.
         let discountAmount = 0;
         let discountLabel = "";
+        /**
+         * The contracted GST rate, halved for the CGST and SGST lines.
+         *
+         * Taken from the booking's frozen snapshot rather than today's config,
+         * for the same reason every other figure is: a reprint must show the
+         * rate that applied when the bill was raised, not the current one.
+         */
+        let gstPercent = 18;
 
         // If Service Invoice
         if (invoice.serviceRequestId) {
@@ -132,6 +142,9 @@ export class InvoiceGenerator {
                 // promotion that was actually applied.
                 discountAmount = round2(Number(snapshot?.discountAmount ?? 0));
                 discountLabel = typeof snapshot?.discountLabel === 'string' ? snapshot.discountLabel.slice(0, 40) : "";
+                if (Number.isFinite(Number(snapshot?.gstPercent))) {
+                    gstPercent = Number(snapshot.gstPercent);
+                }
                 if (snapshot?.extraPartsCost > 0) {
                     approvedPartsCost = Number(snapshot.extraPartsCost);
                     approvedPartsNote = typeof snapshot.partsNote === 'string' ? snapshot.partsNote : "";
@@ -301,6 +314,7 @@ export class InvoiceGenerator {
             grossBeforeDiscount: round2(taxableAmount + discountAmount),
             cgst,
             sgst,
+            halfGstRate: round2(gstPercent / 2),
             otherCharges,
             otherChargesLabel,
             otherChargesNote: approvedPartsCost > 0 ? approvedPartsNote.slice(0, 80) : "",
@@ -447,12 +461,17 @@ export class InvoiceGenerator {
             doc.text("Taxable Amount:", 350, y, { width: 110, align: "right" });
             doc.text(inr(data.subtotal), 470, y, { width: 90, align: "right" });
 
+            // Rate in brackets, as a tax invoice should carry. Trailing ".0" is
+            // dropped so 9% reads as "9%" rather than "9.0%", while a half-point
+            // rate would still show.
+            const ratePrint = `${Number(data.halfGstRate.toFixed(2))}%`;
+
             y += 15;
-            doc.text("CGST:", 350, y, { width: 110, align: "right" });
+            doc.text(`CGST (${ratePrint}):`, 330, y, { width: 130, align: "right" });
             doc.text(inr(data.cgst), 470, y, { width: 90, align: "right" });
 
             y += 15;
-            doc.text("SGST:", 350, y, { width: 110, align: "right" });
+            doc.text(`SGST (${ratePrint}):`, 330, y, { width: 130, align: "right" });
             doc.text(inr(data.sgst), 470, y, { width: 90, align: "right" });
 
             if (data.otherCharges > 0.01) {

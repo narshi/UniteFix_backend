@@ -154,7 +154,14 @@ export class BillingEngine {
     // held there. A promotion is a decision the business makes; making the
     // technician fund it is how you lose the technician. Same reasoning as the
     // platform fee being the thing that flexes.
-    const gstOnList = round2(listPrice * gstPercent / 100);
+    // Tax-INCLUSIVE extraction: r/(100+r), not r/100.
+    //
+    // The catalog price already contains the GST — the header above says so, and
+    // the buckets are carved OUT of it rather than added on top. Taking 18% OF
+    // the gross therefore over-declared the tax: on ₹799 it set aside ₹143.82,
+    // leaving a taxable value of ₹655.18, which implies a rate of 21.95% and not
+    // 18%. The correct extraction is ₹121.88 on a taxable ₹677.12.
+    const gstOnList = round2(listPrice * gstPercent / (100 + gstPercent));
     const feeOnList = round2(listPrice * platformFeePercent / 100);
     const technicianEarning = round2(listPrice - gstOnList - feeOnList - bookingFee);
 
@@ -167,8 +174,8 @@ export class BillingEngine {
 
     // GST follows the real transaction value, not the list price — the discount
     // is given at the time of supply and shown on the invoice, so tax is due on
-    // the reduced amount.
-    const gst = round2(P * gstPercent / 100);
+    // the reduced amount. Extracted from the inclusive figure, as above.
+    const gst = round2(P * gstPercent / (100 + gstPercent));
     const cgst = round2(gst / 2);
     const sgst = round2(gst - cgst);
 
