@@ -298,6 +298,17 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                 <table className="w-full glass-table">
                   <thead>
                     <tr className="text-left border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)]">
+                      {/* The body's first cell is a row checkbox, but this header
+                          was missing — so every heading sat one column to the left
+                          of the data it named. "Service ID" labelled the checkbox,
+                          "Customer" labelled the service type, and so on across
+                          the whole table. */}
+                      <th className="p-4 w-10">
+                        <SelectAllCheckbox
+                          state={selection.pageState(filteredServices)}
+                          onToggle={() => selection.togglePage(filteredServices)}
+                        />
+                      </th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service ID</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Service Type</th>
                       <th className="p-4 text-xs font-medium text-[hsl(215,20%,65%)] uppercase tracking-wider">Customer</th>
