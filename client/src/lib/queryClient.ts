@@ -10,8 +10,7 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
  */
 function isDashboardCall(url: string): boolean {
     return url.includes("/api/admin/")
-        || url.includes("/api/ftth/admin/")
-        || url.includes("/api/ftth/staff/")
+        || url.includes("/api/ftth/")
         || url.includes("/api/service-partners");
 }
 

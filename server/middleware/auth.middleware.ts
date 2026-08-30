@@ -565,6 +565,41 @@ export function authenticateOperator(req: Request, res: Response, next: NextFunc
         });
 }
 
+/**
+ * Dual authentication middleware accepting EITHER an active FTTH operator token OR a staff admin token.
+ */
+export function authenticateOperatorOrAdmin(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            message: 'Authentication token required',
+        });
+    }
+
+    let decoded: any;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (error: any) {
+        if (error?.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Session expired. Please sign in again.',
+                code: 'SESSION_EXPIRED',
+            });
+        }
+        return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    if (decoded.role === 'operator') {
+        return authenticateOperator(req, res, next);
+    } else {
+        return authenticateAdmin(req, res, next);
+    }
+}
+
 
 /**
  * Refuse anything that needs an address until the account actually has one.

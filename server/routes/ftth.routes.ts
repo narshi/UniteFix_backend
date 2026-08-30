@@ -38,6 +38,7 @@ import {
 import {
     authenticateAdmin,
     authenticateOperator,
+    authenticateOperatorOrAdmin,
     authenticateToken,
     requireSuperAdmin,
 } from "../middleware/auth.middleware";
@@ -1416,41 +1417,21 @@ export function registerFtthRoutes(app: Express) {
         });
 
     /**
-     * POST /api/ftth/admin/customers/bulk-import
-     * Universal Dynamic Excel/CSV Customer Roster Importer for Operators.
+     * POST /api/ftth/admin/customers/bulk-import, /api/admin/ftth/customers/bulk-import, /api/ftth/staff/customers/bulk-import
+     * Universal Dynamic Excel/CSV Customer Roster Importer for Operators and Admins.
      */
-    app.post("/api/ftth/admin/customers/bulk-import", authenticateOperator, validateBody(bulkImportCustomersSchema),
-        async (req: Request, res: Response, next: NextFunction) => {
-            try {
-                const { operatorId } = (req as any).operator;
-                const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
-
-                const result = await FtthService.bulkImportCustomers({
-                    operatorId,
-                    mappings: body.mappings,
-                    rows: body.rows,
-                });
-
-                res.json({
-                    success: true,
-                    data: result,
-                });
-            } catch (error) { next(error); }
-        });
-
-    /**
-     * POST /api/admin/ftth/customers/bulk-import & POST /api/ftth/staff/customers/bulk-import
-     * Universal Dynamic Excel/CSV Customer Roster Importer for Superadmins.
-     */
-    const handleStaffBulkImport = async (req: Request, res: Response, next: NextFunction) => {
+    const handleBulkImport = async (req: Request, res: Response, next: NextFunction) => {
         try {
+            const operatorAuth = (req as any).operator;
             const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
-            if (!body.operatorId) {
-                return res.status(400).json({ success: false, message: 'operatorId is required for staff import' });
+            const targetOperatorId = operatorAuth?.operatorId || body.operatorId;
+
+            if (!targetOperatorId) {
+                return res.status(400).json({ success: false, message: 'operatorId is required for import' });
             }
 
             const result = await FtthService.bulkImportCustomers({
-                operatorId: body.operatorId,
+                operatorId: targetOperatorId,
                 mappings: body.mappings,
                 rows: body.rows,
             });
@@ -1462,8 +1443,9 @@ export function registerFtthRoutes(app: Express) {
         } catch (error) { next(error); }
     };
 
-    app.post("/api/admin/ftth/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema), handleStaffBulkImport);
-    app.post("/api/ftth/staff/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema), handleStaffBulkImport);
+    app.post("/api/ftth/admin/customers/bulk-import", authenticateOperatorOrAdmin, validateBody(bulkImportCustomersSchema), handleBulkImport);
+    app.post("/api/admin/ftth/customers/bulk-import", authenticateOperatorOrAdmin, validateBody(bulkImportCustomersSchema), handleBulkImport);
+    app.post("/api/ftth/staff/customers/bulk-import", authenticateOperatorOrAdmin, validateBody(bulkImportCustomersSchema), handleBulkImport);
 
     /** GET /api/ftth/admin/ledger — running balance and entries. */
     app.get("/api/ftth/admin/ledger", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
