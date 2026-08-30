@@ -68,6 +68,14 @@ export async function runStartupMigrations(): Promise<void> {
       ON ftth_connections (operator_id, customer_phone);
     `);
 
+    // 4. Drop legacy UNIQUE constraint/index on (user_id, operator_id) and recreate as standard index
+    // so a customer/business can have multiple broadband lines under the same operator
+    await client.query(`
+      ALTER TABLE ftth_connections DROP CONSTRAINT IF EXISTS ftth_conn_user_operator_idx;
+      DROP INDEX IF EXISTS ftth_conn_user_operator_idx;
+      CREATE INDEX IF NOT EXISTS ftth_conn_user_operator_idx ON ftth_connections (user_id, operator_id);
+    `);
+
     console.log('[DB] Startup schema migrations verified successfully');
   } catch (err: any) {
     console.error('[DB] Startup migration error:', err.message);
