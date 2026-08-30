@@ -16,8 +16,12 @@ export interface AdminMe {
   id: number;
   username: string;
   email: string | null;
-  role: "admin" | "super_admin";
+  /** The role's slug. Roles are user-created, so this is not a fixed union. */
+  role: string;
+  roleName: string;
   isSuperAdmin: boolean;
+  /** Already expanded — `manage` implies `view`. */
+  capabilities: string[];
 }
 
 /**
@@ -63,6 +67,9 @@ export function useAdminMe() {
     retry: false,
   });
 
+  const capabilities = data?.data?.capabilities ?? [];
+  const capSet = new Set(capabilities);
+
   return {
     admin: data?.data ?? null,
     /**
@@ -70,6 +77,13 @@ export function useAdminMe() {
      * hides privileged UI rather than flashing it.
      */
     isSuperAdmin: data?.data?.isSuperAdmin === true,
+    capabilities,
+    /**
+     * Hiding a menu or a button is a UX affordance, never access control —
+     * every capability is enforced independently by the guard mounted on
+     * /api/admin. Defaults to false while loading for the same reason as above.
+     */
+    can: (capability: string) => capSet.has(capability),
     isLoading,
     isError,
   };
