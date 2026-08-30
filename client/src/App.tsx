@@ -30,6 +30,7 @@ import TechnicianTypesPage from "@/pages/admin/technician-types";
 import CategoryExpertisePage from "@/pages/admin/category-expertise";
 import FtthOperatorsPage from "@/pages/admin/ftth-operators";
 import FtthOperatorDetailPage from "@/pages/admin/ftth-operator-detail";
+import EmployeeDetailPage from "@/pages/admin/employee-detail";
 import OperatorLayout from "@/layouts/OperatorLayout";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -248,6 +249,9 @@ function Router() {
           <Route path="/services"><Gate capability="bookings:view" component={ServicesPage} /></Route>
           <Route path="/orders"><Gate capability="orders:view" component={OrdersPage} /></Route>
           <Route path="/partners"><Gate capability="employees:view" component={PartnersPage} /></Route>
+          {/* Wallet and payout sections inside are additionally gated on
+              payments:view / withdrawals:view, server-side. */}
+          <Route path="/partners/:id"><Gate capability="employees:view" component={EmployeeDetailPage} /></Route>
           <Route path="/payments"><Gate capability="payments:view" component={PaymentsPage} /></Route>
           <Route path="/locations"><Gate capability="locations:view" component={LocationsPage} /></Route>
           <Route path="/admin/districts"><Gate capability="locations:view" component={DistrictsPage} /></Route>

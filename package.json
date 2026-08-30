@@ -32,7 +32,8 @@
     "smoke:withdrawals": "node scripts/smoke-withdrawals.mjs",
     "diagnose:withdrawals": "node -r dotenv/config scripts/diagnose-withdrawals.mjs",
     "migrate:upi": "node -r dotenv/config scripts/apply-upi-verification-migration.mjs",
-    "smoke:upi": "node scripts/smoke-upi-validation.mjs"
+    "smoke:upi": "node scripts/smoke-upi-validation.mjs",
+    "smoke:employee": "node scripts/smoke-employee-detail.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

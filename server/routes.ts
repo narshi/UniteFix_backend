@@ -21,6 +21,10 @@ import {
   serviceCategoryTechnicianTypes,
   technicianTypes,
   adminRoles,
+  partnerWallets,
+  walletTransactionsV2,
+  withdrawalRequests,
+  ratings,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -1751,6 +1755,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const transactions = await storage.getProviderWalletTransactions(id);
       res.json({ success: true, data: transactions });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * GET /api/admin/servicemen/:id/detail
+   *
+   * Everything about one employee in a single call: profile, jobs, wallet,
+   * withdrawals and ratings. Previously this was spread across the Employees
+   * list, a transactions modal, and the Withdrawals screen, with no way to see
+   * one person's whole record.
+   *
+   * Money is gated SEPARATELY. Reaching this route needs employees:view (the
+   * capability map covers /servicemen), but wallet history and payout requests
+   * additionally need payments:view / withdrawals:view — so a role that manages
+   * staff cannot necessarily read what they earn. The page is told which
+   * sections were withheld rather than being left to guess from empty arrays.
+   */
+  app.get("/api/admin/servicemen/:id/detail", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ success: false, message: "Invalid employee id" });
+      }
+
+      const caps = (req as any).admin?.capabilities as Set<string> | undefined;
+      const canSeeWallet = caps?.has('payments:view') ?? false;
+      const canSeeWithdrawals = caps?.has('withdrawals:view') ?? false;
+
+      const [employee] = await db
+        .select({
+          employee: employees,
+          username: users.username,
+          phone: users.phone,
+          email: users.email,
+          homeAddress: users.homeAddress,
+          pinCode: users.pinCode,
+        })
+        .from(employees)
+        .leftJoin(users, eq(users.id, employees.userId))
+        .where(eq(employees.id, id))
+        .limit(1);
+
+      if (!employee) {
+        return res.status(404).json({ success: false, message: "Employee not found" });
+      }
+
+      const [wallet] = await db.select().from(partnerWallets)
+        .where(eq(partnerWallets.partnerId, id)).limit(1);
+
+      // Jobs, newest first. Amounts come straight off the booking so the page
+      // shows what was actually billed rather than a recomputed guess.
+      const jobs = await db
+        .select({
+          id: serviceRequests.id,
+          serviceId: serviceRequests.serviceId,
+          serviceType: serviceRequests.serviceType,
+          status: serviceRequests.status,
+          totalAmount: serviceRequests.totalAmount,
+          bookingFee: serviceRequests.bookingFee,
+          createdAt: serviceRequests.createdAt,
+          customerName: users.username,
+          customerPhone: users.phone,
+          rating: ratings.rating,
+        })
+        .from(serviceRequests)
+        .leftJoin(users, eq(users.id, serviceRequests.userId))
+        .leftJoin(ratings, eq(ratings.serviceRequestId, serviceRequests.id))
+        .where(eq(serviceRequests.providerId, id))
+        .orderBy(desc(serviceRequests.createdAt))
+        .limit(200);
+
+      const reviews = await db
+        .select({
+          id: ratings.id,
+          rating: ratings.rating,
+          review: ratings.review,
+          createdAt: ratings.createdAt,
+          serviceId: serviceRequests.serviceId,
+          serviceType: serviceRequests.serviceType,
+          customerName: users.username,
+        })
+        .from(ratings)
+        .leftJoin(serviceRequests, eq(serviceRequests.id, ratings.serviceRequestId))
+        .leftJoin(users, eq(users.id, ratings.fromUserId))
+        .where(and(eq(ratings.toProviderId, id), eq(ratings.isVisible, true)))
+        .orderBy(desc(ratings.createdAt))
+        .limit(200);
+
+      const walletHistory = canSeeWallet
+        ? await db.select().from(walletTransactionsV2)
+            .where(eq(walletTransactionsV2.partnerId, id))
+            .orderBy(desc(walletTransactionsV2.id))
+            .limit(200)
+        : null;
+
+      const payouts = canSeeWithdrawals
+        ? await db.select().from(withdrawalRequests)
+            .where(eq(withdrawalRequests.partnerId, id))
+            .orderBy(desc(withdrawalRequests.id))
+            .limit(100)
+        : null;
+
+      // The soonest held money becomes withdrawable — the same thing the expert
+      // app now shows them, so support and the expert are looking at one answer.
+      const [nextRelease] = await db
+        .select({ amount: walletTransactionsV2.amount, releaseDate: walletTransactionsV2.releaseDate })
+        .from(walletTransactionsV2)
+        .where(and(
+          eq(walletTransactionsV2.partnerId, id),
+          eq(walletTransactionsV2.transactionType, 'hold_credit'),
+          eq(walletTransactionsV2.isReleased, false),
+        ))
+        .orderBy(walletTransactionsV2.releaseDate)
+        .limit(1);
+
+      const completed = jobs.filter(j => j.status === 'completed');
+      const rated = reviews.length;
+
+      res.json({
+        success: true,
+        data: {
+          employee: {
+            ...employee.employee,
+            username: employee.username,
+            phone: employee.phone,
+            email: employee.email,
+            address: employee.homeAddress,
+            pinCode: employee.pinCode,
+            hasPayoutDestination: !!(employee.employee.upiId
+              || (employee.employee.bankAccountNumber && employee.employee.bankIfsc)),
+            payoutAutomationReady: !!employee.employee.razorpayFundAccountId,
+          },
+          stats: {
+            jobsTotal: jobs.length,
+            jobsCompleted: completed.length,
+            ratingCount: rated,
+            averageRating: rated
+              ? Number((reviews.reduce((s, r) => s + r.rating, 0) / rated).toFixed(2))
+              : null,
+            balanceAvailable: wallet?.balanceAvailable ?? '0.00',
+            balanceHold: wallet?.balanceHold ?? '0.00',
+            totalEarned: wallet?.totalEarned ?? '0.00',
+            nextReleaseDate: nextRelease?.releaseDate ?? null,
+            nextReleaseAmount: nextRelease?.amount ?? null,
+          },
+          jobs,
+          ratings: reviews,
+          wallet: walletHistory,
+          withdrawals: payouts,
+          // Null above means "your role may not see this", not "there is none".
+          // Saying which keeps an empty section from reading as a data problem.
+          visibility: { wallet: canSeeWallet, withdrawals: canSeeWithdrawals },
+        },
+      });
     } catch (error) {
       next(error);
     }

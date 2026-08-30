@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -424,7 +425,11 @@ export default function PartnersPage() {
                             {partner.partnerName.charAt(0)}
                           </div>
                           <div>
-                            <p className="font-bold text-[hsl(210,20%,90%)]">{partner.partnerName}</p>
+                            <Link href={`/partners/${partner.id}`}>
+                              <a className="font-bold text-[hsl(210,20%,90%)] hover:text-[hsl(217,91%,70%)] underline-offset-4 hover:underline">
+                                {partner.partnerName}
+                              </a>
+                            </Link>
                             <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">{partner.partnerId} <span className="mx-1">•</span> {partner.partnerType}</p>
                             <p className="text-xs text-[hsl(215,20%,45%)] mt-0.5">{partner.phone || 'No phone'} <span className="mx-1">•</span> {partner.email || 'No email'}</p>
                             <p className="text-xs text-[hsl(215,20%,45%)] mt-0.5" title={partner.address || undefined}>
