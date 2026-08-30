@@ -16,7 +16,9 @@
 
 import pg from 'pg';
 
-const phoneArg = process.argv[2];
+// Phone number or name — whichever you have. A complaint usually arrives as a
+// name, so matching on that too saves a lookup.
+const who = process.argv[2];
 
 const c = new pg.Client({
     connectionString: process.env.DATABASE_URL,
@@ -92,8 +94,8 @@ try {
           ORDER BY (w.balance_available)::numeric DESC LIMIT 15`);
     console.table(withBalance.length ? withBalance : [{ note: 'no partner has an available balance' }]);
 
-    if (phoneArg) {
-        h(`6. Partner ${phoneArg} in detail`);
+    if (who) {
+        h(`6. Partner "${who}" in detail`);
         const { rows } = await c.query(
             `SELECT e.id AS employee_id, e.full_name, u.phone, e.upi_id,
                     e.bank_account_number, e.bank_ifsc,
@@ -101,31 +103,69 @@ try {
                     w.balance_available, w.balance_hold
                FROM users u JOIN employees e ON e.user_id = u.id
                LEFT JOIN partner_wallets w ON w.partner_id = e.id
-              WHERE u.phone LIKE $1`, [`%${phoneArg}%`]);
+              WHERE u.phone LIKE $1
+                 OR e.full_name ILIKE $1
+                 OR u.username ILIKE $1`, [`%${who}%`]);
+
         if (!rows.length) {
-            console.log('No partner found with that phone.');
+            console.log('No partner matched that name or phone.');
         } else {
+            if (rows.length > 1) console.log(`${rows.length} partners matched — showing all.\n`);
             console.table(rows);
-            const p = rows[0];
-            console.log('\nDiagnosis:');
-            if (!p.upi_id && !p.bank_account_number) {
-                console.log('  No payout destination saved. The block is correct — ask them to add a UPI id.');
-            } else if (!p.razorpay_fund_account_id) {
-                console.log('  Has a payout destination but NO fund account, so /api/partner/wallet/withdraw');
-                console.log('  refuses with "UPI ID not found" and writes nothing. THIS is the reported bug.');
-            } else {
-                console.log('  Payout setup looks complete — the failure is elsewhere; check server logs');
-                console.log('  around their attempt for a 400/500 on /api/partner/wallet/withdraw.');
+
+            for (const p of rows) {
+                console.log(`\n── ${p.full_name} (employee ${p.employee_id}) ──`);
+
+                const { rows: theirs } = await c.query(
+                    `SELECT id, amount, method, status, created_at
+                       FROM withdrawal_requests WHERE partner_id = $1
+                      ORDER BY id DESC LIMIT 10`, [p.employee_id]);
+
+                const { rows: ledger } = await c.query(
+                    `SELECT transaction_id, transaction_type, amount, created_at
+                       FROM wallet_transactions_v2
+                      WHERE partner_id = $1 AND transaction_type IN ('withdraw_upi','withdraw_bank')
+                      ORDER BY id DESC LIMIT 10`, [p.employee_id]);
+
+                console.log('Withdrawal requests:');
+                console.table(theirs.length ? theirs : [{ note: 'NONE — nothing was ever created' }]);
+                console.log('Withdrawal entries in their wallet history:');
+                console.table(ledger.length ? ledger : [{ note: 'NONE' }]);
+
+                console.log('Diagnosis:');
+                if (theirs.length === 0 && ledger.length === 0) {
+                    // All three writes share one transaction, so none of them
+                    // existing means it never committed — the request was refused
+                    // before any insert.
+                    console.log('  Neither a request NOR a wallet entry exists. Those are written in the');
+                    console.log('  SAME transaction, so this was refused before any insert — the attempt');
+                    console.log('  never reached the database.');
+                    if (!p.upi_id && !p.bank_account_number) {
+                        console.log('  Cause: no payout destination saved. The refusal is correct.');
+                    } else if (!p.razorpay_fund_account_id) {
+                        console.log('  Cause: has a payout destination but NO RazorpayX fund account.');
+                        console.log('  The OLD code refused this with "UPI ID not found". If you are seeing');
+                        console.log('  this, the withdrawal fix is NOT DEPLOYED on this environment yet.');
+                    } else {
+                        console.log('  Payout setup looks complete — check server logs around their attempt');
+                        console.log('  for a 400/500 on POST /api/partner/wallet/withdraw.');
+                    }
+                    console.log(`  Their balance is ₹${p.balance_available} — money was never taken.`);
+                } else if (theirs.length > 0 && ledger.length === 0) {
+                    console.log('  A request exists but NO wallet entry. That should be impossible —');
+                    console.log('  they are written together. Investigate before paying anything out.');
+                } else if (theirs.length === 0 && ledger.length > 0) {
+                    console.log('  A wallet entry exists but NO request. Also should be impossible.');
+                    console.log('  The partner has been debited with nothing for an admin to approve.');
+                } else {
+                    console.log('  Request and wallet entry both exist, so the withdrawal WAS created.');
+                    console.log('  If the admin screen does not show it, the problem is on the read side.');
+                }
             }
-            const { rows: theirs } = await c.query(
-                'SELECT id, amount, method, status, created_at FROM withdrawal_requests WHERE partner_id = $1 ORDER BY id DESC LIMIT 10',
-                [p.employee_id]);
-            console.log('\nTheir withdrawal requests:');
-            console.table(theirs.length ? theirs : [{ note: 'none — nothing was ever created' }]);
         }
     } else {
-        console.log('\nTip: pass the partner\'s phone number to inspect one account:');
-        console.log('  node -r dotenv/config scripts/diagnose-withdrawals.mjs 9876543210');
+        console.log("\nTip: pass a name or phone number to inspect one partner:");
+        console.log('  node -r dotenv/config scripts/diagnose-withdrawals.mjs surendra');
     }
 
     console.log('');

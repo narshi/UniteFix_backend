@@ -37,9 +37,17 @@ export interface Assignment {
 
 export interface WalletSummary {
     totalEarnings: number;
+    /** Held earnings — NOT withdrawable until they release. */
     pendingPayments: number;
     completedJobs: number;
     availableBalance?: number;
+    /**
+     * When held money becomes withdrawable. Without this the screen could only
+     * show a held total with no explanation, which is how a partner ended up
+     * being told "insufficient balance" while looking at their own money.
+     */
+    nextReleaseDate?: string | null;
+    nextReleaseAmount?: number | null;
     recentTransactions: WalletTransaction[];
 }
 
@@ -126,6 +134,10 @@ export const partnerApi = {
                 totalEarnings: parseFloat(walletData.totalEarned || '0'),
                 pendingPayments: parseFloat(walletData.balanceHold || '0'),
                 availableBalance: parseFloat(walletData.balanceAvailable || '0'), // Added for UI
+                nextReleaseDate: walletData.nextReleaseDate ?? null,
+                nextReleaseAmount: walletData.nextReleaseAmount
+                    ? parseFloat(walletData.nextReleaseAmount)
+                    : null,
                 completedJobs: walletData.completedJobs || 0,
                 recentTransactions: txData.map((tx: any) => {
                     // Map V2 transaction types to credit/debit

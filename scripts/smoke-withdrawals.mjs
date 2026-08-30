@@ -136,6 +136,49 @@ try {
         `status ${r.status} code ${r.json?.code}`);
     await c.query('UPDATE employees SET upi_id=$2 WHERE id=$1', [employeeId, 'qapartner@upi']);
 
+    // ---- money on hold ----------------------------------------------------
+    //
+    // Surendra M's situation exactly: ₹0 available, everything held after a
+    // recent job. The old code answered "Insufficient balance" while he was
+    // looking at ₹416 of his own earnings on the same screen, with nothing
+    // anywhere explaining that held money is not withdrawable yet.
+    const releaseDate = new Date(Date.now() + 4 * 86_400_000);
+    await c.query(
+        `UPDATE partner_wallets SET balance_available='0.00', balance_hold='416.60' WHERE partner_id=$1`,
+        [employeeId]);
+    await c.query(
+        `INSERT INTO wallet_transactions_v2
+            (transaction_id, partner_id, transaction_type, amount,
+             balance_hold_before, balance_hold_after,
+             balance_available_before, balance_available_after,
+             release_date, is_released, description)
+         VALUES ($1,$2,'hold_credit','173.30','243.30','416.60','0.00','0.00',$3,false,
+                 'Earnings held for service completion')`,
+        [`WHLD-QA-${stamp}`, employeeId, releaseDate]);
+
+    r = await req('POST', '/api/partner/wallet/withdraw', {
+        token: partnerToken, body: { amount: 173.30, method: 'upi' },
+    });
+    check('held funds are refused as ON HOLD, not "insufficient balance"',
+        r.status === 400 && r.json?.code === 'FUNDS_ON_HOLD',
+        `status ${r.status} code ${r.json?.code}`);
+    check('and the message says when the money frees up',
+        /on hold/i.test(r.json?.message ?? '') && /available to withdraw on/i.test(r.json?.message ?? ''),
+        r.json?.message);
+    check('it never claims the balance is insufficient',
+        !/insufficient/i.test(r.json?.message ?? ''), r.json?.message);
+
+    r = await req('GET', '/api/partner/wallet/balance', { token: partnerToken });
+    check('the balance endpoint reports the next release date',
+        !!r.json?.data?.nextReleaseDate && r.json?.data?.nextReleaseAmount === '173.30',
+        `${r.json?.data?.nextReleaseDate} / ₹${r.json?.data?.nextReleaseAmount}`);
+
+    // Put it back so the later assertions see a normal wallet.
+    await c.query(`DELETE FROM wallet_transactions_v2 WHERE transaction_id=$1`, [`WHLD-QA-${stamp}`]);
+    await c.query(
+        `UPDATE partner_wallets SET balance_available='4000.00', balance_hold='0.00' WHERE partner_id=$1`,
+        [employeeId]);
+
     // ---- admin can see the broken payout setup ----------------------------
     r = await req('GET', `/api/admin/servicemen/list?q=QA Payout Partner`, { token: superToken });
     const listed = (r.json?.data ?? []).find(p => p.id === employeeId);

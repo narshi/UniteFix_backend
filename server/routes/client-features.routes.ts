@@ -611,6 +611,28 @@ export function registerClientFeatureRoutes(app: Express) {
                 }).returning();
             }
 
+            // When does held money actually become withdrawable?
+            //
+            // Without this the app could only show a number sitting in "On Hold"
+            // with no explanation, so a partner with ₹416 held and ₹0 available
+            // was told "Insufficient Balance" while looking at ₹416 of their own
+            // money. They had no way to learn that held earnings are not
+            // withdrawable yet, or when that changes.
+            const upcoming = await db
+                .select({
+                    amount: walletTransactionsV2.amount,
+                    releaseDate: walletTransactionsV2.releaseDate,
+                })
+                .from(walletTransactionsV2)
+                .where(and(
+                    eq(walletTransactionsV2.partnerId, provider.id),
+                    eq(walletTransactionsV2.transactionType, 'hold_credit'),
+                    eq(walletTransactionsV2.isReleased, false),
+                ))
+                .orderBy(walletTransactionsV2.releaseDate);
+
+            const nextRelease = upcoming.find(u => u.releaseDate) ?? null;
+
             res.json({
                 success: true,
                 data: {
@@ -620,6 +642,14 @@ export function registerClientFeatureRoutes(app: Express) {
                     balanceAvailable: wallet.balanceAvailable,
                     totalEarned: wallet.totalEarned,
                     completedJobs: provider.totalServicesCompleted,
+                    // The soonest money moves from hold to available, and how much.
+                    nextReleaseDate: nextRelease?.releaseDate ?? null,
+                    nextReleaseAmount: nextRelease?.amount ?? null,
+                    // Every pending release, so the app can show a schedule rather
+                    // than a single opaque total.
+                    upcomingReleases: upcoming
+                        .filter(u => u.releaseDate)
+                        .map(u => ({ amount: u.amount, releaseDate: u.releaseDate })),
                 },
             });
         } catch (error) {
@@ -758,16 +788,53 @@ export function registerClientFeatureRoutes(app: Express) {
                 await configService.get('BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', 500)
             );
 
+            // "Insufficient balance" is a lie when the money exists but is held.
+            // A partner with ₹416 on hold and ₹0 available was told exactly that
+            // while looking at their own ₹416 on screen, with nothing anywhere
+            // explaining that held earnings are not withdrawable yet. Name the
+            // real reason, and say when it changes.
+            const held = parseFloat(wallet.balanceHold ?? '0');
+
             if (amount > available) {
+                if (held > 0) {
+                    const [soonest] = await db
+                        .select({ releaseDate: walletTransactionsV2.releaseDate })
+                        .from(walletTransactionsV2)
+                        .where(and(
+                            eq(walletTransactionsV2.partnerId, provider.id),
+                            eq(walletTransactionsV2.transactionType, 'hold_credit'),
+                            eq(walletTransactionsV2.isReleased, false),
+                        ))
+                        .orderBy(walletTransactionsV2.releaseDate)
+                        .limit(1);
+
+                    const when = soonest?.releaseDate
+                        ? new Date(soonest.releaseDate).toLocaleDateString('en-IN', {
+                            day: 'numeric', month: 'short', year: 'numeric',
+                        })
+                        : null;
+
+                    return res.status(400).json({
+                        success: false,
+                        code: 'FUNDS_ON_HOLD',
+                        message: when
+                            ? `Your ₹${held} is still on hold after your recent jobs. It becomes available to withdraw on ${when}.`
+                            : `Your ₹${held} is still on hold after your recent jobs and isn't available to withdraw yet.`,
+                        data: { balanceAvailable: available, balanceHold: held, availableFrom: soonest?.releaseDate ?? null },
+                    });
+                }
+
                 return res.status(400).json({
                     success: false,
-                    message: `Insufficient balance. Available: ₹${available}`,
+                    code: 'INSUFFICIENT_BALANCE',
+                    message: `You have ₹${available} available to withdraw.`,
                 });
             }
 
             if (amount < minRedemption) {
                 return res.status(400).json({
                     success: false,
+                    code: 'BELOW_MINIMUM',
                     message: `Minimum withdrawal is ₹${minRedemption}`,
                 });
             }

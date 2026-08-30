@@ -23,6 +23,11 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useScreenInsets } from '../../theme/layout';
 
+/** "4 Sep" — short enough for a summary card, unambiguous enough to plan around. */
+function formatReleaseDate(iso: string): string {
+    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
 function TransactionItem({ item }: { item: WalletTransaction }) {
     const isCredit = item.type === 'credit';
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
@@ -75,8 +80,28 @@ export function WalletScreen() {
         }
 
         const available = wallet?.availableBalance || 0;
+        const held = wallet?.pendingPayments || 0;
+
+        // "Insufficient Balance" is a lie when the money exists but is held, and
+        // it was being shown to partners looking at hundreds of rupees of their
+        // own earnings on the same screen. Name the real reason and the date.
+        if (available < minRedemption && held > 0) {
+            Alert.alert(
+                'Your earnings are still on hold',
+                `₹${held} from your recent jobs isn't available to withdraw yet.`
+                + (wallet?.nextReleaseDate
+                    ? `\n\nIt becomes available on ${formatReleaseDate(wallet.nextReleaseDate)}.`
+                    : '')
+                + `\n\nAvailable to withdraw right now: ₹${available}.`,
+            );
+            return;
+        }
+
         if (available < minRedemption) {
-            Alert.alert('Insufficient Balance', `Minimum withdrawal amount is ₹${minRedemption}.`);
+            Alert.alert(
+                'Not enough to withdraw yet',
+                `You have ₹${available} available. The minimum withdrawal is ₹${minRedemption}.`,
+            );
             return;
         }
         Alert.alert(
@@ -115,13 +140,28 @@ export function WalletScreen() {
                                 <Wallet size={20} color={colors.primary} />
                             </View>
                             <Text style={styles.availableAmount}>₹{wallet?.availableBalance || 0}</Text>
-                            <Button 
-                                title="Withdraw to UPI" 
-                                onPress={handleWithdraw} 
+                            <Button
+                                title="Withdraw to UPI"
+                                onPress={handleWithdraw}
                                 variant="primary"
                                 loading={withdrawMutation.isPending}
                                 style={styles.withdrawBtn}
                             />
+
+                            {/* Shown BEFORE they tap, not as an error afterwards.
+                                A partner with everything on hold was seeing a live
+                                Withdraw button, a wallet full of money, and then
+                                "Insufficient Balance" — with nothing connecting
+                                the three. */}
+                            {(wallet?.pendingPayments || 0) > 0
+                                && (wallet?.availableBalance || 0) < minRedemption && (
+                                <Text style={styles.holdBanner}>
+                                    ₹{wallet?.pendingPayments} from recent jobs is still on hold
+                                    {wallet?.nextReleaseDate
+                                        ? ` — you can withdraw it from ${formatReleaseDate(wallet.nextReleaseDate)}.`
+                                        : ' and isn\'t withdrawable yet.'}
+                                </Text>
+                            )}
                         </View>
 
                         <View style={styles.summaryRow}>
@@ -134,6 +174,15 @@ export function WalletScreen() {
                                 <Wallet size={24} color={colors.warning} />
                                 <Text style={[styles.summaryAmount, { color: colors.textPrimary }]}>₹{wallet?.pendingPayments || 0}</Text>
                                 <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>On Hold</Text>
+                                {/* The number alone told a partner nothing — they read
+                                    it as money they could take out. Say when it frees up. */}
+                                {(wallet?.pendingPayments || 0) > 0 && (
+                                    <Text style={styles.holdNote}>
+                                        {wallet?.nextReleaseDate
+                                            ? `Free on ${formatReleaseDate(wallet.nextReleaseDate)}`
+                                            : 'Not withdrawable yet'}
+                                    </Text>
+                                )}
                             </View>
                         </View>
 
@@ -190,6 +239,22 @@ const styles = StyleSheet.create({
     },
     summaryAmount: { ...typography.h3, color: '#fff' },
     summaryLabel: { ...typography.small, color: 'rgba(255,255,255,0.8)' },
+    holdNote: {
+        ...typography.small,
+        color: colors.warningDark,
+        marginTop: 2,
+        textAlign: 'center',
+    },
+    holdBanner: {
+        ...typography.caption,
+        color: colors.warningDark,
+        backgroundColor: colors.warningLight,
+        borderRadius: radii.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        marginTop: spacing.md,
+        textAlign: 'center',
+    },
     completedCard: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
         backgroundColor: colors.successLight, padding: spacing.md,
