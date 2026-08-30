@@ -1439,29 +1439,31 @@ export function registerFtthRoutes(app: Express) {
         });
 
     /**
-     * POST /api/ftth/staff/customers/bulk-import
+     * POST /api/admin/ftth/customers/bulk-import & POST /api/ftth/staff/customers/bulk-import
      * Universal Dynamic Excel/CSV Customer Roster Importer for Superadmins.
      */
-    app.post("/api/ftth/staff/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema),
-        async (req: Request, res: Response, next: NextFunction) => {
-            try {
-                const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
-                if (!body.operatorId) {
-                    return res.status(400).json({ success: false, message: 'operatorId is required for staff import' });
-                }
+    const handleStaffBulkImport = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
+            if (!body.operatorId) {
+                return res.status(400).json({ success: false, message: 'operatorId is required for staff import' });
+            }
 
-                const result = await FtthService.bulkImportCustomers({
-                    operatorId: body.operatorId,
-                    mappings: body.mappings,
-                    rows: body.rows,
-                });
+            const result = await FtthService.bulkImportCustomers({
+                operatorId: body.operatorId,
+                mappings: body.mappings,
+                rows: body.rows,
+            });
 
-                res.json({
-                    success: true,
-                    data: result,
-                });
-            } catch (error) { next(error); }
-        });
+            res.json({
+                success: true,
+                data: result,
+            });
+        } catch (error) { next(error); }
+    };
+
+    app.post("/api/admin/ftth/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema), handleStaffBulkImport);
+    app.post("/api/ftth/staff/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema), handleStaffBulkImport);
 
     /** GET /api/ftth/admin/ledger — running balance and entries. */
     app.get("/api/ftth/admin/ledger", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {

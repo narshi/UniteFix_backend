@@ -219,7 +219,7 @@ export function BulkCustomerImporter({
 
     try {
       const endpoint = isStaffAdmin
-        ? "/api/ftth/staff/customers/bulk-import"
+        ? "/api/admin/ftth/customers/bulk-import"
         : "/api/ftth/admin/customers/bulk-import";
 
       const payload = {
