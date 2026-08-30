@@ -11,8 +11,16 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { employees, users, adminUsers } from '@shared/schema';
+import { employees, users, adminUsers, adminRoles, adminRoleCapabilities, ftthOperators } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import {
+    SYSTEM_ROLES,
+    superAdminCapabilities,
+    expandCapabilities,
+    CAPABILITY_AREA_BY_KEY,
+    DEFAULT_ADMIN_CAPABILITIES,
+    OPERATOR_CAPABILITIES,
+} from '@shared/capabilities';
 import logger from '../lib/logger';
 
 if (!process.env.JWT_SECRET) {
@@ -49,6 +57,17 @@ export interface AdminRequest extends Request {
     admin?: {
         userId: number;
         role: 'admin' | 'super_admin';
+        username: string;
+    };
+}
+
+export interface OperatorRequest extends Request {
+    operator?: {
+        /** admin_users.id — the login. */
+        adminUserId: number;
+        /** ftth_operators.id — the tenant. Scope EVERY query by this. */
+        operatorId: number;
+        companyName: string;
         username: string;
     };
 }
@@ -223,11 +242,9 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
         });
     }
 
-    if (decoded.role !== 'admin' && decoded.role !== 'super_admin') {
-        return res.status(403).json({
-            success: false,
-            message: 'Admin access required'
-        });
+    // The token's role claim is only a cheap pre-filter — the ROW decides.
+    if (decoded.role === 'operator') {
+        return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
     // Defence in depth: confirm the token maps to a real, active row in
@@ -235,17 +252,9 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
     // carrying role:'admin' was accepted — which is what turned the signup
     // escalation into full admin access. Admin tokens are minted only by
     // /api/admin/auth/login, where userId is an adminUsers.id.
-    db.select({
-        id: adminUsers.id,
-        isActive: adminUsers.isActive,
-        username: adminUsers.username,
-        role: adminUsers.role,
-    })
-        .from(adminUsers)
-        .where(eq(adminUsers.id, decoded.userId))
-        .limit(1)
-        .then(([admin]) => {
-            if (!admin) {
+    resolveAdminIdentity(decoded.userId)
+        .then((identity) => {
+            if (!identity) {
                 logger.warn('[AUTH] Admin token rejected — no matching admin account', {
                     claimedUserId: decoded.userId,
                     claimedRole: decoded.role,
@@ -253,36 +262,306 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
                 return res.status(403).json({ success: false, message: 'Admin access required' });
             }
 
-            if (!admin.isActive) {
+            if (identity.deletedAt) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'This account has been removed.',
+                });
+            }
+
+            if (!identity.isActive) {
                 return res.status(403).json({
                     success: false,
                     message: 'This admin account has been deactivated.',
                 });
             }
 
-            // The ROW's role wins, never the token claim. Tokens are long-lived,
-            // so trusting the claim meant demoting a super_admin changed nothing
-            // until their token expired — they kept Database Console and delete
-            // access the whole time. Reading it here makes a demotion effective
-            // on the admin's very next request.
-            if (admin.role !== 'admin' && admin.role !== 'super_admin') {
-                logger.warn('[AUTH] Admin row carries an unrecognised role', {
-                    adminId: admin.id,
-                    role: admin.role,
+            // The ROW's role and capabilities win, never the token claim. Tokens
+            // are long-lived, so trusting the claim meant demoting a super_admin
+            // changed nothing until their token expired — they kept Database
+            // Console and delete access the whole time. Reading it here makes a
+            // demotion, or an untick on the Roles screen, effective on the
+            // admin's very next request.
+            //
+            // SCOPE is the hard boundary, checked before any capability: an
+            // operator-scope role can never reach a staff route no matter what
+            // its capabilities say.
+            if (identity.scope !== 'staff') {
+                logger.warn('[AUTH] Non-staff role rejected from a staff route', {
+                    adminId: identity.userId, role: identity.role,
                 });
                 return res.status(403).json({ success: false, message: 'Admin access required' });
             }
 
             (req as any).admin = {
-                userId: admin.id,
-                role: admin.role,
-                username: admin.username ?? decoded.username,
+                userId: identity.userId,
+                role: identity.role,
+                roleId: identity.roleId,
+                roleName: identity.roleName,
+                username: identity.username ?? decoded.username,
+                capabilities: identity.capabilities,
+                isSuperAdmin: identity.role === SYSTEM_ROLES.SUPER_ADMIN,
             };
 
             next();
         })
-        .catch(() => {
+        .catch((err: any) => {
+            logger.error('[AUTH] Admin authentication lookup failed', { error: err?.message });
             return res.status(500).json({ success: false, message: 'Admin authentication lookup failed' });
+        });
+}
+
+export interface AdminIdentity {
+    userId: number;
+    username: string | null;
+    role: string;
+    roleId: number | null;
+    roleName: string | null;
+    scope: 'staff' | 'operator';
+    isActive: boolean;
+    deletedAt: Date | null;
+    /** Already expanded — `manage` implies `view`. */
+    capabilities: Set<string>;
+}
+
+/**
+ * Load an admin account with its role and effective capabilities.
+ *
+ * Two rows that would otherwise be a footgun:
+ *   - super_admin's grants are COMPUTED, never read from the table. If they were
+ *     editable somebody would eventually untick "Roles & Access" on the last
+ *     super admin and lock the company out with no way back in.
+ *   - an account with no role row falls back to its legacy `role` slug, so an
+ *     install part-way through the migration still authenticates.
+ */
+export async function resolveAdminIdentity(userId: number): Promise<AdminIdentity | null> {
+    const [row] = await db
+        .select({
+            id: adminUsers.id,
+            username: adminUsers.username,
+            legacyRole: adminUsers.role,
+            roleId: adminUsers.roleId,
+            isActive: adminUsers.isActive,
+            deletedAt: adminUsers.deletedAt,
+            roleSlug: adminRoles.slug,
+            roleName: adminRoles.name,
+            roleScope: adminRoles.scope,
+        })
+        .from(adminUsers)
+        .leftJoin(adminRoles, eq(adminRoles.id, adminUsers.roleId))
+        .where(eq(adminUsers.id, userId))
+        .limit(1);
+
+    if (!row) return null;
+
+    const slug = row.roleSlug ?? row.legacyRole;
+    const scope: 'staff' | 'operator' =
+        (row.roleScope as 'staff' | 'operator' | null)
+        ?? (slug === SYSTEM_ROLES.FTTH_OPERATOR ? 'operator' : 'staff');
+
+    let capabilities: Set<string>;
+    if (slug === SYSTEM_ROLES.SUPER_ADMIN) {
+        capabilities = new Set(superAdminCapabilities());
+    } else if (row.roleId) {
+        const granted = await db
+            .select({ capability: adminRoleCapabilities.capability })
+            .from(adminRoleCapabilities)
+            .where(eq(adminRoleCapabilities.roleId, row.roleId));
+        capabilities = expandCapabilities(granted.map(g => g.capability));
+    } else {
+        // No role row yet (pre-migration). Legacy 'admin' keeps the grants it
+        // effectively had; anything unrecognised gets nothing rather than
+        // everything.
+        capabilities = expandCapabilities(
+            slug === SYSTEM_ROLES.ADMIN ? DEFAULT_ADMIN_CAPABILITIES
+                : slug === SYSTEM_ROLES.FTTH_OPERATOR ? OPERATOR_CAPABILITIES
+                    : [],
+        );
+    }
+
+    return {
+        userId: row.id,
+        username: row.username,
+        role: slug,
+        roleId: row.roleId,
+        roleName: row.roleName ?? slug,
+        scope,
+        isActive: row.isActive !== false,
+        deletedAt: row.deletedAt,
+        capabilities,
+    };
+}
+
+/**
+ * Gate a route on a capability. Replaces the old `requireSuperAdmin` on
+ * everything except the handful of actions that are structurally super-admin.
+ *
+ * Must run AFTER authenticateAdmin, which is what populates req.admin with
+ * capabilities read from the database rather than the token.
+ */
+export function requireCapability(capability: string) {
+    return (req: Request, res: Response, next: NextFunction) => {
+        const admin = (req as any).admin as
+            { userId: number; role: string; capabilities?: Set<string> } | undefined;
+
+        if (!admin) {
+            return res.status(401).json({ success: false, message: 'Admin authentication required' });
+        }
+
+        if (!admin.capabilities?.has(capability)) {
+            logger.warn('[AUTH] Capability refused', {
+                adminId: admin.userId, role: admin.role, capability, path: req.originalUrl,
+            });
+            const area = CAPABILITY_AREA_BY_KEY[capability.split(':')[0]];
+            return res.status(403).json({
+                success: false,
+                code: 'CAPABILITY_REQUIRED',
+                message: area
+                    ? `Your role does not allow you to ${capability.endsWith(':manage') ? 'change' : 'view'} ${area.label}.`
+                    : 'Your role does not allow this action.',
+            });
+        }
+
+        next();
+    };
+}
+
+
+/**
+ * FTTH operator authentication.
+ *
+ * Mounted ONLY on /api/ftth/admin/*. `authenticateAdmin` is deliberately left
+ * untouched: it already rejects every role that is not admin/super_admin, so an
+ * operator token is refused by all ~90 existing /api/admin/* routes with no
+ * route-by-route audit and no allowlist that can drift out of date. Relaxing the
+ * shared middleware instead would have turned every staff route into something
+ * that needs re-checking.
+ *
+ * Keeps the three properties authenticateAdmin earned the hard way:
+ *   - an EXPIRED token is 401, not 403, so the dashboard signs the user out
+ *     instead of showing a page of errors with a dead token in localStorage
+ *   - the DATABASE ROW's role wins over the token claim, so a demotion or a
+ *     suspension takes effect on the very next request rather than in 8 hours
+ *   - the token must map to a real, active row — a role claim alone is never enough
+ *
+ * Additionally resolves the tenant: `req.operator.operatorId` is the ONLY
+ * operator id a handler may trust. Never read one from the request body.
+ */
+export function authenticateOperator(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            message: 'Operator access token required',
+        });
+    }
+
+    let decoded: any;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (error: any) {
+        if (error?.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Session expired. Please sign in again.',
+                code: 'SESSION_EXPIRED',
+            });
+        }
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    if (decoded.role !== 'operator') {
+        return res.status(403).json({ success: false, message: 'Operator access required' });
+    }
+
+    db.select({
+        adminId: adminUsers.id,
+        username: adminUsers.username,
+        role: adminUsers.role,
+        roleScope: adminRoles.scope,
+        isActive: adminUsers.isActive,
+        deletedAt: adminUsers.deletedAt,
+        operatorId: ftthOperators.id,
+        companyName: ftthOperators.companyName,
+        operatorStatus: ftthOperators.status,
+    })
+        .from(adminUsers)
+        .leftJoin(adminRoles, eq(adminRoles.id, adminUsers.roleId))
+        .leftJoin(ftthOperators, eq(ftthOperators.adminUserId, adminUsers.id))
+        .where(eq(adminUsers.id, decoded.userId))
+        .limit(1)
+        .then(([row]) => {
+            if (!row) {
+                logger.warn('[AUTH] Operator token rejected — no matching account', {
+                    claimedUserId: decoded.userId,
+                });
+                return res.status(403).json({ success: false, message: 'Operator access required' });
+            }
+
+            if (row.deletedAt) {
+                return res.status(403).json({ success: false, message: 'This account has been removed.' });
+            }
+
+            // Row wins over claim, same as the admin middleware. Scope is the
+            // authority once a role row exists; the slug is the fallback for an
+            // install part-way through the migration.
+            const scope = row.roleScope ?? (row.role === SYSTEM_ROLES.FTTH_OPERATOR ? 'operator' : 'staff');
+            if (scope !== 'operator') {
+                logger.warn('[AUTH] Operator token rejected — role is not operator-scoped', {
+                    adminId: row.adminId, role: row.role,
+                });
+                return res.status(403).json({ success: false, message: 'Operator access required' });
+            }
+
+            // An operator login with no profile is a broken account, not a
+            // half-privileged one. Refuse rather than guess a tenant — a handler
+            // that fell through with operatorId undefined would scope its query
+            // to nothing, or worse, to everything.
+            if (!row.operatorId) {
+                logger.error('[AUTH] Operator login has no ftth_operators profile', {
+                    adminId: row.adminId, username: row.username,
+                });
+                return res.status(403).json({
+                    success: false,
+                    message: 'This operator account is not fully set up. Please contact UniteFix support.',
+                });
+            }
+
+            // Suspension is ONE condition with two columns behind it: pausing an
+            // operator flips ftth_operators.status AND admin_users.is_active
+            // together (see PATCH /api/admin/ftth/operators/:id/status). Checking
+            // them separately meant whichever ran first won the message — the
+            // is_active branch fired for a paused operator and answered with the
+            // generic "deactivated" text and no code, so the portal could not
+            // tell "you are paused" from "your session died" and would have shown
+            // a login screen, i.e. told them their password was wrong.
+            //
+            // Covers pending_approval, paused and disabled, and takes effect on
+            // the operator's very next request rather than at token expiry.
+            if (row.operatorStatus !== 'active' || !row.isActive) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'OPERATOR_NOT_ACTIVE',
+                    message: row.operatorStatus === 'pending_approval'
+                        ? 'Your application is still under review.'
+                        : 'This operator account is currently suspended. Please contact UniteFix.',
+                });
+            }
+
+            (req as any).operator = {
+                adminUserId: row.adminId,
+                operatorId: row.operatorId,
+                companyName: row.companyName ?? '',
+                username: row.username ?? decoded.username,
+            };
+
+            next();
+        })
+        .catch((err: any) => {
+            logger.error('[AUTH] Operator authentication lookup failed', { error: err?.message });
+            return res.status(500).json({ success: false, message: 'Operator authentication lookup failed' });
         });
 }
 
@@ -375,7 +654,11 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
         return res.status(401).json({ success: false, message: 'Admin authentication required' });
     }
 
-    if (admin.role !== 'super_admin') {
+    // Kept for the few actions that are structurally super-admin rather than
+    // capability-gated — chiefly anything that could hand out privilege. Most
+    // routes now use requireCapability instead, so a custom role can be given
+    // exactly what it needs.
+    if (admin.role !== SYSTEM_ROLES.SUPER_ADMIN) {
         logger.warn('[AUTH] super_admin route refused', {
             adminId: admin.userId,
             role: admin.role,

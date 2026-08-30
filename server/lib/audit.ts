@@ -26,7 +26,11 @@ export type AuditEntity =
     | 'payment'
     | 'service_category'
     | 'db_console'
-    | 'admin_user';
+    | 'admin_user'
+    | 'admin_role'
+    | 'ftth_operator'
+    | 'ftth_connection'
+    | 'ftth_lead';
 
 export interface AuditEntry {
     entityType: AuditEntity;

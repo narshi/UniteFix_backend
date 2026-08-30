@@ -20,6 +20,7 @@ import {
   serviceCategories,
   serviceCategoryTechnicianTypes,
   technicianTypes,
+  adminRoles,
 } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -38,6 +39,7 @@ import { AdminOrderManager } from "./services/admin-order.manager";
 import { registerManualBillRoutes } from "./routes/manual-bill.routes";
 import { registerTechnicianTypeRoutes } from "./routes/technician-type.routes";
 import { registerPaymentRoutes } from "./routes/payment.routes";
+import { registerFtthRoutes } from "./routes/ftth.routes";
 import { registerProductRoutes } from "./routes/product.routes";
 // PHASE 0: OTP routes removed — auth OTP replaced by Truecaller SDK v3
 // import { registerOtpRoutes } from "./routes/otp.routes";
@@ -87,7 +89,8 @@ const JWT_SECRET: string = process.env.JWT_SECRET;
 import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 
 // Import canonical auth middleware (single source of truth)
-import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCompleteProfile } from "./middleware/auth.middleware";
+import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCapability, requireCompleteProfile } from "./middleware/auth.middleware";
+import { adminCapabilityGuard } from "./middleware/capability-map";
 /** True on Render. Guards the development-only payment bypass below. */
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
@@ -248,6 +251,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (req.path.startsWith("/auth")) return next();
     authenticateAdmin(req, res, next);
   });
+
+  // Capability enforcement, immediately after authentication. One map covers
+  // every admin endpoint and DENIES anything unmapped, so a route added later
+  // without an access rule fails loudly rather than being silently reachable by
+  // every role. See server/middleware/capability-map.ts.
+  app.use("/api/admin", adminCapabilityGuard);
 
   registerInventoryRoutes(app);
   
@@ -625,7 +634,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const admin = await storage.getAdminByUsername(username) ||
         await storage.getAdminByEmail(username);
 
-      if (!admin || !admin.isActive) {
+      // An archived account must not be able to sign in. Checked alongside
+      // isActive rather than after it, so an archived-but-still-active row (a
+      // hand-edited one) is refused too.
+      if (!admin || !admin.isActive || (admin as any).deletedAt) {
         return res.status(401).json({ success: false, message: "Invalid admin credentials" });
       }
 
@@ -667,7 +679,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.get("/api/admin/me", async (req, res, next) => {
     try {
-      const admin = (req as any).admin as { userId: number; role: string; username: string } | undefined;
+      const admin = (req as any).admin as {
+        userId: number; role: string; roleName?: string; username: string;
+        capabilities?: Set<string>;
+      } | undefined;
       if (!admin) {
         return res.status(401).json({ success: false, message: "Admin authentication required" });
       }
@@ -680,7 +695,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           username: admin.username,
           email: record?.email ?? null,
           role: admin.role,
+          roleName: admin.roleName ?? admin.role,
           isSuperAdmin: admin.role === 'super_admin',
+          // The dashboard hides menus and buttons from this list. It is a UX
+          // affordance only — every one is enforced independently by the
+          // capability guard on /api/admin.
+          capabilities: Array.from(admin.capabilities ?? []),
         },
       });
     } catch (error) {
@@ -705,6 +725,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const adminData = insertAdminUserSchema.parse(req.body);
 
+      // Legacy endpoint, kept so anything still calling it keeps working. New
+      // accounts go through POST /api/admin/admins, which handles roles of any
+      // scope and creates an operator's company profile in the same transaction.
+      //
+      // Operator-scope roles are refused here because this endpoint cannot
+      // create the ftth_operators row — the result would be a login that
+      // authenticates and then reaches nothing.
+      const [requestedRole] = await db.select().from(adminRoles)
+        .where(eq(adminRoles.slug, adminData.role ?? 'admin')).limit(1);
+
+      if (requestedRole?.scope === 'operator' || adminData.role === "operator") {
+        return res.status(400).json({
+          success: false,
+          message: "Operator logins are created under Roles & Access, which also sets up their company profile.",
+        });
+      }
+
       const existingAdmin =
         (await storage.getAdminByEmail(adminData.email)) ||
         (await storage.getAdminByUsername(adminData.username));
@@ -717,8 +754,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const admin = await storage.createAdminUser({
         ...adminData,
+        // roleId is the authority; `role` only mirrors its slug.
+        roleId: requestedRole?.id ?? null,
         password: hashedPassword,
-      });
+      } as any);
 
       logger.info(`[ADMIN_REG] New admin '${admin.username}' created by super_admin '${requestingAdmin.username}'`);
 
@@ -3346,6 +3385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerUploadRoutes(app); // Image uploads (Cloudinary)
   registerPaymentRoutes(app); // Register Razorpay and webhook routes
+  registerFtthRoutes(app); // FTTH Phase 0: operator apply / approve + operator portal auth
 
   // Apply error handler (must be LAST)
   app.use(errorHandler);

@@ -811,10 +811,20 @@ export function registerPaymentRoutes(app: Express) {
                 }
             }
 
+            // An FTTH recharge resolves the same way and for the same reason: the
+            // capture row must carry its entity link, or the recharge is invisible
+            // to the reconcile tooling and unresolvable if the webhook is late.
+            let ftthRechargeId: number | null = null;
+            if (!serviceId && razorpay_payment_id !== 'zero_amount') {
+                const { FtthService } = await import("../services/ftth.service");
+                ftthRechargeId = await FtthService.rechargeIdForOrder(razorpay_order_id);
+            }
+
             // Record verified payment via Drizzle ORM (correct columns)
             if (razorpay_payment_id !== 'zero_amount') {
                 await PaymentTrackingService.recordPaymentEvent({
                     serviceRequestId: serviceId ?? undefined,
+                    ftthRechargeId: ftthRechargeId ?? undefined,
                     razorpayOrderId: razorpay_order_id,
                     razorpayPaymentId: razorpay_payment_id,
                     amount: 0, // Amount will be updated by webhook
@@ -822,6 +832,40 @@ export function registerPaymentRoutes(app: Express) {
                     status: 'captured',
                     metadata: { verifiedVia: 'mobile_sdk', razorpay_signature },
                 });
+            }
+
+            // Extend the connection now rather than waiting on the webhook, so the
+            // app can show the new expiry immediately. Idempotent — if the webhook
+            // has already landed, this is a no-op, and if it has not, the webhook
+            // will find the recharge already applied.
+            if (ftthRechargeId) {
+                try {
+                    const { FtthService } = await import("../services/ftth.service");
+                    const result = await FtthService.applyCapture({
+                        razorpayOrderId: razorpay_order_id,
+                        razorpayPaymentId: razorpay_payment_id,
+                        rechargeId: ftthRechargeId,
+                    });
+                    return res.json({
+                        success: true,
+                        message: result.applied
+                            ? "Recharge successful"
+                            : "Payment already recorded",
+                        data: { rechargeId: ftthRechargeId },
+                    });
+                } catch (err: any) {
+                    logger.error(`[PAYMENT] FTTH recharge apply failed: ${err.message}`, {
+                        razorpay_order_id, ftthRechargeId,
+                    });
+                    // Do NOT fail the request: the money is captured and the
+                    // webhook will settle it. Telling the customer the payment
+                    // failed here would be a lie.
+                    return res.json({
+                        success: true,
+                        message: "Payment received. Your recharge will be confirmed shortly.",
+                        data: { rechargeId: ftthRechargeId },
+                    });
+                }
             }
 
             // Update bookingFeeStatus for any service request linked to this order

@@ -426,9 +426,23 @@ export class PaymentService {
                 ? parseInt(notes.service_request_id)
                 : undefined;
 
+            // FTTH recharges ride the same webhook and are linked the same way.
+            // Falls back to the order_created row if `notes` are ever absent.
+            let linkedFtthRechargeId: number | undefined;
+            if (notes?.payment_type === 'ftth_recharge') {
+                const fromNotes = notes?.ftth_recharge_id ? parseInt(notes.ftth_recharge_id) : NaN;
+                if (Number.isFinite(fromNotes)) {
+                    linkedFtthRechargeId = fromNotes;
+                } else {
+                    const { FtthService } = await import('./ftth.service');
+                    linkedFtthRechargeId = (await FtthService.rechargeIdForOrder(orderId)) ?? undefined;
+                }
+            }
+
             // Record capture event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
                 serviceRequestId: Number.isFinite(linkedServiceId as number) ? linkedServiceId : undefined,
+                ftthRechargeId: linkedFtthRechargeId,
                 razorpayOrderId: orderId,
                 razorpayPaymentId: paymentId,
                 amount: amountPaise, // stored as paise
@@ -477,12 +491,58 @@ export class PaymentService {
                 }
             }
 
+            // FTTH recharge — THE settlement path.
+            //
+            // /api/ftth/recharges/:id/verify is the mobile SDK's optimistic
+            // callback and cannot be relied on: kill the app after paying and it
+            // never fires. This does, and it is why validity still extends.
+            // applyCapture is idempotent, so whichever arrives first wins and the
+            // other is a no-op.
+            if (notes?.payment_type === 'ftth_recharge') {
+                try {
+                    const { FtthService } = await import('./ftth.service');
+                    const result = await FtthService.applyCapture({
+                        razorpayOrderId: orderId,
+                        razorpayPaymentId: paymentId,
+                        rechargeId: linkedFtthRechargeId ?? null,
+                        amountPaise,
+                        method: payload.payment?.entity?.method,
+                    });
+                    logger.info('[WEBHOOK] FTTH recharge capture handled', result);
+                } catch (err: any) {
+                    // Deliberately not rethrown: a webhook that 500s is retried by
+                    // Razorpay, and the retry lands on the same idempotent path.
+                    logger.error(`[WEBHOOK] FTTH recharge apply failed: ${err.message}`, {
+                        orderId, paymentId,
+                    });
+                }
+            }
+
             return {
                 success: true,
                 message: `Payment ${paymentId} captured successfully`,
             };
         }
-        
+
+        if (event === "payment.failed") {
+            const entity = payload.payment?.entity ?? {};
+            if (entity.notes?.payment_type === 'ftth_recharge') {
+                try {
+                    const { FtthService } = await import('./ftth.service');
+                    await FtthService.markFailed({
+                        razorpayOrderId: entity.order_id,
+                        rechargeId: entity.notes?.ftth_recharge_id
+                            ? parseInt(entity.notes.ftth_recharge_id)
+                            : null,
+                        reason: entity.error_description || entity.error_reason || 'Payment failed',
+                    });
+                } catch (err: any) {
+                    logger.warn(`[WEBHOOK] FTTH failure mark failed: ${err.message}`);
+                }
+            }
+            return { success: true, message: 'Payment failure recorded' };
+        }
+
         if (event === "qr_code.credited") {
             const qrEntity = payload.qr_code.entity;
             const paymentEntity = payload.payment.entity;

@@ -45,6 +45,14 @@ async function seedPlatformConfig() {
         { key: 'BUSINESS_CONFIG.PLACE_OF_SUPPLY', value: 'Yellapur, Karnataka', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Place of supply printed on invoices', isEditable: true },
 
         // Operational
+        // FTTH broadband. The two DEFAULT_ keys are FALLBACKS only — a populated
+        // ftth_operators.convenience_fee_paise / .lead_fee_paise always wins, so
+        // per-operator terms never require a config edit.
+        { key: 'FTTH_CONFIG.DEFAULT_CONVENIENCE_FEE_PAISE', value: '1000', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'UniteFix convenience fee per recharge, in paise (1000 = ₹10)', isEditable: true },
+        { key: 'FTTH_CONFIG.DEFAULT_LEAD_FEE_PAISE', value: '40000', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'Default operator bounty per converted lead, in paise (40000 = ₹400)', isEditable: true },
+        { key: 'FTTH_CONFIG.EARLY_RENEWAL_WINDOW_DAYS', value: '15', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'How early a customer may renew, in days. Stops recharges being stacked.', isEditable: true },
+        { key: 'FTTH_CONFIG.RENEWAL_REMINDER_DAYS', value: '7,3,1', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Days before expiry to send a renewal reminder', isEditable: true },
+
         { key: 'OPERATIONAL_CONFIG.INVENTORY_OWNER_PARTNER_ID', value: 'UNITEFIX_PLATFORM', valueType: 'string', category: 'OPERATIONAL_CONFIG', description: 'Platform-owned inventory identifier', isEditable: false },
         { key: 'OPERATIONAL_CONFIG.OTP_EXPIRY_MINUTES', value: '10', valueType: 'number', category: 'OPERATIONAL_CONFIG', description: 'OTP validity duration', isEditable: true },
         { key: 'OPERATIONAL_CONFIG.OTP_LENGTH', value: '4', valueType: 'number', category: 'OPERATIONAL_CONFIG', description: 'OTP digit length', isEditable: false },

@@ -48,6 +48,8 @@ const ALLOWED_ORIGINS = [
   "http://localhost:8081", // React Native Metro
   "https://unitefix.com", // static website (register.html calls /api/auth/fallback/*)
   "https://www.unitefix.com",
+  "https://admin.unitefix.com", // admin dashboard on its own subdomain
+  "https://unitefix-backend.onrender.com", // the Render URL stays live for the mobile app
   process.env.CLIENT_URL,
 ].filter(Boolean) as string[];
 

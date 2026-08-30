@@ -4,32 +4,38 @@ import { Button } from "@/components/ui/button";
 import { useAdminMe } from "@/lib/admin-auth";
 
 /**
- * `superAdminOnly` hides the entry for plain admins. The matching routes in
- * App.tsx are gated too — hiding a link is not access control on its own, and
- * the endpoints behind these pages enforce super_admin regardless.
+ * Every entry declares the capability it needs, and the menu is filtered by what
+ * the signed-in role actually holds. Roles are user-created, so this list can no
+ * longer hardcode "super admin only" — a Manager role given `withdrawals:view`
+ * must see Withdrawals, and one without it must not.
+ *
+ * Hiding a link is NOT access control. The matching endpoints are enforced by
+ * the capability guard mounted on /api/admin, which denies unmapped paths
+ * outright.
  */
-const navigation: Array<{ name: string; href: string; icon: string; superAdminOnly?: boolean }> = [
-  { name: "Dashboard", href: "/", icon: "dashboard" },
-  { name: "User Management", href: "/users", icon: "people" },
-  { name: "Service Requests", href: "/services", icon: "build" },
-  { name: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent" },
-  { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment" },
-  { name: "Service Catalog", href: "/admin/catalog", icon: "category" },
-  { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long" },
-  { name: "Service Expert Types", href: "/admin/technician-types", icon: "engineering" },
-  { name: "Category Expertise", href: "/admin/category-expertise", icon: "hub" },
-  { name: "Product Orders", href: "/orders", icon: "shopping_cart" },
-  { name: "Inventory", href: "/admin/inventory", icon: "inventory_2" },
-  { name: "Employees", href: "/partners", icon: "handyman" },
-  { name: "Payments & Invoices", href: "/payments", icon: "payment" },
-  { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance" },
-  { name: "Marketing Push", href: "/admin/marketing", icon: "campaign" },
-  { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", superAdminOnly: true },
-  { name: "Districts", href: "/admin/districts", icon: "map" },
-  { name: "Location Management", href: "/locations", icon: "location_on" },
-  { name: "Administrators", href: "/admin/admins", icon: "admin_panel_settings", superAdminOnly: true },
-  { name: "Database Console", href: "/admin/developer", icon: "storage", superAdminOnly: true },
-  { name: "Settings", href: "/settings", icon: "settings" },
+const navigation: Array<{ name: string; href: string; icon: string; capability: string }> = [
+  { name: "Dashboard", href: "/", icon: "dashboard", capability: "dashboard:view" },
+  { name: "User Management", href: "/users", icon: "people", capability: "customers:view" },
+  { name: "Service Requests", href: "/services", icon: "build", capability: "bookings:view" },
+  { name: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent", capability: "support:view" },
+  { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment", capability: "bookings:view" },
+  { name: "Service Catalog", href: "/admin/catalog", icon: "category", capability: "catalog:view" },
+  { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long", capability: "billing:view" },
+  { name: "Service Expert Types", href: "/admin/technician-types", icon: "engineering", capability: "catalog:view" },
+  { name: "Category Expertise", href: "/admin/category-expertise", icon: "hub", capability: "catalog:view" },
+  { name: "Product Orders", href: "/orders", icon: "shopping_cart", capability: "orders:view" },
+  { name: "Inventory", href: "/admin/inventory", icon: "inventory_2", capability: "inventory:view" },
+  { name: "Employees", href: "/partners", icon: "handyman", capability: "employees:view" },
+  { name: "Payments & Invoices", href: "/payments", icon: "payment", capability: "payments:view" },
+  { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance", capability: "withdrawals:view" },
+  { name: "Marketing Push", href: "/admin/marketing", icon: "campaign", capability: "marketing:view" },
+  { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", capability: "audit:view" },
+  { name: "Districts", href: "/admin/districts", icon: "map", capability: "locations:view" },
+  { name: "Location Management", href: "/locations", icon: "location_on", capability: "locations:view" },
+  { name: "FTTH Operators", href: "/admin/ftth-operators", icon: "router", capability: "ftth:view" },
+  { name: "Roles & Access", href: "/admin/admins", icon: "admin_panel_settings", capability: "accounts:view" },
+  { name: "Database Console", href: "/admin/developer", icon: "storage", capability: "db_console:manage" },
+  { name: "Settings", href: "/settings", icon: "settings", capability: "settings:view" },
 ];
 
 interface SidebarProps {
@@ -40,8 +46,8 @@ interface SidebarProps {
 
 export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const [location] = useLocation();
-  const { isSuperAdmin, admin } = useAdminMe();
-  const visibleNavigation = navigation.filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const { isSuperAdmin, admin, can } = useAdminMe();
+  const visibleNavigation = navigation.filter((item) => can(item.capability));
 
   // Close the mobile drawer whenever the route changes, otherwise it stays
   // open over the page the user just navigated to.
@@ -150,7 +156,7 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
                 {admin?.username || adminUser.username || 'Administrator'}
               </p>
               <p className={`text-xs truncate ${isSuperAdmin ? 'text-[hsl(263,70%,70%)] font-medium' : 'text-[hsl(215,20%,55%)]'}`}>
-                {isSuperAdmin ? 'Super Admin' : (admin?.role === 'admin' ? 'Administrator' : (adminUser.email || 'System Access'))}
+                {admin?.roleName || adminUser.email || 'System Access'}
               </p>
             </div>
           </div>
