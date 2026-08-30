@@ -33,3 +33,45 @@ pool.on('error', (err) => {
 });
 
 export const db = drizzle(pool, { schema });
+
+/**
+ * Automatically applies non-destructive idempotent DDL migrations on server startup.
+ */
+export async function runStartupMigrations(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // 1. Make ftth_connections.user_id nullable if not already
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'ftth_connections' 
+          AND column_name = 'user_id' 
+          AND is_nullable = 'NO'
+        ) THEN
+          ALTER TABLE ftth_connections ALTER COLUMN user_id DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
+
+    // 2. Add customer_phone and customer_email to ftth_connections
+    await client.query(`
+      ALTER TABLE ftth_connections 
+      ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(20),
+      ADD COLUMN IF NOT EXISTS customer_email VARCHAR(255);
+    `);
+
+    // 3. Create index for fast phone lookups
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS ftth_conn_op_phone_idx 
+      ON ftth_connections (operator_id, customer_phone);
+    `);
+
+    console.log('[DB] Startup schema migrations verified successfully');
+  } catch (err: any) {
+    console.error('[DB] Startup migration error:', err.message);
+  } finally {
+    client.release();
+  }
+}

@@ -540,23 +540,28 @@ export class FtthService {
         const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
         if (cleanPhone.length !== 10) return 0;
 
-        const result = await db.update(ftthConnections)
-            .set({ userId, updatedAt: new Date() })
-            .where(and(
-                eq(ftthConnections.customerPhone, cleanPhone),
-                isNull(ftthConnections.userId),
-            ))
-            .returning({ id: ftthConnections.id });
+        try {
+            const result = await db.update(ftthConnections)
+                .set({ userId, updatedAt: new Date() })
+                .where(and(
+                    eq(ftthConnections.customerPhone, cleanPhone),
+                    isNull(ftthConnections.userId),
+                ))
+                .returning({ id: ftthConnections.id });
 
-        if (result.length > 0) {
-            logger.info('[FTTH] Auto-linked pre-seeded connections for user', {
-                userId,
-                phone: cleanPhone,
-                count: result.length,
-                connectionIds: result.map(c => c.id),
-            });
+            if (result.length > 0) {
+                logger.info('[FTTH] Auto-linked pre-seeded connections for user', {
+                    userId,
+                    phone: cleanPhone,
+                    count: result.length,
+                    connectionIds: result.map(c => c.id),
+                });
+            }
+            return result.length;
+        } catch (err: any) {
+            logger.warn('[FTTH] Auto-linking skipped or failed', { userId, phone: cleanPhone, error: err?.message });
+            return 0;
         }
-        return result.length;
     }
 
     // ==================== CUSTOMER LOOKUP ====================

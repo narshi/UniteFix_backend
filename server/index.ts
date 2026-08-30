@@ -4,7 +4,7 @@ import helmet from "helmet";
 import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { pool } from "./db";
+import { pool, runStartupMigrations } from "./db";
 import logger from "./lib/logger";
 import { startBackgroundJobs, stopBackgroundJobs } from "./services/task_queues";
 import { requestIdMiddleware } from "./middleware/request-id";
@@ -173,6 +173,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Ensure DB schema is in sync with latest DDLs on both local and cloud platforms (e.g. Render)
+  await runStartupMigrations();
+
   const server = await registerRoutes(app);
 
   // Global JSON Error Handler — ALWAYS returns JSON, never HTML
