@@ -698,10 +698,48 @@ export function registerClientFeatureRoutes(app: Express) {
                 return res.status(404).json({ success: false, message: "Provider not found" });
             }
 
-            if (!provider.upiId || !provider.razorpayFundAccountId) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: "UPI ID not found. Please update your Payout Details in your Profile before withdrawing." 
+            // A withdrawal request is the partner asking to be paid. All it needs
+            // is somewhere to pay them.
+            //
+            // This used to ALSO require razorpayFundAccountId, which broke the
+            // feature completely. That id is written only by
+            // syncEmployeeForPayouts, whose failure is swallowed as non-fatal when
+            // the partner saves their UPI — so a partner ended up with a UPI id,
+            // no fund account, and a 400 saying "UPI ID not found" about an id
+            // that was plainly there. Undiagnosable from either app, and no
+            // withdrawal_requests row was written, so nothing reached the admin
+            // screen either.
+            //
+            // It was the wrong gate regardless. A fund account is needed to PAY,
+            // not to ASK, and approval already calls syncEmployeeForPayouts on
+            // demand. It also blocked /approve-manual, which pays by hand against
+            // a proof screenshot and needs no RazorpayX at all.
+            const hasUpi = !!provider.upiId;
+            const hasBank = !!(provider.bankAccountNumber && provider.bankIfsc);
+
+            if (!hasUpi && !hasBank) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'NO_PAYOUT_DESTINATION',
+                    message: "Add your UPI ID or bank details under Payout Details in your Profile before requesting a payout.",
+                });
+            }
+
+            // Asking for a UPI payout with no UPI id (or a bank payout with no
+            // bank details) is a real mismatch worth naming precisely, rather
+            // than failing later with something vague.
+            if (method === 'upi' && !hasUpi) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'NO_UPI_ID',
+                    message: "No UPI ID saved. Add one under Payout Details, or request a bank transfer instead.",
+                });
+            }
+            if (method === 'bank' && !hasBank) {
+                return res.status(400).json({
+                    success: false,
+                    code: 'NO_BANK_DETAILS',
+                    message: "No bank account saved. Add one under Payout Details, or request a UPI payout instead.",
                 });
             }
 
