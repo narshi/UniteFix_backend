@@ -1767,23 +1767,24 @@ export const ftthPlans = pgTable("ftth_plans", {
  */
 export const ftthConnections = pgTable("ftth_connections", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").references(() => users.id),
   operatorId: integer("operator_id").notNull().references(() => ftthOperators.id),
   ispConnectionId: text("isp_connection_id"),   // e.g. POORVI-9912; null until assigned
   status: ftthConnectionStatusEnum("status").notNull().default('pending_id'),
   currentPlanId: integer("current_plan_id").references(() => ftthPlans.id),
   validTill: timestamp("valid_till"),
   customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  customerEmail: text("customer_email"),
   installationAddress: text("installation_address"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
-  // One connection per user PER OPERATOR. Settles the "is the connection
-  // endpoint singular?" question: it is not — /api/ftth/connections returns an
-  // array, and the app renders the one-connection case as a single card.
-  userOperatorIdx: uniqueIndex("ftth_conn_user_operator_idx").on(table.userId, table.operatorId),
-  // The same ISP id cannot be mapped to two UniteFix accounts.
+  // One connection per user PER OPERATOR (when userId is assigned).
+  userOperatorIdx: index("ftth_conn_user_operator_idx").on(table.userId, table.operatorId),
+  // The same ISP id cannot be mapped to two connections under the same operator.
   ispIdIdx: uniqueIndex("ftth_conn_isp_id_idx").on(table.operatorId, table.ispConnectionId),
+  operatorPhoneIdx: index("ftth_conn_op_phone_idx").on(table.operatorId, table.customerPhone),
   operatorStatusIdx: index("ftth_conn_operator_status_idx").on(table.operatorId, table.status),
   validTillIdx: index("ftth_conn_valid_till_idx").on(table.validTill),
 }));

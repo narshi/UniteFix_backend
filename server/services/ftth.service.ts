@@ -13,7 +13,7 @@
  */
 
 import Razorpay from "razorpay";
-import { and, eq, sql, desc, inArray } from "drizzle-orm";
+import { and, eq, sql, desc, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import {
     ftthOperators,
@@ -23,6 +23,7 @@ import {
     ftthLeads,
     ftthOperatorLedger,
     paymentTransactions,
+    users,
 } from "@shared/schema";
 import { withTransaction } from "../lib/transaction";
 import { configService } from "./config.service";
@@ -525,6 +526,334 @@ export class FtthService {
             });
 
             return { connection, leadFeePaise };
+        });
+    }
+
+    // ==================== ROSTER AUTO-LINKING ====================
+
+    /**
+     * When a customer registers or logs in with their mobile number, claim any
+     * pre-seeded operator connection matching their phone.
+     */
+    static async autoLinkCustomerConnections(userId: number, rawPhone?: string | null): Promise<number> {
+        if (!rawPhone) return 0;
+        const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
+        if (cleanPhone.length !== 10) return 0;
+
+        const result = await db.update(ftthConnections)
+            .set({ userId, updatedAt: new Date() })
+            .where(and(
+                eq(ftthConnections.customerPhone, cleanPhone),
+                isNull(ftthConnections.userId),
+            ))
+            .returning({ id: ftthConnections.id });
+
+        if (result.length > 0) {
+            logger.info('[FTTH] Auto-linked pre-seeded connections for user', {
+                userId,
+                phone: cleanPhone,
+                count: result.length,
+                connectionIds: result.map(c => c.id),
+            });
+        }
+        return result.length;
+    }
+
+    // ==================== CUSTOMER LOOKUP ====================
+
+    /**
+     * Look up a connection under an operator by ISP Connection ID or Phone.
+     */
+    static async lookupCustomerConnection(params: {
+        operatorId: number;
+        query: string;
+        authUserId?: number | null;
+    }) {
+        const { operatorId, query, authUserId } = params;
+        const cleanQuery = query.trim();
+        const cleanPhone = cleanQuery.replace(/\D/g, '').slice(-10);
+
+        const conditions = [
+            eq(ftthConnections.operatorId, operatorId),
+            or(
+                sql`LOWER(${ftthConnections.ispConnectionId}) = LOWER(${cleanQuery})`,
+                cleanPhone.length === 10 ? eq(ftthConnections.customerPhone, cleanPhone) : sql`false`,
+            ),
+        ];
+
+        const [connection] = await db.select({
+            id: ftthConnections.id,
+            operatorId: ftthConnections.operatorId,
+            ispConnectionId: ftthConnections.ispConnectionId,
+            customerName: ftthConnections.customerName,
+            customerPhone: ftthConnections.customerPhone,
+            customerEmail: ftthConnections.customerEmail,
+            status: ftthConnections.status,
+            validTill: ftthConnections.validTill,
+            currentPlanId: ftthConnections.currentPlanId,
+            userId: ftthConnections.userId,
+        })
+            .from(ftthConnections)
+            .where(and(...conditions))
+            .limit(1);
+
+        if (!connection) {
+            return { exists: false };
+        }
+
+        // If caller is authenticated and connection is unlinked, claim it automatically
+        if (authUserId && !connection.userId) {
+            await db.update(ftthConnections)
+                .set({ userId: authUserId, updatedAt: new Date() })
+                .where(eq(ftthConnections.id, connection.id));
+            connection.userId = authUserId;
+        }
+
+        const now = Date.now();
+        const daysRemaining = connection.validTill
+            ? Math.ceil((connection.validTill.getTime() - now) / 86_400_000)
+            : null;
+
+        const [operator] = await db.select({
+            id: ftthOperators.id,
+            companyName: ftthOperators.companyName,
+            logoUrl: ftthOperators.logoUrl,
+            brandColor: ftthOperators.brandColor,
+        }).from(ftthOperators).where(eq(ftthOperators.id, operatorId)).limit(1);
+
+        return {
+            exists: true,
+            connection: {
+                ...connection,
+                operatorName: operator?.companyName ?? 'Broadband',
+                daysRemaining,
+                isExpired: connection.validTill ? connection.validTill.getTime() < now : false,
+            },
+        };
+    }
+
+    // ==================== RECHARGE TRACKING ====================
+
+    /**
+     * Detailed 3-stage tracking for a broadband recharge.
+     */
+    static async getRechargeTracking(rechargeId: number, userId?: number | null) {
+        const [recharge] = await db.select({
+            id: ftthRecharges.id,
+            connectionId: ftthRecharges.connectionId,
+            planId: ftthRecharges.planId,
+            planName: ftthRecharges.planName,
+            speedMbps: ftthRecharges.speedMbps,
+            durationMonths: ftthRecharges.durationMonths,
+            listPricePaise: ftthRecharges.listPricePaise,
+            discountPaise: ftthRecharges.discountPaise,
+            convenienceFeePaise: ftthRecharges.convenienceFeePaise,
+            gstOnConvenienceFeePaise: ftthRecharges.gstOnConvenienceFeePaise,
+            totalPaise: ftthRecharges.totalPaise,
+            status: ftthRecharges.status,
+            periodStart: ftthRecharges.periodStart,
+            periodEnd: ftthRecharges.periodEnd,
+            fulfilledAt: ftthRecharges.fulfilledAt,
+            razorpayOrderId: ftthRecharges.razorpayOrderId,
+            razorpayPaymentId: ftthRecharges.razorpayPaymentId,
+            failureReason: ftthRecharges.failureReason,
+            createdAt: ftthRecharges.createdAt,
+            updatedAt: ftthRecharges.updatedAt,
+            ispConnectionId: ftthConnections.ispConnectionId,
+            customerName: ftthConnections.customerName,
+            operatorId: ftthConnections.operatorId,
+            connectionUserId: ftthConnections.userId,
+        })
+            .from(ftthRecharges)
+            .innerJoin(ftthConnections, eq(ftthConnections.id, ftthRecharges.connectionId))
+            .where(eq(ftthRecharges.id, rechargeId))
+            .limit(1);
+
+        if (!recharge) return null;
+
+        if (userId && recharge.connectionUserId && recharge.connectionUserId !== userId) {
+            throw new Error('Unauthorized');
+        }
+
+        const [operator] = await db.select({
+            id: ftthOperators.id,
+            companyName: ftthOperators.companyName,
+            contactPhone: ftthOperators.contactPhone,
+            brandColor: ftthOperators.brandColor,
+        }).from(ftthOperators).where(eq(ftthOperators.id, recharge.operatorId)).limit(1);
+
+        let stage: 1 | 2 | 3 = 1;
+        let stageTitle = 'Payment Successful';
+        let stageDescription = 'Your payment has been received and verified.';
+
+        if (recharge.status === 'success') {
+            if (recharge.fulfilledAt) {
+                stage = 3;
+                stageTitle = 'Recharge Process Complete';
+                stageDescription = 'Your broadband plan has been provisioned and is active.';
+            } else {
+                stage = 2;
+                stageTitle = 'In Progress';
+                stageDescription = `${operator?.companyName ?? 'Operator'} is configuring your broadband line.`;
+            }
+        } else if (recharge.status === 'failed') {
+            stage = 1;
+            stageTitle = 'Payment Failed';
+            stageDescription = recharge.failureReason || 'Payment could not be completed.';
+        }
+
+        return {
+            id: recharge.id,
+            status: recharge.status,
+            stage,
+            stageTitle,
+            stageDescription,
+            ispConnectionId: recharge.ispConnectionId,
+            customerName: recharge.customerName,
+            operatorName: operator?.companyName ?? 'Broadband',
+            operatorPhone: operator?.contactPhone ?? null,
+            brandColor: operator?.brandColor ?? '#0EA5E9',
+            plan: {
+                name: recharge.planName,
+                speedMbps: recharge.speedMbps,
+                durationMonths: recharge.durationMonths,
+                total: paiseToRupees(recharge.totalPaise),
+                planPrice: paiseToRupees(recharge.listPricePaise),
+                discount: paiseToRupees(recharge.discountPaise),
+                convenienceFee: paiseToRupees(recharge.convenienceFeePaise),
+            },
+            validTill: recharge.periodEnd,
+            periodStart: recharge.periodStart,
+            paidAt: recharge.updatedAt,
+            fulfilledAt: recharge.fulfilledAt,
+            razorpayPaymentId: recharge.razorpayPaymentId,
+            razorpayOrderId: recharge.razorpayOrderId,
+            createdAt: recharge.createdAt,
+        };
+    }
+
+    // ==================== BULK ROSTER IMPORT ====================
+
+    /**
+     * Bulk import customers with dynamic column mapping for an operator.
+     */
+    static async bulkImportCustomers(params: {
+        operatorId: number;
+        mappings: {
+            ispConnectionId: string;
+            customerName: string;
+            customerPhone: string;
+            customerEmail?: string | null;
+            installationAddress?: string | null;
+            validTill?: string | null;
+        };
+        rows: Array<Record<string, any>>;
+    }) {
+        const { operatorId, mappings, rows } = params;
+
+        // Verify operator exists
+        const [operator] = await db.select({ id: ftthOperators.id, companyName: ftthOperators.companyName })
+            .from(ftthOperators)
+            .where(eq(ftthOperators.id, operatorId))
+            .limit(1);
+
+        if (!operator) {
+            throw new Error('Operator not found');
+        }
+
+        // Fetch all registered users with phones for auto-linking
+        const registeredUsers = await db.select({ id: users.id, phone: users.phone }).from(users);
+        const phoneToUserId = new Map<string, number>();
+        for (const u of registeredUsers) {
+            if (u.phone) {
+                const clean = u.phone.replace(/\D/g, '').slice(-10);
+                if (clean.length === 10) phoneToUserId.set(clean, u.id);
+            }
+        }
+
+        let inserted = 0;
+        let updated = 0;
+        let autoLinkedUsers = 0;
+        const errors: Array<{ row: number; error: string; data?: any }> = [];
+
+        return await withTransaction(async (tx) => {
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                const rawIspId = row[mappings.ispConnectionId];
+                const rawName = row[mappings.customerName];
+                const rawPhone = row[mappings.customerPhone];
+                const rawEmail = mappings.customerEmail ? row[mappings.customerEmail] : null;
+                const rawAddress = mappings.installationAddress ? row[mappings.installationAddress] : null;
+                const rawValidTill = mappings.validTill ? row[mappings.validTill] : null;
+
+                const ispConnectionId = String(rawIspId ?? '').trim();
+                const customerName = String(rawName ?? '').trim();
+                const cleanPhone = String(rawPhone ?? '').replace(/\D/g, '').slice(-10);
+                const customerEmail = rawEmail ? String(rawEmail).trim().toLowerCase() : null;
+                const installationAddress = rawAddress ? String(rawAddress).trim() : null;
+
+                if (!ispConnectionId) {
+                    errors.push({ row: i + 1, error: 'Missing ISP Connection ID / Username' });
+                    continue;
+                }
+
+                let parsedValidTill: Date | null = null;
+                if (rawValidTill) {
+                    const d = new Date(rawValidTill);
+                    if (!isNaN(d.getTime())) parsedValidTill = d;
+                }
+
+                const matchedUserId = cleanPhone.length === 10 ? phoneToUserId.get(cleanPhone) ?? null : null;
+                if (matchedUserId) autoLinkedUsers++;
+
+                const [existing] = await tx.select({ id: ftthConnections.id, userId: ftthConnections.userId })
+                    .from(ftthConnections)
+                    .where(and(
+                        eq(ftthConnections.operatorId, operatorId),
+                        eq(ftthConnections.ispConnectionId, ispConnectionId),
+                    ))
+                    .limit(1);
+
+                if (existing) {
+                    await tx.update(ftthConnections)
+                        .set({
+                            customerName: customerName || undefined,
+                            customerPhone: cleanPhone || undefined,
+                            customerEmail: customerEmail || undefined,
+                            installationAddress: installationAddress || undefined,
+                            validTill: parsedValidTill || undefined,
+                            userId: existing.userId ?? matchedUserId,
+                            status: 'active',
+                            updatedAt: new Date(),
+                        })
+                        .where(eq(ftthConnections.id, existing.id));
+                    updated++;
+                } else {
+                    await tx.insert(ftthConnections).values({
+                        operatorId,
+                        ispConnectionId,
+                        customerName: customerName || ispConnectionId,
+                        customerPhone: cleanPhone || null,
+                        customerEmail,
+                        installationAddress,
+                        validTill: parsedValidTill,
+                        userId: matchedUserId,
+                        status: 'active',
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    });
+                    inserted++;
+                }
+            }
+
+            return {
+                success: true,
+                totalRows: rows.length,
+                inserted,
+                updated,
+                autoLinkedUsers,
+                errors,
+            };
         });
     }
 }

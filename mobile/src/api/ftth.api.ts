@@ -112,12 +112,50 @@ export interface FtthRechargeHistoryItem {
     operatorName: string;
 }
 
+export interface FtthRechargeTracking {
+    id: number;
+    status: 'created' | 'pending' | 'success' | 'failed' | 'refunded';
+    stage: 1 | 2 | 3;
+    stageTitle: string;
+    stageDescription: string;
+    ispConnectionId: string | null;
+    customerName: string | null;
+    operatorName: string;
+    operatorPhone: string | null;
+    brandColor: string;
+    plan: {
+        name: string;
+        speedMbps: number;
+        durationMonths: number;
+        total: number;
+        planPrice: number;
+        discount: number;
+        convenienceFee: number;
+    };
+    validTill: string | null;
+    periodStart: string | null;
+    paidAt: string | null;
+    fulfilledAt: string | null;
+    razorpayPaymentId: string | null;
+    razorpayOrderId: string | null;
+    createdAt: string;
+}
+
 export const ftthApi = {
     /** Operators serving the caller's pincode. Empty is a legitimate answer. */
     async getOperators(pincode?: string) {
         const { data } = await apiClient.get<ApiResponse<FtthOperator[]>>('/api/ftth/operators', {
             params: pincode ? { pincode } : undefined,
         });
+        return data;
+    },
+
+    /** Look up an existing ISP connection under an operator by ID or phone */
+    async lookupCustomer(operatorId: number, query: string) {
+        const { data } = await apiClient.post<{ success: boolean; exists: boolean; message?: string; data?: FtthConnection }>(
+            '/api/ftth/customers/lookup',
+            { operatorId, query },
+        );
         return data;
     },
 
@@ -183,6 +221,13 @@ export const ftthApi = {
 
     async getHistory() {
         const { data } = await apiClient.get<ApiResponse<FtthRechargeHistoryItem[]>>('/api/ftth/recharges');
+        return data.data;
+    },
+
+    async getRechargeTracking(rechargeId: number) {
+        const { data } = await apiClient.get<ApiResponse<FtthRechargeTracking>>(
+            `/api/ftth/recharges/${rechargeId}/tracking`,
+        );
         return data.data;
     },
 };

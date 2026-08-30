@@ -134,6 +134,24 @@ const idRequestSchema = z.object({
     claimedIspId: z.string().trim().max(80).optional(),
 });
 
+const customerLookupSchema = z.object({
+    operatorId: z.number().int().positive(),
+    query: z.string().trim().min(1).max(120),
+});
+
+const bulkImportCustomersSchema = z.object({
+    operatorId: z.number().int().positive().optional(),
+    mappings: z.object({
+        ispConnectionId: z.string().min(1),
+        customerName: z.string().min(1),
+        customerPhone: z.string().min(1),
+        customerEmail: z.string().optional().nullable(),
+        installationAddress: z.string().optional().nullable(),
+        validTill: z.string().optional().nullable(),
+    }),
+    rows: z.array(z.record(z.any())).min(1).max(10000),
+});
+
 const initiateSchema = z.object({
     connectionId: z.number().int().positive(),
     planId: z.number().int().positive(),
@@ -1358,11 +1376,19 @@ export function registerFtthRoutes(app: Express) {
                 const { operatorId, adminUserId } = (req as any).operator;
                 const id = Number(req.params.id);
 
-                const [row] = await db.select({ id: ftthRecharges.id, status: ftthRecharges.status })
+                const [row] = await db.select({
+                    id: ftthRecharges.id,
+                    status: ftthRecharges.status,
+                    planName: ftthRecharges.planName,
+                    periodEnd: ftthRecharges.periodEnd,
+                    userId: ftthConnections.userId,
+                    ispConnectionId: ftthConnections.ispConnectionId,
+                })
                     .from(ftthRecharges)
                     .innerJoin(ftthConnections, eq(ftthConnections.id, ftthRecharges.connectionId))
                     .where(and(eq(ftthRecharges.id, id), eq(ftthConnections.operatorId, operatorId)))
                     .limit(1);
+
                 if (!row) return res.status(404).json({ success: false, message: 'Recharge not found' });
                 if (row.status !== 'success') {
                     return res.status(409).json({ success: false, message: 'Only a paid recharge can be marked done.' });
@@ -1372,7 +1398,68 @@ export function registerFtthRoutes(app: Express) {
                     .set({ fulfilledAt: new Date(), fulfilledByAdminId: adminUserId, updatedAt: new Date() })
                     .where(eq(ftthRecharges.id, id));
 
+                if (row.userId) {
+                    const validDateStr = row.periodEnd
+                        ? new Date(row.periodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                        : 'extended';
+                    void NotificationService.notify(
+                        row.userId,
+                        'Broadband Recharge Complete',
+                        `Your recharge of ${row.planName} for ${row.ispConnectionId ?? 'your connection'} is active till ${validDateStr}.`,
+                        'ftth_recharge_fulfilled',
+                        { rechargeId: id },
+                    );
+                }
+
                 res.json({ success: true, message: 'Marked as done.' });
+            } catch (error) { next(error); }
+        });
+
+    /**
+     * POST /api/ftth/admin/customers/bulk-import
+     * Universal Dynamic Excel/CSV Customer Roster Importer for Operators.
+     */
+    app.post("/api/ftth/admin/customers/bulk-import", authenticateOperator, validateBody(bulkImportCustomersSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
+
+                const result = await FtthService.bulkImportCustomers({
+                    operatorId,
+                    mappings: body.mappings,
+                    rows: body.rows,
+                });
+
+                res.json({
+                    success: true,
+                    data: result,
+                });
+            } catch (error) { next(error); }
+        });
+
+    /**
+     * POST /api/ftth/staff/customers/bulk-import
+     * Universal Dynamic Excel/CSV Customer Roster Importer for Superadmins.
+     */
+    app.post("/api/ftth/staff/customers/bulk-import", authenticateAdmin, validateBody(bulkImportCustomersSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
+                if (!body.operatorId) {
+                    return res.status(400).json({ success: false, message: 'operatorId is required for staff import' });
+                }
+
+                const result = await FtthService.bulkImportCustomers({
+                    operatorId: body.operatorId,
+                    mappings: body.mappings,
+                    rows: body.rows,
+                });
+
+                res.json({
+                    success: true,
+                    data: result,
+                });
             } catch (error) { next(error); }
         });
 
@@ -1940,6 +2027,42 @@ export function registerFtthRoutes(app: Express) {
         } catch (error) { next(error); }
     });
 
+    /**
+     * POST /api/ftth/customers/lookup
+     *
+     * Look up an active customer connection under an operator by ISP connection ID or phone.
+     */
+    app.post("/api/ftth/customers/lookup", mobileLimiter, authenticateToken as any, validateBody(customerLookupSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const userId = (req as any).user?.userId ?? null;
+                const { operatorId, query } = req.body as z.infer<typeof customerLookupSchema>;
+
+                const operator = await activeOperator(operatorId);
+                if (!operator) return res.status(404).json({ success: false, message: 'Operator not available' });
+
+                const result = await FtthService.lookupCustomerConnection({
+                    operatorId,
+                    query,
+                    authUserId: userId,
+                });
+
+                if (!result.exists) {
+                    return res.json({
+                        success: true,
+                        exists: false,
+                        message: `No active connection found with ID or Phone "${query}" under ${operator.companyName}.`,
+                    });
+                }
+
+                res.json({
+                    success: true,
+                    exists: true,
+                    data: result.connection,
+                });
+            } catch (error) { next(error); }
+        });
+
     /** POST /api/ftth/leads — "I want a new connection". */
     app.post("/api/ftth/leads", mobileLimiter, authenticateToken as any, validateBody(leadSchema),
         async (req: Request, res: Response, next: NextFunction) => {
@@ -2245,6 +2368,37 @@ export function registerFtthRoutes(app: Express) {
             });
         } catch (error) { next(error); }
     });
+
+    /**
+     * GET /api/ftth/recharges/:id/tracking
+     *
+     * Dedicated 3-stage visual tracking state for a recharge.
+     */
+    app.get("/api/ftth/recharges/:id/tracking", authenticateToken as any,
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const userId = (req as any).user.userId;
+                const id = Number(req.params.id);
+                if (!Number.isInteger(id)) {
+                    return res.status(400).json({ success: false, message: 'Invalid recharge id' });
+                }
+
+                const tracking = await FtthService.getRechargeTracking(id, userId);
+                if (!tracking) {
+                    return res.status(404).json({ success: false, message: 'Recharge not found' });
+                }
+
+                res.json({
+                    success: true,
+                    data: tracking,
+                });
+            } catch (error: any) {
+                if (error.message === 'Unauthorized') {
+                    return res.status(403).json({ success: false, message: 'Unauthorized' });
+                }
+                next(error);
+            }
+        });
 }
 
 // ==================== helpers ====================

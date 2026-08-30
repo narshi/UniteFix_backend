@@ -1,24 +1,29 @@
 /**
  * Broadband — pick an operator, or see your existing connection.
  *
- * Handles zero, one and many operators. Notably it does NOT auto-skip when
- * there is exactly one: that shortcut breaks the moment a second ISP signs up
- * in the same pincode, and it hides from the customer that a choice exists.
+ * Features:
+ * - Instant Customer ID / Phone lookup with auto-claiming
+ * - "Customer ID Not Found" pop-up modal redirecting to "Book New Connection"
+ * - Active connections list with live validity indicators
+ * - Multi-operator catalog list
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
-    View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl,
+    View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+    RefreshControl, TextInput, Modal, Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
-import { Router, Wifi, ChevronRight, Clock, AlertCircle } from 'lucide-react-native';
-import { ftthApi, FtthConnection } from '../../api/ftth.api';
+import {
+    Router, Wifi, ChevronRight, Clock, AlertCircle, Search, Sparkles, X, PlusCircle,
+} from 'lucide-react-native';
+import { ftthApi, FtthConnection, FtthOperator } from '../../api/ftth.api';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { ScreenHeader } from '../../components/ui';
+import { ScreenHeader, Button } from '../../components/ui';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'FTTHOperatorSelect'>;
@@ -26,6 +31,15 @@ type Props = NativeStackScreenProps<any, 'FTTHOperatorSelect'>;
 export function FTTHOperatorSelectScreen({ navigation }: Props) {
     const { bottomBar } = useScreenInsets();
     const queryClient = useQueryClient();
+
+    const [selectedOperatorId, setSelectedOperatorId] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
+
+    // Modal state for Not Found
+    const [showNotFoundModal, setShowNotFoundModal] = useState(false);
+    const [notFoundQuery, setNotFoundQuery] = useState('');
+    const [notFoundOperator, setNotFoundOperator] = useState<FtthOperator | null>(null);
 
     const operatorsQuery = useQuery({
         queryKey: ['ftth', 'operators'],
@@ -58,17 +72,61 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
         ...pendingLeads.map(l => l.operatorId),
     ]);
 
+    // Auto-select first operator for quick recharge if available
+    useEffect(() => {
+        if (operators.length > 0 && selectedOperatorId === null) {
+            setSelectedOperatorId(operators[0].id);
+        }
+    }, [operators, selectedOperatorId]);
+
     const openConnection = (connection: FtthConnection) => {
         if (!connection.ispConnectionId) return;
         navigation.navigate('FTTHRecharge', { connection });
     };
 
+    const handleLookup = async () => {
+        if (!selectedOperatorId || !searchQuery.trim()) {
+            Alert.alert('Missing Details', 'Please enter your Customer ID or registered Phone Number.');
+            return;
+        }
+        setIsSearching(true);
+        try {
+            const res = await ftthApi.lookupCustomer(selectedOperatorId, searchQuery.trim());
+            if (res.exists && res.data) {
+                const conn = res.data;
+                setSearchQuery('');
+                queryClient.invalidateQueries({ queryKey: ['ftth', 'connections'] });
+                navigation.navigate('FTTHRecharge', { connection: conn });
+            } else {
+                const op = operators.find(o => o.id === selectedOperatorId) || null;
+                setNotFoundOperator(op);
+                setNotFoundQuery(searchQuery.trim());
+                setShowNotFoundModal(true);
+            }
+        } catch (err: any) {
+            Alert.alert(
+                'Lookup Failed',
+                err?.response?.data?.message || 'Unable to verify Customer ID. Please check your network connection.',
+            );
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleBookNewConnection = () => {
+        setShowNotFoundModal(false);
+        if (notFoundOperator) {
+            navigation.navigate('FTTHOnboarding', { operator: notFoundOperator });
+        }
+    };
+
     return (
         <View style={styles.screen}>
-            <ScreenHeader title="Broadband" onBack={() => navigation.goBack()} />
+            <ScreenHeader title="Broadband Recharge" onBack={() => navigation.goBack()} />
 
             <ScrollView
                 contentContainerStyle={[styles.content, { paddingBottom: bottomBar + spacing.xl }]}
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing && !loading}
@@ -83,6 +141,81 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                     <ActivityIndicator style={{ marginTop: spacing['3xl'] }} color={colors.primary} />
                 ) : (
                     <>
+                        {/* Instant Recharge by Customer ID Card */}
+                        {operators.length > 0 && (
+                            <View style={styles.quickRechargeCard}>
+                                <View style={styles.quickHeader}>
+                                    <View style={styles.sparkleCircle}>
+                                        <Sparkles size={16} color={colors.primary} />
+                                    </View>
+                                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                                        <Text style={styles.quickTitle}>Quick Recharge by Customer ID</Text>
+                                        <Text style={styles.quickSubtitle}>
+                                            Enter your ISP username or phone to recharge immediately
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Operator Selector Chips if > 1 */}
+                                {operators.length > 1 && (
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        contentContainerStyle={styles.operatorChipsRow}
+                                    >
+                                        {operators.map(op => (
+                                            <TouchableOpacity
+                                                key={op.id}
+                                                style={[
+                                                    styles.operatorChip,
+                                                    selectedOperatorId === op.id && styles.operatorChipActive,
+                                                ]}
+                                                onPress={() => setSelectedOperatorId(op.id)}
+                                            >
+                                                <Text
+                                                    style={[
+                                                        styles.operatorChipText,
+                                                        selectedOperatorId === op.id && styles.operatorChipTextActive,
+                                                    ]}
+                                                >
+                                                    {op.companyName}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
+                                )}
+
+                                {/* ID / Phone Input */}
+                                <View style={styles.inputContainer}>
+                                    <Search size={18} color={colors.textSecondary} style={styles.inputIcon} />
+                                    <TextInput
+                                        style={styles.textInput}
+                                        placeholder="e.g. amit95_ylp or 10-digit mobile"
+                                        placeholderTextColor={colors.textSecondary}
+                                        value={searchQuery}
+                                        onChangeText={setSearchQuery}
+                                        autoCapitalize="none"
+                                        autoCorrect={false}
+                                        returnKeyType="search"
+                                        onSubmitEditing={handleLookup}
+                                    />
+                                    {searchQuery.length > 0 && (
+                                        <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearBtn}>
+                                            <X size={16} color={colors.textSecondary} />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+
+                                <Button
+                                    title={isSearching ? 'Verifying Account…' : 'Proceed to Recharge'}
+                                    onPress={handleLookup}
+                                    disabled={isSearching || !searchQuery.trim()}
+                                    style={{ marginTop: spacing.md }}
+                                />
+                            </View>
+                        )}
+
+                        {/* Connected Accounts */}
                         {connections.length > 0 && (
                             <>
                                 <Text style={styles.sectionTitle}>Your connections</Text>
@@ -123,7 +256,7 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                                             : `${c.daysRemaining} day${c.daysRemaining === 1 ? '' : 's'} left${c.planName ? ` · ${c.planName}` : ''}`}
                                                     </Text>
                                                 ) : (
-                                                    <Text style={styles.validityText}>Tap to see plans</Text>
+                                                    <Text style={styles.validityText}>Tap to see plans & recharge</Text>
                                                 )}
                                             </View>
                                         ) : (
@@ -139,6 +272,7 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                             </>
                         )}
 
+                        {/* Pending ID Requests */}
                         {pendingIdRequests.length > 0 && (
                             <>
                                 <Text style={styles.sectionTitle}>Waiting for approval</Text>
@@ -153,6 +287,7 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                             </>
                         )}
 
+                        {/* Pending Leads */}
                         {pendingLeads.length > 0 && (
                             <>
                                 <Text style={styles.sectionTitle}>New connection requests</Text>
@@ -160,15 +295,16 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                     <View key={l.id} style={styles.pendingCard}>
                                         <Clock size={16} color={colors.warningDark} />
                                         <Text style={styles.pendingText}>
-                                            {l.operatorName} will call you about your new connection.
+                                            {l.operatorName} will call you about your new optical fiber connection.
                                         </Text>
                                     </View>
                                 ))}
                             </>
                         )}
 
+                        {/* Available Providers */}
                         <Text style={styles.sectionTitle}>
-                            {connections.length > 0 ? 'Other providers near you' : 'Providers near you'}
+                            {connections.length > 0 ? 'Other providers near you' : 'Providers in your area'}
                         </Text>
 
                         {noPincode ? (
@@ -210,7 +346,7 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                             <View style={{ flex: 1, marginLeft: spacing.md }}>
                                                 <Text style={styles.cardTitle}>{o.companyName}</Text>
                                                 <Text style={styles.cardSubtitle}>
-                                                    {pending ? 'Request in progress' : 'Tap to get started'}
+                                                    {pending ? 'Request in progress' : 'Tap to book new connection or link ID'}
                                                 </Text>
                                             </View>
                                             {!pending && <ChevronRight size={20} color={colors.textSecondary} />}
@@ -228,6 +364,47 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                     </>
                 )}
             </ScrollView>
+
+            {/* NOT FOUND MODAL */}
+            <Modal
+                visible={showNotFoundModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowNotFoundModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.modalIconCircle}>
+                            <AlertCircle size={28} color="#D97706" />
+                        </View>
+
+                        <Text style={styles.modalTitle}>Customer ID Not Found</Text>
+
+                        <Text style={styles.modalBody}>
+                            We couldn't find an active account for <Text style={styles.boldText}>"{notFoundQuery}"</Text> under <Text style={styles.boldText}>{notFoundOperator?.companyName ?? 'this operator'}</Text>.
+                        </Text>
+
+                        <Text style={styles.modalSubBody}>
+                            If you do not have an existing broadband connection, you can book a new optical fiber line with free installation.
+                        </Text>
+
+                        <View style={styles.modalButtonsColumn}>
+                            <Button
+                                title="Book a New Connection"
+                                onPress={handleBookNewConnection}
+                                icon={<PlusCircle size={16} color="#FFFFFF" />}
+                                variant="primary"
+                            />
+                            <TouchableOpacity
+                                style={styles.modalSecondaryBtn}
+                                onPress={() => setShowNotFoundModal(false)}
+                            >
+                                <Text style={styles.modalSecondaryBtnText}>Try Another ID</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -235,6 +412,63 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.surface },
     content: { padding: spacing.base },
+
+    // Quick Recharge Card
+    quickRechargeCard: {
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii.xl,
+        padding: spacing.base,
+        marginBottom: spacing.base,
+        borderWidth: 1,
+        borderColor: colors.primarySurface,
+        ...shadows.sm,
+    },
+    quickHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+    sparkleCircle: {
+        width: 32,
+        height: 32,
+        borderRadius: radii.full,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    quickTitle: { ...typography.bodySemibold, color: colors.textPrimary },
+    quickSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    operatorChipsRow: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md },
+    operatorChip: {
+        paddingHorizontal: spacing.md,
+        paddingVertical: 6,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    operatorChipActive: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
+    operatorChipText: { ...typography.caption, color: colors.textSecondary },
+    operatorChipTextActive: { color: colors.primary, fontWeight: '700' },
+
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingHorizontal: spacing.md,
+        height: 48,
+    },
+    inputIcon: { marginRight: spacing.sm },
+    textInput: {
+        flex: 1,
+        ...typography.bodyMedium,
+        color: colors.textPrimary,
+        height: '100%',
+    },
+    clearBtn: { padding: spacing.xs },
+
     sectionTitle: {
         ...typography.label,
         color: colors.textSecondary,
@@ -294,4 +528,42 @@ const styles = StyleSheet.create({
     emptyBody: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
     historyLink: { marginTop: spacing.xl, alignItems: 'center', paddingVertical: spacing.md },
     historyLinkText: { ...typography.bodyMedium, color: colors.primary, fontWeight: '600' },
+
+    // Modal
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: spacing.lg,
+    },
+    modalCard: {
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii.xl,
+        padding: spacing.xl,
+        width: '100%',
+        maxWidth: 380,
+        alignItems: 'center',
+        ...shadows.lg,
+    },
+    modalIconCircle: {
+        width: 56,
+        height: 56,
+        borderRadius: radii.full,
+        backgroundColor: '#FEF3C7',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    modalTitle: { ...typography.h3, color: colors.textPrimary, textAlign: 'center' },
+    modalBody: { ...typography.bodyMedium, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
+    modalSubBody: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs },
+    boldText: { color: colors.textPrimary, fontWeight: '700' },
+    modalButtonsColumn: { width: '100%', marginTop: spacing.xl, gap: spacing.sm },
+    modalSecondaryBtn: {
+        paddingVertical: spacing.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalSecondaryBtnText: { ...typography.bodyMedium, color: colors.textSecondary, fontWeight: '600' },
 });

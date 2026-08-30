@@ -18,6 +18,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { FileSpreadsheet } from "lucide-react";
+import { BulkCustomerImporter } from "@/components/ftth/BulkCustomerImporter";
 
 interface ConnectionRow {
   id: number;
@@ -72,6 +74,7 @@ export default function OperatorCustomers() {
   const [filter, setFilter] = useState("all");
   const [assigning, setAssigning] = useState<IdRequestRow | null>(null);
   const [rejecting, setRejecting] = useState<IdRequestRow | null>(null);
+  const [showImporter, setShowImporter] = useState(false);
   const [ispId, setIspId] = useState("");
   const [reason, setReason] = useState("");
 
@@ -128,11 +131,20 @@ export default function OperatorCustomers() {
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Customers</h1>
-        <p className="text-sm text-[hsl(215,20%,65%)] mt-1">
-          Link accounts, track validity, and confirm recharges you've applied on your side.
-        </p>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Customers</h1>
+          <p className="text-sm text-[hsl(215,20%,65%)] mt-1">
+            Link accounts, track validity, and confirm recharges you've applied on your side.
+          </p>
+        </div>
+        <Button
+          onClick={() => setShowImporter(true)}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white gap-2 font-medium"
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          Import Customer Roster (Excel / CSV)
+        </Button>
       </header>
 
       {requests.length > 0 && (
@@ -317,6 +329,12 @@ export default function OperatorCustomers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkCustomerImporter
+        open={showImporter}
+        onOpenChange={setShowImporter}
+        onSuccess={refresh}
+      />
     </div>
   );
 }

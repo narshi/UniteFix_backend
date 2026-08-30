@@ -25,8 +25,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAdminMe } from "@/lib/admin-auth";
-import { Router as RouterIcon, Check, X, Pause, Play } from "lucide-react";
+import { Router as RouterIcon, Check, X, Pause, Play, FileSpreadsheet } from "lucide-react";
 import { format } from "date-fns";
+import { BulkCustomerImporter } from "@/components/ftth/BulkCustomerImporter";
 
 type OperatorStatus = "pending_approval" | "active" | "paused" | "disabled";
 
@@ -75,6 +76,7 @@ export default function FtthOperatorsPage() {
   const [approving, setApproving] = useState<OperatorRow | null>(null);
   const [rejecting, setRejecting] = useState<OperatorRow | null>(null);
   const [settling, setSettling] = useState<OperatorRow | null>(null);
+  const [importingForOperator, setImportingForOperator] = useState<OperatorRow | null>(null);
   const [approveForm, setApproveForm] = useState({ username: "", leadFee: "", convenienceFee: "" });
   const [settleForm, setSettleForm] = useState({ amount: "", reference: "", note: "" });
   const [rejectReason, setRejectReason] = useState("");
@@ -283,10 +285,20 @@ export default function FtthOperatorsPage() {
                           </p>
                         )}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <Link href={`/admin/ftth-operators/${row.id}`}>
                           <Button size="sm" variant="outline">Manage</Button>
                         </Link>
+                        {can('ftth:manage') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setImportingForOperator(row)}
+                            className="border-[rgba(255,255,255,0.15)] hover:bg-indigo-500/20 text-indigo-300"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5 mr-1" /> Import Roster
+                          </Button>
+                        )}
                         {can('ftth:manage') && row.adminUserId && (
                           <Button size="sm" variant="outline" onClick={() => setSettling(row)}>
                             Record payout
@@ -486,6 +498,18 @@ export default function FtthOperatorsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {importingForOperator && (
+        <BulkCustomerImporter
+          open={importingForOperator !== null}
+          onOpenChange={(o) => !o && setImportingForOperator(null)}
+          operatorId={importingForOperator.id}
+          operatorName={importingForOperator.companyName}
+          isStaffAdmin={true}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/ftth/operators"] });
+          }}
+        />
+      )}
     </div>
   );
 }

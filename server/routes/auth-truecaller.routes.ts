@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import { db } from '../db';
 import { otpVerifications, type User } from '@shared/schema';
 import { and, eq, gte, desc } from 'drizzle-orm';
+import { FtthService } from '../services/ftth.service';
 
 /** Minimum gap between OTP requests for the same phone. */
 const OTP_REQUEST_COOLDOWN_MS = 60 * 1000;
@@ -312,6 +313,9 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
 
     // Step 5: Generate token pair
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+
+    // Auto-link any pre-seeded FTTH broadband connections for this phone
+    void FtthService.autoLinkCustomerConnections(user.id, user.phone);
 
     // Step 6: Get role-specific profile data
     let profileData = null;
@@ -610,6 +614,7 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
     }
 
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+    void FtthService.autoLinkCustomerConnections(user.id, user.phone);
     let profileData = null;
     let employeeRecord = null;
     if (user.role === 'serviceman') {
@@ -711,6 +716,7 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
     }
 
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+    void FtthService.autoLinkCustomerConnections(user.id, user.phone);
 
     let profileData = null;
     let employeeRecord: any = null;
@@ -859,6 +865,7 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
 
     // 4. Generate Tokens
     const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
+    void FtthService.autoLinkCustomerConnections(user.id, user.phone);
 
     // 5. Get Profile
     let profileData = null;
