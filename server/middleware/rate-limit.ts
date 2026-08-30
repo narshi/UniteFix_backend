@@ -61,6 +61,18 @@ export const adminLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+/**
+ * FTTH operator applications. Separate instance from `authLimiter` on purpose —
+ * see RATE_LIMIT_CONFIG.operatorApply.
+ */
+export const operatorApplyLimiter = rateLimit({
+    windowMs: RATE_LIMIT_CONFIG.operatorApply.windowMs,
+    max: RATE_LIMIT_CONFIG.operatorApply.max,
+    message: { success: false, message: RATE_LIMIT_CONFIG.operatorApply.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 export const publicLimiter = rateLimit({
     windowMs: RATE_LIMIT_CONFIG.public.windowMs,
     max: RATE_LIMIT_CONFIG.public.max,

@@ -407,6 +407,91 @@ async function expireAbandonedBookings(): Promise<void> {
     }
 }
 
+// ==================== FTTH RENEWAL REMINDERS ====================
+/**
+ * Nudge customers whose broadband validity is about to run out.
+ *
+ * Keyed on the exact DAY the connection expires, not a range, so a connection
+ * expiring in 7 days is reminded once at 7, once at 3 and once at 1 — never
+ * every run in between. The offsets come from
+ * FTTH_CONFIG.RENEWAL_REMINDER_DAYS so they are tunable without a deploy.
+ *
+ * Runs daily. Idempotent within a day because the window is a single calendar
+ * day; a second run on the same day would re-notify, which is why the interval
+ * is DAY and not something shorter.
+ */
+async function remindFtthRenewals(): Promise<void> {
+    try {
+        const { configService } = await import("./config.service");
+        const raw = (await configService.get<string>('FTTH_CONFIG.RENEWAL_REMINDER_DAYS')) || '7,3,1';
+        const offsets = raw.split(',')
+            .map(s => parseInt(s.trim(), 10))
+            .filter(n => Number.isFinite(n) && n >= 0);
+
+        if (offsets.length === 0) return;
+
+        for (const days of offsets) {
+            // Compared in Postgres against the connection's own timestamp, for the
+            // same timezone reason documented in expireAbandonedBookings above.
+            const rows = await db.execute(sql`
+                SELECT c.id, c.user_id, c.valid_till, o.company_name
+                FROM ftth_connections c
+                JOIN ftth_operators o ON o.id = c.operator_id
+                WHERE c.status = 'active'
+                  AND c.valid_till IS NOT NULL
+                  AND c.valid_till::date = (CURRENT_DATE + ${days} * INTERVAL '1 day')::date
+            `) as any;
+
+            const due = (Array.isArray(rows) ? rows : rows?.rows || []) as Array<{
+                id: number; user_id: number; valid_till: string; company_name: string;
+            }>;
+
+            for (const row of due) {
+                NotificationService.notify(
+                    row.user_id,
+                    days === 0 ? 'Your broadband expires today' : `Your broadband expires in ${days} day${days === 1 ? '' : 's'}`,
+                    `Recharge your ${row.company_name} connection in the UniteFix app to stay online.`,
+                    'ftth_renewal_reminder',
+                    { connectionId: row.id, daysRemaining: days },
+                );
+            }
+
+            if (due.length > 0) {
+                logger.info(`[CRON] Sent ${due.length} FTTH renewal reminder(s) at T-${days}d`);
+            }
+        }
+    } catch (error: any) {
+        logger.error('[CRON] FTTH renewal reminders failed', { error: error.message });
+    }
+}
+
+/**
+ * Close the loop on abandoned recharges.
+ *
+ * A `created`/`pending` recharge with no payment after 30 minutes was abandoned
+ * at the payment sheet — the same shape as expireAbandonedBookings. Leaving them
+ * open matters here because /recharges/initiate refuses a second order while one
+ * is in flight, so a customer who dismissed the sheet would be locked out of
+ * recharging until this runs.
+ */
+async function expireAbandonedFtthRecharges(): Promise<void> {
+    try {
+        const result = await db.execute(sql`
+            UPDATE ftth_recharges
+            SET status = 'failed',
+                failure_reason = COALESCE(failure_reason, 'Abandoned at payment'),
+                updated_at = NOW()
+            WHERE status IN ('created', 'pending')
+              AND created_at < NOW() - INTERVAL '30 minutes'
+        `) as any;
+
+        const closed = result?.rowCount ?? 0;
+        if (closed > 0) logger.info(`[CRON] Closed ${closed} abandoned FTTH recharge(s)`);
+    } catch (error: any) {
+        logger.error('[CRON] FTTH recharge cleanup failed', { error: error.message });
+    }
+}
+
 export function startBackgroundJobs(): void {
     logger.info('[CRON] Starting background job scheduler');
 
@@ -449,7 +534,18 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(remindPendingAssignments, FIFTEEN_MINUTES));
     setTimeout(remindPendingAssignments, 90000);
 
-    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m), abandoned-bookings(15m)');
+    // FTTH renewal reminders, once a day. Daily and not more often because the
+    // job keys on the exact expiry DATE — running it twice in a day would send
+    // the same reminder twice.
+    intervals.push(setInterval(remindFtthRenewals, DAY));
+    setTimeout(remindFtthRenewals, 120000);
+
+    // Release recharges abandoned at the payment sheet, so a customer who
+    // dismissed it is not locked out of recharging by the in-flight guard.
+    intervals.push(setInterval(expireAbandonedFtthRecharges, FIFTEEN_MINUTES));
+    setTimeout(expireAbandonedFtthRecharges, 150000);
+
+    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m), abandoned-bookings(15m), ftth-renewal-reminders(24h), ftth-abandoned-recharges(15m)');
 }
 
 /**

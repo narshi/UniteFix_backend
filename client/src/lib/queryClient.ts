@@ -1,10 +1,17 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
+/**
+ * Endpoints that need the dashboard's bearer token.
+ *
+ * `/api/ftth/admin/` is the FTTH operator portal. It is listed explicitly
+ * because it does NOT contain the substring "/api/admin/" — without this the
+ * token was never attached and every operator page 401'd while looking, from
+ * the outside, like an auth bug.
+ */
+function isDashboardCall(url: string): boolean {
+    return url.includes("/api/admin/")
+        || url.includes("/api/ftth/admin/")
+        || url.includes("/api/service-partners");
 }
 
 /**
@@ -15,10 +22,17 @@ async function throwIfResNotOk(res: Response) {
  * to the login screen, and both used to be treated as ordinary errors on the
  * 403 path — leaving an expired admin staring at failing pages with a dead
  * token still in localStorage.
+ *
+ * One exception on the operator side: a 403 carrying OPERATOR_NOT_ACTIVE means
+ * "your credentials are fine, but UniteFix has paused your account". Clearing
+ * the token and reloading would show that operator a login screen, i.e. tell
+ * them their password is wrong. Let it through as an ordinary error so the
+ * portal can say what actually happened.
  */
-function isAdminSessionOver(status: number, url: string): boolean {
-    const isAdminCall = url.includes("/api/admin/") || url.includes("/api/service-partners");
-    return isAdminCall && (status === 401 || status === 403);
+function isAdminSessionOver(status: number, url: string, body: string): boolean {
+    if (!isDashboardCall(url)) return false;
+    if (status !== 401 && status !== 403) return false;
+    return !body.includes("OPERATOR_NOT_ACTIVE");
 }
 
 function endAdminSession(): void {
@@ -38,8 +52,8 @@ export async function apiRequest(
     "Content-Type": "application/json",
   };
 
-  // Add admin token to admin routes and service partner routes (admin-only endpoints)
-  if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
+  // Add the dashboard token to admin, operator-portal and service partner routes
+  if (adminToken && isDashboardCall(url)) {
     headers.Authorization = `Bearer ${adminToken}`;
   }
 
@@ -51,12 +65,13 @@ export async function apiRequest(
   });
 
   if (!res.ok) {
-    if (isAdminSessionOver(res.status, url)) {
+    const text = (await res.text()) || res.statusText;
+
+    if (isAdminSessionOver(res.status, url, text)) {
       endAdminSession();
       return;
     }
 
-    const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
 
@@ -77,8 +92,8 @@ export const getQueryFn: <T>(options: {
       const adminToken = localStorage.getItem("adminToken");
       const headers: Record<string, string> = {};
 
-      // Add admin token to admin routes and service partner routes (admin-only endpoints)
-      if (adminToken && (url.includes("/api/admin/") || url.includes("/api/service-partners"))) {
+      // Add the dashboard token to admin, operator-portal and service partner routes
+      if (adminToken && isDashboardCall(url)) {
         headers.Authorization = `Bearer ${adminToken}`;
       }
 
@@ -87,16 +102,21 @@ export const getQueryFn: <T>(options: {
         headers,
       });
 
-      if (isAdminSessionOver(res.status, url)) {
-        endAdminSession();
-        return;
+      if (!res.ok) {
+        const text = (await res.text()) || res.statusText;
+
+        if (isAdminSessionOver(res.status, url, text)) {
+          endAdminSession();
+          return;
+        }
+
+        if (res.status === 401 && unauthorizedBehavior === "returnNull") {
+          return null;
+        }
+
+        throw new Error(`${res.status}: ${text}`);
       }
 
-      if (res.status === 401 && unauthorizedBehavior === "returnNull") {
-        return null;
-      }
-
-      await throwIfResNotOk(res);
       return await res.json();
     };
 

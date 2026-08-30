@@ -82,6 +82,24 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
         message: 'Too many admin requests. Please slow down.',
     },
 
+    /**
+     * FTTH operator applications.
+     *
+     * Its OWN bucket, deliberately not `auth`. express-rate-limit keys per
+     * limiter instance, so mounting the application form on `authLimiter` would
+     * have meant a handful of submissions from an office IP exhausting the same
+     * five-per-15-minutes budget that /api/admin/auth/login uses — locking staff
+     * out of the dashboard because an ISP filled in a form.
+     *
+     * Still tight: every submission lands in a super_admin's review queue, so
+     * the cost of abuse is a human reading spam.
+     */
+    operatorApply: {
+        windowMs: 60 * 60 * 1000, // 1 hour
+        max: 5,
+        message: 'Too many applications from this network. Please try again later.',
+    },
+
     // Public endpoints (health check, static resources)
     public: {
         windowMs: 60 * 1000,  // 1 minute

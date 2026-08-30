@@ -33,6 +33,9 @@ export class PaymentTrackingService {
     static async recordPaymentEvent(data: {
         orderId?: string;
         serviceRequestId?: number;
+        /** FTTH recharge link. Without it, recharges are invisible to the admin
+         *  stuck-payment and reconcile tooling. */
+        ftthRechargeId?: number;
         razorpayOrderId?: string;
         razorpayPaymentId?: string;
         amount: number;
@@ -45,6 +48,7 @@ export class PaymentTrackingService {
         const [tx] = await db.insert(paymentTransactions).values({
             orderId: data.orderId || null,
             serviceRequestId: data.serviceRequestId || null,
+            ftthRechargeId: data.ftthRechargeId || null,
             razorpayOrderId: data.razorpayOrderId || null,
             razorpayPaymentId: data.razorpayPaymentId || null,
             amount: data.amount,

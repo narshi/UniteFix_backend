@@ -32,6 +32,7 @@ import {
     Clock,
     Phone,
     CalendarPlus,
+    Router,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -286,6 +287,28 @@ export function HomeScreen() {
                     </View>
                 ) : (
                     <>
+                        {/* Broadband. Its own entry rather than a service category:
+                            it is a recharge, not a booking, and shares none of the
+                            service-request flow. */}
+                        <TouchableOpacity
+                            style={styles.broadbandBanner}
+                            onPress={() => navigation.navigate('FTTHOperatorSelect')}
+                            activeOpacity={0.85}
+                        >
+                            <View style={styles.broadbandIcon}>
+                                <Router size={20} color={colors.primary} strokeWidth={2.2} />
+                            </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                                <Text style={styles.broadbandTitle}>
+                                    {t('home.broadband_title', 'Broadband recharge')}
+                                </Text>
+                                <Text style={styles.broadbandSubtitle}>
+                                    {t('home.broadband_subtitle', 'Pay your fibre bill or get a new connection')}
+                                </Text>
+                            </View>
+                            <ChevronRight size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+
                         {/* Categories Header with Book a Service button */}
                         <View style={styles.categoriesHeader}>
                             <View>
@@ -517,6 +540,35 @@ const styles = StyleSheet.create({
     trustLabel: {
         ...typography.small,
         color: colors.textSecondary,
+    },
+
+    // Broadband entry point
+    broadbandBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surfaceElevated,
+        borderRadius: radii.lg,
+        padding: spacing.base,
+        marginBottom: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    broadbandIcon: {
+        width: 42,
+        height: 42,
+        borderRadius: radii.full,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    broadbandTitle: {
+        ...typography.h4,
+        color: colors.textPrimary,
+    },
+    broadbandSubtitle: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: 2,
     },
 
     // Categories Section Header

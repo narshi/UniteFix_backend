@@ -866,6 +866,12 @@ export const paymentTransactions = pgTable("payment_transactions", {
   id: serial("id").primaryKey(),
   orderId: text("order_id").references(() => productOrders.orderId),
   serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  // FTTH recharges are a third kind of payment. Without this column they are
+  // invisible to /api/admin/payments/stuck, /api/admin/payments/transactions and
+  // the reconcile endpoint — the exact tools that exist because a payment with
+  // no entity link has already gone wrong here once.
+  // Declared lazily: ftthRecharges is defined further down the file.
+  ftthRechargeId: integer("ftth_recharge_id").references((): any => ftthRecharges.id),
   razorpayOrderId: text("razorpay_order_id"),
   razorpayPaymentId: text("razorpay_payment_id"),
   amount: integer("amount").notNull(), // In paise
@@ -882,6 +888,7 @@ export const paymentTransactions = pgTable("payment_transactions", {
   razorpayOrderIdx: index("payment_tx_razorpay_order_idx").on(table.razorpayOrderId),
   razorpayPaymentIdx: index("payment_tx_razorpay_payment_idx").on(table.razorpayPaymentId),
   statusIdx: index("payment_tx_status_idx").on(table.status),
+  ftthIdx: index("payment_tx_ftth_idx").on(table.ftthRechargeId),
 }));
 
 // PHASE 10: Return Requests table
@@ -934,18 +941,73 @@ export const refunds = pgTable("refunds", {
   statusIdx: index("refunds_status_idx").on(table.status),
 }))
 
+/**
+ * Roles are USER-CREATED; the capability keys they grant are not (see
+ * shared/capabilities.ts for why).
+ *
+ * `scope` is the hard boundary and is deliberately not a capability: a 'staff'
+ * role can never reach the operator portal and an 'operator' role can never
+ * reach the staff console, whatever is ticked. authenticateAdmin and
+ * authenticateOperator each require their own scope, so a mis-configured role
+ * cannot put a third-party ISP inside the staff console.
+ */
+export const adminRoleScopeEnum = pgEnum('admin_role_scope', ['staff', 'operator']);
+
+export const adminRoles = pgTable("admin_roles", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  scope: adminRoleScopeEnum("scope").notNull().default('staff'),
+  // System roles (super_admin, admin, operator) cannot be deleted and their slug
+  // cannot change — too much code and too many existing rows key off them.
+  isSystem: boolean("is_system").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  slugIdx: uniqueIndex("admin_roles_slug_idx").on(table.slug),
+}));
+
+export const adminRoleCapabilities = pgTable("admin_role_capabilities", {
+  roleId: integer("role_id").notNull().references(() => adminRoles.id, { onDelete: 'cascade' }),
+  capability: text("capability").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.roleId, table.capability] }),
+}));
+
 // Admin users table
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  // Kept as the role's SLUG, mirroring roleId. The JWT carries it, and a great
+  // deal of existing code reads it; dropping it would have been a much wider
+  // change than this feature warrants. roleId is the authority — `role` is
+  // written from it and never independently.
   role: text("role").notNull().default("admin"),
+  roleId: integer("role_id").references(() => adminRoles.id),
   isActive: boolean("is_active").default(true),
+  // Archive rather than delete: admin_users.id is referenced by audit_logs,
+  // ftth_operators and recharge fulfilment, and a hard delete would strip the
+  // attribution off history. A truly unreferenced account can still be purged.
+  deletedAt: timestamp("deleted_at"),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+export const adminRolesRelations = relations(adminRoles, ({ many }) => ({
+  capabilities: many(adminRoleCapabilities),
+  users: many(adminUsers),
+}));
+
+export const adminRoleCapabilitiesRelations = relations(adminRoleCapabilities, ({ one }) => ({
+  role: one(adminRoles, { fields: [adminRoleCapabilities.roleId], references: [adminRoles.id] }),
+}));
+
+export type AdminRole = typeof adminRoles.$inferSelect;
+export type AdminRoleCapability = typeof adminRoleCapabilities.$inferSelect;
 
 // Relations
 // Relations — PHASE 1: All serviceProviders references replaced with employees
@@ -1509,3 +1571,353 @@ export type InsertServiceItem = z.infer<typeof insertServiceSchema>;
 
 export type RefreshToken = typeof refreshTokens.$inferSelect;
 export type InsertRefreshToken = z.infer<typeof insertRefreshTokenSchema>;
+
+// ==================== FTTH — PHASE 0 ====================
+// Broadband (fibre) operators sell their own plans through UniteFix. An operator
+// is a LOW-TRUST admin: they sign in to the same dashboard as staff but must
+// never reach a staff route.
+//
+// Operator identity lives in `admin_users.role = 'operator'`, NOT in
+// `userRoleEnum`. Two reasons:
+//   1. `users.role` is the mobile account table; the dashboard never reads it,
+//      so an operator there could not sign in at all.
+//   2. `admin_users.role` is plain text, so this needs no ALTER TYPE — and
+//      `authenticateAdmin` already refuses every role that is not admin /
+//      super_admin, which means all ~90 existing /api/admin/* routes reject an
+//      operator token on day one with no per-route allowlist to keep in sync.
+
+export const ftthOperatorStatusEnum = pgEnum('ftth_operator_status', [
+  'pending_approval',
+  'active',
+  'paused',
+  'disabled',
+]);
+
+export const ftthOperators = pgTable("ftth_operators", {
+  id: serial("id").primaryKey(),
+
+  // Null until a super_admin approves the application and mints the login.
+  // An application therefore exists with no way to sign in, which is the point.
+  adminUserId: integer("admin_user_id").unique().references(() => adminUsers.id),
+
+  companyName: text("company_name").notNull(),
+  legalName: text("legal_name"),
+  gstin: text("gstin"),
+  contactName: text("contact_name"),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone").notNull(),
+
+  // How the operator appears in the customer app's operator list.
+  logoUrl: text("logo_url"),
+  brandColor: text("brand_color"),
+
+  status: ftthOperatorStatusEnum("status").notNull().default('pending_approval'),
+
+  // Commercial terms are PER OPERATOR — you will not agree the same lead bounty
+  // with every ISP. Null falls back to FTTH_CONFIG.DEFAULT_* platform config.
+  leadFeePaise: integer("lead_fee_paise"),
+  convenienceFeePaise: integer("convenience_fee_paise"),
+
+  approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  adminUserIdx: uniqueIndex("ftth_operators_admin_user_idx").on(table.adminUserId),
+  statusIdx: index("ftth_operators_status_idx").on(table.status),
+}));
+
+// Serviceability. With one operator you can list everyone; at fifteen across the
+// district, a customer in Yellapur must not be offered an ISP that only wires
+// Karwar. Joins to the existing coverage model — `serviceable_pincodes.pincode`
+// is already a text primary key.
+export const ftthOperatorPincodes = pgTable("ftth_operator_pincodes", {
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id, { onDelete: 'cascade' }),
+  pincode: text("pincode").notNull().references(() => serviceablePincodes.pincode),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.operatorId, table.pincode] }),
+  pincodeIdx: index("ftth_operator_pincodes_pincode_idx").on(table.pincode),
+}));
+
+export const ftthOperatorsRelations = relations(ftthOperators, ({ one, many }) => ({
+  adminUser: one(adminUsers, {
+    fields: [ftthOperators.adminUserId],
+    references: [adminUsers.id],
+  }),
+  pincodes: many(ftthOperatorPincodes),
+}));
+
+export const ftthOperatorPincodesRelations = relations(ftthOperatorPincodes, ({ one }) => ({
+  operator: one(ftthOperators, {
+    fields: [ftthOperatorPincodes.operatorId],
+    references: [ftthOperators.id],
+  }),
+}));
+
+// The public application form. adminUserId/status/approval columns are omitted
+// deliberately — an applicant must not be able to approve themselves by posting
+// extra fields.
+export const insertFtthOperatorSchema = createInsertSchema(ftthOperators).pick({
+  companyName: true,
+  legalName: true,
+  gstin: true,
+  contactName: true,
+  contactEmail: true,
+  contactPhone: true,
+});
+
+export type FtthOperator = typeof ftthOperators.$inferSelect;
+export type InsertFtthOperator = z.infer<typeof insertFtthOperatorSchema>;
+export type FtthOperatorPincode = typeof ftthOperatorPincodes.$inferSelect;
+
+// ==================== FTTH — PHASE 1+ ====================
+// Plans, connections, leads, recharges and the operator ledger.
+//
+// MONEY IS INTEGER PAISE throughout, matching payment_transactions.amount.
+// Decimals were the earlier draft's choice and would have meant converting at
+// every Razorpay boundary, which is exactly where rounding errors become real
+// money.
+
+export const ftthConnectionStatusEnum = pgEnum('ftth_connection_status', [
+  'pending_id',   // operator has not mapped an ISP customer id yet
+  'active',
+  'suspended',
+  'closed',
+]);
+
+export const ftthIdRequestStatusEnum = pgEnum('ftth_id_request_status', [
+  'pending', 'approved', 'rejected',
+]);
+
+export const ftthLeadStatusEnum = pgEnum('ftth_lead_status', [
+  'new', 'contacted', 'converted', 'closed',
+]);
+
+export const ftthRechargeStatusEnum = pgEnum('ftth_recharge_status', [
+  'created',   // order raised, customer has not paid
+  'pending',   // payment in flight
+  'success',
+  'failed',
+  'refunded',
+]);
+
+export const ftthLedgerEntryTypeEnum = pgEnum('ftth_ledger_entry_type', [
+  'recharge_collected',  // + owed to the operator
+  'platform_fee',        // − UniteFix's convenience fee
+  'lead_fee',            // − bounty the operator owes UniteFix
+  'settlement_paid',     // − money actually remitted
+  'adjustment',          // ± manual correction
+]);
+
+/**
+ * Operator-authored plans.
+ *
+ * `speedMbps` and `durationMonths` are FREE INTEGERS — never an enum, never a
+ * hardcoded ladder. Operator A sells 30/50/100, operator B sells 40/60/200, a
+ * third sells 25/75. Nothing in the schema, API or UI may contain a speed list:
+ * every speed and duration shown anywhere is derived from these rows. Onboarding
+ * an ISP with an unusual tier must never require a deploy.
+ *
+ * `name`, `dataLimitGb` and `benefits` exist because ISPs do not sell a clean
+ * (speed × duration) grid — "100 Mbps + IPTV", "40 Mbps, 3.3 TB FUP". A rigid
+ * two-axis schema would force a migration the first time one of those appears.
+ *
+ * The matrix is deliberately allowed to be SPARSE: 30 Mbps at 1 and 6 months but
+ * not 3 is a legitimate catalogue, and the UI honours it.
+ */
+export const ftthPlans = pgTable("ftth_plans", {
+  id: serial("id").primaryKey(),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  speedMbps: integer("speed_mbps").notNull(),
+  durationMonths: integer("duration_months").notNull(),
+  listPricePaise: integer("list_price_paise").notNull(),   // GST-inclusive, as the operator quotes it
+  discountPaise: integer("discount_paise").notNull().default(0),
+  dataLimitGb: integer("data_limit_gb"),                   // null = unlimited / no FUP
+  benefits: jsonb("benefits"),                             // ["OTT pack", "Free installation"]
+  sortOrder: integer("sort_order").notNull().default(0),
+  // Plans are SOFT-deleted only — ftth_recharges holds an FK to them.
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  operatorActiveIdx: index("ftth_plans_operator_active_idx").on(table.operatorId, table.isActive),
+  operatorSpeedIdx: index("ftth_plans_operator_speed_idx").on(table.operatorId, table.speedMbps),
+}));
+
+/**
+ * A customer's connection with one operator.
+ *
+ * `validTill` is the SINGLE source of truth for expiry. The earlier draft
+ * carried `nextRenewalDate` here and `validFrom`/`validTo` on the recharge;
+ * duplicated state like that drifts. Recharge rows keep periodStart/periodEnd
+ * as history only.
+ */
+export const ftthConnections = pgTable("ftth_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id),
+  ispConnectionId: text("isp_connection_id"),   // e.g. POORVI-9912; null until assigned
+  status: ftthConnectionStatusEnum("status").notNull().default('pending_id'),
+  currentPlanId: integer("current_plan_id").references(() => ftthPlans.id),
+  validTill: timestamp("valid_till"),
+  customerName: text("customer_name"),
+  installationAddress: text("installation_address"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // One connection per user PER OPERATOR. Settles the "is the connection
+  // endpoint singular?" question: it is not — /api/ftth/connections returns an
+  // array, and the app renders the one-connection case as a single card.
+  userOperatorIdx: uniqueIndex("ftth_conn_user_operator_idx").on(table.userId, table.operatorId),
+  // The same ISP id cannot be mapped to two UniteFix accounts.
+  ispIdIdx: uniqueIndex("ftth_conn_isp_id_idx").on(table.operatorId, table.ispConnectionId),
+  operatorStatusIdx: index("ftth_conn_operator_status_idx").on(table.operatorId, table.status),
+  validTillIdx: index("ftth_conn_valid_till_idx").on(table.validTill),
+}));
+
+/** "I'm already a customer" — map an existing ISP account to a UniteFix login. */
+export const ftthIdRequests = pgTable("ftth_id_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id),
+  connectionId: integer("connection_id").references(() => ftthConnections.id),
+  claimedName: text("claimed_name").notNull(),
+  claimedPhone: text("claimed_phone").notNull(),
+  claimedAddress: text("claimed_address"),
+  claimedIspId: text("claimed_isp_id"),   // what the customer thinks their id is
+  status: ftthIdRequestStatusEnum("status").notNull().default('pending'),
+  rejectionReason: text("rejection_reason"),
+  reviewedByAdminId: integer("reviewed_by_admin_id").references(() => adminUsers.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  operatorStatusIdx: index("ftth_id_req_operator_status_idx").on(table.operatorId, table.status),
+  userIdx: index("ftth_id_req_user_idx").on(table.userId),
+}));
+
+/** "I want a new connection" — the lead-generation revenue line. */
+export const ftthLeads = pgTable("ftth_leads", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  address: text("address").notNull(),
+  pincode: text("pincode").notNull(),
+  notes: text("notes"),
+  status: ftthLeadStatusEnum("status").notNull().default('new'),
+  convertedConnectionId: integer("converted_connection_id").references(() => ftthConnections.id),
+  // Snapshot at conversion — renegotiating the bounty must not re-price history.
+  leadFeePaise: integer("lead_fee_paise"),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  operatorStatusIdx: index("ftth_leads_operator_status_idx").on(table.operatorId, table.status),
+  userIdx: index("ftth_leads_user_idx").on(table.userId),
+}));
+
+/**
+ * One recharge transaction.
+ *
+ * Everything priced is SNAPSHOT onto this row at initiate. Storing only planId —
+ * the earlier draft's design — means editing the ₹471 plan tomorrow silently
+ * re-prices every historic recharge. `billing-engine.ts:9` already establishes
+ * this pattern for bookings; this is the same idea.
+ */
+export const ftthRecharges = pgTable("ftth_recharges", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull().references(() => ftthConnections.id),
+  planId: integer("plan_id").notNull().references(() => ftthPlans.id),
+
+  // --- frozen snapshot ---
+  planName: text("plan_name").notNull(),
+  speedMbps: integer("speed_mbps").notNull(),
+  durationMonths: integer("duration_months").notNull(),
+  listPricePaise: integer("list_price_paise").notNull(),
+  discountPaise: integer("discount_paise").notNull().default(0),
+  convenienceFeePaise: integer("convenience_fee_paise").notNull().default(0),
+  gstOnConvenienceFeePaise: integer("gst_on_convenience_fee_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull(),              // what the customer pays
+  operatorPayablePaise: integer("operator_payable_paise").notNull(),
+  platformRevenuePaise: integer("platform_revenue_paise").notNull(),
+
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  status: ftthRechargeStatusEnum("status").notNull().default('created'),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  failureReason: text("failure_reason"),
+  // The operator confirming they performed the recharge in their own portal.
+  fulfilledAt: timestamp("fulfilled_at"),
+  fulfilledByAdminId: integer("fulfilled_by_admin_id").references(() => adminUsers.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  connectionIdx: index("ftth_recharges_connection_idx").on(table.connectionId),
+  statusIdx: index("ftth_recharges_status_idx").on(table.status),
+  // Unique: one recharge per Razorpay order. Half of what stops a customer
+  // opening two orders and paying both.
+  razorpayOrderIdx: uniqueIndex("ftth_recharges_rzp_order_idx").on(table.razorpayOrderId),
+  razorpayPaymentIdx: index("ftth_recharges_rzp_payment_idx").on(table.razorpayPaymentId),
+}));
+
+/**
+ * Append-only operator ledger.
+ *
+ * NOT walletTransactions / walletTransactionsV2 — both are
+ * `partnerId → employees.id NOT NULL` (see :258 and :532) and an operator is not
+ * an employee. This borrows their shape instead, including the idempotency
+ * index technique at :553.
+ *
+ * `amountPaise` is SIGNED: positive is owed to the operator, negative is paid
+ * out or deducted. This is what makes "what do we owe Poorvi this week" a query
+ * rather than a spreadsheet, and it is the only place the lead fee accrues.
+ */
+export const ftthOperatorLedger = pgTable("ftth_operator_ledger", {
+  id: serial("id").primaryKey(),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id),
+  entryType: ftthLedgerEntryTypeEnum("entry_type").notNull(),
+  amountPaise: integer("amount_paise").notNull(),
+  rechargeId: integer("recharge_id").references(() => ftthRecharges.id),
+  leadId: integer("lead_id").references(() => ftthLeads.id),
+  balanceBeforePaise: integer("balance_before_paise").notNull().default(0),
+  balanceAfterPaise: integer("balance_after_paise").notNull().default(0),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdByAdminId: integer("created_by_admin_id").references(() => adminUsers.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  operatorIdx: index("ftth_ledger_operator_idx").on(table.operatorId, table.createdAt),
+  // Idempotency. NULLs do not collide in Postgres, so manual `adjustment` and
+  // `settlement_paid` rows (which carry neither id) are unaffected.
+  rechargeEntryIdx: uniqueIndex("ftth_ledger_recharge_entry_idx").on(table.entryType, table.rechargeId),
+  leadEntryIdx: uniqueIndex("ftth_ledger_lead_entry_idx").on(table.entryType, table.leadId),
+}));
+
+export const ftthPlansRelations = relations(ftthPlans, ({ one }) => ({
+  operator: one(ftthOperators, { fields: [ftthPlans.operatorId], references: [ftthOperators.id] }),
+}));
+
+export const ftthConnectionsRelations = relations(ftthConnections, ({ one, many }) => ({
+  operator: one(ftthOperators, { fields: [ftthConnections.operatorId], references: [ftthOperators.id] }),
+  user: one(users, { fields: [ftthConnections.userId], references: [users.id] }),
+  recharges: many(ftthRecharges),
+}));
+
+export const ftthRechargesRelations = relations(ftthRecharges, ({ one }) => ({
+  connection: one(ftthConnections, { fields: [ftthRecharges.connectionId], references: [ftthConnections.id] }),
+  plan: one(ftthPlans, { fields: [ftthRecharges.planId], references: [ftthPlans.id] }),
+}));
+
+export type FtthPlan = typeof ftthPlans.$inferSelect;
+export type FtthConnection = typeof ftthConnections.$inferSelect;
+export type FtthIdRequest = typeof ftthIdRequests.$inferSelect;
+export type FtthLead = typeof ftthLeads.$inferSelect;
+export type FtthRecharge = typeof ftthRecharges.$inferSelect;
+export type FtthLedgerEntry = typeof ftthOperatorLedger.$inferSelect;

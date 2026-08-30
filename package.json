@@ -22,6 +22,12 @@
     "test:e2e:headed": "npx playwright test --headed",
     "test:e2e:report": "npx playwright show-report",
     "migrate:expertise": "node scripts/apply-expertise-mapping-migration.mjs",
+    "migrate:rbac": "node -r dotenv/config scripts/apply-rbac-migration.mjs",
+    "migrate:ftth": "node scripts/apply-ftth-phase0-migration.mjs",
+    "migrate:ftth1": "node scripts/apply-ftth-phase1-migration.mjs",
+    "smoke:ftth": "node scripts/smoke-ftth-phase0.mjs && node scripts/smoke-ftth-phase1.mjs && node scripts/smoke-ftth-admin.mjs",
+    "smoke:rbac": "node scripts/smoke-rbac.mjs",
+    "seed:ftth": "node -r dotenv/config scripts/seed-ftth-demo.mjs",
     "inspect:booking": "node scripts/inspect-booking.mjs"
   },
   "dependencies": {
