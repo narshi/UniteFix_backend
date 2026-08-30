@@ -1141,6 +1141,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         address: homeAddress || '',
         homeAddress: homeAddress || '',
         services: p.services || [],
+        // Payout readiness, surfaced because there is otherwise NO way to see it.
+        //
+        // A partner with a payout destination but no RazorpayX fund account can
+        // still request a payout (that gate was removed — asking to be paid does
+        // not need the integration), but it can only be settled by hand through
+        // /approve-manual. When this is false across the board, RazorpayX is
+        // unconfigured or not activated rather than anything being wrong with the
+        // individual partner.
+        hasPayoutDestination: !!(p.upiId || (p.bankAccountNumber && p.bankIfsc)),
+        payoutAutomationReady: !!p.razorpayFundAccountId,
       }));
 
       res.json({ success: true, data, pagination: paginationMeta(params, Number(total)) });

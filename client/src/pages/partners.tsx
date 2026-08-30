@@ -452,6 +452,40 @@ export default function PartnersPage() {
                           <Wallet className="w-4 h-4 text-[hsl(160,84%,60%)]" />
                           <span className="font-mono font-bold text-[hsl(160,84%,65%)] mr-3">₹{partner.walletBalance}</span>
 
+                          {/* Payout readiness. Without this there was no way to see
+                              that a partner could never be paid automatically —
+                              they'd request a payout and nobody would know why it
+                              had to be settled by hand. */}
+                          {!partner.hasPayoutDestination ? (
+                            <Badge
+                              className="bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)] text-[10px] mr-1"
+                              title="No UPI ID or bank details saved — this partner cannot request a payout yet."
+                            >
+                              No payout details
+                            </Badge>
+                          ) : !partner.upiVerifiedAt && partner.upiId ? (
+                            // Nobody has checked this UPI id exists. Shown ahead of
+                            // the automation badge because sending money to an
+                            // unchecked id is the bigger risk of the two.
+                            <Badge
+                              className="bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border-[hsla(38,92%,50%,0.3)] text-[10px] mr-1"
+                              title="This UPI ID has never been verified against the payment provider. Confirm it with the partner before transferring money."
+                            >
+                              UPI unverified
+                            </Badge>
+                          ) : !partner.payoutAutomationReady ? (
+                            <Badge
+                              className="bg-[rgba(255,255,255,0.05)] text-[hsl(215,20%,70%)] border-[rgba(255,255,255,0.12)] text-[10px] mr-1"
+                              title={
+                                partner.upiVerifiedName
+                                  ? `UPI verified — registered to ${partner.upiVerifiedName}. RazorpayX has no fund account, so payouts are settled manually with a proof screenshot.`
+                                  : "Payout details saved, but RazorpayX has no fund account for them. They can still request a payout — it has to be settled manually with a proof screenshot."
+                              }
+                            >
+                              Manual payout only
+                            </Badge>
+                          ) : null}
+
                           <Button
                             variant="ghost"
                             size="icon"

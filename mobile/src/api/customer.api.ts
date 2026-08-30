@@ -141,8 +141,24 @@ export const customerApi = {
     getPartnerProfile: () =>
         apiClient.get<ApiResponse<any>>('/api/partner/profile'),
 
-    updateUpiId: (data: { upiId: string }) =>
+    updateUpiId: (data: { upiId: string; confirmedName?: string }) =>
         apiClient.put<ApiResponse<{ upiId: string }>>('/api/partner/profile/upi', data),
+
+    /**
+     * Check a UPI ID without saving it, so the partner can be shown the name it
+     * is registered to and confirm it is theirs before anything is written.
+     * A valid UPI belonging to someone else is the failure that loses money, and
+     * the registered name is the only thing that catches it.
+     */
+    validateUpiId: (data: { upiId: string }) =>
+        apiClient.post<ApiResponse<{
+            status: 'valid' | 'invalid' | 'unverified';
+            upiId?: string;
+            customerName: string | null;
+            reason: string | null;
+            warning: string | null;
+            message: string;
+        }>>('/api/partner/profile/upi/validate', data),
 
     // Service Requests
     createServiceRequest: (data: CreateServiceRequest) =>

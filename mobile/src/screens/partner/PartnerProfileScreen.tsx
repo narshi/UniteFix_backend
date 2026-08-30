@@ -29,6 +29,8 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, Input } from '../../components/ui';
 import { apiClient } from '../../api/client';
+import { customerApi } from '../../api/customer.api';
+import { checkUpiFormat } from '../../utils/upi';
 import { useScreenInsets } from '../../theme/layout';
 
 export function PartnerProfileScreen() {
@@ -55,6 +57,10 @@ export function PartnerProfileScreen() {
     // supply the one value serviceability and dispatch are decided on.
     const [pinCode, setPinCode] = useState('');
     const [upiId, setUpiId] = useState('');
+    // Format feedback shown under the field as they type. Purely local — the
+    // server re-checks everything.
+    const [upiHint, setUpiHint] = useState<{ severity: 'error' | 'warning'; message: string } | null>(null);
+    const [checkingUpi, setCheckingUpi] = useState(false);
     const [fetchingLocation, setFetchingLocation] = useState(false);
     // PHASE 3: Online/offline toggle (Task 3.4)
     const [isOnline, setIsOnline] = useState(user?.isOnline ?? false);
@@ -133,6 +139,101 @@ export function PartnerProfileScreen() {
             Alert.alert('Error', 'Could not fetch your current location.');
         } finally {
             setFetchingLocation(false);
+        }
+    };
+
+    /**
+     * Save the UPI ID, checking it first.
+     *
+     * Three outcomes, and they need different conversations:
+     *   valid      — show the name it is registered to and make the partner
+     *                confirm it is theirs. A well-formed id that belongs to a
+     *                stranger is the failure that loses money, and the name is
+     *                the only thing that catches it.
+     *   invalid    — refuse, and say what to do about it.
+     *   unverified — Razorpay is unreachable or the check isn't enabled. Warn
+     *                and let them save: blocking a partner from being paid
+     *                because a third party is down is the worse failure.
+     */
+    const saveUpi = async () => {
+        const local = checkUpiFormat(upiId);
+        if (!local.ok) {
+            setUpiHint({ severity: 'error', message: local.message! });
+            return;
+        }
+
+        const commit = (confirmedName?: string) => {
+            updateUpiId(
+                { upiId: local.normalised!, confirmedName },
+                { onSuccess: (res: any) => {
+                    setEditing(false);
+                    setUpiHint(null);
+                    // The server reports whether automatic payout setup actually
+                    // succeeded. Announcing a flat success regardless is what let
+                    // partners believe their payout details were complete when the
+                    // fund account had never been created.
+                    const body = res?.data ?? res;
+                    if (body?.payoutReady === false) {
+                        Alert.alert(
+                            'UPI ID saved',
+                            body.payoutWarning
+                            ?? "Your UPI ID is saved. Automatic payouts aren't set up yet, so UniteFix will transfer your money manually — you can still request a payout as normal.",
+                        );
+                    } else {
+                        Alert.alert('Saved', 'UPI ID updated successfully.');
+                    }
+                }},
+            );
+        };
+
+        setCheckingUpi(true);
+        try {
+            const { data } = await customerApi.validateUpiId({ upiId: local.normalised! });
+            const result = data.data;
+
+            if (result.status === 'invalid') {
+                setUpiHint({ severity: 'error', message: result.message });
+                return;
+            }
+
+            if (result.status === 'unverified') {
+                Alert.alert(
+                    "We couldn't check this UPI ID",
+                    `${result.message}\n\n${local.normalised}\n\nSave it anyway?`,
+                    [
+                        { text: 'Let me check', style: 'cancel' },
+                        { text: 'Save anyway', onPress: () => commit() },
+                    ],
+                );
+                return;
+            }
+
+            // Valid. If the PSP told us the name, the partner confirms it.
+            if (result.customerName) {
+                Alert.alert(
+                    'Is this you?',
+                    `${local.normalised}\n\nThis UPI ID is registered to:\n${result.customerName}\n\nYour payouts will go here.`,
+                    [
+                        { text: 'No, let me fix it', style: 'cancel' },
+                        { text: "Yes, that's me", onPress: () => commit(result.customerName!) },
+                    ],
+                );
+            } else {
+                commit();
+            }
+        } catch {
+            // The check itself failed. Same reasoning as 'unverified' — do not
+            // strand the partner.
+            Alert.alert(
+                "We couldn't check this UPI ID",
+                `Make sure ${local.normalised} is exactly right before saving.`,
+                [
+                    { text: 'Let me check', style: 'cancel' },
+                    { text: 'Save anyway', onPress: () => commit() },
+                ],
+            );
+        } finally {
+            setCheckingUpi(false);
         }
     };
 
@@ -317,28 +418,36 @@ export function PartnerProfileScreen() {
                 
                 {editing ? (
                     <View>
-                        <Input 
-                            label="UPI ID" 
-                            value={upiId} 
-                            onChangeText={setUpiId} 
+                        <Input
+                            label="UPI ID"
+                            value={upiId}
+                            onChangeText={(v: string) => {
+                                setUpiId(v);
+                                // Feedback as they type, not after saving. Being told
+                                // days later that a payout failed is the experience
+                                // this replaces.
+                                if (!v.trim()) { setUpiHint(null); return; }
+                                const r = checkUpiFormat(v);
+                                setUpiHint(r.message ? { severity: r.severity ?? 'error', message: r.message } : null);
+                            }}
                             placeholder={(partnerProfile as any)?.upiId || (partnerProfile as any)?.data?.upiId || "e.g. 9876543210@ybl"}
                             autoCapitalize="none"
                         />
+                        {upiHint && (
+                            <Text style={[
+                                styles.upiHint,
+                                { color: upiHint.severity === 'error' ? colors.error : colors.warningDark },
+                            ]}>
+                                {upiHint.message}
+                            </Text>
+                        )}
                         <View style={styles.editActions}>
                             <View style={{ flex: 1 }}>
-                                <Button 
-                                    title="Save UPI ID" 
-                                    onPress={() => {
-                                        updateUpiId(
-                                            { upiId }, 
-                                            { onSuccess: () => { 
-                                                setEditing(false);
-                                                Alert.alert('Saved', 'UPI ID updated successfully.');
-                                            }}
-                                        );
-                                    }} 
-                                    loading={savingUpi} 
-                                    fullWidth={true} 
+                                <Button
+                                    title="Save UPI ID"
+                                    onPress={() => { void saveUpi(); }}
+                                    loading={savingUpi || checkingUpi}
+                                    fullWidth={true}
                                 />
                             </View>
                         </View>
@@ -492,6 +601,7 @@ const styles = StyleSheet.create({
         padding: spacing.lg, ...shadows.sm,
     },
     sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.md },
+    upiHint: { ...typography.caption, marginTop: spacing.xs, marginBottom: spacing.xs },
     editActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
     cancelBtn: {
         paddingVertical: spacing.md, paddingHorizontal: spacing.lg,

@@ -45,6 +45,9 @@ type Withdrawal = {
   };
   employee: {
     fullName: string;
+    /** Null means nobody ever checked this UPI id — not that it is invalid. */
+    upiVerifiedAt: string | null;
+    upiVerifiedName: string | null;
     bankAccountNumber: string | null;
     upiId: string | null;
   };
@@ -397,6 +400,39 @@ export default function WithdrawalsPage() {
               }
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {/* Where the money is actually going. Shown before the transfer, not
+              after it fails — and the unverified case is called out, because a
+              UPI id nobody has checked is exactly how a manual payout reaches
+              the wrong person. */}
+          {actionDialog.type === 'approveManual' && (
+            <div
+              className={`rounded-lg border p-3 text-sm ${
+                actionDialog.request?.employee.upiVerifiedAt
+                  ? "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)]"
+                  : "border-[hsla(38,92%,50%,0.35)] bg-[hsla(38,92%,50%,0.1)]"
+              }`}
+            >
+              <p className="font-mono text-white">
+                {actionDialog.request?.employee.upiId
+                  || actionDialog.request?.employee.bankAccountNumber
+                  || "No payout destination on file"}
+              </p>
+              {actionDialog.request?.employee.upiVerifiedAt ? (
+                <p className="text-[hsl(160,84%,65%)] mt-1">
+                  Verified
+                  {actionDialog.request?.employee.upiVerifiedName
+                    ? ` — registered to ${actionDialog.request.employee.upiVerifiedName}`
+                    : ""}
+                </p>
+              ) : (
+                <p className="text-[hsl(38,92%,65%)] mt-1">
+                  Not verified — nobody has confirmed this UPI ID exists. Check it with the
+                  partner before transferring.
+                </p>
+              )}
+            </div>
+          )}
 
           {actionDialog.type === 'approveManual' && (
             <div className="space-y-2">

@@ -28,7 +28,11 @@
     "smoke:ftth": "node scripts/smoke-ftth-phase0.mjs && node scripts/smoke-ftth-phase1.mjs && node scripts/smoke-ftth-admin.mjs",
     "smoke:rbac": "node scripts/smoke-rbac.mjs",
     "seed:ftth": "node -r dotenv/config scripts/seed-ftth-demo.mjs",
-    "inspect:booking": "node scripts/inspect-booking.mjs"
+    "inspect:booking": "node scripts/inspect-booking.mjs",
+    "smoke:withdrawals": "node scripts/smoke-withdrawals.mjs",
+    "diagnose:withdrawals": "node -r dotenv/config scripts/diagnose-withdrawals.mjs",
+    "migrate:upi": "node -r dotenv/config scripts/apply-upi-verification-migration.mjs",
+    "smoke:upi": "node scripts/smoke-upi-validation.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

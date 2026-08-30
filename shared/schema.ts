@@ -160,6 +160,14 @@ export const employees = pgTable("employees", {
   bankIfsc: text("bank_ifsc"),
   bankName: text("bank_name"),
   upiId: text("upi_id"),
+  // Was this UPI id actually checked against the PSP, and whose name came back?
+  //
+  // Without these, "verified" and "nobody ever checked" look identical, and an
+  // admin making a manual payout has no way to tell whether they are sending
+  // money to a string somebody validated or one somebody typed. Null means
+  // unchecked — never assume it means invalid.
+  upiVerifiedAt: timestamp("upi_verified_at"),
+  upiVerifiedName: text("upi_verified_name"),
   // Verification
   documentVerificationStatus: verificationStatusEnum("document_verification_status").notNull().default('pending'),
   documentVerifiedAt: timestamp("document_verified_at"),

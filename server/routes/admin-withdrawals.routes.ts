@@ -81,6 +81,11 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     fullName: employees.fullName,
                     bankAccountNumber: employees.bankAccountNumber,
                     upiId: employees.upiId,
+                    // So the approval dialog can warn before money is sent to a
+                    // UPI id nobody ever checked exists. Null means unchecked,
+                    // not invalid.
+                    upiVerifiedAt: employees.upiVerifiedAt,
+                    upiVerifiedName: employees.upiVerifiedName,
                 },
                 user: {
                     phone: users.phone,
