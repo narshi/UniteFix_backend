@@ -63,7 +63,17 @@ export function registerPartnerProfileRoutes(app: Express) {
   // PUT /api/partner/profile/upi - Update UPI ID
   partnerProfileRouter.put("/upi", requireAuth, async (req, res) => {
     try {
-      const { upiId, confirmedName } = req.body;
+      // `clientSupportsNameConfirmation` is the app saying "I can show the
+      // registered name and ask the partner to confirm it". Only builds that
+      // send it are held to the confirmation step.
+      //
+      // Without this, the CONFIRM_NAME 409 below would be a time bomb: an app
+      // build from before that flow existed sends no confirmedName, so once
+      // Razorpay enables Validate VPA it would 409 forever and the partner could
+      // never save a UPI id again. Nobody would connect the two events. Old
+      // builds instead save as they always did, with the verification recorded —
+      // no worse than today, and the admin still sees whose name came back.
+      const { upiId, confirmedName, clientSupportsNameConfirmation } = req.body;
       const userId = (req as any).user?.userId || (req as any).partner?.userId;
 
       if (!userId) {
@@ -104,12 +114,24 @@ export function registerPartnerProfileRoutes(app: Express) {
 
       if (verification.status === 'valid'
         && verification.customerName
+        && clientSupportsNameConfirmation === true
         && confirmedName !== verification.customerName) {
         return res.status(409).json({
           success: false,
           code: 'CONFIRM_NAME',
           message: `This UPI ID belongs to ${verification.customerName}.`,
           data: { customerName: verification.customerName, upiId: vpa },
+        });
+      }
+
+      if (verification.status === 'valid'
+        && verification.customerName
+        && clientSupportsNameConfirmation !== true) {
+        // Worth knowing about: these partners never saw whose name the id is
+        // registered to, so a typo that happens to be a real VPA would go
+        // unnoticed by them. The admin approval dialog still shows the name.
+        logger.info('[PAYOUT_SETUP] UPI saved without name confirmation (older app build)', {
+          userId, registeredName: verification.customerName,
         });
       }
 

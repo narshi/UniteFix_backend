@@ -141,8 +141,17 @@ export const customerApi = {
     getPartnerProfile: () =>
         apiClient.get<ApiResponse<any>>('/api/partner/profile'),
 
+    /**
+     * `clientSupportsNameConfirmation` tells the server this build can show the
+     * registered name and ask the partner to confirm it. Builds that don't send
+     * it are not held to that step, so an older app can still save a UPI id
+     * rather than being locked out by a 409 it has no handler for.
+     */
     updateUpiId: (data: { upiId: string; confirmedName?: string }) =>
-        apiClient.put<ApiResponse<{ upiId: string }>>('/api/partner/profile/upi', data),
+        apiClient.put<ApiResponse<{ upiId: string }>>('/api/partner/profile/upi', {
+            ...data,
+            clientSupportsNameConfirmation: true,
+        }),
 
     /**
      * Check a UPI ID without saving it, so the partner can be shown the name it

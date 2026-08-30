@@ -154,6 +154,19 @@ try {
             `${row.upi_id} / verified_at=${row.upi_verified_at}`);
     }
 
+    // ================= backwards compatibility =================
+    // An app build from before the name-confirmation flow sends no
+    // clientSupportsNameConfirmation and no confirmedName. It must still be able
+    // to save, or enabling Validate VPA with Razorpay would silently lock every
+    // partner on an older build out of updating their payout details.
+    r = await req('PUT', '/api/partner/profile/upi', {
+        token, body: { upiId: '9876543210@ybl' },   // no confirmation fields at all
+    });
+    check('an older app build can still save a UPI id',
+        r.status === 200, `status ${r.status} ${r.json?.message ?? r.json?.code ?? ''}`);
+    check('and is never sent a 409 it has no handler for',
+        r.json?.code !== 'CONFIRM_NAME', `code ${r.json?.code ?? 'none'}`);
+
     // ================= admin can see the difference =================
     const [sa] = (await c.query(
         `SELECT id FROM admin_users WHERE role='super_admin' AND is_active=true
