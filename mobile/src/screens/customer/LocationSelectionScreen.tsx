@@ -15,6 +15,17 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { customerApi } from '../../api/customer.api';
 import { useProfile } from '../../hooks/useCustomerData';
 
+/**
+ * Height of this screen's header: a 32dp content row (a 24dp icon in a 4dp
+ * touch pad, taller than the 24dp title line) plus 12dp padding above and
+ * below, matching styles.header.
+ *
+ * Derived from the stylesheet rather than measured on one phone, so the
+ * floating search bar is positioned correctly on the very first frame,
+ * before onLayout has reported anything.
+ */
+const LOCATION_HEADER_HEIGHT = 56;
+
 // ── Google Places API key (same key used for Maps) ──
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
@@ -38,6 +49,27 @@ export function LocationSelectionScreen() {
      */
     const [sheetHeight, setSheetHeight] = useState(0);
     const [headerHeight, setHeaderHeight] = useState(0);
+
+    /**
+     * Where the floating search bar sits.
+     *
+     * This was `headerHeight + spacing.md`, and headerHeight starts at 0 until
+     * the header's onLayout fires. Until then the search bar renders 12dp from
+     * the top — underneath an opaque header with a HIGHER zIndex — so it is not
+     * merely misplaced, it is invisible. Wherever that measurement lands late or
+     * short, it stays hidden, which is what a device screenshot showed: the
+     * placeholder text sliced in half along the header's bottom edge.
+     *
+     * Math.max against a computed floor makes the first frame correct without
+     * any measurement, and still lets a header that grows (large accessibility
+     * fonts) push the bar down rather than slide under it.
+     *
+     * No safe-area term here, unlike MapAddressPickerScreen: this screen's
+     * container is a SafeAreaView with edges=['top'], so absolutely positioned
+     * children already begin below the status-bar inset. Adding headerTop as
+     * well would double-count it and leave a gap.
+     */
+    const searchTop = Math.max(headerHeight, LOCATION_HEADER_HEIGHT) + spacing.md;
     const navigation = useNavigation();
     const { refetch } = useProfile();
     const mapRef = useRef<MapView>(null);
@@ -287,7 +319,7 @@ export function LocationSelectionScreen() {
             </MapView>
 
             {/* Search Bar + Autocomplete Dropdown */}
-            <View style={[styles.searchContainer, { top: headerHeight + spacing.md }]}>
+            <View style={[styles.searchContainer, { top: searchTop }]}>
                 <View style={styles.searchBox}>
                     <Search color={colors.textSecondary} size={20} />
                     <TextInput
@@ -423,10 +455,13 @@ const styles = StyleSheet.create({
     // ── Search + Autocomplete ──
     searchContainer: {
         position: 'absolute',
-        // `top` is supplied at render time from the measured header height.
+        // `top` is supplied at render time — see searchTop in the component.
         left: spacing.lg,
         right: spacing.lg,
-        zIndex: 15,
+        // ABOVE the header (zIndex 20), deliberately. If the two ever overlap on
+        // a device nobody tested, the search bar should win and stay usable. At
+        // 15 it lost, and an opaque header swallowed it whole.
+        zIndex: 25,
     },
     searchBox: {
         flexDirection: 'row',
