@@ -47,6 +47,17 @@ type ParamList = {
  */
 const FALLBACK_COORDS = { latitude: 14.9637, longitude: 74.7094 }; // Yellapur
 
+/**
+ * Header height BELOW the safe-area inset: the content row plus its bottom
+ * padding, matching styles.header (padding 16, a 24px icon in a 4px touch pad).
+ *
+ * Used as a floor so the floating search bar has a correct position on the very
+ * first frame, before onLayout has measured anything. Deriving it from the
+ * style rather than guessing a device height is what keeps it right on a notch,
+ * a punch-hole and a tablet alike — the measurement then refines it.
+ */
+const HEADER_ROW_MIN_HEIGHT = 48;
+
 export function MapAddressPickerScreen() {
     const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
@@ -58,6 +69,24 @@ export function MapAddressPickerScreen() {
      * overlap the title on another.
      */
     const [headerHeight, setHeaderHeight] = useState(0);
+
+    /**
+     * Where the floating search bar sits, measured from the top of the screen.
+     *
+     * This used to be the measured headerHeight alone, and that starts
+     * at 0 until the header's onLayout fires. Until then the search bar rendered
+     * at 12px from the top — underneath an opaque header with a HIGHER zIndex —
+     * so it was not merely misplaced, it was invisible. Any device or render
+     * where that measurement was late, skipped or short left the search bar
+     * hidden for good, which is exactly what was reported.
+     *
+     * Math.max of the measured height and a computed floor fixes both ends:
+     * before measurement it uses a value derived from the real safe-area inset,
+     * and after it takes whichever is larger — so a header that grows (large
+     * accessibility fonts, a taller notch) pushes the search bar down rather
+     * than letting it slide underneath.
+     */
+    const searchTop = Math.max(headerHeight, headerTop + HEADER_ROW_MIN_HEIGHT) + spacing.md;
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
     const fromCheckout = route.params?.fromCheckout;
     // Both modes set the PROFILE address, not merely a saved address:
@@ -441,7 +470,7 @@ export function MapAddressPickerScreen() {
             </View>
 
             {/* Search Bar + Autocomplete */}
-            <View style={[styles.searchContainer, { top: headerHeight + spacing.md }]}>
+            <View style={[styles.searchContainer, { top: searchTop }]}>
                 <View style={styles.searchBox}>
                     <Search color={colors.textSecondary} size={20} />
                     <TextInput
@@ -581,10 +610,14 @@ const styles = StyleSheet.create({
     // ── Search + Autocomplete ──
     searchContainer: {
         position: 'absolute',
-        // `top` is supplied at render time from the measured header height.
+        // `top` is supplied at render time — see searchTop in the component.
         left: spacing.lg,
         right: spacing.lg,
-        zIndex: 15,
+        // ABOVE the header (zIndex 20), deliberately. If the two ever overlap —
+        // an unusually tall header, a font scale nobody tested — the search bar
+        // should win and stay usable. At 15 it lost, and an opaque header
+        // swallowed it completely, which is the failure this screen actually hit.
+        zIndex: 25,
     },
     searchBox: {
         flexDirection: 'row',
