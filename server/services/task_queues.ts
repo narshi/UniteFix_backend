@@ -23,6 +23,7 @@ import {
 import logger from "../lib/logger";
 import { BookingNotifications } from "./booking-notifications";
 import { NotificationService } from "./notification.service";
+import { reconciliationSweep } from "./wallet-reconciliation.service";
 
 // ==================== JOB 1: WALLET HOLD RELEASE ====================
 /**
@@ -537,6 +538,18 @@ export function startBackgroundJobs(): void {
     // FTTH renewal reminders, once a day. Daily and not more often because the
     // job keys on the exact expiry DATE — running it twice in a day would send
     // the same reminder twice.
+    // Wallet reconciliation, every six hours.
+    //
+    // The balance is a parallel number to the ledger, written by twelve code
+    // paths, and nothing enforced that they agree. Drift was therefore silent:
+    // a live partner was found holding money the ledger could not explain, and
+    // only because he complained about something unrelated. This is what makes
+    // the next one loud instead.
+    //
+    // Read-only. It reports and never repairs.
+    intervals.push(setInterval(reconciliationSweep, SIX_HOURS));
+    setTimeout(reconciliationSweep, 180000);
+
     intervals.push(setInterval(remindFtthRenewals, DAY));
     setTimeout(remindFtthRenewals, 120000);
 
@@ -545,7 +558,7 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(expireAbandonedFtthRecharges, FIFTEEN_MINUTES));
     setTimeout(expireAbandonedFtthRecharges, 150000);
 
-    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m), abandoned-bookings(15m), ftth-renewal-reminders(24h), ftth-abandoned-recharges(15m)');
+    logger.info('[CRON] Background jobs scheduled: wallet-release(1h), return-expiry(1h), otp-cleanup(24h), notification-cleanup(7d), low-stock-alerts(6h), refresh-token-cleanup(24h), assignment-timeout(15m), assignment-reminder(15m), abandoned-bookings(15m), ftth-renewal-reminders(24h), ftth-abandoned-recharges(15m), wallet-reconciliation(6h)');
 }
 
 /**
