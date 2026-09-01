@@ -41,6 +41,9 @@ export interface WalletSummary {
     pendingPayments: number;
     completedJobs: number;
     availableBalance?: number;
+    negativeBalanceFlag?: boolean;
+    isBlockedDueToDues?: boolean;
+    outstandingDues?: number;
     /**
      * When held money becomes withdrawable. Without this the screen could only
      * show a held total with no explanation, which is how a partner ended up
@@ -134,6 +137,9 @@ export const partnerApi = {
                 totalEarnings: parseFloat(walletData.totalEarned || '0'),
                 pendingPayments: parseFloat(walletData.balanceHold || '0'),
                 availableBalance: parseFloat(walletData.balanceAvailable || '0'), // Added for UI
+                negativeBalanceFlag: !!walletData.negativeBalanceFlag,
+                isBlockedDueToDues: !!walletData.isBlockedDueToDues,
+                outstandingDues: parseFloat(walletData.outstandingDues || '0'),
                 nextReleaseDate: walletData.nextReleaseDate ?? null,
                 nextReleaseAmount: walletData.nextReleaseAmount
                     ? parseFloat(walletData.nextReleaseAmount)

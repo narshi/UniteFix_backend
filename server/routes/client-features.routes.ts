@@ -209,6 +209,15 @@ export function registerClientFeatureRoutes(app: Express) {
                 review: review || null,
             }).returning();
 
+            // FAST-TRACK RELEASE: If customer rates 4 or 5 stars, release held earnings immediately!
+            if (ratingValue >= 4) {
+                try {
+                    await storage.releaseHeldBalanceByService(serviceRequestId);
+                } catch (relErr: any) {
+                    logger.warn(`[RATING] Fast-track release failed for SR #${serviceRequestId}:`, relErr?.message);
+                }
+            }
+
             res.status(201).json({
                 success: true,
                 message: "Rating submitted successfully",
@@ -633,6 +642,10 @@ export function registerClientFeatureRoutes(app: Express) {
 
             const nextRelease = upcoming.find(u => u.releaseDate) ?? null;
 
+            const availNum = parseFloat(wallet.balanceAvailable || '0');
+            const isNegativeBlocked = provider.negativeBalanceFlag === true || availNum <= -250;
+            const outstandingDues = availNum < 0 ? Math.abs(availNum) : 0;
+
             res.json({
                 success: true,
                 data: {
@@ -641,7 +654,10 @@ export function registerClientFeatureRoutes(app: Express) {
                     balanceHold: wallet.balanceHold,
                     balanceAvailable: wallet.balanceAvailable,
                     totalEarned: wallet.totalEarned,
-                    completedJobs: provider.totalServicesCompleted,
+                    completedJobs: provider.totalServicesCompleted || 0,
+                    negativeBalanceFlag: isNegativeBlocked,
+                    isBlockedDueToDues: isNegativeBlocked,
+                    outstandingDues,
                     // The soonest money moves from hold to available, and how much.
                     nextReleaseDate: nextRelease?.releaseDate ?? null,
                     nextReleaseAmount: nextRelease?.amount ?? null,

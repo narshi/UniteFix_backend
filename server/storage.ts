@@ -279,6 +279,7 @@ export interface IStorage {
     tx?: any
   ): Promise<WalletTransactionV2>;
   releaseHeldBalance(transactionId: number): Promise<void>;
+  releaseHeldBalanceByService(serviceRequestId: number): Promise<boolean>;
   releaseAllExpiredHolds(): Promise<number>;
 
   // PHASE 3: Inventory Management
@@ -1544,10 +1545,13 @@ export class DatabaseStorage implements IStorage {
       const currentBalance = parseFloat(employee.walletBalance || '0');
       const newBalance = currentBalance + amount;
 
+      // Update V1 & negative balance flag
+      const isStillNegativeDebt = newBalance <= -250;
       await tx
         .update(employees)
         .set({
           walletBalance: newBalance.toFixed(2),
+          negativeBalanceFlag: isStillNegativeDebt,
           updatedAt: new Date()
         })
         .where(eq(employees.id, providerId));
@@ -1576,6 +1580,10 @@ export class DatabaseStorage implements IStorage {
           totalEarned: (v2CurrentTotalEarned + amount).toFixed(2), // Topups count as earnings/available
           updatedAt: new Date()
         }).where(eq(partnerWallets.partnerId, providerId));
+
+        if (v2NewAvailable > -250) {
+          await tx.update(employees).set({ negativeBalanceFlag: false }).where(eq(employees.id, providerId));
+        }
 
         await tx.insert(walletTransactionsV2).values({
           transactionId: `WTOP-${providerId}-${Date.now()}`,
@@ -1621,12 +1629,15 @@ export class DatabaseStorage implements IStorage {
       }
 
       const newBalance = currentBalance - amount;
+      const v2NewAvailable = v2Balance - amount;
+      const isNegativeDebt = (wallet ? v2NewAvailable : newBalance) <= -250;
 
-      // Update V1
+      // Update V1 & negativeBalanceFlag
       await tx
         .update(employees)
         .set({
           walletBalance: newBalance.toFixed(2),
+          negativeBalanceFlag: isNegativeDebt,
           updatedAt: new Date()
         })
         .where(eq(employees.id, providerId));
@@ -1645,7 +1656,6 @@ export class DatabaseStorage implements IStorage {
 
       // Update V2
       if (wallet) {
-        const v2NewAvailable = v2Balance - amount;
         await tx.update(partnerWallets).set({
           balanceAvailable: v2NewAvailable.toFixed(2),
           updatedAt: new Date()
@@ -2540,7 +2550,35 @@ export class DatabaseStorage implements IStorage {
       })
       .where(eq(partnerWallets.partnerId, partnerId));
 
+    // Atomically increment the completed services counter on employee
+    await dbCtx
+      .update(employees)
+      .set({
+        totalServicesCompleted: sql`COALESCE(${employees.totalServicesCompleted}, 0) + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, partnerId));
+
     return transaction;
+  }
+
+  async releaseHeldBalanceByService(serviceRequestId: number): Promise<boolean> {
+    const [holdTx] = await db
+      .select()
+      .from(walletTransactionsV2)
+      .where(
+        and(
+          eq(walletTransactionsV2.serviceRequestId, serviceRequestId),
+          eq(walletTransactionsV2.transactionType, 'hold_credit'),
+          eq(walletTransactionsV2.isReleased, false)
+        )
+      )
+      .limit(1);
+
+    if (!holdTx) return false;
+    await this.releaseHeldBalance(holdTx.id);
+    logger.info(`[WALLET] Fast-tracked release of hold transaction #${holdTx.id} for SR #${serviceRequestId}`);
+    return true;
   }
 
   async releaseHeldBalance(transactionId: number): Promise<void> {
