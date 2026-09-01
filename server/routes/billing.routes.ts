@@ -19,7 +19,7 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { eq, sql } from 'drizzle-orm';
 import { serviceRequests, employees } from '@shared/schema';
-import { authenticatePartner, authenticateToken, authenticateAny , requireVerifiedPartner} from '../middleware/auth.middleware';
+import { authenticatePartner, authenticateToken, authenticateAny, requireVerifiedPartner } from '../middleware/auth.middleware';
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
@@ -94,10 +94,10 @@ export function registerBillingRoutes(app: Express) {
 
             // Double submission guard
             if (booking.pricingSnapshot && (booking.pricingSnapshot as any).billedAt) {
-                 return res.status(409).json({
-                     success: false,
-                     message: 'Bill has already been submitted for this booking',
-                 });
+                return res.status(409).json({
+                    success: false,
+                    message: 'Bill has already been submitted for this booking',
+                });
             }
 
             // BILLING ENGINE: Use frozen snapshot from booking creation.
@@ -132,7 +132,7 @@ export function registerBillingRoutes(app: Express) {
                 ...billedSnapshot,
                 billedAt: new Date().toISOString()
             };
-            
+
             const [updated] = await db.update(serviceRequests)
                 .set({
                     status: BookingState.PENDING_PAYMENT as any,

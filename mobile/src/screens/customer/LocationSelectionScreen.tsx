@@ -1,30 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, TextInput,
-    ActivityIndicator, Alert, Keyboard, FlatList, Platform,
+    ActivityIndicator, Alert, Keyboard, FlatList, StatusBar, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Marker, Region, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
-import { useScreenInsets } from '../../theme/layout';
 import { ArrowLeft, Search, MapPin, Check, Navigation, X } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { customerApi } from '../../api/customer.api';
 import { useProfile } from '../../hooks/useCustomerData';
-
-/**
- * Height of this screen's header: a 32dp content row (a 24dp icon in a 4dp
- * touch pad, taller than the 24dp title line) plus 12dp padding above and
- * below, matching styles.header.
- *
- * Derived from the stylesheet rather than measured on one phone, so the
- * floating search bar is positioned correctly on the very first frame,
- * before onLayout has reported anything.
- */
-const LOCATION_HEADER_HEIGHT = 56;
 
 // ── Google Places API key (same key used for Maps) ──
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
@@ -40,41 +28,13 @@ interface PlacePrediction {
 }
 
 export function LocationSelectionScreen() {
-    const { bottomBar: sheetPad } = useScreenInsets();
-    /**
-     * Measured, not assumed. The button used to sit at a hardcoded bottom:210,
-     * chosen to clear the sheet on one handset — but the sheet grows with the
-     * safe-area inset and with its own content, so on a device with a taller
-     * gesture-navigation bar the button ended up behind it.
-     */
-    const [sheetHeight, setSheetHeight] = useState(0);
-    const [headerHeight, setHeaderHeight] = useState(0);
-
-    /**
-     * Where the floating search bar sits.
-     *
-     * This was `headerHeight + spacing.md`, and headerHeight starts at 0 until
-     * the header's onLayout fires. Until then the search bar renders 12dp from
-     * the top — underneath an opaque header with a HIGHER zIndex — so it is not
-     * merely misplaced, it is invisible. Wherever that measurement lands late or
-     * short, it stays hidden, which is what a device screenshot showed: the
-     * placeholder text sliced in half along the header's bottom edge.
-     *
-     * Math.max against a computed floor makes the first frame correct without
-     * any measurement, and still lets a header that grows (large accessibility
-     * fonts) push the bar down rather than slide under it.
-     *
-     * No safe-area term here, unlike MapAddressPickerScreen: this screen's
-     * container is a SafeAreaView with edges=['top'], so absolutely positioned
-     * children already begin below the status-bar inset. Adding headerTop as
-     * well would double-count it and leave a gap.
-     */
-    const searchTop = Math.max(headerHeight, LOCATION_HEADER_HEIGHT) + spacing.md;
+    const insets = useSafeAreaInsets();
     const navigation = useNavigation();
     const { refetch } = useProfile();
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const [sheetHeight, setSheetHeight] = useState(200);
     const [region, setRegion] = useState<Region>({
         latitude: 20.5937,
         longitude: 78.9629,
@@ -294,21 +254,13 @@ export function LocationSelectionScreen() {
 
     // ── Render ──
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            <View
-                style={styles.header}
-                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-            >
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <ArrowLeft color={colors.textPrimary} size={24} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Select Location</Text>
-                <View style={{ width: 24 }} />
-            </View>
+        <View style={styles.container}>
+            <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
+            {/* Full Screen Map */}
             <MapView
                 ref={mapRef}
-                style={styles.map}
+                style={StyleSheet.absoluteFillObject}
                 provider={PROVIDER_DEFAULT}
                 initialRegion={region}
                 onPress={onMapPress}
@@ -318,10 +270,18 @@ export function LocationSelectionScreen() {
                 )}
             </MapView>
 
-            {/* Search Bar + Autocomplete Dropdown */}
-            <View style={[styles.searchContainer, { top: searchTop }]}>
-                <View style={styles.searchBox}>
-                    <Search color={colors.textSecondary} size={20} />
+            {/* Unified Floating Header & Search Bar */}
+            <View style={[styles.floatingHeader, { top: insets.top + spacing.sm }]}>
+                <View style={styles.searchCard}>
+                    <TouchableOpacity
+                        onPress={() => navigation.goBack()}
+                        style={styles.backButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Go back"
+                    >
+                        <ArrowLeft color={colors.textPrimary} size={22} />
+                    </TouchableOpacity>
+
                     <TextInput
                         style={styles.searchInput}
                         placeholder="Search area, landmark, or city..."
@@ -331,9 +291,17 @@ export function LocationSelectionScreen() {
                         returnKeyType="search"
                         autoCorrect={false}
                     />
-                    {isFetchingSuggestions && <ActivityIndicator size="small" color={colors.primary} />}
+
+                    {isFetchingSuggestions && (
+                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.xs }} />
+                    )}
+
                     {searchQuery.length > 0 && !isFetchingSuggestions && (
-                        <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <TouchableOpacity
+                            onPress={clearSearch}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={styles.clearBtn}
+                        >
                             <X size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                     )}
@@ -374,33 +342,38 @@ export function LocationSelectionScreen() {
 
             {/* My Location FAB */}
             <TouchableOpacity
-                style={[styles.myLocationButton, { bottom: sheetHeight + spacing.lg }]}
+                style={[
+                    styles.myLocationButton,
+                    { bottom: sheetHeight + spacing.md }
+                ]}
                 onPress={getCurrentLocation}
+                activeOpacity={0.8}
             >
                 <Navigation color={colors.primary} size={22} />
             </TouchableOpacity>
 
             {/* Bottom Sheet */}
             <View
-                style={[styles.bottomSheet, { paddingBottom: spacing.xl + sheetPad }]}
+                style={[styles.bottomSheet, { paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md }]}
                 onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
             >
+                <View style={styles.sheetHandle} />
                 <Text style={styles.sheetTitle}>Selected Location</Text>
                 <View style={styles.addressRow}>
-                    <MapPin color={colors.textSecondary} size={20} style={{ marginTop: 2 }} />
+                    <MapPin color={colors.primary} size={22} style={{ marginTop: 2 }} />
                     <View style={styles.addressTextContainer}>
-                        <Text style={styles.addressText}>
+                        <Text style={styles.addressText} numberOfLines={2}>
                             {currentAddress || 'Tap on the map or search to select a location'}
                         </Text>
                         {currentPinCode ? (
-                            <View>
-                                <Text style={styles.pinCodeText}>Pin: {currentPinCode}</Text>
+                            <View style={styles.pinStatusWrap}>
+                                <Text style={styles.pinCodeText}>PIN: {currentPinCode}</Text>
                                 {isValidating ? (
                                     <Text style={styles.validatingText}>Checking service availability...</Text>
                                 ) : isServiceable === true ? (
                                     <Text style={styles.serviceableText}>✓ Service available in this area</Text>
                                 ) : isServiceable === false ? (
-                                    <Text style={styles.unserviceableText}>✗ We do not operate in this area yet</Text>
+                                    <Text style={styles.unserviceableText}>✗ Service not available yet</Text>
                                 ) : null}
                             </View>
                         ) : null}
@@ -414,6 +387,7 @@ export function LocationSelectionScreen() {
                     ]}
                     onPress={handleSaveLocation}
                     disabled={!currentAddress || isLoading}
+                    activeOpacity={0.8}
                 >
                     {isLoading ? (
                         <ActivityIndicator color={colors.textInverse} />
@@ -425,7 +399,7 @@ export function LocationSelectionScreen() {
                     )}
                 </TouchableOpacity>
             </View>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -434,56 +408,44 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
     },
-    header: {
+    // ── Unified Floating Header ──
+    floatingHeader: {
+        position: 'absolute',
+        left: spacing.lg,
+        right: spacing.lg,
+        zIndex: 30,
+    },
+    searchCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.md,
         backgroundColor: colors.surface,
-        ...shadows.sm,
-        zIndex: 20,
+        borderRadius: radii.xl,
+        paddingHorizontal: spacing.md,
+        height: 52,
+        ...shadows.lg,
+        borderWidth: Platform.OS === 'ios' ? 1 : 0,
+        borderColor: colors.border,
     },
     backButton: {
         padding: spacing.xs,
-    },
-    headerTitle: {
-        ...typography.h4,
-        color: colors.textPrimary,
-    },
-
-    // ── Search + Autocomplete ──
-    searchContainer: {
-        position: 'absolute',
-        // `top` is supplied at render time — see searchTop in the component.
-        left: spacing.lg,
-        right: spacing.lg,
-        // ABOVE the header (zIndex 20), deliberately. If the two ever overlap on
-        // a device nobody tested, the search bar should win and stay usable. At
-        // 15 it lost, and an opaque header swallowed it whole.
-        zIndex: 25,
-    },
-    searchBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.surface,
-        borderRadius: radii.lg,
-        paddingHorizontal: spacing.md,
-        height: 50,
-        ...shadows.md,
+        marginRight: spacing.xs,
     },
     searchInput: {
         flex: 1,
-        marginLeft: spacing.sm,
         ...typography.body,
         color: colors.textPrimary,
+        height: '100%',
+        paddingVertical: 0,
+    },
+    clearBtn: {
+        padding: spacing.xs,
     },
     suggestionsContainer: {
         backgroundColor: colors.surface,
-        borderRadius: radii.lg,
+        borderRadius: radii.xl,
         marginTop: spacing.xs,
         overflow: 'hidden',
-        ...shadows.lg,
+        ...shadows.xl,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -512,75 +474,85 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
-    // ── Map ──
-    map: {
-        flex: 1,
-    },
+    // ── FAB ──
     myLocationButton: {
         position: 'absolute',
-        // `bottom` comes from the measured sheet height at render time.
         right: spacing.xl,
         backgroundColor: colors.surface,
-        width: 50,
-        height: 50,
-        borderRadius: 25,
+        width: 48,
+        height: 48,
+        borderRadius: 24,
         justifyContent: 'center',
         alignItems: 'center',
-        ...shadows.md,
+        ...shadows.lg,
+        zIndex: 20,
     },
 
     // ── Bottom Sheet ──
     bottomSheet: {
         backgroundColor: colors.surface,
-        padding: spacing.xl,
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.md,
         borderTopLeftRadius: radii['2xl'],
         borderTopRightRadius: radii['2xl'],
-        ...shadows.lg,
+        ...shadows.xl,
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
+        zIndex: 25,
+    },
+    sheetHandle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.border,
+        alignSelf: 'center',
+        marginBottom: spacing.md,
     },
     sheetTitle: {
         ...typography.h4,
         color: colors.textPrimary,
-        marginBottom: spacing.md,
+        marginBottom: spacing.sm,
     },
     addressRow: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        marginBottom: spacing.xl,
+        marginBottom: spacing.lg,
+        gap: spacing.sm,
     },
     addressTextContainer: {
-        marginLeft: spacing.sm,
         flex: 1,
     },
     addressText: {
         ...typography.body,
         color: colors.textPrimary,
-        lineHeight: 22,
+        lineHeight: 20,
+    },
+    pinStatusWrap: {
+        marginTop: spacing.xs,
     },
     pinCodeText: {
         ...typography.small,
         color: colors.textSecondary,
-        marginTop: spacing.xs,
+        fontWeight: '500',
     },
     validatingText: {
         ...typography.small,
         color: colors.textSecondary,
-        marginTop: spacing.xs,
+        marginTop: 2,
         fontStyle: 'italic',
     },
     serviceableText: {
         ...typography.small,
         color: colors.success,
-        marginTop: spacing.xs,
+        marginTop: 2,
         fontWeight: '600',
     },
     unserviceableText: {
         ...typography.small,
         color: colors.error,
-        marginTop: spacing.xs,
+        marginTop: 2,
         fontWeight: '600',
     },
     saveButton: {
@@ -589,8 +561,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: spacing.md,
-        borderRadius: radii.lg,
+        borderRadius: radii.xl,
         gap: spacing.sm,
+        ...shadows.md,
     },
     saveButtonDisabled: {
         backgroundColor: colors.border,

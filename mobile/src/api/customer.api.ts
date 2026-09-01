@@ -89,6 +89,12 @@ export interface CreateServiceRequest {
     urgency?: 'normal' | 'urgent';
     customerLocation?: string; // WKT POINT(lng lat) for geofence
     catalogServiceId?: number; // catalog service id → server freezes the fixed price
+    /**
+     * Units this booking covers — 2 ACs, 4 cameras, 3 fan points. Defaults to 1
+     * server-side when omitted, so older app builds keep working unchanged.
+     * The server clamps it and does not trust this value.
+     */
+    quantity?: number;
 }
 
 export interface SavedAddress {

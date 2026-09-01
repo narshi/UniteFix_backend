@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, StyleSheet, Text, TouchableOpacity, TextInput,
     ActivityIndicator, Alert, FlatList, Keyboard, Platform,
-    KeyboardAvoidingView, ScrollView,
+    KeyboardAvoidingView, ScrollView, StatusBar,
 } from 'react-native';
 import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, Search, X, Navigation } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -14,7 +15,6 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/auth.store';
 import { customerApi, SavedAddress } from '../../api/customer.api';
-import { useScreenInsets } from '../../theme/layout';
 import { queryKeys } from '../../hooks/useCustomerData';
 import { Button } from '../../components/ui/Button';
 
@@ -31,73 +31,22 @@ interface PlacePrediction {
 }
 
 type ParamList = {
-    // `fromCheckout` is forwarded by SavedAddressesScreen when the picker was
-    // opened mid-booking, so the newly created address can be handed straight
-    // back to ServiceRequest instead of being stranded one screen away.
-    // `mode: 'onboarding'` is the permission-free route through the mandatory
-    // location step. It writes homeAddress and pinCode on the PROFILE, not just
-    // savedAddresses — onboarding completeness is derived from those two fields,
-    // so saving only a saved-address would leave the account stuck on this step.
     MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' | 'profile' };
 };
 
-/**
- * Where the map opens when the device will not say where it is: the middle of
- * the area we actually serve, rather than the null island the map defaults to.
- */
 const FALLBACK_COORDS = { latitude: 14.9637, longitude: 74.7094 }; // Yellapur
 
-/**
- * Header height BELOW the safe-area inset: the content row plus its bottom
- * padding, matching styles.header (padding 16, a 24px icon in a 4px touch pad).
- *
- * Used as a floor so the floating search bar has a correct position on the very
- * first frame, before onLayout has measured anything. Deriving it from the
- * style rather than guessing a device height is what keeps it right on a notch,
- * a punch-hole and a tablet alike — the measurement then refines it.
- */
-const HEADER_ROW_MIN_HEIGHT = 48;
-
 export function MapAddressPickerScreen() {
+    const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
     const navigation = useNavigation<any>();
-    const { headerTop, bottomBar } = useScreenInsets();
-    /**
-     * Measured, not computed. The search box floats below the header, and the
-     * header height now varies with the safe-area inset AND with the user's
-     * system font size. Any arithmetic here would be right on one device and
-     * overlap the title on another.
-     */
-    const [headerHeight, setHeaderHeight] = useState(0);
-
-    /**
-     * Where the floating search bar sits, measured from the top of the screen.
-     *
-     * This used to be the measured headerHeight alone, and that starts
-     * at 0 until the header's onLayout fires. Until then the search bar rendered
-     * at 12px from the top — underneath an opaque header with a HIGHER zIndex —
-     * so it was not merely misplaced, it was invisible. Any device or render
-     * where that measurement was late, skipped or short left the search bar
-     * hidden for good, which is exactly what was reported.
-     *
-     * Math.max of the measured height and a computed floor fixes both ends:
-     * before measurement it uses a value derived from the real safe-area inset,
-     * and after it takes whichever is larger — so a header that grows (large
-     * accessibility fonts, a taller notch) pushes the search bar down rather
-     * than letting it slide underneath.
-     */
-    const searchTop = Math.max(headerHeight, headerTop + HEADER_ROW_MIN_HEIGHT) + spacing.md;
     const route = useRoute<RouteProp<ParamList, 'MapAddressPicker'>>();
     const fromCheckout = route.params?.fromCheckout;
-    // Both modes set the PROFILE address, not merely a saved address:
-    // onboarding cannot complete without homeAddress + pinCode, and the profile
-    // screen offers this as the search/pick alternative to typing it by hand.
     const mode = route.params?.mode;
     const isOnboarding = mode === 'onboarding' || mode === 'profile';
 
     const mapRef = useRef<MapView>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    /** Separate from the search debounce above; they fire independently. */
     const geocodeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [region, setRegion] = useState<Region | null>(null);
@@ -107,11 +56,7 @@ export function MapAddressPickerScreen() {
     const [label, setLabel] = useState('Home');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    // True while the map is moving under the pin, so the sheet can say
-    // "Locating…" instead of showing the previous address as if it were current.
     const [isMoving, setIsMoving] = useState(false);
-    // The centre the map settled on. Kept in a ref as well as state because
-    // onRegionChangeComplete fires outside React's batching on Android.
     const centreRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
     // Autocomplete state
@@ -122,15 +67,6 @@ export function MapAddressPickerScreen() {
 
     useEffect(() => {
         (async () => {
-            /**
-             * Start somewhere usable even without permission.
-             *
-             * This screen is the permission-free half of the mandatory location
-             * step, so denying the prompt has to leave a working map. Previously
-             * it showed an alert and left region null, which opened the map
-             * zoomed out on the whole world with nothing to drag from - exactly
-             * the user we most need to help.
-             */
             const start = async () => {
                 try {
                     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -138,60 +74,90 @@ export function MapAddressPickerScreen() {
                     const pos = await Location.getCurrentPositionAsync({
                         accuracy: Location.Accuracy.Balanced,
                     });
-                    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                    return {
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                    };
                 } catch {
                     return null;
                 }
             };
 
-            const coords = await start();
-            const initialCoords = coords ?? FALLBACK_COORDS;
-
-            setRegion({
-                ...initialCoords,
-                // Wider when we are guessing, so the user can see enough to
-                // recognise where to drag to.
-                latitudeDelta: coords ? 0.01 : 0.08,
-                longitudeDelta: coords ? 0.01 : 0.08,
-            });
-            setMarkerCoordinate(initialCoords);
-            centreRef.current = initialCoords;
-            reverseGeocode(initialCoords.latitude, initialCoords.longitude);
+            const coords = (await start()) || FALLBACK_COORDS;
+            const initRegion: Region = {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                latitudeDelta: 0.008,
+                longitudeDelta: 0.008,
+            };
+            centreRef.current = coords;
+            setRegion(initRegion);
+            setMarkerCoordinate(coords);
             setLoading(false);
+            await fetchAddress(coords.latitude, coords.longitude);
         })();
-    }, []);
 
-    // Cleanup
-    useEffect(() => {
         return () => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
             if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
         };
     }, []);
 
-    const reverseGeocode = async (lat: number, lng: number) => {
+    const fetchAddress = async (lat: number, lng: number) => {
         try {
-            const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-            if (geocode.length > 0) {
-                const place = geocode[0];
-                const parts = [];
-                if (place.name) parts.push(place.name);
-                if (place.street) parts.push(place.street);
-                if (place.city) parts.push(place.city);
-                if (place.region) parts.push(place.region);
-                if (place.postalCode) parts.push(place.postalCode);
-                setAddressText(parts.join(', '));
-                // Keep the postal code as a discrete field too — it was previously
-                // only concatenated into the address string and then lost, so every
-                // saved address had no pinCode and bookings fell back to '000000'.
-                if (place.postalCode) setPostalCode(place.postalCode);
+            const [geo] = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+            if (geo) {
+                const parts = [
+                    geo.name,
+                    geo.street,
+                    geo.district,
+                    geo.city,
+                    geo.region,
+                ].filter(Boolean);
+                const fullAddress = parts.join(', ');
+                if (fullAddress) setAddressText(fullAddress);
+                if (geo.postalCode) setPostalCode(geo.postalCode.replace(/\s+/g, ''));
             }
-        } catch (err) {
-            console.log("Geocode error", err);
+        } catch (e) {
+            console.warn('[MAP_PICKER] Reverse geocode failed:', e);
         }
     };
 
-    // ── Google Places Autocomplete ──
+    const handleRegionSettled = (r: Region) => {
+        setIsMoving(false);
+        const next = { latitude: r.latitude, longitude: r.longitude };
+        centreRef.current = next;
+        setMarkerCoordinate(next);
+
+        if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
+        geocodeDebounce.current = setTimeout(() => {
+            fetchAddress(r.latitude, r.longitude);
+        }, 250);
+    };
+
+    const recentreOnUser = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission needed', 'Enable location permissions to find your position.');
+                return;
+            }
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            const target: Region = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                latitudeDelta: 0.008,
+                longitudeDelta: 0.008,
+            };
+            centreRef.current = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+            setMarkerCoordinate(centreRef.current);
+            mapRef.current?.animateToRegion(target, 500);
+            await fetchAddress(pos.coords.latitude, pos.coords.longitude);
+        } catch {
+            Alert.alert('Could not locate', 'Make sure GPS is turned on and try again.');
+        }
+    };
+
     const fetchPredictions = useCallback(async (input: string) => {
         if (input.length < 3) {
             setPredictions([]);
@@ -213,7 +179,7 @@ export function MapAddressPickerScreen() {
                 setShowSuggestions(false);
             }
         } catch (error) {
-            console.error('Places Autocomplete error:', error);
+            console.error('[MAP_PICKER] Places autocomplete error:', error);
             setPredictions([]);
         } finally {
             setIsFetchingSuggestions(false);
@@ -222,6 +188,7 @@ export function MapAddressPickerScreen() {
 
     const onSearchTextChange = (text: string) => {
         setSearchQuery(text);
+
         if (debounceRef.current) clearTimeout(debounceRef.current);
 
         if (text.length < 3) {
@@ -242,9 +209,7 @@ export function MapAddressPickerScreen() {
         setPredictions([]);
 
         try {
-            // address_component is requested so the postal code can be stored as a
-            // discrete field; picking from search previously left pinCode unset.
-            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address,address_component&key=${GOOGLE_API_KEY}`;
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&fields=geometry,formatted_address,address_components&key=${GOOGLE_API_KEY}`;
             const response = await fetch(url);
             const json = await response.json();
 
@@ -253,27 +218,25 @@ export function MapAddressPickerScreen() {
                 const newRegion: Region = {
                     latitude: lat,
                     longitude: lng,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01,
+                    latitudeDelta: 0.008,
+                    longitudeDelta: 0.008,
                 };
-                setRegion(newRegion);
-                setMarkerCoordinate({ latitude: lat, longitude: lng });
                 centreRef.current = { latitude: lat, longitude: lng };
-                // The map animates and settles under the same fixed pin, so the
-                // search result and a manual drag end up in the same state.
-                mapRef.current?.animateToRegion(newRegion, 600);
-                // The formatted address from Places is better than our reverse
-                // geocode, so suppress the settle-triggered lookup that follows.
-                if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
-                setAddressText(json.result.formatted_address || prediction.description);
+                setMarkerCoordinate(centreRef.current);
+                mapRef.current?.animateToRegion(newRegion, 800);
 
-                const postal = (json.result.address_components || []).find(
-                    (c: any) => Array.isArray(c.types) && c.types.includes('postal_code'),
-                );
-                setPostalCode(postal?.long_name || '');
+                const components = json.result.address_components || [];
+                const postalComponent = components.find((c: any) => c.types?.includes('postal_code'));
+                setAddressText(json.result.formatted_address || prediction.description);
+                if (postalComponent) {
+                    setPostalCode(postalComponent.long_name.replace(/\s+/g, ''));
+                } else {
+                    await fetchAddress(lat, lng);
+                }
             }
         } catch (error) {
-            console.error('Place Details error:', error);
+            console.error('[MAP_PICKER] Place details error:', error);
+            Alert.alert('Error', 'Could not resolve location details.');
         }
     };
 
@@ -283,121 +246,58 @@ export function MapAddressPickerScreen() {
         setShowSuggestions(false);
     };
 
-    /**
-     * The map stopped moving — whatever is under the centre pin is the choice.
-     *
-     * Debounced because a drag settles in bursts and every call is a geocode;
-     * without it a single flick could fire several lookups and the last one to
-     * return, not the last one requested, would win.
-     */
-    const handleRegionSettled = (next: Region) => {
-        const centre = { latitude: next.latitude, longitude: next.longitude };
-        centreRef.current = centre;
-        setMarkerCoordinate(centre);
-        setIsMoving(false);
-
-        if (geocodeDebounce.current) clearTimeout(geocodeDebounce.current);
-        geocodeDebounce.current = setTimeout(() => {
-            reverseGeocode(centre.latitude, centre.longitude);
-        }, 350);
-    };
-
-    /** Back to the user's own position after dragging away. */
-    const recentreOnUser = async () => {
-        try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Location permission denied', 'Drag the map to your location instead.');
-                return;
-            }
-            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            mapRef.current?.animateToRegion({
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-            }, 600);
-            // onRegionChangeComplete picks the address up from here.
-        } catch {
-            Alert.alert('Could not find you', 'Drag the map to your location instead.');
-        }
-    };
-
     const handleSave = async () => {
-        if (!markerCoordinate || !addressText.trim()) {
-            Alert.alert('Please select a valid location');
-            return;
-        }
-
-        // Onboarding cannot complete without a pin code — getPendingOnboardingSteps
-        // requires both fields, so saving an address alone would loop the user
-        // straight back to this step with no explanation.
-        if (isOnboarding && !/^\d{6}$/.test(postalCode)) {
-            Alert.alert(
-                'Pin code not found',
-                'We could not read a 6-digit pin code for that point. Move the pin closer to a road or building and try again.',
-            );
+        const coords = centreRef.current || markerCoordinate;
+        if (!coords || !addressText.trim()) {
+            Alert.alert('Incomplete Address', 'Please select a location on the map and check the address line.');
             return;
         }
 
         setSaving(true);
         try {
-            const profileRes = await customerApi.getProfile();
-            const existingAddresses = profileRes.data.data.savedAddresses || [];
-
             const newAddress: SavedAddress = {
                 label,
-                address: addressText,
-                lat: markerCoordinate.latitude,
-                long: markerCoordinate.longitude,
-                // Persist the pincode so bookings made from this address send the
-                // real value instead of the '000000' placeholder.
-                ...(postalCode ? { pinCode: postalCode } : {}),
+                address: addressText.trim(),
+                lat: coords.latitude,
+                long: coords.longitude,
+                pinCode: postalCode.trim() || undefined,
             };
 
-            const updatedAddresses = [...existingAddresses, newAddress];
-
-            await customerApi.updateProfile({
-                savedAddresses: updatedAddresses,
-                // During onboarding this IS the profile address, not merely one
-                // of several saved ones.
-                ...(isOnboarding ? { homeAddress: addressText, pinCode: postalCode } : {}),
-            });
-            // This write bypasses the useUpdateProfile mutation, so nothing would
-            // otherwise invalidate the cached profile that other screens read.
-            queryClient.invalidateQueries({ queryKey: queryKeys.profile });
-
             if (isOnboarding) {
-                // Let the onboarding stack re-evaluate what is still outstanding
-                // rather than guessing the next screen from here.
+                await customerApi.updateProfile({
+                    homeAddress: addressText.trim(),
+                    pinCode: postalCode.trim() || undefined,
+                    savedAddresses: [newAddress],
+                });
                 await useAuthStore.getState().refreshOnboardingStatus();
-                setSaving(false);
-                navigation.goBack();
-                return;
+            } else {
+                const profileRes = await customerApi.getProfile();
+                const existing: SavedAddress[] = profileRes.data?.savedAddresses || [];
+                const editIdx = route.params?.editAddressIndex;
+
+                let updated: SavedAddress[];
+                if (typeof editIdx === 'number' && editIdx >= 0 && editIdx < existing.length) {
+                    updated = [...existing];
+                    updated[editIdx] = newAddress;
+                } else {
+                    updated = [...existing, newAddress];
+                }
+
+                await customerApi.updateProfile({
+                    savedAddresses: updated,
+                    ...(existing.length === 0 ? { homeAddress: newAddress.address, pinCode: newAddress.pinCode } : {}),
+                });
             }
 
-            Alert.alert('Success', 'Address saved successfully!', [
-                {
-                    text: 'OK',
-                    onPress: () => {
-                        // goBack() only returns to SavedAddresses, leaving the booking
-                        // screen without the address the user just created — they had
-                        // to find and tap it again. Hand it back directly instead.
-                        // 'ServiceRequest' is the name registered in CustomerStack.
-                        if (fromCheckout) {
-                            navigation.navigate({
-                                name: 'ServiceRequest',
-                                params: { selectedAddress: newAddress },
-                                merge: true,
-                            });
-                        } else {
-                            navigation.goBack();
-                        }
-                    },
-                },
-            ]);
-        } catch (error) {
-            Alert.alert('Error', 'Failed to save address');
+            await queryClient.invalidateQueries({ queryKey: queryKeys.profile });
+
+            if (fromCheckout) {
+                navigation.navigate('ServiceRequest', { selectedAddress: newAddress });
+            } else {
+                navigation.goBack();
+            }
+        } catch (err: any) {
+            Alert.alert('Error', err?.message || 'Could not save address. Please try again.');
         } finally {
             setSaving(false);
         }
@@ -405,7 +305,7 @@ export function MapAddressPickerScreen() {
 
     if (loading) {
         return (
-            <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={colors.primary} />
             </View>
         );
@@ -413,32 +313,9 @@ export function MapAddressPickerScreen() {
 
     return (
         <View style={styles.container}>
-            {/* paddingTop from the measured status-bar inset. The old
-                `Platform.OS === 'ios' ? 56 : 50` clipped the title on
-                punch-hole and notched devices — the exact pattern
-                theme/layout.ts exists to replace. */}
-            <View
-                style={[styles.header, { paddingTop: headerTop }]}
-                onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
-            >
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={24} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Select Location</Text>
-                <View style={{ width: 24 }} />
-            </View>
+            <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
-            {/*
-              * The pin is FIXED at the centre of the screen and the map moves
-              * underneath it — the pattern every delivery app uses. Tapping an
-              * exact rooftop is fiddly on a phone; dragging the map is a coarse
-              * gesture that lands accurately.
-              *
-              * initialRegion, NOT region. A controlled `region` prop re-centres
-              * the map on every state update, which fights the user's own drag
-              * and makes it stutter or snap back. Programmatic moves go through
-              * animateToRegion instead.
-              */}
+            {/* Map Area */}
             <View style={styles.mapWrap}>
                 <MapView
                     ref={mapRef}
@@ -450,29 +327,40 @@ export function MapAddressPickerScreen() {
                     showsMyLocationButton={false}
                 />
 
-                {/* pointerEvents none, or the pin would swallow the drag. */}
+                {/* Center Pin Marker */}
                 <View style={styles.pinWrap} pointerEvents="none">
                     <MapPin
                         size={40}
                         color={colors.primary}
                         fill={colors.primary}
                         strokeWidth={1.5}
-                        // Lifts while moving, so it reads as hovering over the map.
                         style={{ transform: [{ translateY: isMoving ? -8 : 0 }] }}
                     />
-                    {/* Marks the exact point the pin refers to. */}
                     <View style={styles.pinDot} />
                 </View>
 
-                <TouchableOpacity style={styles.locateBtn} onPress={recentreOnUser}>
+                {/* Locate Me FAB */}
+                <TouchableOpacity
+                    style={styles.locateBtn}
+                    onPress={recentreOnUser}
+                    activeOpacity={0.8}
+                >
                     <Navigation size={20} color={colors.primary} />
                 </TouchableOpacity>
             </View>
 
-            {/* Search Bar + Autocomplete */}
-            <View style={[styles.searchContainer, { top: searchTop }]}>
-                <View style={styles.searchBox}>
-                    <Search color={colors.textSecondary} size={20} />
+            {/* Unified Floating Search Bar */}
+            <View style={[styles.floatingHeader, { top: insets.top + spacing.sm }]}>
+                <View style={styles.searchCard}>
+                    <TouchableOpacity
+                        onPress={() => navigation.goBack()}
+                        style={styles.backBtn}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityLabel="Go back"
+                    >
+                        <ArrowLeft size={22} color={colors.textPrimary} />
+                    </TouchableOpacity>
+
                     <TextInput
                         style={styles.searchInput}
                         placeholder="Search area, landmark, or city..."
@@ -482,14 +370,23 @@ export function MapAddressPickerScreen() {
                         returnKeyType="search"
                         autoCorrect={false}
                     />
-                    {isFetchingSuggestions && <ActivityIndicator size="small" color={colors.primary} />}
+
+                    {isFetchingSuggestions && (
+                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.xs }} />
+                    )}
+
                     {searchQuery.length > 0 && !isFetchingSuggestions && (
-                        <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <TouchableOpacity
+                            onPress={clearSearch}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={styles.clearBtn}
+                        >
                             <X size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
                     )}
                 </View>
 
+                {/* Suggestions Dropdown */}
                 {showSuggestions && predictions.length > 0 && (
                     <View style={styles.suggestionsContainer}>
                         <FlatList
@@ -522,69 +419,64 @@ export function MapAddressPickerScreen() {
                 )}
             </View>
 
-            {/*
-              * Three things were putting Save out of reach:
-              *   1. no bottom inset, so on a gesture-navigation device the
-              *      button sat underneath the system nav bar;
-              *   2. the address field is editable, and an open keyboard pushed
-              *      the button off a short screen;
-              *   3. on a small handset the sheet's own content was taller than
-              *      the space left for it.
-              * The inset fixes the first, KeyboardAvoidingView the second, and
-              * making the sheet scroll with a capped height the third.
-              */}
+            {/* Bottom Sheet */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.sheetWrap}
             >
-              <ScrollView
-                style={styles.bottomSheet}
-                contentContainerStyle={{ paddingBottom: bottomBar }}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-              >
-                <Text style={styles.labelTitle}>Save As</Text>
-                <View style={styles.labelRow}>
-                    {['Home', 'Work', 'Other'].map((l) => (
-                        <TouchableOpacity
-                            key={l}
-                            style={[styles.labelChip, label === l && styles.labelChipActive]}
-                            onPress={() => setLabel(l)}
-                        >
-                            <Text style={[styles.labelChipText, label === l && styles.labelChipTextActive]}>{l}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </View>
+                <ScrollView
+                    style={styles.bottomSheet}
+                    contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                >
+                    <View style={styles.sheetHandle} />
 
-                <View style={styles.addressHeader}>
-                    <Text style={styles.labelTitle}>Address</Text>
-                    {isMoving && (
-                        <View style={styles.locatingRow}>
-                            <ActivityIndicator size="small" color={colors.primary} />
-                            <Text style={styles.locatingText}>Locating…</Text>
-                        </View>
-                    )}
-                </View>
-                <View style={styles.addressInputContainer}>
-                    <MapPin size={20} color={colors.primary} style={styles.addressIcon} />
-                    <TextInput
-                        style={styles.addressInput}
-                        value={addressText}
-                        onChangeText={setAddressText}
-                        multiline
+                    <Text style={styles.labelTitle}>Save As</Text>
+                    <View style={styles.labelRow}>
+                        {['Home', 'Work', 'Other'].map((l) => (
+                            <TouchableOpacity
+                                key={l}
+                                style={[styles.labelChip, label === l && styles.labelChipActive]}
+                                onPress={() => setLabel(l)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={[styles.labelChipText, label === l && styles.labelChipTextActive]}>{l}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <View style={styles.addressHeader}>
+                        <Text style={styles.labelTitle}>Address</Text>
+                        {isMoving && (
+                            <View style={styles.locatingRow}>
+                                <ActivityIndicator size="small" color={colors.primary} />
+                                <Text style={styles.locatingText}>Locating…</Text>
+                            </View>
+                        )}
+                    </View>
+                    <View style={styles.addressInputContainer}>
+                        <MapPin size={20} color={colors.primary} style={styles.addressIcon} />
+                        <TextInput
+                            style={styles.addressInput}
+                            value={addressText}
+                            onChangeText={setAddressText}
+                            multiline
+                            placeholder="Street, locality, building name..."
+                            placeholderTextColor={colors.textSecondary}
+                        />
+                    </View>
+
+                    <Button
+                        title="Save Address"
+                        onPress={handleSave}
+                        loading={saving}
+                        disabled={isMoving || !addressText.trim()}
+                        fullWidth
+                        style={{ marginTop: spacing.lg }}
                     />
-                </View>
-
-                <Button
-                    title="Save Address"
-                    onPress={handleSave}
-                    loading={saving}
-                    disabled={isMoving || !addressText.trim()}
-                    fullWidth
-                    style={{ marginTop: 20 }}
-                />
-              </ScrollView>
+                </ScrollView>
             </KeyboardAvoidingView>
         </View>
     );
@@ -592,54 +484,46 @@ export function MapAddressPickerScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 16,
-        // paddingTop is supplied at render time from useScreenInsets().headerTop.
-        backgroundColor: colors.surface,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        ...shadows.sm,
-        zIndex: 20,
-    },
-    backBtn: { padding: 4 },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
 
-    // ── Search + Autocomplete ──
-    searchContainer: {
+    // ── Unified Floating Header ──
+    floatingHeader: {
         position: 'absolute',
-        // `top` is supplied at render time — see searchTop in the component.
         left: spacing.lg,
         right: spacing.lg,
-        // ABOVE the header (zIndex 20), deliberately. If the two ever overlap —
-        // an unusually tall header, a font scale nobody tested — the search bar
-        // should win and stay usable. At 15 it lost, and an opaque header
-        // swallowed it completely, which is the failure this screen actually hit.
-        zIndex: 25,
+        zIndex: 30,
     },
-    searchBox: {
+    searchCard: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.surface,
-        borderRadius: radii.lg,
+        borderRadius: radii.xl,
         paddingHorizontal: spacing.md,
-        height: 50,
-        ...shadows.md,
+        height: 52,
+        ...shadows.lg,
+        borderWidth: Platform.OS === 'ios' ? 1 : 0,
+        borderColor: colors.border,
+    },
+    backBtn: {
+        padding: spacing.xs,
+        marginRight: spacing.xs,
     },
     searchInput: {
         flex: 1,
-        marginLeft: spacing.sm,
         ...typography.body,
         color: colors.textPrimary,
+        height: '100%',
+        paddingVertical: 0,
+    },
+    clearBtn: {
+        padding: spacing.xs,
     },
     suggestionsContainer: {
         backgroundColor: colors.surface,
-        borderRadius: radii.lg,
+        borderRadius: radii.xl,
         marginTop: spacing.xs,
         overflow: 'hidden',
-        ...shadows.lg,
+        ...shadows.xl,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -668,17 +552,13 @@ const styles = StyleSheet.create({
         marginTop: 2,
     },
 
+    // ── Map & Pin ──
     mapWrap: { flex: 1 },
-    addressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    locatingRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-    locatingText: { ...typography.caption, color: colors.primary },
     map: { ...StyleSheet.absoluteFillObject },
     pinWrap: {
         ...StyleSheet.absoluteFillObject,
         alignItems: 'center',
         justifyContent: 'center',
-        // The pin's point sits at its bottom edge, so shift the icon up by half
-        // its height to put that point exactly on the map centre.
         marginBottom: 40,
     },
     pinDot: {
@@ -688,49 +568,63 @@ const styles = StyleSheet.create({
         marginTop: -4,
     },
     locateBtn: {
-        position: 'absolute', right: 16, bottom: 16,
-        width: 44, height: 44, borderRadius: 22,
-        backgroundColor: '#fff',
-        alignItems: 'center', justifyContent: 'center',
-        shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 }, elevation: 4,
+        position: 'absolute',
+        right: spacing.lg,
+        bottom: spacing.lg,
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.lg,
+        zIndex: 20,
     },
-    // Caps how much of a small screen the sheet may take, so the map never
-    // disappears and the sheet scrolls instead of overflowing.
-    sheetWrap: { maxHeight: '55%' },
+
+    // ── Bottom Sheet ──
+    sheetWrap: { maxHeight: '55%', zIndex: 25 },
     bottomSheet: {
         backgroundColor: colors.surface,
-        padding: 20,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 10,
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.md,
+        borderTopLeftRadius: radii['2xl'],
+        borderTopRightRadius: radii['2xl'],
+        ...shadows.xl,
     },
-    labelTitle: { ...typography.label, color: colors.textSecondary, marginBottom: 10, marginTop: 10 },
-    labelRow: { flexDirection: 'row', gap: 10 },
+    sheetHandle: {
+        width: 36,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.border,
+        alignSelf: 'center',
+        marginBottom: spacing.sm,
+    },
+    addressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    locatingRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    locatingText: { ...typography.caption, color: colors.primary },
+    labelTitle: { ...typography.label, color: colors.textSecondary, marginBottom: spacing.xs, marginTop: spacing.sm },
+    labelRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs },
     labelChip: {
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+        borderRadius: radii.full,
         backgroundColor: colors.background,
         borderWidth: 1,
         borderColor: colors.border,
     },
     labelChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    labelChipText: { color: colors.textSecondary, fontWeight: '500' },
+    labelChipText: { color: colors.textSecondary, fontWeight: '500', fontSize: 13 },
     labelChipTextActive: { color: '#fff' },
     addressInputContainer: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         backgroundColor: colors.background,
-        borderRadius: 12,
-        padding: 12,
+        borderRadius: radii.lg,
+        padding: spacing.md,
         borderWidth: 1,
         borderColor: colors.border,
+        marginTop: spacing.xs,
     },
-    addressIcon: { marginRight: 10 },
-    addressInput: { flex: 1, color: colors.textPrimary, fontSize: 14, minHeight: 40 },
+    addressIcon: { marginRight: spacing.sm, marginTop: 2 },
+    addressInput: { flex: 1, color: colors.textPrimary, fontSize: 14, minHeight: 44, textAlignVertical: 'top' },
 });
