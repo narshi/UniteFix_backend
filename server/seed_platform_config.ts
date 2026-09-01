@@ -66,6 +66,11 @@ async function seedPlatformConfig() {
         // Payment
         { key: 'PAYMENT_CONFIG.RAZORPAY_KEY_ID', value: 'rzp_test_xxxxx', valueType: 'string', category: 'PAYMENT_CONFIG', description: 'Razorpay key ID', isEditable: true },
         { key: 'PAYMENT_CONFIG.RAZORPAY_KEY_SECRET', value: 'secret_xxxxx', valueType: 'string', category: 'PAYMENT_CONFIG', description: 'Razorpay secret key', isEditable: true },
+        // Razorpay's Validate VPA API is gated per-account. Left OFF until they
+        // verify UniteFix for it: while off, a UPI id saves instantly and is
+        // recorded as unverified rather than falsely confirmed. Switch to true
+        // the day Razorpay enables it — no deploy needed.
+        { key: 'PAYMENT_CONFIG.UPI_VPA_VALIDATION_ENABLED', value: 'false', valueType: 'boolean', category: 'PAYMENT_CONFIG', description: 'Verify partner UPI IDs with Razorpay. Requires Validate VPA to be enabled on the Razorpay account.', isEditable: true },
 
         // Region
         { key: 'REGION_CONFIG.LAUNCH_REGION', value: 'Uttara Kannada', valueType: 'string', category: 'REGION_CONFIG', description: 'Phase 1 launch region', isEditable: false },

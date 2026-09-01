@@ -154,6 +154,26 @@ try {
             `${row.upi_id} / verified_at=${row.upi_verified_at}`);
     }
 
+    // ================= VPA validation switched off =================
+    // Razorpay has not verified the account for Validate VPA, so the call is
+    // gated off. What must remain true while it is off: a UPI id still saves,
+    // it is recorded as UNVERIFIED rather than falsely confirmed, and no
+    // partner is blocked from being paid.
+    r = await req('POST', '/api/partner/profile/upi/validate', { token, body: { upiId: 'success@razorpay' } });
+    check('VPA validation is switched OFF, and says so honestly',
+        r.json?.data?.status === 'unverified' && /not switched on/i.test(r.json?.data?.reason ?? ''),
+        );
+
+    r = await req('PUT', '/api/partner/profile/upi', { token, body: { upiId: 'success@razorpay' } });
+    check('a UPI id still saves with validation off', r.status === 200, );
+    check('and is recorded UNVERIFIED, not falsely confirmed',
+        r.json?.upiVerified === false, );
+
+    // Format checks are local and must keep working regardless.
+    r = await req('PUT', '/api/partner/profile/upi', { token, body: { upiId: 'ramesh@gmail.com' } });
+    check('format validation still rejects an email with VPA off',
+        r.status === 400 && r.json?.code === 'LOOKS_LIKE_EMAIL', );
+
     // ================= backwards compatibility =================
     // An app build from before the name-confirmation flow sends no
     // clientSupportsNameConfirmation and no confirmedName. It must still be able

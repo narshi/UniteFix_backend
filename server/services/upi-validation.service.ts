@@ -56,6 +56,32 @@ export class UpiValidationService {
      * both paths without a live account.
      */
     static async verify(vpa: string): Promise<UpiVerification> {
+        // OFF until Razorpay verifies the account for the Validate VPA API.
+        //
+        // A flag rather than commented-out code, for two reasons. Commented code
+        // rots — nobody re-reads it, and by the time Razorpay says yes the
+        // surrounding function has moved on. And with a flag, switching it on is
+        // a config edit on the Settings screen, not a code change and a deploy.
+        //
+        // Leaving the call live while it cannot succeed is not free: every UPI
+        // save fires an HTTP request that is certain to fail, and the partner
+        // waits out the 8-second timeout before their id saves.
+        //
+        // Everything downstream already handles this correctly. `unverified`
+        // means "nobody checked", so the id still saves, upi_verified_at stays
+        // NULL, and the admin payout dialog shows "Not verified — confirm with
+        // the partner before transferring". Manual payouts are unaffected.
+        const enabled = String(
+            await configService.get('PAYMENT_CONFIG.UPI_VPA_VALIDATION_ENABLED', 'false'),
+        ).toLowerCase() === 'true';
+
+        if (!enabled) {
+            return {
+                status: 'unverified',
+                reason: 'UPI verification is not switched on for this account yet',
+            };
+        }
+
         const creds = await this.credentials();
         if (!creds) {
             return { status: 'unverified', reason: 'Payment provider not configured' };
