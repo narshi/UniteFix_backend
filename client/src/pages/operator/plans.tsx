@@ -21,11 +21,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Sparkles, Check } from "lucide-react";
 
 interface PlanRow {
   id: number;
@@ -37,6 +40,8 @@ interface PlanRow {
   finalPrice: number;
   dataLimitGb: number | null;
   benefits: string[];
+  isRecommended?: boolean;
+  badgeText?: string | null;
   sortOrder: number;
   isActive: boolean;
 }
@@ -46,7 +51,15 @@ export default function OperatorPlans() {
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState<{ speed: number; duration: number; plan: PlanRow | null } | null>(null);
-  const [form, setForm] = useState({ name: "", price: "", discount: "", dataLimitGb: "", benefits: "" });
+  const [form, setForm] = useState({
+    name: "",
+    price: "",
+    discount: "",
+    dataLimitGb: "",
+    benefits: "",
+    isRecommended: false,
+    badgeText: "",
+  });
   const [addSpeedOpen, setAddSpeedOpen] = useState(false);
   const [addDurationOpen, setAddDurationOpen] = useState(false);
   const [draftSpeed, setDraftSpeed] = useState("");
@@ -87,6 +100,8 @@ export default function OperatorPlans() {
         discountRupees: form.discount.trim() ? Number(form.discount) : 0,
         dataLimitGb: form.dataLimitGb.trim() ? Number(form.dataLimitGb) : null,
         benefits: form.benefits.split(",").map(s => s.trim()).filter(Boolean),
+        isRecommended: form.isRecommended,
+        badgeText: form.badgeText.trim() || null,
       };
       return editing.plan
         ? apiRequest("PATCH", `/api/ftth/admin/plans/${editing.plan.id}`, body)
@@ -124,6 +139,8 @@ export default function OperatorPlans() {
             priceRupees: Number(price),
             discountRupees: discount ? Number(discount) : 0,
             dataLimitGb: limit ? Number(limit) : null,
+            isRecommended: Number(months) >= 12,
+            badgeText: Number(months) >= 12 ? "Best Value • 1 Year" : null,
           };
         });
       if (!parsed.length) throw new Error("Nothing to import");
@@ -147,6 +164,8 @@ export default function OperatorPlans() {
       discount: plan && plan.discount > 0 ? String(plan.discount) : "",
       dataLimitGb: plan?.dataLimitGb != null ? String(plan.dataLimitGb) : "",
       benefits: (plan?.benefits ?? []).join(", "),
+      isRecommended: plan?.isRecommended ?? (duration >= 12),
+      badgeText: plan?.badgeText ?? (duration >= 12 ? "Best Value • Save Big" : ""),
     });
   };
 
@@ -204,24 +223,36 @@ export default function OperatorPlans() {
                           <td key={d} className="p-2">
                             <button
                               onClick={() => openCell(s, d)}
-                              className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
+                              className={`w-full text-left px-3 py-2.5 rounded-lg border transition-all ${
                                 plan
                                   ? plan.isActive
-                                    ? "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)] text-white hover:bg-[hsla(160,84%,39%,0.15)]"
+                                    ? plan.isRecommended
+                                      ? "border-emerald-500/50 bg-emerald-500/10 text-white hover:bg-emerald-500/20 shadow-sm"
+                                      : "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)] text-white hover:bg-[hsla(160,84%,39%,0.15)]"
                                     : "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] text-[hsl(215,20%,50%)] hover:bg-[rgba(255,255,255,0.05)]"
                                   : "border-dashed border-[rgba(255,255,255,0.12)] text-[hsl(215,20%,40%)] hover:bg-[rgba(255,255,255,0.03)]"
                               }`}
                             >
                               {plan ? (
-                                <>
-                                  <span className="font-semibold">₹{plan.finalPrice}</span>
-                                  {plan.discount > 0 && (
-                                    <span className="ml-1.5 text-xs line-through text-[hsl(215,20%,50%)]">₹{plan.price}</span>
-                                  )}
-                                  {!plan.isActive && <span className="ml-2 text-[10px] uppercase">hidden</span>}
-                                </>
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    <span className="font-semibold text-white">₹{plan.finalPrice}</span>
+                                    {plan.isRecommended && (
+                                      <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                        <Sparkles className="w-2.5 h-2.5" /> Best Value
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-xs text-[hsl(215,20%,60%)]">
+                                    {plan.discount > 0 && (
+                                      <span className="line-through text-[hsl(215,20%,50%)]">₹{plan.price}</span>
+                                    )}
+                                    <span className="text-[11px]">₹{Math.round(plan.finalPrice / plan.durationMonths)}/mo</span>
+                                    {!plan.isActive && <span className="ml-auto text-[10px] uppercase text-amber-400">hidden</span>}
+                                  </div>
+                                </div>
                               ) : (
-                                <span className="text-xs">— not sold —</span>
+                                <span className="text-xs text-[hsl(215,20%,40%)]">— not sold —</span>
                               )}
                             </button>
                           </td>
@@ -242,23 +273,41 @@ export default function OperatorPlans() {
           <CardContent>
             <ul className="space-y-2">
               {plans.map(p => (
-                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border border-[rgba(255,255,255,0.06)]">
-                  <div className="min-w-0">
-                    <p className="text-white font-medium">{p.name}</p>
-                    <p className="text-xs text-[hsl(215,20%,55%)]">
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] hover:bg-[rgba(255,255,255,0.02)] transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-white font-medium">{p.name}</p>
+                      {p.isRecommended && (
+                        <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[11px] gap-1 py-0 px-2 font-semibold">
+                          <Sparkles className="w-3 h-3 text-emerald-400" />
+                          {p.badgeText || "Recommended"}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">
                       {p.speedMbps} Mbps · {p.durationMonths} month{p.durationMonths === 1 ? "" : "s"} · ₹{p.finalPrice}
+                      <span className="text-emerald-400/80 font-medium"> (₹{Math.round(p.finalPrice / p.durationMonths)}/mo)</span>
                       {p.dataLimitGb != null ? ` · ${p.dataLimitGb} GB` : " · Unlimited"}
                       {p.benefits.length ? ` · ${p.benefits.join(", ")}` : ""}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={toggleMutation.isPending}
-                    onClick={() => toggleMutation.mutate({ id: p.id, isActive: !p.isActive })}
-                  >
-                    {p.isActive ? "Hide from app" : "Show in app"}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openCell(p.speedMbps, p.durationMonths)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={toggleMutation.isPending}
+                      onClick={() => toggleMutation.mutate({ id: p.id, isActive: !p.isActive })}
+                    >
+                      {p.isActive ? "Hide" : "Show"}
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -268,16 +317,16 @@ export default function OperatorPlans() {
 
       {/* Edit / create one cell */}
       <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editing?.speed} Mbps · {editing?.duration} month{editing?.duration === 1 ? "" : "s"}
             </DialogTitle>
             <DialogDescription>
-              Leave the price blank and cancel if you don't sell this combination.
+              Set pricing and push recommendations for high-duration annual packs.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4 py-2">
             <div>
               <Label htmlFor="plan-name">Plan name (shown to customers)</Label>
               <Input
@@ -298,6 +347,42 @@ export default function OperatorPlans() {
                   onChange={(e) => setForm({ ...form, discount: e.target.value })} placeholder="0" />
               </div>
             </div>
+
+            {/* Recommendation & Annual Push Controls */}
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="is-recommended" className="text-sm font-semibold text-emerald-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Recommend Plan (Best Value)
+                  </Label>
+                  <p className="text-xs text-[hsl(215,20%,65%)]">
+                    Highlights this pack with green tick & push to 1-Year in the customer app.
+                  </p>
+                </div>
+                <Switch
+                  id="is-recommended"
+                  checked={form.isRecommended}
+                  onCheckedChange={(checked) => setForm({ ...form, isRecommended: checked })}
+                />
+              </div>
+
+              {form.isRecommended && (
+                <div>
+                  <Label htmlFor="plan-badge" className="text-xs text-[hsl(215,20%,75%)]">
+                    Custom Badge Text (optional)
+                  </Label>
+                  <Input
+                    id="plan-badge"
+                    value={form.badgeText}
+                    onChange={(e) => setForm({ ...form, badgeText: e.target.value })}
+                    placeholder="e.g. Best Value • Save ₹1,800 or 1 Year Super Saver"
+                    className="mt-1 text-xs"
+                  />
+                </div>
+              )}
+            </div>
+
             <div>
               <Label htmlFor="plan-limit">Data limit (GB) — blank = unlimited</Label>
               <Input id="plan-limit" inputMode="numeric" value={form.dataLimitGb}

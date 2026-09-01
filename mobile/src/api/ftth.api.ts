@@ -35,6 +35,8 @@ export interface FtthPlan {
     finalPrice: number;
     dataLimitGb: number | null;
     benefits: string[];
+    isRecommended?: boolean;
+    badgeText?: string | null;
     convenienceFee: number;
     /** finalPrice + convenienceFee — what the customer actually pays. */
     payable: number;

@@ -1,23 +1,24 @@
 /**
- * Broadband — pick an operator, or see your existing connection.
+ * Broadband — pick an operator, quick recharge by ID, or manage active lines.
  *
  * Features:
  * - Instant Customer ID / Phone lookup with auto-claiming
- * - "Customer ID Not Found" pop-up modal redirecting to "Book New Connection"
- * - Active connections list with live validity indicators
- * - Multi-operator catalog list
+ * - Visual status badges (Active / Expired) on connected broadband lines
+ * - 1-tap direct "Recharge Now" button on connected lines
+ * - Responsive operator selection chips & clean form styling
+ * - Centered "Customer ID Not Found" modal redirecting to Book Connection
  */
 
 import React, { useCallback, useState, useEffect } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-    RefreshControl, TextInput, Modal, Alert,
+    RefreshControl, TextInput, Modal, Alert, StatusBar, Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-    Router, Wifi, ChevronRight, Clock, AlertCircle, Search, Sparkles, X, PlusCircle,
+    Router, Wifi, ChevronRight, Clock, AlertCircle, Search, Sparkles, X, PlusCircle, ArrowRight, Zap,
 } from 'lucide-react-native';
 import { ftthApi, FtthConnection, FtthOperator } from '../../api/ftth.api';
 import { colors } from '../../theme/colors';
@@ -122,11 +123,13 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
 
     return (
         <View style={styles.screen}>
+            <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
             <ScreenHeader title="Broadband Recharge" onBack={() => navigation.goBack()} />
 
             <ScrollView
-                contentContainerStyle={[styles.content, { paddingBottom: bottomBar + spacing.xl }]}
+                contentContainerStyle={[styles.content, { paddingBottom: bottomBar + spacing['2xl'] }]}
                 keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing && !loading}
@@ -138,7 +141,10 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                 }
             >
                 {loading ? (
-                    <ActivityIndicator style={{ marginTop: spacing['3xl'] }} color={colors.primary} />
+                    <View style={styles.loadingWrap}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text style={styles.loadingText}>Loading broadband connections…</Text>
+                    </View>
                 ) : (
                     <>
                         {/* Instant Recharge by Customer ID Card */}
@@ -146,9 +152,9 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                             <View style={styles.quickRechargeCard}>
                                 <View style={styles.quickHeader}>
                                     <View style={styles.sparkleCircle}>
-                                        <Sparkles size={16} color={colors.primary} />
+                                        <Sparkles size={18} color={colors.primary} />
                                     </View>
-                                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                                    <View style={{ flex: 1, marginLeft: spacing.md }}>
                                         <Text style={styles.quickTitle}>Quick Recharge by Customer ID</Text>
                                         <Text style={styles.quickSubtitle}>
                                             Enter your ISP username or phone to recharge immediately
@@ -163,25 +169,26 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                         showsHorizontalScrollIndicator={false}
                                         contentContainerStyle={styles.operatorChipsRow}
                                     >
-                                        {operators.map(op => (
-                                            <TouchableOpacity
-                                                key={op.id}
-                                                style={[
-                                                    styles.operatorChip,
-                                                    selectedOperatorId === op.id && styles.operatorChipActive,
-                                                ]}
-                                                onPress={() => setSelectedOperatorId(op.id)}
-                                            >
-                                                <Text
-                                                    style={[
-                                                        styles.operatorChipText,
-                                                        selectedOperatorId === op.id && styles.operatorChipTextActive,
-                                                    ]}
+                                        {operators.map(op => {
+                                            const isActive = selectedOperatorId === op.id;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={op.id}
+                                                    style={[styles.operatorChip, isActive && styles.operatorChipActive]}
+                                                    onPress={() => setSelectedOperatorId(op.id)}
+                                                    activeOpacity={0.7}
                                                 >
-                                                    {op.companyName}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ))}
+                                                    <Text
+                                                        style={[
+                                                            styles.operatorChipText,
+                                                            isActive && styles.operatorChipTextActive,
+                                                        ]}
+                                                    >
+                                                        {op.companyName}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
                                     </ScrollView>
                                 )}
 
@@ -190,7 +197,7 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                     <Search size={18} color={colors.textSecondary} style={styles.inputIcon} />
                                     <TextInput
                                         style={styles.textInput}
-                                        placeholder="e.g. amit95_ylp or 10-digit mobile"
+                                        placeholder="e.g. POORVI-9912 or 10-digit mobile"
                                         placeholderTextColor={colors.textSecondary}
                                         value={searchQuery}
                                         onChangeText={setSearchQuery}
@@ -200,7 +207,11 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                         onSubmitEditing={handleLookup}
                                     />
                                     {searchQuery.length > 0 && (
-                                        <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearBtn}>
+                                        <TouchableOpacity
+                                            onPress={() => setSearchQuery('')}
+                                            style={styles.clearBtn}
+                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                        >
                                             <X size={16} color={colors.textSecondary} />
                                         </TouchableOpacity>
                                     )}
@@ -217,8 +228,8 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
 
                         {/* Connected Accounts */}
                         {connections.length > 0 && (
-                            <>
-                                <Text style={styles.sectionTitle}>Your connections</Text>
+                            <View style={styles.sectionContainer}>
+                                <Text style={styles.sectionTitle}>Your Active Connections</Text>
                                 {connections.map(c => (
                                     <TouchableOpacity
                                         key={c.id}
@@ -229,143 +240,146 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                                         <View style={styles.rowBetween}>
                                             <View style={styles.rowCenter}>
                                                 <View style={styles.iconCircle}>
-                                                    <Wifi size={18} color={colors.primary} />
+                                                    <Wifi size={20} color={colors.primary} />
                                                 </View>
                                                 <View style={{ marginLeft: spacing.md, flex: 1 }}>
-                                                    <Text style={styles.cardTitle}>{c.operatorName}</Text>
+                                                    <View style={styles.titleWithSpeed}>
+                                                        <Text style={styles.cardTitle}>{c.operatorName}</Text>
+                                                        {c.speedMbps && (
+                                                            <View style={styles.speedPill}>
+                                                                <Zap size={10} color={colors.primary} />
+                                                                <Text style={styles.speedPillText}>{c.speedMbps}M</Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
                                                     <Text style={styles.cardSubtitle}>
-                                                        {c.ispConnectionId ?? 'Waiting for your operator'}
+                                                        {c.ispConnectionId ?? 'Setting up connection…'}
                                                     </Text>
                                                 </View>
                                             </View>
-                                            {c.ispConnectionId ? <ChevronRight size={20} color={colors.textSecondary} /> : null}
+
+                                            {c.validTill && (
+                                                <View style={[styles.statusBadge, c.isExpired ? styles.statusBadgeExpired : styles.statusBadgeActive]}>
+                                                    <Text style={[styles.statusBadgeText, c.isExpired ? styles.statusBadgeTextExpired : styles.statusBadgeTextActive]}>
+                                                        {c.isExpired ? 'Expired' : `${c.daysRemaining}d left`}
+                                                    </Text>
+                                                </View>
+                                            )}
                                         </View>
 
                                         {c.ispConnectionId ? (
-                                            <View style={styles.validityRow}>
-                                                {c.validTill ? (
-                                                    <Text
-                                                        style={[
-                                                            styles.validityText,
-                                                            c.isExpired && { color: colors.error },
-                                                            !c.isExpired && (c.daysRemaining ?? 99) <= 5 && { color: colors.warningDark },
-                                                        ]}
-                                                    >
-                                                        {c.isExpired
-                                                            ? 'Expired — recharge to get back online'
-                                                            : `${c.daysRemaining} day${c.daysRemaining === 1 ? '' : 's'} left${c.planName ? ` · ${c.planName}` : ''}`}
-                                                    </Text>
-                                                ) : (
-                                                    <Text style={styles.validityText}>Tap to see plans & recharge</Text>
-                                                )}
+                                            <View style={styles.connectionFooterRow}>
+                                                <Text style={styles.planInfoText}>
+                                                    {c.planName ? `Plan: ${c.planName}` : 'High Speed Fiber'}
+                                                </Text>
+                                                <View style={styles.rechargeActionRow}>
+                                                    <Text style={styles.rechargeActionText}>Recharge</Text>
+                                                    <ChevronRight size={16} color={colors.primary} />
+                                                </View>
                                             </View>
                                         ) : (
                                             <View style={styles.pendingPill}>
                                                 <Clock size={13} color={colors.warningDark} />
                                                 <Text style={styles.pendingPillText}>
-                                                    Your operator is setting up your account
+                                                    Your operator is activating your line
                                                 </Text>
                                             </View>
                                         )}
                                     </TouchableOpacity>
                                 ))}
-                            </>
+                            </View>
                         )}
 
-                        {/* Pending ID Requests */}
+                        {/* Pending Approvals */}
                         {pendingIdRequests.length > 0 && (
-                            <>
-                                <Text style={styles.sectionTitle}>Waiting for approval</Text>
+                            <View style={styles.sectionContainer}>
+                                <Text style={styles.sectionTitle}>Waiting for verification</Text>
                                 {pendingIdRequests.map(r => (
                                     <View key={r.id} style={styles.pendingCard}>
-                                        <Clock size={16} color={colors.warningDark} />
-                                        <Text style={styles.pendingText}>
-                                            {r.operatorName} is verifying your details. We'll notify you when it's linked.
-                                        </Text>
+                                        <Clock size={18} color={colors.warningDark} />
+                                        <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                                            <Text style={styles.pendingTitle}>{r.operatorName}</Text>
+                                            <Text style={styles.pendingText}>
+                                                Verifying your details. We'll notify you when linked.
+                                            </Text>
+                                        </View>
                                     </View>
                                 ))}
-                            </>
-                        )}
-
-                        {/* Pending Leads */}
-                        {pendingLeads.length > 0 && (
-                            <>
-                                <Text style={styles.sectionTitle}>New connection requests</Text>
-                                {pendingLeads.map(l => (
-                                    <View key={l.id} style={styles.pendingCard}>
-                                        <Clock size={16} color={colors.warningDark} />
-                                        <Text style={styles.pendingText}>
-                                            {l.operatorName} will call you about your new optical fiber connection.
-                                        </Text>
-                                    </View>
-                                ))}
-                            </>
+                            </View>
                         )}
 
                         {/* Available Providers */}
-                        <Text style={styles.sectionTitle}>
-                            {connections.length > 0 ? 'Other providers near you' : 'Providers in your area'}
-                        </Text>
+                        <View style={styles.sectionContainer}>
+                            <Text style={styles.sectionTitle}>
+                                {connections.length > 0 ? 'Other providers near you' : 'Broadband providers in your area'}
+                            </Text>
 
-                        {noPincode ? (
-                            <View style={styles.emptyCard}>
-                                <AlertCircle size={22} color={colors.textSecondary} />
-                                <Text style={styles.emptyTitle}>Add your pincode</Text>
-                                <Text style={styles.emptyBody}>
-                                    We use it to show the broadband providers who actually wire your area.
-                                </Text>
-                            </View>
-                        ) : operators.length === 0 ? (
-                            <View style={styles.emptyCard}>
-                                <Router size={22} color={colors.textSecondary} />
-                                <Text style={styles.emptyTitle}>Not available here yet</Text>
-                                <Text style={styles.emptyBody}>
-                                    No broadband partners cover your pincode right now. We're adding more.
-                                </Text>
-                            </View>
-                        ) : (
-                            operators
-                                .filter(o => !connectedOperatorIds.has(o.id))
-                                .map(o => {
-                                    const pending = pendingOperatorIds.has(o.id);
-                                    return (
-                                        <TouchableOpacity
-                                            key={o.id}
-                                            style={[styles.operatorCard, pending && styles.operatorCardMuted]}
-                                            disabled={pending}
-                                            onPress={() => navigation.navigate('FTTHOnboarding', { operator: o })}
-                                        >
-                                            <View
-                                                style={[
-                                                    styles.iconCircle,
-                                                    o.brandColor ? { backgroundColor: `${o.brandColor}22` } : null,
-                                                ]}
+                            {noPincode ? (
+                                <View style={styles.emptyCard}>
+                                    <AlertCircle size={24} color={colors.textSecondary} />
+                                    <Text style={styles.emptyTitle}>Add your pincode</Text>
+                                    <Text style={styles.emptyBody}>
+                                        We use it to show the broadband providers who actually wire your neighborhood.
+                                    </Text>
+                                </View>
+                            ) : operators.length === 0 ? (
+                                <View style={styles.emptyCard}>
+                                    <Router size={24} color={colors.textSecondary} />
+                                    <Text style={styles.emptyTitle}>Not available here yet</Text>
+                                    <Text style={styles.emptyBody}>
+                                        No broadband partners cover your pincode right now. We are expanding rapidly!
+                                    </Text>
+                                </View>
+                            ) : (
+                                operators
+                                    .filter(o => !connectedOperatorIds.has(o.id))
+                                    .map(o => {
+                                        const pending = pendingOperatorIds.has(o.id);
+                                        return (
+                                            <TouchableOpacity
+                                                key={o.id}
+                                                style={[styles.operatorCard, pending && styles.operatorCardMuted]}
+                                                disabled={pending}
+                                                onPress={() => navigation.navigate('FTTHOnboarding', { operator: o })}
+                                                activeOpacity={0.7}
                                             >
-                                                <Router size={18} color={o.brandColor || colors.primary} />
-                                            </View>
-                                            <View style={{ flex: 1, marginLeft: spacing.md }}>
-                                                <Text style={styles.cardTitle}>{o.companyName}</Text>
-                                                <Text style={styles.cardSubtitle}>
-                                                    {pending ? 'Request in progress' : 'Tap to book new connection or link ID'}
-                                                </Text>
-                                            </View>
-                                            {!pending && <ChevronRight size={20} color={colors.textSecondary} />}
-                                        </TouchableOpacity>
-                                    );
-                                })
-                        )}
+                                                <View
+                                                    style={[
+                                                        styles.iconCircle,
+                                                        o.brandColor ? { backgroundColor: `${o.brandColor}18` } : null,
+                                                    ]}
+                                                >
+                                                    <Router size={20} color={o.brandColor || colors.primary} />
+                                                </View>
+                                                <View style={{ flex: 1, marginLeft: spacing.md }}>
+                                                    <Text style={styles.cardTitle}>{o.companyName}</Text>
+                                                    <Text style={styles.cardSubtitle}>
+                                                        {pending ? 'Connection request submitted' : 'Get fiber installation or link ID'}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.bookPill}>
+                                                    <Text style={styles.bookPillText}>{pending ? 'Pending' : 'Book'}</Text>
+                                                    <ChevronRight size={14} color={colors.primary} />
+                                                </View>
+                                            </TouchableOpacity>
+                                        );
+                                    })
+                            )}
+                        </View>
 
+                        {/* History Link */}
                         <TouchableOpacity
                             style={styles.historyLink}
                             onPress={() => navigation.navigate('FTTHHistory')}
+                            activeOpacity={0.7}
                         >
-                            <Text style={styles.historyLinkText}>View recharge history</Text>
+                            <Text style={styles.historyLinkText}>View Past Recharge Receipts →</Text>
                         </TouchableOpacity>
                     </>
                 )}
             </ScrollView>
 
-            {/* NOT FOUND MODAL */}
+            {/* Customer ID Not Found Modal */}
             <Modal
                 visible={showNotFoundModal}
                 transparent
@@ -377,29 +391,26 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                         <View style={styles.modalIconCircle}>
                             <AlertCircle size={28} color="#D97706" />
                         </View>
-
                         <Text style={styles.modalTitle}>Customer ID Not Found</Text>
-
                         <Text style={styles.modalBody}>
-                            We couldn't find an active account for <Text style={styles.boldText}>"{notFoundQuery}"</Text> under <Text style={styles.boldText}>{notFoundOperator?.companyName ?? 'this operator'}</Text>.
+                            We could not find an active account for <Text style={styles.boldText}>"{notFoundQuery}"</Text> under {notFoundOperator?.companyName || 'this operator'}.
                         </Text>
-
                         <Text style={styles.modalSubBody}>
-                            If you do not have an existing broadband connection, you can book a new optical fiber line with free installation.
+                            Looking to get a new optical fiber broadband installed at your home or office?
                         </Text>
 
                         <View style={styles.modalButtonsColumn}>
                             <Button
-                                title="Book a New Connection"
+                                title="Book New Connection"
                                 onPress={handleBookNewConnection}
-                                icon={<PlusCircle size={16} color="#FFFFFF" />}
-                                variant="primary"
+                                fullWidth
                             />
                             <TouchableOpacity
                                 style={styles.modalSecondaryBtn}
                                 onPress={() => setShowNotFoundModal(false)}
+                                activeOpacity={0.7}
                             >
-                                <Text style={styles.modalSecondaryBtnText}>Try Another ID</Text>
+                                <Text style={styles.modalSecondaryBtnText}>Try Another Customer ID</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -410,34 +421,53 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-    screen: { flex: 1, backgroundColor: colors.surface },
-    content: { padding: spacing.base },
+    screen: { flex: 1, backgroundColor: colors.background },
+    content: { padding: spacing.lg },
+    loadingWrap: { marginTop: spacing['3xl'], alignItems: 'center', gap: spacing.sm },
+    loadingText: { ...typography.caption, color: colors.textSecondary },
 
-    // Quick Recharge Card
+    // ── Quick Recharge Card ──
     quickRechargeCard: {
-        backgroundColor: colors.surfaceElevated,
+        backgroundColor: colors.surface,
         borderRadius: radii.xl,
-        padding: spacing.base,
-        marginBottom: spacing.base,
-        borderWidth: 1,
-        borderColor: colors.primarySurface,
+        padding: spacing.lg,
         ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: spacing.lg,
     },
-    quickHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+    quickHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
     sparkleCircle: {
-        width: 32,
-        height: 32,
-        borderRadius: radii.full,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
         backgroundColor: colors.primarySurface,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    quickTitle: { ...typography.bodySemibold, color: colors.textPrimary },
-    quickSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-    operatorChipsRow: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md },
+    quickTitle: {
+        ...typography.bodySemibold,
+        color: colors.textPrimary,
+        fontSize: 15,
+    },
+    quickSubtitle: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        fontSize: 11,
+        marginTop: 2,
+    },
+    operatorChipsRow: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        paddingBottom: spacing.sm,
+    },
     operatorChip: {
         paddingHorizontal: spacing.md,
-        paddingVertical: 6,
+        paddingVertical: 7,
         borderRadius: radii.full,
         borderWidth: 1,
         borderColor: colors.border,
@@ -447,109 +477,262 @@ const styles = StyleSheet.create({
         borderColor: colors.primary,
         backgroundColor: colors.primarySurface,
     },
-    operatorChipText: { ...typography.caption, color: colors.textSecondary },
-    operatorChipTextActive: { color: colors.primary, fontWeight: '700' },
-
+    operatorChipText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        fontSize: 12,
+    },
+    operatorChipTextActive: {
+        color: colors.primary,
+        fontWeight: '700',
+    },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.surface,
-        borderRadius: radii.md,
+        backgroundColor: colors.background,
+        borderRadius: radii.lg,
         borderWidth: 1,
         borderColor: colors.border,
         paddingHorizontal: spacing.md,
-        height: 48,
+        height: 50,
     },
     inputIcon: { marginRight: spacing.sm },
     textInput: {
         flex: 1,
-        ...typography.bodyMedium,
+        ...typography.body,
         color: colors.textPrimary,
         height: '100%',
     },
     clearBtn: { padding: spacing.xs },
 
+    // ── Sections & Cards ──
+    sectionContainer: {
+        marginBottom: spacing.lg,
+    },
     sectionTitle: {
         ...typography.label,
         color: colors.textSecondary,
-        marginTop: spacing.lg,
         marginBottom: spacing.sm,
         textTransform: 'uppercase',
         letterSpacing: 0.6,
     },
     connectionCard: {
-        backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.lg,
-        padding: spacing.base,
-        marginBottom: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
         ...shadows.xs,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
+    rowBetween: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    rowCenter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    iconCircle: {
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: colors.primarySurface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    titleWithSpeed: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    cardTitle: {
+        ...typography.bodySemibold,
+        color: colors.textPrimary,
+        fontSize: 15,
+    },
+    speedPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.primarySurface,
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: radii.full,
+        gap: 2,
+    },
+    speedPillText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: colors.primary,
+    },
+    cardSubtitle: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: 2,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    statusBadge: {
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 4,
+        borderRadius: radii.full,
+    },
+    statusBadgeActive: {
+        backgroundColor: '#DCFCE7',
+    },
+    statusBadgeExpired: {
+        backgroundColor: '#FEE2E2',
+    },
+    statusBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    statusBadgeTextActive: {
+        color: '#15803D',
+    },
+    statusBadgeTextExpired: {
+        color: colors.error,
+    },
+    connectionFooterRow: {
+        marginTop: spacing.md,
+        paddingTop: spacing.sm,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.divider,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    planInfoText: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        fontSize: 12,
+    },
+    rechargeActionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+    },
+    rechargeActionText: {
+        ...typography.caption,
+        color: colors.primary,
+        fontWeight: '700',
+        fontSize: 13,
+    },
+    pendingPill: {
+        marginTop: spacing.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.warningLight,
+        borderRadius: radii.md,
+        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.sm,
+        gap: spacing.xs,
+    },
+    pendingPillText: {
+        ...typography.caption,
+        color: colors.warningDark,
+        fontSize: 11,
+    },
+
+    // ── Operator Card ──
     operatorCard: {
-        backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.lg,
-        padding: spacing.base,
-        marginBottom: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
         flexDirection: 'row',
         alignItems: 'center',
         ...shadows.xs,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     operatorCardMuted: { opacity: 0.6 },
-    rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    rowCenter: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    iconCircle: {
-        width: 40, height: 40, borderRadius: radii.full,
+    bookPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 5,
+        borderRadius: radii.full,
         backgroundColor: colors.primarySurface,
-        alignItems: 'center', justifyContent: 'center',
+        gap: 2,
     },
-    cardTitle: { ...typography.h4, color: colors.textPrimary },
-    cardSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-    validityRow: {
-        marginTop: spacing.md, paddingTop: spacing.md,
-        borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.divider,
+    bookPillText: {
+        ...typography.caption,
+        color: colors.primary,
+        fontWeight: '700',
+        fontSize: 12,
     },
-    validityText: { ...typography.caption, color: colors.textSecondary },
-    pendingPill: {
-        marginTop: spacing.md, flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.warningLight, borderRadius: radii.md,
-        paddingVertical: spacing.sm, paddingHorizontal: spacing.md, gap: spacing.sm,
-    },
-    pendingPillText: { ...typography.caption, color: colors.warningDark, flex: 1 },
-    pendingCard: {
-        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-        backgroundColor: colors.warningLight, borderRadius: radii.lg,
-        padding: spacing.base, marginBottom: spacing.md,
-    },
-    pendingText: { ...typography.caption, color: colors.warningDark, flex: 1 },
-    emptyCard: {
-        backgroundColor: colors.surfaceElevated, borderRadius: radii.lg,
-        padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadows.xs,
-    },
-    emptyTitle: { ...typography.h4, color: colors.textPrimary },
-    emptyBody: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
-    historyLink: { marginTop: spacing.xl, alignItems: 'center', paddingVertical: spacing.md },
-    historyLinkText: { ...typography.bodyMedium, color: colors.primary, fontWeight: '600' },
 
-    // Modal
+    // ── Pending Cards ──
+    pendingCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFBEB',
+        borderRadius: radii.lg,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
+        borderWidth: 1,
+        borderColor: '#FDE68A',
+    },
+    pendingTitle: {
+        ...typography.bodySemibold,
+        color: '#92400E',
+        fontSize: 13,
+    },
+    pendingText: {
+        ...typography.caption,
+        color: '#B45309',
+        fontSize: 11,
+        marginTop: 1,
+    },
+
+    // ── Empty State ──
+    emptyCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.xl,
+        alignItems: 'center',
+        gap: spacing.xs,
+        ...shadows.xs,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    emptyTitle: { ...typography.bodySemibold, color: colors.textPrimary },
+    emptyBody: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
+
+    historyLink: {
+        alignItems: 'center',
+        paddingVertical: spacing.md,
+        marginTop: spacing.sm,
+    },
+    historyLinkText: {
+        ...typography.bodyMedium,
+        color: colors.primary,
+        fontWeight: '700',
+    },
+
+    // ── Modal ──
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.55)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: spacing.lg,
+        padding: spacing.xl,
     },
     modalCard: {
-        backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.xl,
+        backgroundColor: colors.surface,
+        borderRadius: radii['2xl'],
         padding: spacing.xl,
         width: '100%',
         maxWidth: 380,
         alignItems: 'center',
-        ...shadows.lg,
+        ...shadows.xl,
     },
     modalIconCircle: {
-        width: 56,
-        height: 56,
-        borderRadius: radii.full,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
         backgroundColor: '#FEF3C7',
         alignItems: 'center',
         justifyContent: 'center',

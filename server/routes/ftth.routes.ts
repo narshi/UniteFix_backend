@@ -20,7 +20,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { z } from "zod";
-import { eq, and, or, desc, asc, inArray, sql, isNull, lte, gte, ne } from "drizzle-orm";
+import { eq, and, or, desc, asc, inArray, notInArray, sql, isNull, lte, gte, ne } from "drizzle-orm";
 import { db } from "../db";
 import {
     ftthOperators,
@@ -105,6 +105,8 @@ const planSchema = z.object({
     discountRupees: z.number().min(0).max(1_000_000).optional().default(0),
     dataLimitGb: z.number().int().min(0).max(1_000_000).nullable().optional(),
     benefits: z.array(z.string().trim().max(80)).max(12).optional(),
+    isRecommended: z.boolean().optional(),
+    badgeText: z.string().trim().max(80).nullable().optional(),
     sortOrder: z.number().int().min(0).max(9999).optional(),
     isActive: z.boolean().optional(),
 });
@@ -787,6 +789,8 @@ export function registerFtthRoutes(app: Express) {
                     discountPaise: rupeesToPaise(body.discountRupees ?? 0),
                     dataLimitGb: body.dataLimitGb ?? null,
                     benefits: (body.benefits ?? null) as any,
+                    isRecommended: body.isRecommended ?? false,
+                    badgeText: body.badgeText ?? null,
                     sortOrder: body.sortOrder ?? 0,
                     isActive: body.isActive ?? true,
                 }).returning();
@@ -831,6 +835,8 @@ export function registerFtthRoutes(app: Express) {
                     ...(body.discountRupees !== undefined ? { discountPaise: rupeesToPaise(body.discountRupees) } : {}),
                     ...(body.dataLimitGb !== undefined ? { dataLimitGb: body.dataLimitGb } : {}),
                     ...(body.benefits !== undefined ? { benefits: body.benefits as any } : {}),
+                    ...(body.isRecommended !== undefined ? { isRecommended: body.isRecommended } : {}),
+                    ...(body.badgeText !== undefined ? { badgeText: body.badgeText } : {}),
                     ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
                     ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
                     updatedAt: new Date(),
@@ -2337,7 +2343,7 @@ export function registerFtthRoutes(app: Express) {
                 .innerJoin(ftthOperators, eq(ftthOperators.id, ftthConnections.operatorId))
                 .where(and(
                     eq(ftthConnections.userId, userId),
-                    ne(ftthRecharges.status, 'created'),
+                    notInArray(ftthRecharges.status, ['created', 'pending']),
                 ))
                 .orderBy(desc(ftthRecharges.createdAt))
                 .limit(100);
@@ -2399,6 +2405,8 @@ function planView(p: typeof ftthPlans.$inferSelect) {
         finalPrice: paiseToRupees(p.listPricePaise - p.discountPaise),
         dataLimitGb: p.dataLimitGb,
         benefits: (p.benefits as string[] | null) ?? [],
+        isRecommended: p.isRecommended ?? false,
+        badgeText: p.badgeText ?? null,
         sortOrder: p.sortOrder,
         isActive: p.isActive,
     };
