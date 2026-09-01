@@ -305,6 +305,16 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 {/* Service info card */}
                 <View style={styles.card}>
                     <Text style={styles.serviceType}>{assignment.serviceType.replace(/_/g, ' ')}</Text>
+
+                    {/* How many units this job covers, stated prominently rather than
+                        buried in the description. A technician who arrives at a
+                        four-camera install carrying parts for one makes a second trip,
+                        and the customer waits days for something they already paid for. */}
+                    {(assignment.quantity ?? 1) > 1 && (
+                        <View style={styles.qtyBadge}>
+                            <Text style={styles.qtyBadgeText}>{assignment.quantity} units</Text>
+                        </View>
+                    )}
                     {(assignment.brand || assignment.model) && (
                         <Text style={styles.brandText}>
                             {assignment.brand} {assignment.model ? `- ${assignment.model}` : ''}
@@ -706,6 +716,15 @@ const styles = StyleSheet.create({
     scrollContent: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     card: { backgroundColor: colors.background, borderRadius: radii.xl, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border },
     serviceType: { ...typography.h3, color: colors.textPrimary, textTransform: 'capitalize', marginBottom: spacing.xs },
+    qtyBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: colors.primarySurface,
+        borderRadius: radii.md,
+        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.sm,
+        marginBottom: spacing.sm,
+    },
+    qtyBadgeText: { ...typography.bodySemibold, color: colors.primary },
     brandText: { ...typography.body2, color: colors.primary, fontWeight: '500', marginBottom: spacing.xs },
     desc: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },

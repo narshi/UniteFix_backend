@@ -160,15 +160,28 @@ export class InvoiceGenerator {
                         });
                     }
                     if (snapshot.serviceLaborCost > 0) {
+                        // Itemise by quantity when the booking covered more than
+                        // one unit. Every line here used to be hardcoded to
+                        // quantity 1, so a two-AC job printed a single opaque
+                        // "Service Charges" figure and the customer had no way to
+                        // check the arithmetic — the one thing a tax invoice is
+                        // for. The per-unit rate is divided out of the frozen
+                        // service value rather than read from the catalog, so a
+                        // reprint years later still shows the rate that actually
+                        // applied rather than today's price.
+                        const bookedQty = Math.max(1, Number(snapshot.quantity) || 1);
+                        const laborTotal = Number(snapshot.serviceLaborCost);
                         items.push({
                             // v2 fixed-price bookings have no separate labor entry —
                             // the catalog price's service value IS the charge.
                             description: snapshot.snapshotVersion === 2
-                                ? "Service Charges (Fixed Price)"
+                                ? (bookedQty > 1
+                                    ? `${service.serviceType || "Service"} (Fixed Price)`
+                                    : "Service Charges (Fixed Price)")
                                 : "Service Labor Charges",
-                            quantity: 1,
-                            unitPrice: Number(snapshot.serviceLaborCost),
-                            total: Number(snapshot.serviceLaborCost)
+                            quantity: bookedQty,
+                            unitPrice: round2(laborTotal / bookedQty),
+                            total: laborTotal
                         });
                     }
                     if (snapshot.platformFee > 0) {

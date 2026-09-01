@@ -335,7 +335,17 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
                         </td>
                         <td className="p-4">
-                          <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceType || 'General'}</p>
+                          <p className="font-medium text-[hsl(210,20%,90%)]">
+                            {service.serviceType || 'General'}
+                            {/* Only when it is more than one. A "Qty 1" badge on every
+                                row is noise that trains people to stop reading the badge
+                                at all, which defeats the point of having it. */}
+                            {service.quantity > 1 && (
+                              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[hsla(217,91%,60%,0.15)] text-[hsl(217,91%,72%)] border border-[hsla(217,91%,60%,0.3)]">
+                                Qty {service.quantity}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5 line-clamp-1 max-w-[150px]">{service.description}</p>
                         </td>
                         <td className="p-4">
@@ -469,7 +479,12 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                   </div>
                   <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                     <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service Type</p>
-                    <p className="text-base text-white">{selectedService.serviceType || 'General'}</p>
+                    <p className="text-base text-white">
+                      {selectedService.serviceType || 'General'}
+                      {selectedService.quantity > 1 && (
+                        <span className="ml-2 text-[hsl(217,91%,72%)]">x {selectedService.quantity} units</span>
+                      )}
+                    </p>
                   </div>
                   <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                     <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee Status</p>

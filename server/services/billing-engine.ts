@@ -59,6 +59,17 @@ export interface PricingSnapshot {
   extraPartsCost?: number;     // customer-approved parts add-on (pass-through to technician)
   partsNote?: string;          // what the extra parts were for
 
+  /**
+   * How the listPrice was arrived at: unitPrice x quantity.
+   *
+   * METADATA ONLY — nothing here is an input to the arithmetic. The caller
+   * multiplies before calling, so every bucket below already scales correctly
+   * and this exists so the invoice can print "2 x Rs.499" instead of one opaque
+   * line, and so a reprint years later still shows the rate that applied.
+   */
+  unitPrice?: number;
+  quantity?: number;
+
   // Metadata
   snapshotVersion: number;    // 1 = technician-billed · 2 = fixed-price catalog
   createdAt: string;          // ISO timestamp of snapshot creation
@@ -131,6 +142,34 @@ export class BillingEngine {
    * The four buckets (gst + platformFee + bookingCharge + technicianEarning)
    * sum back to P. Verified: 799 → 143.82 + 95.88 + 99 + 460.30.
    */
+/**
+   * A catalog booking for N units — 2 ACs, 4 CCTV cameras, 3 fan points.
+   *
+   * Deliberately a WRAPPER rather than a quantity parameter on
+   * createCatalogSnapshot. That function takes one number and carves GST, the
+   * platform fee, the discount and the technician's earning out of it; feeding
+   * it a total that is already unitPrice x quantity makes every one of those
+   * buckets scale correctly with no change to the arithmetic at all. Putting a
+   * multiplication inside it would add a second way to get the money wrong in
+   * the one function that must never be wrong.
+   *
+   * unitPrice and quantity ride along as frozen metadata so the invoice can
+   * itemise "2 x Rs.499" — they are never read back as inputs.
+   *
+   * NOTE the booking fee does not scale; see createCatalogSnapshot for why.
+   */
+  static async createCatalogSnapshotForQuantity(
+    unitPrice: number,
+    quantity: number,
+  ): Promise<PricingSnapshot> {
+    // Clamped to match the CHECK constraint on service_requests.quantity. A
+    // snapshot is immutable once written, so a bad quantity reaching here is
+    // frozen onto the booking permanently.
+    const qty = Math.max(1, Math.min(50, Math.floor(quantity) || 1));
+    const snapshot = await this.createCatalogSnapshot(unitPrice * qty);
+    return { ...snapshot, unitPrice, quantity: qty };
+  }
+
   static async createCatalogSnapshot(basePrice: number): Promise<PricingSnapshot> {
     const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
@@ -163,6 +202,16 @@ export class BillingEngine {
     // 18%. The correct extraction is ₹121.88 on a taxable ₹677.12.
     const gstOnList = round2(listPrice * gstPercent / (100 + gstPercent));
     const feeOnList = round2(listPrice * platformFeePercent / 100);
+
+    // THE BOOKING FEE IS DEDUCTED ONCE, NOT PER UNIT — and that is correct.
+    //
+    // It pays for one visit, and one visit services two air conditioners just
+    // as it services one. So a technician's earning is NOT Q x (single-unit
+    // earning): at qty 2 they keep Rs.99 more than double, at qty 3 Rs.198 more.
+    //
+    // Written down because it looks like a bug to anyone comparing the two
+    // numbers, and "fixing" it by scaling bookingFee with quantity would quietly
+    // cut technician pay by Rs.99 for every extra unit they service.
     const technicianEarning = round2(listPrice - gstOnList - feeOnList - bookingFee);
 
     // The customer-facing total stays a WHOLE RUPEE, as it was before discounts

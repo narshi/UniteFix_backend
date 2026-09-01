@@ -54,6 +54,9 @@ export function registerPaymentRoutes(app: Express) {
             // front, so there is no later bill-submission step. Falls back to the v1
             // (technician-billed) snapshot when no priced catalog service is given,
             // so old app builds keep working unchanged.
+            // See routes.ts: clamped, not trusted.
+            const quantity = Math.max(1, Math.min(50, Math.floor(Number(req.body?.quantity)) || 1));
+
             let pricingSnapshot = await BillingEngine.createBookingSnapshot();
             let catalogTotal: number | null = null;
             let catalogCommission: number | null = null;
@@ -62,7 +65,7 @@ export function registerPaymentRoutes(app: Express) {
                 const [svc] = await db.select({ basePrice: services.basePrice })
                     .from(services).where(eq(services.id, Number(serviceId))).limit(1);
                 if (svc && svc.basePrice > 0) {
-                    pricingSnapshot = await BillingEngine.createCatalogSnapshot(svc.basePrice);
+                    pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity);
                     catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
                     catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
                 }

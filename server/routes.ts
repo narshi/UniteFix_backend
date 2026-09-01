@@ -2312,6 +2312,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // FIXED-PRICE CATALOG (v2): if the client picked a catalog service with a
       // set price, freeze the whole bill now. Otherwise fall back to the v1
       // (technician-billed) snapshot so older app builds keep working.
+      // How many units this booking covers. Clamped here rather than trusted:
+      // the stepper is a client control, and the snapshot written below is
+      // immutable once frozen onto the row.
+      const quantity = Math.max(1, Math.min(50, Math.floor(Number(req.body?.quantity)) || 1));
+
       let pricingSnapshot = await BillingEngine.createBookingSnapshot();
       let catalogTotal: number | null = null;
       let catalogCommission: number | null = null;
@@ -2320,7 +2325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [svc] = await db.select({ basePrice: servicesCatalog.basePrice })
           .from(servicesCatalog).where(eq(servicesCatalog.id, catalogServiceId)).limit(1);
         if (svc && svc.basePrice > 0) {
-          pricingSnapshot = await BillingEngine.createCatalogSnapshot(svc.basePrice);
+          pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity);
           catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
           catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
         }
@@ -2338,6 +2343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.update(serviceRequests)
         .set({
           pricingSnapshot: pricingSnapshot as any,
+          quantity,
           ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
           ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
         })

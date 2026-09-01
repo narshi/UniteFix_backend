@@ -110,8 +110,18 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     // The server bills from the pricing snapshot, which already has the discount
     // carved in. Quoting the raw catalog price here meant showing one number and
     // charging another.
-    const discount = applyDiscount(basePrice, publicConfig);
+    // Units this booking covers — 2 ACs, 4 cameras, 3 fan points.
+    // Capped at 50 to match the CHECK constraint on service_requests.quantity;
+    // the server clamps independently, this is only so the stepper cannot ask
+    // for something the server will refuse.
+    const MAX_QUANTITY = 50;
+    const [quantity, setQuantity] = useState(1);
+
+    const discount = applyDiscount(basePrice * quantity, publicConfig);
     const payable = discount.payable;
+    // The booking fee is per VISIT, not per unit — one trip services two ACs.
+    // It must not scale with quantity here, or the app would quote a number the
+    // server never charges.
     const finalAfterBooking = Math.max(0, payable - bookingFee);
 
     // Get device GPS location on mount for geofence support
@@ -251,6 +261,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     urgency,
                                     customerLocation: `POINT(${selectedAddress!.long} ${selectedAddress!.lat})`,
                                     catalogServiceId: serviceId,
+                                    quantity,
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -351,9 +362,42 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                 {/* Fixed-price summary */}
                 {isFixedPrice && (
                     <View style={styles.priceCard}>
+                        {/* Stepper first, then the total it produces — the number
+                            has to visibly answer the control above it. */}
+                        <View style={styles.qtyRow}>
+                            <View>
+                                <Text style={styles.priceLabel}>Quantity</Text>
+                                <Text style={styles.qtyUnitNote}>₹{basePrice} each</Text>
+                            </View>
+                            <View style={styles.stepper}>
+                                <TouchableOpacity
+                                    style={[styles.stepperBtn, quantity <= 1 && styles.stepperBtnDisabled]}
+                                    onPress={() => setQuantity(q => Math.max(1, q - 1))}
+                                    disabled={quantity <= 1}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                    <Text style={[styles.stepperSign, quantity <= 1 && styles.stepperSignDisabled]}>−</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.stepperValue}>{quantity}</Text>
+                                <TouchableOpacity
+                                    style={[styles.stepperBtn, quantity >= MAX_QUANTITY && styles.stepperBtnDisabled]}
+                                    onPress={() => setQuantity(q => Math.min(MAX_QUANTITY, q + 1))}
+                                    disabled={quantity >= MAX_QUANTITY}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                    <Text style={[styles.stepperSign, quantity >= MAX_QUANTITY && styles.stepperSignDisabled]}>+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        <View style={styles.priceDivider} />
                         <View style={styles.priceRow}>
                             <Text style={styles.priceLabel}>Total price</Text>
-                            <Text style={styles.priceTotal}>₹{basePrice}</Text>
+                            <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={styles.priceTotal}>₹{basePrice * quantity}</Text>
+                                {quantity > 1 && (
+                                    <Text style={styles.qtyUnitNote}>{quantity} × ₹{basePrice}</Text>
+                                )}
+                            </View>
                         </View>
                         <View style={styles.priceDivider} />
                         <View style={styles.priceRow}>
@@ -552,6 +596,19 @@ const styles = StyleSheet.create({
         backgroundColor: colors.divider,
         marginVertical: spacing.sm,
     },
+    qtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    qtyUnitNote: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+    stepperBtn: {
+        width: 36, height: 36, borderRadius: radii.full,
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: colors.primarySurface,
+        borderWidth: 1, borderColor: colors.primaryLight,
+    },
+    stepperBtnDisabled: { backgroundColor: colors.surface, borderColor: colors.border },
+    stepperSign: { ...typography.h3, color: colors.primary, lineHeight: 24 },
+    stepperSignDisabled: { color: colors.textDisabled },
+    stepperValue: { ...typography.h3, color: colors.textPrimary, minWidth: 24, textAlign: 'center' },
     priceSubLabel: {
         ...typography.body,
         color: colors.textSecondary,
