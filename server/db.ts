@@ -76,6 +76,57 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS ftth_conn_user_operator_idx ON ftth_connections (user_id, operator_id);
     `);
 
+    // 5. Quantity on a booking — 2 ACs, 4 CCTV cameras, 3 fan points.
+    //
+    // DEFAULT 1 NOT NULL, deliberately: every booking made before this column
+    // existed was one unit, and backfilling them to that is the truth rather
+    // than a guess. A nullable column would leave every invoice, job card and
+    // admin row deciding for itself what null meant.
+    //
+    // The CHECK is not paranoia — the stepper is a client control, and nothing
+    // else stops a crafted request booking 9,999 air conditioners and freezing
+    // a five-lakh-rupee snapshot onto a job nobody can do.
+    await client.query(`
+      ALTER TABLE service_requests
+      ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'service_requests_quantity_sane'
+        ) THEN
+          ALTER TABLE service_requests
+          ADD CONSTRAINT service_requests_quantity_sane
+          CHECK (quantity >= 1 AND quantity <= 50);
+        END IF;
+      END $$;
+    `);
+
+    // 6. Plan recommendation badge for annual packs / best value push
+    await client.query(`
+      ALTER TABLE ftth_plans
+      ADD COLUMN IF NOT EXISTS is_recommended BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS badge_text TEXT;
+    `);
+
+    // 7. employees.negative_balance_flag
+    //
+    // NOT this feature's column — it was added to shared/schema.ts without a
+    // matching migration, so the column did not exist while Drizzle selected it
+    // on every employees query. That is not a narrow failure: db.select().from(
+    // employees) names every mapped column, so partner profile, payouts, wallet
+    // and assignment all returned 500 until this was added.
+    //
+    // Added here rather than left to whoever owns the feature because an
+    // additive nullable boolean cannot conflict with their work, and the
+    // alternative was shipping a schema that breaks on contact with the
+    // database.
+    await client.query(`
+      ALTER TABLE employees
+      ADD COLUMN IF NOT EXISTS negative_balance_flag BOOLEAN DEFAULT FALSE;
+    `);
+
     console.log('[DB] Startup schema migrations verified successfully');
   } catch (err: any) {
     console.error('[DB] Startup migration error:', err.message);

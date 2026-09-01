@@ -184,6 +184,7 @@ export const employees = pgTable("employees", {
   partnerType: text("partner_type").default('Individual'),
   businessName: text("business_name"),
   walletBalance: decimal("wallet_balance", { precision: 10, scale: 2 }).default('0'),
+  negativeBalanceFlag: boolean("negative_balance_flag").default(false),
   skills: json("skills").$type<string[]>(),
   services: text("services").array(),
   // Location — stored as text for Drizzle compat; raw SQL uses geometry(Point, 4326)
@@ -217,6 +218,19 @@ export const serviceRequests = pgTable("service_requests", {
   // The catalog service the customer selected — lets admin show its category and
   // exact service name (serviceType is only a free-text copy of the name).
   catalogServiceId: integer("catalog_service_id"),
+  /**
+   * How many units of the catalog service this booking covers — 2 ACs, 4 CCTV
+   * cameras, 3 fan points. Priced as unitPrice x quantity.
+   *
+   * NOT NULL DEFAULT 1 so every booking made before this column existed reads
+   * as one unit, which is what they were. Nullable would leave every invoice,
+   * job card and admin row deciding for itself what null meant.
+   *
+   * One quantity against one catalogServiceId expresses "2 ACs". It cannot
+   * express "2 ACs AND 1 fan" — that needs line items, and when mixed bookings
+   * arrive this column moves into that table rather than growing sideways.
+   */
+  quantity: integer("quantity").notNull().default(1),
   brand: text("brand"),
   model: text("model"),
   description: text("description").notNull(),
@@ -1747,6 +1761,8 @@ export const ftthPlans = pgTable("ftth_plans", {
   discountPaise: integer("discount_paise").notNull().default(0),
   dataLimitGb: integer("data_limit_gb"),                   // null = unlimited / no FUP
   benefits: jsonb("benefits"),                             // ["OTT pack", "Free installation"]
+  isRecommended: boolean("is_recommended").notNull().default(false), // Admin/Operator push to 1-Year/Best Value
+  badgeText: text("badge_text"),                           // e.g. "Recommended", "Best Value • Save ₹1,800"
   sortOrder: integer("sort_order").notNull().default(0),
   // Plans are SOFT-deleted only — ftth_recharges holds an FK to them.
   isActive: boolean("is_active").notNull().default(true),
