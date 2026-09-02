@@ -85,6 +85,7 @@ const RULES: Rule[] = [
     { test: /^\/users(\/|$)/, area: 'customers' },
 
     // --- Operations -------------------------------------------------------
+    { test: /^\/warranty-claims(\/|$)/, area: 'bookings' },
     { test: /^\/tickets(\/|$)/, area: 'support' },
     { test: /^\/inventory(\/|$)/, area: 'inventory' },
     { test: /^\/products(\/|$)/, area: 'orders' },

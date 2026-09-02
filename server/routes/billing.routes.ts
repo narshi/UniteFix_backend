@@ -23,6 +23,10 @@ import { authenticatePartner, authenticateToken, authenticateAny, requireVerifie
 import { BookingState, validateStateTransition } from '../business/booking-state-machine';
 import { PaymentService } from '../services/payment.service';
 import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
+import {
+    recordPartItems, resolvePartItem, partsTotalPaise, synthesiseFromLumpSum,
+    type PartItemInput,
+} from '../services/warranty.service';
 import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 
@@ -145,6 +149,21 @@ export function registerBillingRoutes(app: Express) {
                 .where(eq(serviceRequests.id, bookingId))
                 .returning();
 
+            // The other write path for parts. This one declares a lump
+            // sparePartsCost; itemise it when the app sent line items, and record an
+            // honest undocumented line when it did not. Missing this path was how
+            // half the parts kept leaking after the first fix.
+            if (parts > 0) {
+                try {
+                    const submitted: PartItemInput[] = Array.isArray(req.body?.partItems) && req.body.partItems.length
+                        ? req.body.partItems.slice(0, 40)
+                        : synthesiseFromLumpSum(parts, req.body?.partsNote);
+                    await recordPartItems(bookingId, submitted, partnerId ?? null);
+                } catch (partsErr: any) {
+                    logger.error(`[PARTS] Failed to record parts on SR #${bookingId}: ${partsErr?.message}`);
+                }
+            }
+
             logger.info(`[BILLING] Bill submitted for booking ${bookingId}: parts=₹${parts}, labor=₹${labor}, grossTotal=₹${billedSnapshot.grossTotal}, finalDue=₹${billedSnapshot.finalTotal}`);
 
             // The expert is standing there waiting to be paid — the customer needs
@@ -177,13 +196,29 @@ export function registerBillingRoutes(app: Express) {
      * Optional body { extraPartsCost, partsNote }: a customer-approved parts add-on
      * that is passed straight through to the technician (added to the balance due
      * and to the technician's earning). Transitions: IN_PROGRESS → PENDING_PAYMENT.
+     *
+     * Optional body { partItems: [...] }: itemised parts with provenance. When
+     * present these are AUTHORITATIVE — the add-on charge is derived from their
+     * sum rather than read from extraPartsCost, so the invoice can never disagree
+     * with what was charged. An older build sending only the lump sum still gets
+     * a real record: one honest line, marked local and undocumented.
      */
     app.post('/api/bookings/:id/request-payment', authenticatePartner, requireVerifiedPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const bookingId = parseInt(req.params.id);
             const partnerId = (req as any).partner?.partnerId;
-            const extraPartsCost = Math.max(0, Math.round(parseFloat(req.body?.extraPartsCost) || 0));
+            const rawItems: PartItemInput[] = Array.isArray(req.body?.partItems) ? req.body.partItems.slice(0, 40) : [];
             const partsNote = typeof req.body?.partsNote === 'string' ? req.body.partsNote.trim().slice(0, 500) : '';
+
+            // Line items win when given. Otherwise fall back to the lump sum, and
+            // synthesise a line from it so a charged job never has an empty parts
+            // record — an empty record reads as "no parts fitted", which is how
+            // this whole problem started.
+            const resolvedItems = rawItems.length
+                ? rawItems.map(r => resolvePartItem(r))
+                : synthesiseFromLumpSum(Math.max(0, parseFloat(req.body?.extraPartsCost) || 0), partsNote)
+                    .map(r => resolvePartItem(r));
+            const extraPartsCost = Math.round(partsTotalPaise(resolvedItems) / 100);
 
             const [booking] = await db.select().from(serviceRequests)
                 .where(eq(serviceRequests.id, bookingId)).limit(1);
@@ -236,8 +271,19 @@ export function registerBillingRoutes(app: Express) {
                 .where(eq(serviceRequests.id, bookingId))
                 .returning();
 
+            // Provenance for every part fitted. Written after the booking update so
+            // a parts-recording failure can never strand a job that has already
+            // moved to PENDING_PAYMENT — the money must not depend on the paperwork.
+            if (resolvedItems.length) {
+                try {
+                    await recordPartItems(bookingId, rawItems.length ? rawItems : synthesiseFromLumpSum(extraPartsCost, partsNote), partnerId ?? null);
+                } catch (partsErr: any) {
+                    logger.error(`[PARTS] Failed to record parts on SR #${bookingId}: ${partsErr?.message}`);
+                }
+            }
+
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
-                (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts)` : ''));
+                (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts, ${resolvedItems.length} line(s))` : ''));
 
             void BookingNotifications.billSubmitted(bookingId, updatedSnapshot.finalTotal ?? 0);
 
