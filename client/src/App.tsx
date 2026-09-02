@@ -31,6 +31,7 @@ import CategoryExpertisePage from "@/pages/admin/category-expertise";
 import FtthOperatorsPage from "@/pages/admin/ftth-operators";
 import FtthOperatorDetailPage from "@/pages/admin/ftth-operator-detail";
 import EmployeeDetailPage from "@/pages/admin/employee-detail";
+import WarrantyClaimsPage from "@/pages/admin/warranty-claims";
 import OperatorLayout from "@/layouts/OperatorLayout";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -257,6 +258,7 @@ function Router() {
           <Route path="/admin/districts"><Gate capability="locations:view" component={DistrictsPage} /></Route>
           <Route path="/admin/inventory"><Gate capability="inventory:view" component={InventoryPage} /></Route>
           <Route path="/admin/withdrawals"><Gate capability="withdrawals:view" component={WithdrawalsPage} /></Route>
+          <Route path="/admin/warranty-claims"><Gate capability="bookings:view" component={WarrantyClaimsPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>
           <Route path="/admin/admins"><Gate capability="accounts:view" component={AdminsPage} /></Route>

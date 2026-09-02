@@ -28,6 +28,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Employees", href: "/partners", icon: "handyman", capability: "employees:view" },
   { name: "Payments & Invoices", href: "/payments", icon: "payment", capability: "payments:view" },
   { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance", capability: "withdrawals:view" },
+  { name: "Warranty Claims", href: "/admin/warranty-claims", icon: "verified_user", capability: "bookings:view" },
   { name: "Marketing Push", href: "/admin/marketing", icon: "campaign", capability: "marketing:view" },
   { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", capability: "audit:view" },
   { name: "Districts", href: "/admin/districts", icon: "map", capability: "locations:view" },

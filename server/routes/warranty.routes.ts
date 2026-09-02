@@ -46,7 +46,7 @@ export function registerWarrantyRoutes(app: Express) {
             const userId = (req as any).user?.userId ?? (req as any).user?.id;
             const partnerId = (req as any).partner?.partnerId;
             const isOwner = userId && booking.userId === userId;
-            const isAssigned = partnerId && (booking as any).employeeId === partnerId;
+            const isAssigned = partnerId && (booking as any).providerId === partnerId;
             if (!isOwner && !isAssigned) {
                 return res.status(403).json({ success: false, message: 'This is not your booking' });
             }
@@ -144,7 +144,10 @@ export function registerWarrantyRoutes(app: Express) {
         try {
             const claimId = parseInt(req.params.id);
             const verdict = String(req.body?.verdict ?? '') as Verdict;
-            const inspectedBy = parseInt(req.body?.inspectedBy) || 0;
+            // Whoever is signed in, not whoever the client claims. A settled claim
+            // is the record of a decision, and a decision with no author is not
+            // auditable later — which is the point of recording it at all.
+            const inspectedBy = (req as any).admin?.userId ?? 0;
 
             if (!VERDICTS.includes(verdict)) {
                 return res.status(400).json({

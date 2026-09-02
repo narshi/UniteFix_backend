@@ -231,6 +231,37 @@ if (process.env.DATABASE_URL) {
         check('re-recording REPLACES rather than appends',
             rows.length === 1 && rows[0].quantity === 1,
             `${rows.length} row(s) after correction — appending would double the bill`);
+
+        // ── the claim round trip the admin screen depends on ────────────────
+        const { createClaim, listClaims, settleClaim } = await import('../server/services/warranty.service');
+
+        // An undocumented local part: nobody to recover from, so it should route
+        // to the technician and the screen should say so before anyone commits.
+        await recordPartItems(srId!, [{ partName: 'Fan capacitor', unitPriceRupees: 450 }], null);
+        const [bare] = await getPartItems(srId!);
+        const claim = await createClaim({
+            serviceRequestId: srId!, partItemId: bare.id, raisedByUserId: userId!,
+            description: 'Stopped working after six weeks',
+        });
+        check('a claim can be raised against a recorded part', !!claim?.claimId, claim?.claimId);
+
+        const listed = await listClaims({ serviceRequestId: srId! });
+        const row: any = listed.find((r: any) => r.claim.id === claim.id);
+        check('the admin list joins in the customer, the job and the part',
+            !!row && row.customerName === 'QA Warranty' && !!row.booking?.serviceId && row.part?.partName === 'Fan capacitor',
+            row ? `${row.customerName} / ${row.booking?.serviceId} / ${row.part?.partName}` : 'claim not listed');
+        check('the list projects who WOULD pay, before a verdict is chosen',
+            row?.wouldRoute?.part_failed === 'technician',
+            `undocumented local → ${row?.wouldRoute?.part_failed}`);
+
+        const settled = await settleClaim(claim.id, 'part_failed', 0, 'Capacitor bulged.');
+        check('settling routes the cost without anyone choosing a bearer',
+            settled?.costBearer === 'technician' && settled?.status === 'resolved',
+            `${settled?.verdict} → ${settled?.costBearer}`);
+
+        const openOnly = await listClaims({ status: 'open' });
+        check('a settled claim leaves the open queue',
+            !openOnly.some((r: any) => r.claim.id === claim.id));
     } catch (err: any) {
         check('persistence checks ran', false, err.message);
     } finally {

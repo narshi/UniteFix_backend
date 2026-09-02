@@ -27,7 +27,7 @@
 
 import { db } from '../db';
 import { and, eq, desc } from 'drizzle-orm';
-import { servicePartItems, warrantyClaims, serviceRequests } from '@shared/schema';
+import { servicePartItems, warrantyClaims, serviceRequests, users } from '@shared/schema';
 import logger from '../lib/logger';
 
 export type PartSource = 'platform' | 'approved_vendor' | 'technician_local' | 'customer_supplied';
@@ -424,10 +424,65 @@ export async function settleClaim(claimId: number, verdict: Verdict, inspectedBy
     return updated;
 }
 
+/**
+ * Claims with the context needed to act on one.
+ *
+ * Joined here rather than fetched per row by the screen: an admin deciding a
+ * verdict needs the customer, the job, the part and who supplied it in front of
+ * them, and a list that made a request per claim to assemble that would be slow
+ * and would still leave the sourcing — the fact the whole decision turns on —
+ * one more click away.
+ */
 export async function listClaims(filter?: { status?: string; serviceRequestId?: number }) {
     const where = [] as any[];
     if (filter?.status) where.push(eq(warrantyClaims.status, filter.status as any));
     if (filter?.serviceRequestId) where.push(eq(warrantyClaims.serviceRequestId, filter.serviceRequestId));
-    const q = db.select().from(warrantyClaims).orderBy(desc(warrantyClaims.createdAt)).limit(200);
-    return where.length ? q.where(and(...where)) : q;
+
+    const q = db
+        .select({
+            claim: warrantyClaims,
+            booking: {
+                serviceId: serviceRequests.serviceId,
+                serviceType: serviceRequests.serviceType,
+                address: serviceRequests.address,
+                providerId: serviceRequests.providerId,
+            },
+            customerName: users.username,
+            customerPhone: users.phone,
+            part: {
+                id: servicePartItems.id,
+                partName: servicePartItems.partName,
+                brand: servicePartItems.brand,
+                sourceType: servicePartItems.sourceType,
+                vendorName: servicePartItems.vendorName,
+                isDocumented: servicePartItems.isDocumented,
+                warrantyBacker: servicePartItems.warrantyBacker,
+                warrantyExpiresAt: servicePartItems.warrantyExpiresAt,
+                unitPricePaise: servicePartItems.unitPricePaise,
+                quantity: servicePartItems.quantity,
+                billPhotoUrl: servicePartItems.billPhotoUrl,
+            },
+        })
+        .from(warrantyClaims)
+        .leftJoin(serviceRequests, eq(serviceRequests.id, warrantyClaims.serviceRequestId))
+        .leftJoin(users, eq(users.id, warrantyClaims.raisedByUserId))
+        .leftJoin(servicePartItems, eq(servicePartItems.id, warrantyClaims.partItemId))
+        .orderBy(desc(warrantyClaims.createdAt))
+        .limit(200);
+
+    const rows = await (where.length ? q.where(and(...where)) : q);
+
+    // The verdict each row WOULD route to, shown before anyone commits to it, so
+    // the consequence of a choice is visible at the point of making it.
+    return rows.map(r => ({
+        ...r,
+        wouldRoute: r.part
+            ? {
+                part_failed: routeCost('part_failed', {
+                    sourceType: r.part.sourceType as PartSource,
+                    isDocumented: r.part.isDocumented,
+                }),
+            }
+            : { part_failed: 'unitefix' as CostBearer },
+    }));
 }
