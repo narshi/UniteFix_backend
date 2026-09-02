@@ -272,7 +272,7 @@ export function MapAddressPickerScreen() {
                 await useAuthStore.getState().refreshOnboardingStatus();
             } else {
                 const profileRes = await customerApi.getProfile();
-                const existing: SavedAddress[] = profileRes.data?.savedAddresses || [];
+                const existing: SavedAddress[] = profileRes.data?.data?.savedAddresses || [];
                 const editIdx = route.params?.editAddressIndex;
 
                 let updated: SavedAddress[];

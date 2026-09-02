@@ -581,7 +581,7 @@ const styles = StyleSheet.create({
         width: '100%',
         maxWidth: 380,
         backgroundColor: colors.surface,
-        borderRadius: radii.2xl,
+        borderRadius: radii['2xl'],
         padding: spacing.xl,
         ...shadows.lg,
     },

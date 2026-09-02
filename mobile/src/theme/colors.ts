@@ -27,6 +27,7 @@ export const colors = {
     // Text
     textPrimary: '#0F172A',
     textSecondary: '#64748B',
+    textTertiary: '#94A3B8',   // between secondary and disabled — used by FTTH + wallet
     textDisabled: '#CBD5E1',
     textInverse: '#FFFFFF',
     textAccent: '#4F46E5',
