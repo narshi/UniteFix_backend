@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { configService } from "./config.service";
+import { getPartItems, backerLabel } from "./warranty.service";
+import logger from "../lib/logger";
 
 // Define strict types for invoice data
 interface InvoiceData {
@@ -32,6 +34,15 @@ interface InvoiceData {
     otherCharges: number;
     otherChargesLabel: string;
     otherChargesNote: string;
+    /**
+     * One line per part fitted, naming WHO backs it.
+     *
+     * The backer is printed because printing "UniteFix" over a part we did not
+     * supply would be assuming a warranty we never agreed to — on our own
+     * letterhead, in a document a consumer forum would read as our undertaking.
+     * Where a local shop backs it, the invoice says so and names the shop.
+     */
+    warrantyLines: Array<{ label: string; backedBy: string; until: string | null }>;
     total: number;
     advancePaid: number;
     status: string;
@@ -275,6 +286,35 @@ export class InvoiceGenerator {
             }
         }
 
+        // Parts provenance, if this job recorded any. These replace the single
+        // opaque "Approved Spare Parts" figure with a line per part, and supply
+        // the warranty block printed under the totals. A customer who can read
+        // what was fitted and who stands behind it does not have to ring us to
+        // find out three months later.
+        const warrantyLines: InvoiceData['warrantyLines'] = [];
+        if (invoice.serviceRequestId) {
+            try {
+                const partRows = await getPartItems(invoice.serviceRequestId);
+                if (partRows.length) {
+                    approvedPartsNote = partRows
+                        .map(p => `${p.partName}${p.quantity > 1 ? ` x${p.quantity}` : ''}`)
+                        .join(', ').slice(0, 120);
+                    for (const p of partRows) {
+                        warrantyLines.push({
+                            label: `${p.partName}${p.quantity > 1 ? ` x${p.quantity}` : ''}`,
+                            backedBy: backerLabel(p.warrantyBacker as any, p.vendorName),
+                            until: p.warrantyExpiresAt
+                                ? new Date(p.warrantyExpiresAt).toLocaleDateString('en-IN')
+                                : null,
+                        });
+                    }
+                }
+            } catch (err: any) {
+                // An invoice must still print if the parts lookup fails.
+                logger.warn(`[INVOICE] Could not load parts for SR #${invoice.serviceRequestId}: ${err?.message}`);
+            }
+        }
+
         const taxableAmount = Number(invoice.baseAmount || 0);
         const cgst = Number(invoice.cgst || 0);
         const sgst = Number(invoice.sgst || 0);
@@ -331,6 +371,7 @@ export class InvoiceGenerator {
             otherCharges,
             otherChargesLabel,
             otherChargesNote: approvedPartsCost > 0 ? approvedPartsNote.slice(0, 80) : "",
+            warrantyLines,
             total,
             // The booking fee is an ADVANCE inside the total, not an extra
             // charge — shown so the paid amounts reconcile: advance + balance = total.
@@ -502,6 +543,36 @@ export class InvoiceGenerator {
                 doc.fontSize(8).font("Helvetica")
                     .text(`Approved spare parts: ${data.otherChargesNote}`, 50, y, { width: 400 });
                 doc.font("Helvetica-Bold").fontSize(12);
+            }
+
+            // ── Warranty ───────────────────────────────────────────────────
+            // Our own guarantee on the work, then each part and who backs it.
+            // Naming the backer is the whole point: it is the difference between
+            // telling the customer what they have and quietly underwriting a
+            // local shop's paper card in our own name.
+            if (data.warrantyLines.length > 0) {
+                y += 26;
+                doc.fontSize(9).font("Helvetica-Bold").text("Warranty", 50, y);
+                y += 13;
+                doc.fontSize(8).font("Helvetica")
+                    .text("Our workmanship on this job is guaranteed for 30 days by UniteFix.", 50, y, { width: 500 });
+                y += 12;
+
+                for (const w of data.warrantyLines) {
+                    const cover = w.until
+                        ? `${w.backedBy} — until ${w.until}`
+                        : `${w.backedBy}`;
+                    doc.fontSize(8).font("Helvetica")
+                        .text(`• ${w.label}: ${cover}`, 56, y, { width: 494 });
+                    y += 11;
+                }
+
+                y += 2;
+                doc.fontSize(7.5).font("Helvetica-Oblique")
+                    .text("Raise any warranty issue with UniteFix and we will handle the claim for you, "
+                        + "including with the supplying vendor.", 50, y, { width: 500 });
+                doc.font("Helvetica-Bold").fontSize(12);
+                y += 6;
             }
 
             // Payment reconciliation — the booking fee is an advance credited
