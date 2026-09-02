@@ -127,6 +127,85 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS negative_balance_flag BOOLEAN DEFAULT FALSE;
     `);
 
+    // 8. Spare parts provenance and warranty claims.
+    //
+    // The enums are created defensively: CREATE TYPE has no IF NOT EXISTS, and a
+    // startup migration that throws on the second boot is worse than useless.
+    const enums: Array<[string, string[]]> = [
+      ['part_source_type', ['platform', 'approved_vendor', 'technician_local', 'customer_supplied']],
+      ['warranty_backer', ['unitefix', 'vendor', 'manufacturer', 'none']],
+      ['warranty_claim_status', ['open', 'inspecting', 'resolved', 'rejected']],
+      ['warranty_verdict', ['workmanship_fault', 'part_failed', 'customer_damage', 'out_of_warranty', 'unrelated']],
+      ['warranty_cost_bearer', ['unitefix', 'vendor', 'technician', 'customer']],
+    ];
+    for (const [name, values] of enums) {
+      const labels = values.map(v => `'${v}'`).join(', ');
+      await client.query(
+        `DO ${'$do$'} BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '${name}') THEN
+             CREATE TYPE ${name} AS ENUM (${labels});
+           END IF;
+         END ${'$do$'};`
+      );
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS service_part_items (
+        id SERIAL PRIMARY KEY,
+        service_request_id INTEGER NOT NULL REFERENCES service_requests(id),
+        part_name TEXT NOT NULL,
+        brand TEXT,
+        category TEXT,
+        source_type part_source_type NOT NULL DEFAULT 'technician_local',
+        vendor_name TEXT,
+        vendor_id INTEGER,
+        unit_price_paise INTEGER NOT NULL DEFAULT 0,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        warranty_days INTEGER NOT NULL DEFAULT 0,
+        warranty_backer warranty_backer NOT NULL DEFAULT 'none',
+        vendor_bill_date TIMESTAMP,
+        installed_at TIMESTAMP,
+        warranty_starts_at TIMESTAMP,
+        warranty_expires_at TIMESTAMP,
+        bill_photo_url TEXT,
+        serial_number TEXT,
+        is_documented BOOLEAN NOT NULL DEFAULT FALSE,
+        recorded_by INTEGER,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS service_part_items_service_idx ON service_part_items (service_request_id);
+      CREATE INDEX IF NOT EXISTS service_part_items_expiry_idx  ON service_part_items (warranty_expires_at);
+      CREATE INDEX IF NOT EXISTS service_part_items_source_idx  ON service_part_items (source_type);
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS warranty_claims (
+        id SERIAL PRIMARY KEY,
+        claim_id TEXT NOT NULL UNIQUE,
+        service_request_id INTEGER NOT NULL REFERENCES service_requests(id),
+        part_item_id INTEGER REFERENCES service_part_items(id),
+        raised_by_user_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        status warranty_claim_status NOT NULL DEFAULT 'open',
+        verdict warranty_verdict,
+        verdict_notes TEXT,
+        cost_bearer warranty_cost_bearer,
+        inspected_by INTEGER,
+        inspected_at TIMESTAMP,
+        resolution_service_request_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        resolved_at TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS warranty_claims_service_idx ON warranty_claims (service_request_id);
+      CREATE INDEX IF NOT EXISTS warranty_claims_status_idx  ON warranty_claims (status);
+    `);
+
     console.log('[DB] Startup schema migrations verified successfully');
   } catch (err: any) {
     console.error('[DB] Startup migration error:', err.message);

@@ -1946,3 +1946,143 @@ export type FtthIdRequest = typeof ftthIdRequests.$inferSelect;
 export type FtthLead = typeof ftthLeads.$inferSelect;
 export type FtthRecharge = typeof ftthRecharges.$inferSelect;
 export type FtthLedgerEntry = typeof ftthOperatorLedger.$inferSelect;
+
+// ============================================================================
+// SPARE PARTS PROVENANCE & WARRANTY
+//
+// Before this, a part fitted to a job was a free-text word and a lump sum, in
+// two different places: service_charges.parts_used (a column) and
+// pricingSnapshot.extraPartsCost (a field inside a JSON blob). Neither
+// recorded brand, vendor, warranty length or any proof of purchase, so a
+// customer claiming three months later could not be answered at all.
+//
+// Both write paths now land here. The line items are the source of truth for
+// what a job charged for parts; the snapshot figure is derived from them.
+// ============================================================================
+
+/**
+ * Where a part came from. This is the fact the whole warranty question turns
+ * on, and the one nothing used to record.
+ */
+export const partSourceTypeEnum = pgEnum('part_source_type', [
+  'platform',           // UniteFix stock — we warrant it because we sold it
+  'approved_vendor',    // A vendor we have a relationship with — they honour it through us
+  'technician_local',   // Bought from any local shop — warranty is that shop's paper card
+  'customer_supplied',  // The customer bought it. We warrant the fitting and nothing else.
+]);
+
+/**
+ * Who actually stands behind the part. Derived from the source, but stored
+ * rather than computed, because it is printed on the invoice: a certificate
+ * saying "UniteFix" over a part we do not back is a promise we did not mean
+ * to make and would have to keep.
+ */
+export const warrantyBackerEnum = pgEnum('warranty_backer', [
+  'unitefix',
+  'vendor',
+  'manufacturer',
+  'none',              // no warranty offered on this line
+]);
+
+export const warrantyClaimStatusEnum = pgEnum('warranty_claim_status', [
+  'open',
+  'inspecting',
+  'resolved',
+  'rejected',
+]);
+
+/** The technician verdict that routes who absorbs the cost. */
+export const warrantyVerdictEnum = pgEnum('warranty_verdict', [
+  'workmanship_fault',  // we fitted it wrong — always ours
+  'part_failed',        // the component failed — routed by source
+  'customer_damage',    // chargeable
+  'out_of_warranty',    // chargeable
+  'unrelated',          // nothing to do with the original job
+]);
+
+export const costBearerEnum = pgEnum('warranty_cost_bearer', [
+  'unitefix',
+  'vendor',
+  'technician',
+  'customer',
+]);
+
+export const servicePartItems = pgTable("service_part_items", {
+  id: serial("id").primaryKey(),
+  serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
+
+  partName: text("part_name").notNull(),
+  brand: text("brand"),
+  category: text("category"),                       // drives the default warranty period
+
+  sourceType: partSourceTypeEnum("source_type").notNull().default('technician_local'),
+  vendorName: text("vendor_name"),                  // free text until an approved-vendor table exists
+  vendorId: integer("vendor_id"),                   // reserved for that table; no FK yet
+
+  // Paise and an explicit quantity, not one ambiguous "cost". Three money
+  // conventions already coexist in this schema; integer paise is the one that
+  // cannot silently lose half a rupee on a split.
+  unitPricePaise: integer("unit_price_paise").notNull().default(0),
+  quantity: integer("quantity").notNull().default(1),
+
+  warrantyDays: integer("warranty_days").notNull().default(0),
+  warrantyBacker: warrantyBackerEnum("warranty_backer").notNull().default('none'),
+
+  // Two dates, deliberately. A vendor's warranty runs from the date on their
+  // bill, not from the day we fitted it. A technician fitting a part bought
+  // three weeks ago would otherwise have us print an expiry the vendor will
+  // not honour — a promise we cannot keep, made in writing.
+  vendorBillDate: timestamp("vendor_bill_date"),
+  installedAt: timestamp("installed_at"),
+  warrantyStartsAt: timestamp("warranty_starts_at"),
+  warrantyExpiresAt: timestamp("warranty_expires_at"),
+
+  billPhotoUrl: text("bill_photo_url"),
+  serialNumber: text("serial_number"),              // most local parts have none — optional by design
+
+  // Was this sourced with proof? Stored rather than derived because the claim
+  // routing reads it long after the fact, and the rule for what counted as
+  // documented may change.
+  isDocumented: boolean("is_documented").notNull().default(false),
+
+  recordedBy: integer("recorded_by"),               // employee id
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  serviceIdx: index("service_part_items_service_idx").on(table.serviceRequestId),
+  expiryIdx: index("service_part_items_expiry_idx").on(table.warrantyExpiresAt),
+  sourceIdx: index("service_part_items_source_idx").on(table.sourceType),
+}));
+
+export const warrantyClaims = pgTable("warranty_claims", {
+  id: serial("id").primaryKey(),
+  claimId: text("claim_id").notNull().unique(),
+  serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
+  partItemId: integer("part_item_id").references(() => servicePartItems.id),  // null = a workmanship claim
+
+  raisedByUserId: integer("raised_by_user_id").notNull(),
+  description: text("description").notNull(),
+
+  status: warrantyClaimStatusEnum("status").notNull().default('open'),
+  verdict: warrantyVerdictEnum("verdict"),
+  verdictNotes: text("verdict_notes"),
+  costBearer: costBearerEnum("cost_bearer"),
+
+  inspectedBy: integer("inspected_by"),             // employee id
+  inspectedAt: timestamp("inspected_at"),
+  // The revisit booking created to actually fix it, if one was needed.
+  resolutionServiceRequestId: integer("resolution_service_request_id"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => ({
+  serviceIdx: index("warranty_claims_service_idx").on(table.serviceRequestId),
+  statusIdx: index("warranty_claims_status_idx").on(table.status),
+  claimIdIdx: uniqueIndex("warranty_claims_claim_id_idx").on(table.claimId),
+}));
+
+export type ServicePartItem = typeof servicePartItems.$inferSelect;
+export type InsertServicePartItem = typeof servicePartItems.$inferInsert;
+export type WarrantyClaim = typeof warrantyClaims.$inferSelect;
+export type InsertWarrantyClaim = typeof warrantyClaims.$inferInsert;
