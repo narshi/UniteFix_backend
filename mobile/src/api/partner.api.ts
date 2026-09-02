@@ -68,6 +68,24 @@ export interface WalletTransaction {
 
 // ==================== API ====================
 
+/**
+ * One spare part, with enough provenance to answer a warranty claim later.
+ * Money is sent in rupees and converted to paise server-side, which also
+ * clamps every field — this shape is a convenience, never a trust boundary.
+ */
+export interface PartItemPayload {
+    partName: string;
+    brand?: string;
+    sourceType: 'platform' | 'approved_vendor' | 'technician_local' | 'customer_supplied';
+    vendorName?: string;
+    unitPriceRupees: number;
+    quantity: number;
+    warrantyDays: number;
+    serialNumber?: string;
+    billPhotoUrl?: string;
+    vendorBillDate?: string;
+}
+
 export const partnerApi = {
     // Assignments
     getAssignments: () =>
@@ -96,17 +114,24 @@ export const partnerApi = {
     collectCash: (bookingId: number, amountCollected: number) =>
         apiClient.post(`/api/bookings/${bookingId}/cash-collected`, { amountCollected }),
 
-    enterServiceCharge: (serviceId: number | string, data: { serviceCharge: number; materialCharge?: number; notes?: string }) =>
+    enterServiceCharge: (
+        serviceId: number | string,
+        data: { serviceCharge: number; materialCharge?: number; notes?: string; partItems?: PartItemPayload[] },
+    ) =>
         apiClient.post(`/api/bookings/${serviceId}/submit-bill`, {
             serviceLaborCost: data.serviceCharge,
             sparePartsCost: data.materialCharge || 0,
             notes: data.notes,
+            partItems: data.partItems,
         }),
 
     // Fixed-price (v2) equivalent of submit-bill: the price is already frozen, so
     // this just moves the job to awaiting-payment. Optional parts add-on is a
     // customer-approved extra passed through to the technician.
-    requestPayment: (bookingId: number, data?: { extraPartsCost?: number; partsNote?: string }) =>
+    requestPayment: (
+        bookingId: number,
+        data?: { extraPartsCost?: number; partsNote?: string; partItems?: PartItemPayload[] },
+    ) =>
         apiClient.post(`/api/bookings/${bookingId}/request-payment`, data || {}),
 
     validateOtp: (serviceId: number, otp: string) =>

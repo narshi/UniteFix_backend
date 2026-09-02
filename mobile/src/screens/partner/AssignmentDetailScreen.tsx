@@ -43,6 +43,7 @@ import {
 /** Must stay in sync with close_by in PaymentService.createDynamicQRCode. */
 const QR_VALIDITY_MS = 12 * 60 * 1000;
 import { Assignment, partnerApi } from '../../api/partner.api';
+import PartsEntry, { PartDraft, newPartDraft, toPartItems, uploadPendingBills } from '../../components/partner/PartsEntry';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -69,8 +70,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
-    const [extraParts, setExtraParts] = useState('');
-    const [partsNote, setPartsNote] = useState('');
+    const [parts, setParts] = useState<PartDraft[]>([]);
+    const [uploadingBills, setUploadingBills] = useState(false);
     const [showPartsForm, setShowPartsForm] = useState(false);
 
     // v2 fixed-price bookings carry the technician's earning + final amount frozen
@@ -281,11 +282,34 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
     // v2: move a fixed-price job to awaiting-payment, with an optional
     // customer-approved parts add-on.
-    const handleRequestPayment = () => {
-        const extra = extraParts ? Math.max(0, parseFloat(extraParts) || 0) : 0;
+    //
+    // Bill photos are uploaded first, but a failure there NEVER blocks the
+    // request: the part is simply recorded without its bill, which is what
+    // "undocumented" means. A technician with no signal must still get paid.
+    const handleRequestPayment = async () => {
+        const named = parts.filter(p => p.partName.trim());
+        let items = named.length ? toPartItems(named) : undefined;
+
+        if (named.length) {
+            setUploadingBills(true);
+            try {
+                const { parts: withUrls, failed } = await uploadPendingBills(named);
+                items = toPartItems(withUrls);
+                if (failed > 0) {
+                    Alert.alert(
+                        'Bill photo did not upload',
+                        `${failed === 1 ? 'One bill' : `${failed} bills`} could not be sent, probably signal. `
+                        + 'The parts are still recorded and you can add the photo later from the job.',
+                    );
+                }
+            } finally {
+                setUploadingBills(false);
+            }
+        }
+
         requestPayment(
-            { bookingId: assignment.id, extraPartsCost: extra || undefined, partsNote: partsNote || undefined },
-            { onSuccess: () => { setShowPartsForm(false); setExtraParts(''); setPartsNote(''); } }
+            { bookingId: assignment.id, partItems: items },
+            { onSuccess: () => { setShowPartsForm(false); setParts([]); } }
         );
     };
 
@@ -452,34 +476,19 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
 
                                 {showPartsForm ? (
                                     <View>
-                                        <Text style={styles.label}>Spare parts cost (₹) — customer approved</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            placeholder="e.g. 300"
-                                            value={extraParts}
-                                            onChangeText={setExtraParts}
-                                            keyboardType="numeric"
-                                            placeholderTextColor={colors.textDisabled}
-                                        />
-                                        <Text style={styles.label}>What was it for?</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            placeholder="e.g. replacement adapter"
-                                            value={partsNote}
-                                            onChangeText={setPartsNote}
-                                            placeholderTextColor={colors.textDisabled}
-                                        />
+                                        <Text style={styles.label}>Spare parts — customer approved</Text>
+                                        <PartsEntry parts={parts} onChange={setParts} />
                                     </View>
                                 ) : (
-                                    <TouchableOpacity onPress={() => setShowPartsForm(true)}>
-                                        <Text style={styles.addPartsLink}>+ Add spare parts cost</Text>
+                                    <TouchableOpacity onPress={() => { setShowPartsForm(true); setParts([newPartDraft()]); }}>
+                                        <Text style={styles.addPartsLink}>+ Add spare parts</Text>
                                     </TouchableOpacity>
                                 )}
 
                                 <Button
-                                    title="Request Payment"
+                                    title={uploadingBills ? 'Saving bill photos…' : 'Request Payment'}
                                     onPress={handleRequestPayment}
-                                    loading={requestingPayment}
+                                    loading={requestingPayment || uploadingBills}
                                     style={styles.chargeBtn}
                                 />
                             </View>

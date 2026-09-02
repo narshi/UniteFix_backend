@@ -31,6 +31,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import PartsEntry, { PartDraft, newPartDraft, toPartItems, partsTotalRupees, uploadPendingBills } from '../../components/partner/PartsEntry';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'SubmitBill'>;
@@ -44,7 +45,8 @@ export function SubmitBillScreen({ navigation, route }: Props) {
     const { headerTop, bottomBar: bottomPad } = useScreenInsets();
     const bookingId = route.params?.bookingId || route.params?.serviceId;
 
-    const [partsInput, setPartsInput] = useState('');
+    const [partDrafts, setPartDrafts] = useState<PartDraft[]>([]);
+    const [uploadingBills, setUploadingBills] = useState(false);
     const [laborInput, setLaborInput] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
@@ -69,7 +71,9 @@ export function SubmitBillScreen({ navigation, route }: Props) {
         })();
     }, []);
 
-    const parts = parseFloat(partsInput) || 0;
+    // Derived from the line items, so the bill and the parts record can never
+    // disagree about what the customer was charged.
+    const parts = partsTotalRupees(partDrafts);
     const labor = parseFloat(laborInput) || 0;
 
     // Real-time billing calculation — uses Math.round() to match server BillingEngine exactly
@@ -102,9 +106,32 @@ export function SubmitBillScreen({ navigation, route }: Props) {
                     onPress: async () => {
                         setSubmitting(true);
                         try {
+                            // Bill photos first, but a failed upload never blocks
+                            // the bill — the part is recorded without its bill,
+                            // which is exactly what "undocumented" means.
+                            const named = partDrafts.filter(d => d.partName.trim());
+                            let items = named.length ? toPartItems(named) : undefined;
+                            if (named.length) {
+                                setUploadingBills(true);
+                                try {
+                                    const { parts: withUrls, failed } = await uploadPendingBills(named);
+                                    items = toPartItems(withUrls);
+                                    if (failed > 0) {
+                                        Alert.alert(
+                                            'Bill photo did not upload',
+                                            `${failed === 1 ? 'One bill' : failed + ' bills'} could not be sent, probably signal. `
+                                            + 'The parts are still recorded and you can add the photo later.',
+                                        );
+                                    }
+                                } finally {
+                                    setUploadingBills(false);
+                                }
+                            }
+
                             const { data } = await apiClient.post(`/api/v1/bookings/${bookingId}/submit-bill`, {
                                 sparePartsCost: parts,
                                 serviceLaborCost: labor,
+                                partItems: items,
                             });
 
                             if (data?.success) {
@@ -148,24 +175,23 @@ export function SubmitBillScreen({ navigation, route }: Props) {
                 <View style={styles.inputSection}>
                     <Text style={styles.sectionTitle}>Service Costs</Text>
 
-                    {/* Spare Parts */}
+                    {/* Spare Parts — itemised, so a warranty claim can be answered later */}
                     <View style={styles.inputGroup}>
                         <View style={styles.inputLabel}>
                             <Package size={18} color={colors.primary} />
-                            <Text style={styles.labelText}>Spare Parts Cost</Text>
+                            <Text style={styles.labelText}>Spare Parts</Text>
                         </View>
-                        <View style={styles.inputWrapper}>
-                            <Text style={styles.currencySymbol}>₹</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={partsInput}
-                                onChangeText={setPartsInput}
-                                keyboardType="decimal-pad"
-                                placeholder="0.00"
-                                placeholderTextColor={colors.textDisabled}
-                            />
-                        </View>
-                        <Text style={styles.inputHint}>Cost of any replacement parts used</Text>
+                        {partDrafts.length === 0 ? (
+                            <TouchableOpacity
+                                style={styles.addPartsBtn}
+                                onPress={() => setPartDrafts([newPartDraft()])}
+                            >
+                                <Text style={styles.addPartsBtnText}>+ Add a spare part</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <PartsEntry parts={partDrafts} onChange={setPartDrafts} />
+                        )}
+                        <Text style={styles.inputHint}>Leave empty if no parts were used</Text>
                     </View>
 
                     {/* Labor */}
@@ -256,6 +282,11 @@ function BreakdownRow({
 }
 
 const styles = StyleSheet.create({
+    addPartsBtn: {
+        borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary,
+        borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginBottom: 8,
+    },
+    addPartsBtnText: { color: colors.primary, fontWeight: '600' },
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,

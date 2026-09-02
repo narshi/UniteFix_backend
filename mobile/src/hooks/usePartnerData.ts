@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { partnerApi } from '../api/partner.api';
+import type { PartItemPayload } from '../api/partner.api';
 import { Alert } from 'react-native';
 import { getApiErrorMessage, apiClient } from '../api/client';
 
@@ -134,8 +135,10 @@ export function useEnterServiceCharge() {
 export function useRequestPayment() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: ({ bookingId, extraPartsCost, partsNote }: { bookingId: number; extraPartsCost?: number; partsNote?: string }) =>
-            partnerApi.requestPayment(bookingId, { extraPartsCost, partsNote }),
+        mutationFn: ({ bookingId, extraPartsCost, partsNote, partItems }: {
+            bookingId: number; extraPartsCost?: number; partsNote?: string; partItems?: PartItemPayload[];
+        }) =>
+            partnerApi.requestPayment(bookingId, { extraPartsCost, partsNote, partItems }),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
             Alert.alert('Payment Requested', 'The customer can now pay the balance.');
