@@ -405,19 +405,35 @@ export function registerAdminVerificationRoutes(app: Express) {
                             )
                         );
 
-                    for (const txn of heldTxns) {
-                        await db.update(walletTransactionsV2)
-                            .set({ isReleased: true })
-                            .where(eq(walletTransactionsV2.id, txn.id));
+                    // Both statements or neither.
+                    //
+                    // These used to run unwrapped, and the failure they allow is
+                    // not theoretical: reconciliation found a live wallet holding
+                    // money whose hold row was already marked released. Flagging
+                    // the row without decrementing the balance strands that amount
+                    // in `hold` permanently — no future release can move it,
+                    // because the entry that would have released it is already
+                    // closed. The partner then sees money on their wallet screen
+                    // that can never become withdrawable.
+                    //
+                    // The cron path in task_queues.ts has always been transactional;
+                    // this one was the outlier.
+                    const providerId = booking.providerId;
+                    await db.transaction(async (tx) => {
+                        for (const txn of heldTxns) {
+                            await tx.update(walletTransactionsV2)
+                                .set({ isReleased: true })
+                                .where(eq(walletTransactionsV2.id, txn.id));
 
-                        await db.update(partnerWallets)
-                            .set({
-                                balanceHold: sql`${partnerWallets.balanceHold} - ${txn.amount}`,
-                                balanceAvailable: sql`${partnerWallets.balanceAvailable} + ${txn.amount}`,
-                                updatedAt: new Date(),
-                            })
-                            .where(eq(partnerWallets.partnerId, booking.providerId));
-                    }
+                            await tx.update(partnerWallets)
+                                .set({
+                                    balanceHold: sql`${partnerWallets.balanceHold} - ${txn.amount}`,
+                                    balanceAvailable: sql`${partnerWallets.balanceAvailable} + ${txn.amount}`,
+                                    updatedAt: new Date(),
+                                })
+                                .where(eq(partnerWallets.partnerId, providerId));
+                        }
+                    });
 
                     actionsTaken.push(`Released ${heldTxns.length} held wallet transaction(s)`);
                 }
