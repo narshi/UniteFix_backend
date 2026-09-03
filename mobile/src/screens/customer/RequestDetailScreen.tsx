@@ -60,6 +60,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import WarrantyCard from '../../components/customer/WarrantyCard';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
@@ -632,6 +633,11 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 )}
 
 
+
+                {/* What this job is covered for, and one door to claim on it. */}
+                {request.status === 'completed' && !showRating && (
+                    <WarrantyCard bookingId={request.id} />
+                )}
 
                 {/* Rating */}
                 {canRate && !showRating && (

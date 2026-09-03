@@ -135,10 +135,46 @@ export interface Notification {
 
 // ==================== API ====================
 
+/** What a finished job is covered for, in sentences rather than fields. */
+export interface WarrantySummary {
+    serviceRequestId: number;
+    workmanship: {
+        days: number;
+        active: boolean;
+        expiresAt: string | null;
+        backedBy: string;
+        statement: string;
+    };
+    parts: Array<{
+        id: number;
+        partName: string;
+        brand: string | null;
+        quantity: number;
+        warrantyDays: number;
+        /** Named plainly — "UniteFix", "Sirsi Electricals", "No warranty". */
+        backedBy: string;
+        expiresAt: string | null;
+        active: boolean;
+        statement: string;
+    }>;
+    canClaim: boolean;
+}
+
 export const customerApi = {
     // Profile
     getProfile: () =>
         apiClient.get<ApiResponse<UserProfile>>('/api/client/profile'),
+
+    // ── Warranty ────────────────────────────────────────────────────────────
+    getWarranty: (bookingId: number) =>
+        apiClient.get<ApiResponse<WarrantySummary>>(`/api/bookings/${bookingId}/warranty`),
+
+    /**
+     * Raise a claim. The customer never contacts the shop that sold the part —
+     * that is the promise, and this is the only door they need.
+     */
+    raiseWarrantyClaim: (bookingId: number, data: { description: string; partItemId?: number | null }) =>
+        apiClient.post<ApiResponse<{ claimId: string }>>(`/api/bookings/${bookingId}/warranty-claims`, data),
 
     updateProfile: (data: Partial<{ username: string; email: string; homeAddress: string; pinCode: string; savedAddresses: SavedAddress[] }>) =>
         apiClient.patch<ApiResponse<UserProfile>>('/api/client/profile', data),

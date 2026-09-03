@@ -32,6 +32,7 @@ import {
     AlertTriangle,
 } from 'lucide-react-native';
 import { Assignment } from '../../api/partner.api';
+import MissingBills from '../../components/partner/MissingBills';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -141,6 +142,9 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
             </Animated.View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {/* Paperwork the technician still owes on this job. */}
+                {isDone && <MissingBills bookingId={assignment.id} />}
+
                 {/* Status Badge */}
                 <View style={[styles.statusBadge, {
                     backgroundColor: isDone ? colors.successLight : isCancelled ? colors.errorLight : colors.warningLight,

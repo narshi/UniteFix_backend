@@ -86,7 +86,38 @@ export interface PartItemPayload {
     vendorBillDate?: string;
 }
 
+/** A part as it comes back from the server, with its paperwork state. */
+export interface RecordedPart {
+    id: number;
+    partName: string;
+    brand: string | null;
+    sourceType: string;
+    vendorName: string | null;
+    unitPricePaise: number;
+    quantity: number;
+    warrantyDays: number;
+    warrantyBacker: string;
+    warrantyExpiresAt: string | null;
+    billPhotoUrl: string | null;
+    isDocumented: boolean;
+}
+
 export const partnerApi = {
+    /** The parts I recorded on this job, and which are missing paperwork. */
+    getJobParts: (bookingId: number) =>
+        apiClient.get<{ success: boolean; data: { items: RecordedPart[]; undocumented: number; hint: string | null } }>(
+            `/api/partner/bookings/${bookingId}/parts`),
+
+    /**
+     * Complete a part's paperwork after the fact — this is what makes the app's
+     * "you can add the bill later" promise true rather than a line of comfort
+     * offered at the moment an upload failed.
+     */
+    completePartBill: (
+        partId: number,
+        data: { billPhotoUrl?: string; vendorName?: string; warrantyDays?: number; vendorBillDate?: string },
+    ) => apiClient.patch<{ success: boolean; message: string; data: RecordedPart }>(`/api/partner/parts/${partId}`, data),
+
     // Assignments
     getAssignments: () =>
         apiClient.get<{ success: boolean; data: Assignment[] }>('/api/serviceman/assignments'),
