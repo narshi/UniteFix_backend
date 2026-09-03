@@ -19,7 +19,7 @@ import { serviceRequests, servicePartItems } from '@shared/schema';
 import { authenticateToken, authenticatePartner, authenticateAny } from '../middleware/auth.middleware';
 import {
     warrantySummary, createClaim, settleClaim, listClaims, getPartItems,
-    partStatement, type Verdict,
+    partStatement, attachBillToPart, type Verdict,
 } from '../services/warranty.service';
 import logger from '../lib/logger';
 
@@ -163,6 +163,46 @@ export function registerWarrantyRoutes(app: Express) {
             res.json({
                 success: true,
                 message: `Recorded as ${verdict.replace(/_/g, ' ')}. Cost is borne by ${updated.costBearer}.`,
+                data: updated,
+            });
+        } catch (error) { next(error); }
+    });
+
+    /**
+     * PATCH /api/partner/parts/:id — add the bill a technician could not upload
+     * at the doorstep.
+     *
+     * The app promises this when an upload fails. Ownership is checked against
+     * the booking the part belongs to: a partner may complete the paperwork on
+     * their own jobs and nobody else's.
+     */
+    app.patch('/api/partner/parts/:id', authenticatePartner, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const partId = parseInt(req.params.id);
+            const partnerId = (req as any).partner?.partnerId;
+
+            const [part] = await db.select().from(servicePartItems)
+                .where(eq(servicePartItems.id, partId)).limit(1);
+            if (!part) return res.status(404).json({ success: false, message: 'Part not found' });
+
+            const [booking] = await db.select().from(serviceRequests)
+                .where(eq(serviceRequests.id, part.serviceRequestId)).limit(1);
+            if (!booking || (booking as any).providerId !== partnerId) {
+                return res.status(403).json({ success: false, message: 'This part is not on one of your jobs' });
+            }
+
+            const updated = await attachBillToPart(partId, {
+                billPhotoUrl: req.body?.billPhotoUrl,
+                vendorName: req.body?.vendorName,
+                warrantyDays: req.body?.warrantyDays,
+                vendorBillDate: req.body?.vendorBillDate,
+            });
+
+            res.json({
+                success: true,
+                message: updated?.isDocumented
+                    ? 'Bill saved. This part is now covered if it fails.'
+                    : 'Saved. Add the shop name and warranty period to make this part covered.',
                 data: updated,
             });
         } catch (error) { next(error); }

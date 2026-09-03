@@ -267,6 +267,56 @@ export async function recordPartItems(
     return resolved;
 }
 
+/**
+ * Complete a part's paperwork after the fact.
+ *
+ * The app tells a technician whose bill photo failed to upload that they can add
+ * it later. This is what makes that true. Without it the promise is a lie told
+ * at the worst possible moment — right after something already went wrong.
+ *
+ * Everything derived from the paperwork is recomputed, not patched: adding the
+ * bill can move a part from backed-by-nobody to backed-by-the-shop, and the
+ * warranty window then has to start from the vendor's bill date rather than the
+ * install date. Updating the photo alone would leave a part that looks covered
+ * and is not.
+ */
+export async function attachBillToPart(
+    partItemId: number,
+    patch: { billPhotoUrl?: string; vendorName?: string; warrantyDays?: number; vendorBillDate?: string | Date | null },
+) {
+    const [existing] = await db.select().from(servicePartItems)
+        .where(eq(servicePartItems.id, partItemId)).limit(1);
+    if (!existing) return null;
+
+    const billPhotoUrl = patch.billPhotoUrl?.trim() || existing.billPhotoUrl;
+    const vendorName = patch.vendorName?.trim() || existing.vendorName;
+    const warrantyDays = patch.warrantyDays !== undefined
+        ? clamp(int(patch.warrantyDays, 0), 0, MAX_WARRANTY_DAYS)
+        : existing.warrantyDays;
+    const vendorBillDate = patch.vendorBillDate !== undefined
+        ? asDate(patch.vendorBillDate)
+        : existing.vendorBillDate;
+
+    const source = existing.sourceType as PartSource;
+    const documented = isDocumented(source, { billPhotoUrl, vendorName, warrantyDays });
+    const backer = resolveBacker(source, warrantyDays, documented);
+    const installedAt = existing.installedAt ?? existing.createdAt ?? new Date();
+    const { startsAt, expiresAt } = warrantyWindow(backer, warrantyDays, vendorBillDate, installedAt);
+
+    const [updated] = await db.update(servicePartItems).set({
+        billPhotoUrl, vendorName, warrantyDays,
+        vendorBillDate,
+        warrantyBacker: backer as any,
+        warrantyStartsAt: startsAt,
+        warrantyExpiresAt: expiresAt,
+        isDocumented: documented,
+        updatedAt: new Date(),
+    }).where(eq(servicePartItems.id, partItemId)).returning();
+
+    logger.info(`[PARTS] Bill completed on part #${partItemId} — now ${documented ? 'documented' : 'still undocumented'}`);
+    return updated;
+}
+
 export async function getPartItems(serviceRequestId: number) {
     return db.select().from(servicePartItems)
         .where(eq(servicePartItems.serviceRequestId, serviceRequestId))

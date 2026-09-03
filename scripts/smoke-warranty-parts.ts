@@ -262,6 +262,39 @@ if (process.env.DATABASE_URL) {
         const openOnly = await listClaims({ status: 'open' });
         check('a settled claim leaves the open queue',
             !openOnly.some((r: any) => r.claim.id === claim.id));
+
+        // ── adding the bill later, which the app promises when upload fails ──
+        const { attachBillToPart } = await import('../server/services/warranty.service');
+        const before = (await getPartItems(srId!))[0];
+        check('the part starts undocumented and backed by nobody',
+            !before.isDocumented && before.warrantyBacker === 'none' && before.warrantyExpiresAt === null);
+
+        const billedOn = new Date(Date.now() - 10 * DAY);
+        const after = await attachBillToPart(before.id, {
+            billPhotoUrl: 'https://cdn.example/bill.jpg',
+            vendorName: 'Sirsi Electricals',
+            warrantyDays: 90,
+            vendorBillDate: billedOn.toISOString(),
+        });
+        check('adding the bill makes the part documented',
+            after?.isDocumented === true);
+        check('...and moves the backer from nobody to the shop',
+            after?.warrantyBacker === 'vendor', String(after?.warrantyBacker));
+        check('...and recomputes the window from the VENDOR\'S bill date',
+            !!after?.warrantyExpiresAt
+            && Math.abs(new Date(after.warrantyExpiresAt).getTime() - (billedOn.getTime() + 90 * DAY)) < 2000,
+            after?.warrantyExpiresAt ? new Date(after.warrantyExpiresAt).toISOString().slice(0, 10) : 'null');
+
+        // The same part failing now costs the shop, not the technician.
+        const reroute = routeCost('part_failed', {
+            sourceType: after!.sourceType as PartSource, isDocumented: after!.isDocumented,
+        });
+        check('so a later failure now falls to the vendor, not the technician',
+            reroute === 'vendor', `routes to ${reroute}`);
+
+        const half = await attachBillToPart(before.id, { vendorName: '', warrantyDays: 0 });
+        check('clearing the warranty period un-covers it rather than leaving a stale date',
+            half?.warrantyBacker === 'none' && half?.warrantyExpiresAt === null);
     } catch (err: any) {
         check('persistence checks ran', false, err.message);
     } finally {
