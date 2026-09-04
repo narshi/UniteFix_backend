@@ -37,6 +37,10 @@ export function FTTHRechargeScreen({ navigation, route }: Props) {
     const [speed, setSpeed] = useState<number | null>(null);
     const [planId, setPlanId] = useState<number | null>(null);
     const [paying, setPaying] = useState(false);
+    // Optional add-ons ticked by the customer. Keyed by add-on id, and reset
+    // whenever the plan changes — ids belong to a plan, so carrying a tick across
+    // a plan switch would either charge for the wrong thing or silently drop.
+    const [chosenAddons, setChosenAddons] = useState<number[]>([]);
 
     const { data: speedGroups, isLoading } = useQuery({
         queryKey: ['ftth', 'plans', connection?.operatorId],
@@ -72,6 +76,37 @@ export function FTTHRechargeScreen({ navigation, route }: Props) {
 
     const selected = durationsForSpeed.find(p => p.id === planId) ?? null;
 
+    // A tick belongs to one plan's add-on row. Switching plan or duration must
+    // clear them, or the customer pays for an OTT pack attached to a plan they
+    // are no longer buying.
+    useEffect(() => { setChosenAddons([]); }, [planId]);
+
+    const mandatoryAddons = useMemo(
+        () => (selected?.addons ?? []).filter(a => !a.isOptional),
+        [selected],
+    );
+    const optionalAddons = useMemo(
+        () => (selected?.addons ?? []).filter(a => a.isOptional),
+        [selected],
+    );
+
+    const chosenTotal = useMemo(
+        () => optionalAddons
+            .filter(a => chosenAddons.includes(a.id))
+            .reduce((sum, a) => sum + a.amount, 0),
+        [optionalAddons, chosenAddons],
+    );
+
+    // `payable` already includes the mandatory extras and the convenience fee.
+    // Rounded to paise because rupee floats add up badly: 471 + 118.5 must not
+    // render as 589.4999999999999.
+    const total = selected ? Math.round((selected.payable + chosenTotal) * 100) / 100 : 0;
+
+    const toggleAddon = (id: number) => {
+        setChosenAddons(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
     const pay = async () => {
         if (!selected) return;
         setPaying(true);
@@ -79,6 +114,7 @@ export function FTTHRechargeScreen({ navigation, route }: Props) {
             const order = await ftthApi.initiateRecharge({
                 connectionId: connection.id,
                 planId: selected.id,
+                addonIds: chosenAddons,
             });
 
             const result = await openRazorpayCheckout({
@@ -208,17 +244,71 @@ export function FTTHRechargeScreen({ navigation, route }: Props) {
                             onSelectPlan={(p) => setPlanId(p.id)}
                         />
 
+                        {/* Optional extras, chosen before the bill is totalled so
+                            the number below always reflects what is ticked. */}
+                        {selected && optionalAddons.length > 0 && (
+                            <View style={styles.addonCard}>
+                                <Text style={styles.billHeaderTitle}>Add extras</Text>
+                                <Text style={styles.addonHint}>
+                                    Optional. Each is billed as its own line on your bill.
+                                </Text>
+                                {optionalAddons.map(a => {
+                                    const on = chosenAddons.includes(a.id);
+                                    return (
+                                        <TouchableOpacity
+                                            key={a.id}
+                                            style={[styles.addonRow, on && styles.addonRowOn]}
+                                            onPress={() => toggleAddon(a.id)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={[styles.addonTick, on && styles.addonTickOn]}>
+                                                {on && <Check size={13} color="#fff" strokeWidth={3} />}
+                                            </View>
+                                            <View style={styles.addonBody}>
+                                                <Text style={styles.addonLabel}>{a.label}</Text>
+                                                {!!a.description && (
+                                                    <Text style={styles.addonDesc}>{a.description}</Text>
+                                                )}
+                                            </View>
+                                            <Text style={styles.addonAmount}>₹{a.amount}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        )}
+
                         {/* Itemized Price Summary */}
                         {selected && (
                             <View style={styles.billBreakdownCard}>
                                 <Text style={styles.billHeaderTitle}>Bill Breakdown</Text>
-                                <Row label="Plan Base Price" value={`₹${selected.price}`} />
+
+                                {/* Named by speed rather than "Plan Base Price", so
+                                    the broadband line reads as one item among
+                                    several instead of as the whole bill. */}
+                                <Row
+                                    label={`${selected.speedMbps} Mbps Broadband`}
+                                    value={`₹${selected.price}`}
+                                />
                                 {selected.discount > 0 && (
                                     <Row label="Special ISP Discount" value={`− ₹${selected.discount}`} positive />
                                 )}
+
+                                {/* Always billed — shown without a tick so it is
+                                    clear they are part of the plan, not a choice. */}
+                                {mandatoryAddons.map(a => (
+                                    <Row key={a.id} label={a.label} value={`₹${a.amount}`} />
+                                ))}
+
+                                {/* Only what was actually ticked. */}
+                                {optionalAddons
+                                    .filter(a => chosenAddons.includes(a.id))
+                                    .map(a => (
+                                        <Row key={a.id} label={a.label} value={`₹${a.amount}`} />
+                                    ))}
+
                                 <Row label="UniteFix Platform Convenience Fee" value={`₹${selected.convenienceFee}`} />
                                 <View style={styles.divider} />
-                                <Row label="Total Payable (incl. GST)" value={`₹${selected.payable}`} bold />
+                                <Row label="Total Payable (incl. GST)" value={`₹${total}`} bold />
                             </View>
                         )}
                     </>
@@ -230,7 +320,7 @@ export function FTTHRechargeScreen({ navigation, route }: Props) {
                 <View style={[styles.footer, { paddingBottom: Math.max(bottomBar, spacing.md) + spacing.xs }]}>
                     <View style={styles.footerInfo}>
                         <Text style={styles.footerLabel}>Total Payable</Text>
-                        <Text style={styles.footerAmount}>₹{selected.payable}</Text>
+                        <Text style={styles.footerAmount}>₹{total}</Text>
                         <Text style={styles.footerGstText}>All taxes included</Text>
                     </View>
                     <TouchableOpacity
@@ -415,6 +505,53 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         ...shadows.xs,
     },
+    addonCard: {
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.lg,
+        marginTop: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        ...shadows.xs,
+    },
+    addonHint: {
+        ...typography.caption,
+        color: colors.textSecondary,
+        marginTop: -spacing.xs,
+        marginBottom: spacing.sm,
+    },
+    addonRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.sm,
+        borderRadius: radii.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginTop: spacing.xs,
+    },
+    addonRowOn: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primarySurface,
+    },
+    addonTick: {
+        width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    addonTickOn: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    addonBody: { flex: 1 },
+    addonLabel: { ...typography.captionMedium, color: colors.textPrimary },
+    addonDesc: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
+    addonAmount: { ...typography.captionMedium, color: colors.textPrimary },
     billHeaderTitle: {
         ...typography.bodySemibold,
         color: colors.textPrimary,

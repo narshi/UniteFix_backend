@@ -25,6 +25,21 @@ export interface FtthOperator {
     contactPhone: string;
 }
 
+/**
+ * An extra billed alongside the broadband line — telephone rental, an OTT pack.
+ *
+ * Mandatory ones are part of the price and cannot be declined. Optional ones the
+ * customer chooses, which is why `payable` below deliberately excludes them.
+ */
+export interface FtthPlanAddon {
+    id: number;
+    label: string;
+    kind: 'telephone' | 'ott' | 'iptv' | 'static_ip' | 'installation' | 'other';
+    amount: number;
+    isOptional: boolean;
+    description?: string | null;
+}
+
 export interface FtthPlan {
     id: number;
     name: string;
@@ -37,8 +52,13 @@ export interface FtthPlan {
     benefits: string[];
     isRecommended?: boolean;
     badgeText?: string | null;
+    addons: FtthPlanAddon[];
+    mandatoryAddonsTotal: number;
     convenienceFee: number;
-    /** finalPrice + convenienceFee — what the customer actually pays. */
+    /**
+     * finalPrice + mandatory add-ons + convenienceFee — the price with nothing
+     * optional chosen. Optional add-ons are added on top as they are ticked.
+     */
     payable: number;
 }
 
@@ -94,6 +114,8 @@ export interface FtthRechargeOrder {
     breakdown: {
         planPrice: number;
         discount: number;
+        addons: Array<{ id: number; label: string; kind: string; amount: number; isOptional: boolean }>;
+        addonsTotal: number;
         convenienceFee: number;
         total: number;
     };
@@ -106,6 +128,11 @@ export interface FtthRechargeHistoryItem {
     speedMbps: number;
     durationMonths: number;
     amount: number;
+    planPrice: number;
+    discount: number;
+    /** Frozen at purchase — what was actually bought, not today's catalogue. */
+    addons: Array<{ label: string; kind: string; amount: number }>;
+    addonsTotal: number;
     convenienceFee: number;
     status: string;
     periodStart: string | null;
@@ -132,6 +159,8 @@ export interface FtthRechargeTracking {
         total: number;
         planPrice: number;
         discount: number;
+        addons: Array<{ label: string; kind: string; amount: number }>;
+        addonsTotal: number;
         convenienceFee: number;
     };
     validTill: string | null;
@@ -196,7 +225,7 @@ export const ftthApi = {
         return data;
     },
 
-    async initiateRecharge(body: { connectionId: number; planId: number }) {
+    async initiateRecharge(body: { connectionId: number; planId: number; addonIds?: number[] }) {
         const { data } = await apiClient.post<ApiResponse<FtthRechargeOrder>>(
             '/api/ftth/recharges/initiate', body,
         );

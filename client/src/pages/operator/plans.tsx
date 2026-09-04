@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Sparkles, Check } from "lucide-react";
+import PlanAddonsEditor from "@/components/operator/PlanAddonsEditor";
 
 interface PlanRow {
   id: number;
@@ -389,11 +390,25 @@ export default function OperatorPlans() {
                 onChange={(e) => setForm({ ...form, dataLimitGb: e.target.value })} placeholder="unlimited" />
             </div>
             <div>
-              <Label htmlFor="plan-benefits">Extras (comma separated)</Label>
+              <Label htmlFor="plan-benefits">Benefits shown on the card (not billed)</Label>
               <Input id="plan-benefits" value={form.benefits}
                 onChange={(e) => setForm({ ...form, benefits: e.target.value })}
-                placeholder="OTT pack, Free installation" />
+                placeholder="Unlimited data, Free installation" />
+              <p className="mt-1 text-xs text-[hsl(215,20%,55%)]">
+                Selling points only. Anything you actually charge for goes in billed add-ons below.
+              </p>
             </div>
+
+            {/* Billed extras. Only once the plan exists — an add-on has to hang
+                off a plan id, and there isn't one until this is saved. */}
+            {editing?.plan ? (
+              <PlanAddonsEditor planId={editing.plan.id} planPrice={editing.plan.finalPrice} />
+            ) : (
+              <p className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 text-xs text-[hsl(215,20%,55%)]">
+                Save this plan first, then reopen it to add billed extras such as telephone
+                rental or an OTT pack.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>

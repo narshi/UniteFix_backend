@@ -1773,6 +1773,53 @@ export const ftthPlans = pgTable("ftth_plans", {
   operatorSpeedIdx: index("ftth_plans_operator_speed_idx").on(table.operatorId, table.speedMbps),
 }));
 
+/** What an add-on is, so a bill can group and label them consistently. */
+export const ftthAddonKindEnum = pgEnum('ftth_addon_kind', [
+  'telephone', 'ott', 'iptv', 'static_ip', 'installation', 'other',
+]);
+
+/**
+ * Extras billed alongside a broadband plan — telephone rental, an OTT pack, a
+ * static IP.
+ *
+ * ADDITIVE, never a re-description of the plan price. `listPricePaise` on the
+ * plan stays exactly what it always was — the broadband line — and every add-on
+ * is charged ON TOP of it. That is the whole reason this is a separate table
+ * rather than a breakdown field: folding the components into the plan price
+ * would have silently repriced every live plan the moment someone itemised one.
+ * A plan with no add-ons costs precisely what it costs today.
+ *
+ * Per PLAN, not per operator, because the amount is duration-bound: telephone
+ * rental on a 12-month plan is the twelve-month charge. Hanging add-ons off the
+ * operator would mean multiplying by duration somewhere, and that arithmetic
+ * would eventually disagree with what the operator actually quotes.
+ *
+ * Mandatory add-ons are always billed. Optional ones the customer chooses, and
+ * the choice is frozen onto the recharge row so a bill reprinted later shows
+ * what was actually bought rather than what is on sale now.
+ */
+export const ftthPlanAddons = pgTable("ftth_plan_addons", {
+  id: serial("id").primaryKey(),
+  planId: integer("plan_id").notNull().references(() => ftthPlans.id, { onDelete: 'cascade' }),
+  label: text("label").notNull(),                          // "Telephone", "OTT Pack"
+  kind: ftthAddonKindEnum("kind").notNull().default('other'),
+  amountPaise: integer("amount_paise").notNull(),
+  // false = always billed with the plan; true = the customer opts in.
+  isOptional: boolean("is_optional").notNull().default(false),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  // Soft-disabled rather than deleted: recharge rows freeze their own snapshot,
+  // but keeping the row means an operator can retire a pack without losing it.
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  planIdx: index("ftth_plan_addons_plan_idx").on(table.planId, table.isActive),
+}));
+
+export type FtthPlanAddon = typeof ftthPlanAddons.$inferSelect;
+export type InsertFtthPlanAddon = typeof ftthPlanAddons.$inferInsert;
+
 /**
  * A customer's connection with one operator.
  *
@@ -1866,6 +1913,11 @@ export const ftthRecharges = pgTable("ftth_recharges", {
   durationMonths: integer("duration_months").notNull(),
   listPricePaise: integer("list_price_paise").notNull(),
   discountPaise: integer("discount_paise").notNull().default(0),
+  // The add-ons actually bought, frozen at purchase: [{label, kind, amountPaise}].
+  // Frozen rather than joined, for the same reason booking pricing is frozen —
+  // a receipt reprinted next year must show what was sold, not today's catalogue.
+  addonsSnapshot: jsonb("addons_snapshot"),
+  addonsTotalPaise: integer("addons_total_paise").notNull().default(0),
   convenienceFeePaise: integer("convenience_fee_paise").notNull().default(0),
   gstOnConvenienceFeePaise: integer("gst_on_convenience_fee_paise").notNull().default(0),
   totalPaise: integer("total_paise").notNull(),              // what the customer pays

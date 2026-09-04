@@ -60,6 +60,16 @@ export function FTTHHistoryScreen({ navigation }: Props) {
                     {item.status}
                 </Text>
             </View>
+            {/* What made up the amount. Without this a bill with a telephone
+                line on it reads as an unexplained jump against last month. */}
+            {(item.addons ?? []).length > 0 && (
+                <View style={styles.addons}>
+                    <Text style={styles.addonLine}>
+                        {item.speedMbps} Mbps ₹{item.planPrice}
+                        {item.addons.map(a => ` + ${a.label} ₹${a.amount}`).join('')}
+                    </Text>
+                </View>
+            )}
             {item.convenienceFee > 0 && (
                 <Text style={styles.fee}>Includes ₹{item.convenienceFee} UniteFix convenience fee</Text>
             )}
@@ -108,6 +118,8 @@ const styles = StyleSheet.create({
     meta: { ...typography.caption, color: colors.textSecondary, marginTop: 2, marginBottom: spacing.sm },
     period: { ...typography.caption, color: colors.textSecondary },
     status: { ...typography.caption, fontWeight: '700', textTransform: 'capitalize' },
+    addons: { marginTop: spacing.xs },
+    addonLine: { ...typography.caption, color: colors.textSecondary },
     fee: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.xs },
     empty: { alignItems: 'center', gap: spacing.sm },
     emptyText: { ...typography.caption, color: colors.textSecondary },

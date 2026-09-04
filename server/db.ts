@@ -206,6 +206,42 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS warranty_claims_status_idx  ON warranty_claims (status);
     `);
 
+    // ── FTTH plan add-ons ───────────────────────────────────────────────────
+    // Telephone rental, OTT packs and the like, billed as their own lines
+    // alongside the broadband plan. Entirely additive: a plan with no add-on
+    // rows prices exactly as it did before this existed.
+    await client.query(
+      `DO ${'$do'} BEGIN
+         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ftth_addon_kind') THEN
+           CREATE TYPE ftth_addon_kind AS ENUM ('telephone', 'ott', 'iptv', 'static_ip', 'installation', 'other');
+         END IF;
+       END ${'$do'};`
+    );
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ftth_plan_addons (
+        id SERIAL PRIMARY KEY,
+        plan_id INTEGER NOT NULL REFERENCES ftth_plans(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        kind ftth_addon_kind NOT NULL DEFAULT 'other',
+        amount_paise INTEGER NOT NULL,
+        is_optional BOOLEAN NOT NULL DEFAULT FALSE,
+        description TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS ftth_plan_addons_plan_idx ON ftth_plan_addons (plan_id, is_active);
+    `);
+    // What was actually bought, frozen onto the recharge. Existing rows default
+    // to no add-ons and zero, which is exactly what they were.
+    await client.query(`
+      ALTER TABLE ftth_recharges ADD COLUMN IF NOT EXISTS addons_snapshot JSONB;
+      ALTER TABLE ftth_recharges ADD COLUMN IF NOT EXISTS addons_total_paise INTEGER NOT NULL DEFAULT 0;
+    `);
+
     // Who keyed the claim in, when it did not come from the customer's own app.
     // Most warranty calls in Uttara Kannada arrive by telephone, and a claim the
     // office logged on someone's behalf must not be indistinguishable from one

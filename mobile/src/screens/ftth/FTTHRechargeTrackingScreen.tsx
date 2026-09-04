@@ -257,7 +257,7 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
                     <View style={styles.divider} />
 
                     <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Plan Base Price</Text>
+                        <Text style={styles.summaryLabel}>{tracking.plan.speedMbps} Mbps Broadband</Text>
                         <Text style={styles.summaryValue}>₹{tracking.plan.planPrice}</Text>
                     </View>
                     {tracking.plan.discount > 0 && (
@@ -266,6 +266,15 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
                             <Text style={[styles.summaryValue, { color: colors.accentDark }]}>− ₹{tracking.plan.discount}</Text>
                         </View>
                     )}
+                    {/* Read off what was frozen at purchase. This screen is the
+                        receipt, so it must show the extras that were actually
+                        paid for even after the operator changes the pack. */}
+                    {(tracking.plan.addons ?? []).map((a, i) => (
+                        <View style={styles.summaryRow} key={`${a.label}-${i}`}>
+                            <Text style={styles.summaryLabel}>{a.label}</Text>
+                            <Text style={styles.summaryValue}>₹{a.amount}</Text>
+                        </View>
+                    ))}
                     <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Convenience Fee</Text>
                         <Text style={styles.summaryValue}>₹{tracking.plan.convenienceFee}</Text>

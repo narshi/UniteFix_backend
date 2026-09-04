@@ -26,6 +26,7 @@ import {
     ftthOperators,
     ftthOperatorPincodes,
     ftthPlans,
+    ftthPlanAddons,
     ftthConnections,
     ftthIdRequests,
     ftthLeads,
@@ -115,6 +116,19 @@ const planBulkSchema = z.object({
     plans: z.array(planSchema).min(1).max(200),
 });
 
+const ADDON_KINDS = ['telephone', 'ott', 'iptv', 'static_ip', 'installation', 'other'] as const;
+
+const addonSchema = z.object({
+    label: z.string().trim().min(2).max(80),
+    kind: z.enum(ADDON_KINDS).optional().default('other'),
+    // Rupees at the boundary, paise inside — same convention as planSchema.
+    amountRupees: z.number().min(0).max(1_000_000),
+    isOptional: z.boolean().optional().default(false),
+    description: z.string().trim().max(200).nullable().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    isActive: z.boolean().optional(),
+});
+
 const coverageSchema = z.object({
     pincodes: z.array(z.string().trim().regex(/^\d{6}$/)).max(500),
 });
@@ -158,6 +172,10 @@ const bulkImportCustomersSchema = z.object({
 const initiateSchema = z.object({
     connectionId: z.number().int().positive(),
     planId: z.number().int().positive(),
+    // Which OPTIONAL add-ons were opted into. Ids only — every amount is priced
+    // server-side from the plan's own add-on rows, so this can name a choice but
+    // never a price.
+    addonIds: z.array(z.number().int().positive()).max(20).optional().default([]),
 });
 
 const verifySchema = z.object({
@@ -843,6 +861,115 @@ export function registerFtthRoutes(app: Express) {
                 }).where(eq(ftthPlans.id, id)).returning();
 
                 res.json({ success: true, data: planView(row) });
+            } catch (error) { next(error); }
+        });
+
+    // ── Plan add-ons ────────────────────────────────────────────────────────
+    //
+    // Telephone rental, OTT packs, a static IP: billed as their own lines on top
+    // of the broadband plan. Every route here is scoped through the plan's
+    // operatorId, so an operator can only touch add-ons on their own plans.
+
+    /** The plan's add-ons, active or not — the operator is editing the catalogue. */
+    app.get("/api/ftth/admin/plans/:planId/addons", authenticateOperator,
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+                const rows = await db.select().from(ftthPlanAddons)
+                    .where(eq(ftthPlanAddons.planId, plan.id))
+                    .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
+
+                res.json({ success: true, data: rows.map(addonView) });
+            } catch (error) { next(error); }
+        });
+
+    app.post("/api/ftth/admin/plans/:planId/addons", authenticateOperator, validateBody(addonSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+                const body = req.body as z.infer<typeof addonSchema>;
+                const [row] = await db.insert(ftthPlanAddons).values({
+                    planId: plan.id,
+                    label: body.label,
+                    kind: body.kind as any,
+                    amountPaise: rupeesToPaise(body.amountRupees),
+                    isOptional: body.isOptional ?? false,
+                    description: body.description ?? null,
+                    sortOrder: body.sortOrder ?? 0,
+                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+                }).returning();
+
+                res.status(201).json({ success: true, data: addonView(row) });
+            } catch (error) { next(error); }
+        });
+
+    app.patch("/api/ftth/admin/plans/:planId/addons/:id", authenticateOperator,
+        validateBody(addonSchema.partial()),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+                const id = Number(req.params.id);
+                const [existing] = await db.select().from(ftthPlanAddons)
+                    .where(and(eq(ftthPlanAddons.id, id), eq(ftthPlanAddons.planId, plan.id))).limit(1);
+                if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
+
+                const body = req.body as Partial<z.infer<typeof addonSchema>>;
+                const [row] = await db.update(ftthPlanAddons).set({
+                    ...(body.label !== undefined ? { label: body.label } : {}),
+                    ...(body.kind !== undefined ? { kind: body.kind as any } : {}),
+                    ...(body.amountRupees !== undefined ? { amountPaise: rupeesToPaise(body.amountRupees) } : {}),
+                    ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+                    ...(body.description !== undefined ? { description: body.description } : {}),
+                    ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+                    updatedAt: new Date(),
+                }).where(eq(ftthPlanAddons.id, id)).returning();
+
+                res.json({ success: true, data: addonView(row) });
+            } catch (error) { next(error); }
+        });
+
+    /**
+     * Retire an add-on. Soft by default: past recharges froze their own snapshot,
+     * so a hard delete would not corrupt a receipt — but an operator who pulls an
+     * OTT pack for the season usually wants it back, and deactivating keeps the
+     * price they set. ?hard=true removes it outright.
+     */
+    app.delete("/api/ftth/admin/plans/:planId/addons/:id", authenticateOperator,
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+                const id = Number(req.params.id);
+                const [existing] = await db.select().from(ftthPlanAddons)
+                    .where(and(eq(ftthPlanAddons.id, id), eq(ftthPlanAddons.planId, plan.id))).limit(1);
+                if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
+
+                if (String(req.query.hard) === 'true') {
+                    await db.delete(ftthPlanAddons).where(eq(ftthPlanAddons.id, id));
+                    return res.json({ success: true, message: `"${existing.label}" removed.` });
+                }
+
+                const [row] = await db.update(ftthPlanAddons)
+                    .set({ isActive: false, updatedAt: new Date() })
+                    .where(eq(ftthPlanAddons.id, id)).returning();
+
+                res.json({
+                    success: true,
+                    message: `"${existing.label}" is no longer offered. Re-activate it any time.`,
+                    data: addonView(row),
+                });
             } catch (error) { next(error); }
         });
 
@@ -1931,13 +2058,52 @@ export function registerFtthRoutes(app: Express) {
 
             const convenienceFeePaise = await convenienceFeeFor(operatorId);
 
+            // Every add-on for every plan in one query rather than one per plan —
+            // the recharge screen renders the whole speed × duration matrix, and
+            // a query per cell would be dozens of round trips to draw one screen.
+            const planIds = rows.map(p => p.id);
+            const addonRows = planIds.length
+                ? await db.select().from(ftthPlanAddons)
+                    .where(and(
+                        inArray(ftthPlanAddons.planId, planIds),
+                        eq(ftthPlanAddons.isActive, true),
+                    ))
+                    .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id))
+                : [];
+
+            const addonsByPlan = new Map<number, typeof addonRows>();
+            for (const a of addonRows) {
+                const list = addonsByPlan.get(a.planId) ?? [];
+                list.push(a);
+                addonsByPlan.set(a.planId, list);
+            }
+
             const bySpeed = new Map<number, any[]>();
             for (const p of rows) {
                 const list = bySpeed.get(p.speedMbps) ?? [];
+                const addons = addonsByPlan.get(p.id) ?? [];
+                // `payable` is what it costs with nothing optional chosen — the
+                // figure the card shows before anyone opens it. Mandatory extras
+                // are in it because they are not a choice; optional ones are not,
+                // because quoting a price nobody has agreed to would overstate it.
+                const mandatoryPaise = addons
+                    .filter(a => !a.isOptional)
+                    .reduce((sum, a) => sum + a.amountPaise, 0);
                 list.push({
                     ...planView(p),
+                    addons: addons.map(a => ({
+                        id: a.id,
+                        label: a.label,
+                        kind: a.kind,
+                        amount: paiseToRupees(a.amountPaise),
+                        isOptional: a.isOptional,
+                        description: a.description,
+                    })),
+                    mandatoryAddonsTotal: paiseToRupees(mandatoryPaise),
                     convenienceFee: paiseToRupees(convenienceFeePaise),
-                    payable: paiseToRupees(p.listPricePaise - p.discountPaise + convenienceFeePaise),
+                    payable: paiseToRupees(
+                        p.listPricePaise - p.discountPaise + mandatoryPaise + convenienceFeePaise,
+                    ),
                 });
                 bySpeed.set(p.speedMbps, list);
             }
@@ -2160,7 +2326,7 @@ export function registerFtthRoutes(app: Express) {
         async (req: Request, res: Response, next: NextFunction) => {
             try {
                 const userId = (req as any).user.userId;
-                const { connectionId, planId } = req.body as z.infer<typeof initiateSchema>;
+                const { connectionId, planId, addonIds } = req.body as z.infer<typeof initiateSchema>;
 
                 const [connection] = await db.select().from(ftthConnections)
                     .where(and(eq(ftthConnections.id, connectionId), eq(ftthConnections.userId, userId)))
@@ -2230,6 +2396,7 @@ export function registerFtthRoutes(app: Express) {
                 const order = await FtthService.initiateRecharge({
                     connection, plan,
                     customer: { name: user?.username, email: user?.email, phone: user?.phone },
+                    selectedAddonIds: addonIds ?? [],
                 });
 
                 res.json({
@@ -2242,6 +2409,16 @@ export function registerFtthRoutes(app: Express) {
                         breakdown: {
                             planPrice: paiseToRupees(order.quote.listPricePaise),
                             discount: paiseToRupees(order.quote.discountPaise),
+                            // One line per extra, so the confirmation screen can
+                            // show the same itemisation the customer agreed to.
+                            addons: order.quote.addons.map(a => ({
+                                id: a.id,
+                                label: a.label,
+                                kind: a.kind,
+                                amount: paiseToRupees(a.amountPaise),
+                                isOptional: a.isOptional,
+                            })),
+                            addonsTotal: paiseToRupees(order.quote.addonsTotalPaise),
                             convenienceFee: paiseToRupees(order.quote.convenienceFeePaise),
                             total: paiseToRupees(order.quote.totalPaise),
                         },
@@ -2330,6 +2507,10 @@ export function registerFtthRoutes(app: Express) {
                 planName: ftthRecharges.planName,
                 speedMbps: ftthRecharges.speedMbps,
                 durationMonths: ftthRecharges.durationMonths,
+                listPricePaise: ftthRecharges.listPricePaise,
+                discountPaise: ftthRecharges.discountPaise,
+                addonsSnapshot: ftthRecharges.addonsSnapshot,
+                addonsTotalPaise: ftthRecharges.addonsTotalPaise,
                 totalPaise: ftthRecharges.totalPaise,
                 convenienceFeePaise: ftthRecharges.convenienceFeePaise,
                 status: ftthRecharges.status,
@@ -2350,9 +2531,19 @@ export function registerFtthRoutes(app: Express) {
 
             res.json({
                 success: true,
+                // The same itemisation the customer agreed to, read back off the
+                // frozen snapshot rather than re-derived from today's catalogue.
                 data: rows.map(r => ({
                     ...r,
                     amount: paiseToRupees(r.totalPaise),
+                    planPrice: paiseToRupees(r.listPricePaise),
+                    discount: paiseToRupees(r.discountPaise),
+                    addons: ((r.addonsSnapshot as any[] | null) ?? []).map(a => ({
+                        label: String(a?.label ?? 'Add-on'),
+                        kind: String(a?.kind ?? 'other'),
+                        amount: paiseToRupees(Number(a?.amountPaise) || 0),
+                    })),
+                    addonsTotal: paiseToRupees(r.addonsTotalPaise ?? 0),
                     convenienceFee: paiseToRupees(r.convenienceFeePaise),
                 })),
             });
@@ -2433,6 +2624,28 @@ async function activeOperator(operatorId: number) {
         .where(eq(ftthOperators.id, operatorId))
         .limit(1);
     return row && row.status === 'active' ? row : null;
+}
+
+/** A plan, only if it belongs to this operator. The ownership check, in one place. */
+async function operatorPlan(planId: number, operatorId: number) {
+    if (!Number.isInteger(planId)) return null;
+    const [plan] = await db.select().from(ftthPlans)
+        .where(and(eq(ftthPlans.id, planId), eq(ftthPlans.operatorId, operatorId))).limit(1);
+    return plan ?? null;
+}
+
+function addonView(a: typeof ftthPlanAddons.$inferSelect) {
+    return {
+        id: a.id,
+        planId: a.planId,
+        label: a.label,
+        kind: a.kind,
+        amount: paiseToRupees(a.amountPaise),
+        isOptional: a.isOptional,
+        description: a.description,
+        sortOrder: a.sortOrder,
+        isActive: a.isActive,
+    };
 }
 
 async function convenienceFeeFor(operatorId: number): Promise<number> {

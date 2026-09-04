@@ -13,11 +13,12 @@
  */
 
 import Razorpay from "razorpay";
-import { and, eq, sql, desc, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, sql, desc, asc, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import {
     ftthOperators,
     ftthPlans,
+    ftthPlanAddons,
     ftthConnections,
     ftthRecharges,
     ftthLeads,
@@ -33,6 +34,15 @@ import logger from "../lib/logger";
 /** Paise → rupees, for display only. */
 export const paiseToRupees = (paise: number) => Math.round(paise) / 100;
 
+/** One billed extra, as it appears on the customer's bill and on the receipt. */
+export interface QuotedAddon {
+    id: number;
+    label: string;
+    kind: string;
+    amountPaise: number;
+    isOptional: boolean;
+}
+
 export interface RechargeQuote {
     planId: number;
     planName: string;
@@ -40,6 +50,9 @@ export interface RechargeQuote {
     durationMonths: number;
     listPricePaise: number;
     discountPaise: number;
+    /** Every extra being charged — mandatory ones plus whatever was opted into. */
+    addons: QuotedAddon[];
+    addonsTotalPaise: number;
     convenienceFeePaise: number;
     gstOnConvenienceFeePaise: number;
     totalPaise: number;
@@ -89,8 +102,24 @@ export class FtthService {
      * ₹10 collected is ₹8.47 revenue and ₹1.53 GST — not ₹10 of margin. The plan
      * amount itself is the OPERATOR's supply to the customer and passes through
      * untouched; UniteFix invoices only its own fee.
+     *
+     * ADD-ONS (telephone rental, OTT packs) are the operator's supply too, so
+     * they are added to the plan line and flow into operatorPayable in full.
+     * UniteFix takes nothing from them and charges no second convenience fee for
+     * them — one recharge is one transaction however many lines it has, and
+     * billing a fee per line would make the fee grow with an itemisation that is
+     * meant purely to make the bill clearer.
+     *
+     * `selectedAddonIds` names the OPTIONAL add-ons the customer opted into.
+     * Mandatory ones are always billed and cannot be declined; anything in the
+     * list that is not an active optional add-on of this plan is ignored rather
+     * than trusted, so a crafted request cannot price its own extras.
      */
-    static async quote(plan: typeof ftthPlans.$inferSelect, operatorId: number): Promise<RechargeQuote> {
+    static async quote(
+        plan: typeof ftthPlans.$inferSelect,
+        operatorId: number,
+        selectedAddonIds: number[] = [],
+    ): Promise<RechargeQuote> {
         const [operator] = await db
             .select({ convenienceFeePaise: ftthOperators.convenienceFeePaise })
             .from(ftthOperators)
@@ -110,7 +139,26 @@ export class FtthService {
             convenienceFeePaise * gstPercent / (100 + gstPercent),
         );
 
-        const operatorPayablePaise = plan.listPricePaise - plan.discountPaise;
+        // Priced from the database, never from the request. The client says which
+        // optional add-ons it wants; what each one costs is ours to say.
+        const available = await db.select().from(ftthPlanAddons)
+            .where(and(eq(ftthPlanAddons.planId, plan.id), eq(ftthPlanAddons.isActive, true)))
+            .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
+
+        const wanted = new Set(selectedAddonIds);
+        const addons: QuotedAddon[] = available
+            .filter(a => !a.isOptional || wanted.has(a.id))
+            .map(a => ({
+                id: a.id,
+                label: a.label,
+                kind: a.kind as string,
+                amountPaise: a.amountPaise,
+                isOptional: a.isOptional,
+            }));
+
+        const addonsTotalPaise = addons.reduce((sum, a) => sum + a.amountPaise, 0);
+
+        const operatorPayablePaise = plan.listPricePaise - plan.discountPaise + addonsTotalPaise;
         const totalPaise = operatorPayablePaise + convenienceFeePaise;
 
         return {
@@ -120,6 +168,8 @@ export class FtthService {
             durationMonths: plan.durationMonths,
             listPricePaise: plan.listPricePaise,
             discountPaise: plan.discountPaise,
+            addons,
+            addonsTotalPaise,
             convenienceFeePaise,
             gstOnConvenienceFeePaise,
             totalPaise,
@@ -246,9 +296,11 @@ export class FtthService {
         connection: typeof ftthConnections.$inferSelect;
         plan: typeof ftthPlans.$inferSelect;
         customer: { name?: string | null; email?: string | null; phone?: string | null };
+        /** Optional add-ons the customer opted into. Mandatory ones bill regardless. */
+        selectedAddonIds?: number[];
     }) {
         const { connection, plan, customer } = params;
-        const quote = await this.quote(plan, connection.operatorId);
+        const quote = await this.quote(plan, connection.operatorId, params.selectedAddonIds ?? []);
 
         const recharge = await withTransaction(async (tx) => {
             const [row] = await tx.insert(ftthRecharges).values({
@@ -259,6 +311,9 @@ export class FtthService {
                 durationMonths: quote.durationMonths,
                 listPricePaise: quote.listPricePaise,
                 discountPaise: quote.discountPaise,
+                // Frozen, so the receipt survives the operator editing the pack.
+                addonsSnapshot: quote.addons as any,
+                addonsTotalPaise: quote.addonsTotalPaise,
                 convenienceFeePaise: quote.convenienceFeePaise,
                 gstOnConvenienceFeePaise: quote.gstOnConvenienceFeePaise,
                 totalPaise: quote.totalPaise,
@@ -652,6 +707,8 @@ export class FtthService {
             durationMonths: ftthRecharges.durationMonths,
             listPricePaise: ftthRecharges.listPricePaise,
             discountPaise: ftthRecharges.discountPaise,
+            addonsSnapshot: ftthRecharges.addonsSnapshot,
+            addonsTotalPaise: ftthRecharges.addonsTotalPaise,
             convenienceFeePaise: ftthRecharges.convenienceFeePaise,
             gstOnConvenienceFeePaise: ftthRecharges.gstOnConvenienceFeePaise,
             totalPaise: ftthRecharges.totalPaise,
@@ -725,6 +782,15 @@ export class FtthService {
                 total: paiseToRupees(recharge.totalPaise),
                 planPrice: paiseToRupees(recharge.listPricePaise),
                 discount: paiseToRupees(recharge.discountPaise),
+                // Read off the frozen snapshot. The tracking screen doubles as
+                // the receipt, so it has to itemise what was bought even after
+                // the operator has since changed or retired the pack.
+                addons: ((recharge.addonsSnapshot as any[] | null) ?? []).map(a => ({
+                    label: String(a?.label ?? 'Add-on'),
+                    kind: String(a?.kind ?? 'other'),
+                    amount: paiseToRupees(Number(a?.amountPaise) || 0),
+                })),
+                addonsTotal: paiseToRupees(recharge.addonsTotalPaise ?? 0),
                 convenienceFee: paiseToRupees(recharge.convenienceFeePaise),
             },
             validTill: recharge.periodEnd,
