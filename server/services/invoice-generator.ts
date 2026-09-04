@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { configService } from "./config.service";
-import { getPartItems, backerLabel } from "./warranty.service";
+import { getPartItems, backerLabel, sourceLabel } from "./warranty.service";
 import logger from "../lib/logger";
 
 // Define strict types for invoice data
@@ -42,7 +42,7 @@ interface InvoiceData {
      * letterhead, in a document a consumer forum would read as our undertaking.
      * Where a local shop backs it, the invoice says so and names the shop.
      */
-    warrantyLines: Array<{ label: string; backedBy: string; until: string | null }>;
+    warrantyLines: Array<{ label: string; backedBy: string; until: string | null; from: string | null }>;
     total: number;
     advancePaid: number;
     status: string;
@@ -306,6 +306,12 @@ export class InvoiceGenerator {
                             until: p.warrantyExpiresAt
                                 ? new Date(p.warrantyExpiresAt).toLocaleDateString('en-IN')
                                 : null,
+                            // Printed even when nothing backs the part. An
+                            // undocumented local purchase used to print as the
+                            // bare words "No warranty", which threw away the one
+                            // thing the customer would need to chase it: the name
+                            // of the shop it came from.
+                            from: sourceLabel(p as any),
                         });
                     }
                 }
@@ -552,7 +558,7 @@ export class InvoiceGenerator {
             // local shop's paper card in our own name.
             if (data.warrantyLines.length > 0) {
                 y += 26;
-                doc.fontSize(9).font("Helvetica-Bold").text("Warranty", 50, y);
+                doc.fontSize(9).font("Helvetica-Bold").text("Parts fitted & warranty", 50, y);
                 y += 13;
                 doc.fontSize(8).font("Helvetica")
                     .text("Our workmanship on this job is guaranteed for 30 days by UniteFix.", 50, y, { width: 500 });
@@ -562,8 +568,12 @@ export class InvoiceGenerator {
                     const cover = w.until
                         ? `${w.backedBy} — until ${w.until}`
                         : `${w.backedBy}`;
+                    // Source before cover. A customer reading this line wants to
+                    // know what was fitted and where it came from first; who
+                    // honours it is the answer to the next question, not the first.
+                    const origin = w.from ? ` (from ${w.from})` : "";
                     doc.fontSize(8).font("Helvetica")
-                        .text(`• ${w.label}: ${cover}`, 56, y, { width: 494 });
+                        .text(`• ${w.label}${origin}: ${cover}`, 56, y, { width: 494 });
                     y += 11;
                 }
 

@@ -153,6 +153,19 @@ export interface WarrantySummary {
         warrantyDays: number;
         /** Named plainly — "UniteFix", "Sirsi Electricals", "No warranty". */
         backedBy: string;
+        /**
+         * Where it was bought — "Sirsi Electricals", "UniteFix stock". Null only
+         * when the customer supplied it themselves.
+         *
+         * Carried separately from backedBy on purpose. An undocumented local
+         * purchase has no backer, so backedBy reads "No warranty" and the shop
+         * the technician recorded used to disappear from every screen with it.
+         */
+        purchasedFrom: string | null;
+        sourceType: string;
+        documented: boolean;
+        unitPriceRupees: number;
+        lineTotalRupees: number;
         expiresAt: string | null;
         active: boolean;
         statement: string;

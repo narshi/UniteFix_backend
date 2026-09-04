@@ -247,19 +247,48 @@ export class BookingNotifications {
     }
 
     /** pending_payment — the money moment. Customer must act. */
-    static async billSubmitted(serviceRequestId: number, totalAmount: number | string) {
+    /**
+     * The bill is ready to pay.
+     *
+     * `parts` names what was fitted. A customer asked to pay a figure that
+     * includes spares they never saw itemised has no way to check it and no way
+     * to query it later — they were told "Spare Parts" and an amount. Naming them
+     * in the notification is the first point at which the customer learns a part
+     * went in at all, so it is the right place to say so.
+     */
+    static async billSubmitted(
+        serviceRequestId: number,
+        totalAmount: number | string,
+        parts?: Array<{ partName: string; quantity: number }>,
+    ) {
         const p = await getParties(serviceRequestId);
         if (!p) return;
+
+        // Kept short deliberately: this lands in a push notification, which is
+        // truncated by the OS. Two names and a count carry the meaning; the full
+        // list with sourcing and warranty is on the booking screen.
+        let partsLine = "";
+        if (parts?.length) {
+            const named = parts
+                .filter(x => x.partName)
+                .map(x => `${x.partName}${x.quantity > 1 ? ` x${x.quantity}` : ""}`);
+            if (named.length) {
+                partsLine = named.length <= 2
+                    ? ` Includes ${named.join(" and ")}.`
+                    : ` Includes ${named.slice(0, 2).join(", ")} and ${named.length - 2} more.`;
+            }
+        }
 
         NotificationService.notify(
             p.customerUserId,
             "Your bill is ready",
-            `${inr(totalAmount)} is due for ${p.serviceRef}. Tap to review the bill and pay.`,
+            `${inr(totalAmount)} is due for ${p.serviceRef}.${partsLine} Tap to review the parts used and pay.`,
             "service_bill_ready",
             {
                 serviceId: p.serviceRequestId,
                 serviceRef: p.serviceRef,
                 amount: String(totalAmount),
+                partsCount: String(parts?.length ?? 0),
             }
         );
     }

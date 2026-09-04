@@ -389,6 +389,14 @@ export async function warrantySummary(serviceRequestId: number) {
             quantity: p.quantity,
             warrantyDays: p.warrantyDays,
             backedBy: backerLabel(p.warrantyBacker as WarrantyBacker, p.vendorName),
+            // Provenance, carried separately from the warranty so the customer
+            // can see what was fitted and where it came from even when nothing
+            // backs it. This is the field the shop name was being lost in.
+            purchasedFrom: sourceLabel(p as any),
+            sourceType: p.sourceType,
+            documented: p.isDocumented,
+            unitPriceRupees: p.unitPricePaise / 100,
+            lineTotalRupees: (p.unitPricePaise * p.quantity) / 100,
             expiresAt: p.warrantyExpiresAt,
             active: isInWarranty(p as any),
             statement: partStatement(p as any),
@@ -406,6 +414,27 @@ export function backerLabel(backer: WarrantyBacker, vendorName: string | null): 
     }
 }
 
+/**
+ * Where a part was bought, in words a customer can read.
+ *
+ * Deliberately separate from backerLabel(). Provenance and warranty are two
+ * different facts, and collapsing them into one is what hid the shop name:
+ * a part bought from a named local shop with no bill photo resolves to backer
+ * 'none', so every screen that asked backerLabel() printed "No warranty" and
+ * silently discarded the vendor the technician had typed in. Where it came from
+ * is true whether or not anybody warrants it, the technician took the trouble to
+ * record it, and the customer is entitled to see it either way.
+ */
+export function sourceLabel(p: { sourceType: PartSource; vendorName: string | null }): string | null {
+    switch (p.sourceType) {
+        case 'platform': return 'UniteFix stock';
+        case 'approved_vendor': return p.vendorName ?? 'a UniteFix-approved vendor';
+        case 'technician_local': return p.vendorName ?? 'a local shop';
+        // They bought it. Telling them where they shop is noise.
+        case 'customer_supplied': return null;
+    }
+}
+
 /** One sentence a customer or an admin can read without interpreting anything. */
 export function partStatement(p: {
     partName: string; warrantyDays: number; warrantyBacker: WarrantyBacker;
@@ -414,16 +443,23 @@ export function partStatement(p: {
     if (p.sourceType === 'customer_supplied') {
         return `${p.partName} was supplied by you, so its warranty stays with wherever you bought it. Our fitting of it is covered by our ${WORKMANSHIP_WARRANTY_DAYS}-day guarantee.`;
     }
+    // Named first, and independently of the warranty. A shop the technician
+    // bothered to write down should never vanish from the record because the
+    // paperwork behind it was incomplete.
+    const from = sourceLabel(p);
     if (p.warrantyDays <= 0 || p.warrantyBacker === 'none') {
-        return `${p.partName} carries no separate part warranty. Our ${WORKMANSHIP_WARRANTY_DAYS}-day guarantee still covers the fitting.`;
+        const bought = from ? ` Bought from ${from}.` : '';
+        return `${p.partName} carries no separate part warranty.${bought} Our ${WORKMANSHIP_WARRANTY_DAYS}-day guarantee still covers the fitting.`;
     }
     const until = p.warrantyExpiresAt
         ? new Date(p.warrantyExpiresAt).toLocaleDateString('en-IN') : 'unknown';
     const who = backerLabel(p.warrantyBacker, p.vendorName);
+    // Only when it adds something — "backed by X. Bought from X." reads as a stutter.
+    const bought = from && from !== who ? ` Bought from ${from}.` : '';
     const live = isInWarranty(p as any);
     return live
-        ? `${p.partName} is under a ${p.warrantyDays}-day warranty backed by ${who}, valid until ${until}. Raise it with us and we will handle the claim.`
-        : `${p.partName} had a ${p.warrantyDays}-day warranty backed by ${who}, which ended on ${until}.`;
+        ? `${p.partName} is under a ${p.warrantyDays}-day warranty backed by ${who}, valid until ${until}.${bought} Raise it with us and we will handle the claim.`
+        : `${p.partName} had a ${p.warrantyDays}-day warranty backed by ${who}, which ended on ${until}.${bought}`;
 }
 
 export async function createClaim(input: {
@@ -431,6 +467,8 @@ export async function createClaim(input: {
     partItemId?: number | null;
     raisedByUserId: number;
     description: string;
+    /** Set when the office keyed this in from a phone call rather than the app. */
+    loggedByAdminId?: number | null;
 }) {
     const claimId = `WC-${input.serviceRequestId}-${Date.now().toString(36).toUpperCase()}`;
     const [claim] = await db.insert(warrantyClaims).values({
@@ -438,11 +476,38 @@ export async function createClaim(input: {
         serviceRequestId: input.serviceRequestId,
         partItemId: input.partItemId ?? null,
         raisedByUserId: input.raisedByUserId,
+        loggedByAdminId: input.loggedByAdminId ?? null,
         description: input.description.trim().slice(0, 2000),
         status: 'open',
     }).returning();
-    logger.info(`[WARRANTY] Claim ${claimId} opened on SR #${input.serviceRequestId}`);
+    logger.info(
+        `[WARRANTY] Claim ${claimId} opened on SR #${input.serviceRequestId}`
+        + (input.loggedByAdminId ? ` (logged by admin #${input.loggedByAdminId})` : ''),
+    );
     return claim;
+}
+
+/**
+ * Find a booking by whatever reference the person on the phone can read out.
+ *
+ * They have an invoice or an SMS, so they say "SR-1234" or a bare number. Making
+ * the office translate that into a database id before they can log a call is how
+ * calls end up not logged at all.
+ */
+export async function findBookingByRef(ref: string) {
+    const trimmed = ref.trim();
+    if (!trimmed) return null;
+
+    const [byServiceId] = await db.select().from(serviceRequests)
+        .where(eq(serviceRequests.serviceId, trimmed)).limit(1);
+    if (byServiceId) return byServiceId;
+
+    const numeric = parseInt(trimmed.replace(/^#/, ''), 10);
+    if (!Number.isFinite(numeric)) return null;
+
+    const [byId] = await db.select().from(serviceRequests)
+        .where(eq(serviceRequests.id, numeric)).limit(1);
+    return byId ?? null;
 }
 
 /** Record the inspection verdict and let it route the cost. No case-by-case judgement. */

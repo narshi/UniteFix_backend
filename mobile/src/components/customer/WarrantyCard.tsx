@@ -28,9 +28,17 @@ import { Button } from '../ui';
 
 interface Props {
     bookingId: number;
+    /**
+     * False before the job is finished. The parts list still shows — that is the
+     * point of showing this card at payment time, so the customer can see what
+     * they are being charged for and where it came from BEFORE they pay rather
+     * than reading a lump "Spare Parts" figure and taking it on trust. Claiming,
+     * though, is meaningless on a job that is not done yet.
+     */
+    claimable?: boolean;
 }
 
-export default function WarrantyCard({ bookingId }: Props) {
+export default function WarrantyCard({ bookingId, claimable = true }: Props) {
     const [claimFor, setClaimFor] = useState<{ partItemId: number | null; label: string } | null>(null);
     const [description, setDescription] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -77,7 +85,9 @@ export default function WarrantyCard({ bookingId }: Props) {
 
     return (
         <View style={styles.card}>
-            <Text style={styles.title}>Warranty</Text>
+            <Text style={styles.title}>
+                {data.parts.length > 0 ? 'Parts fitted & warranty' : 'Warranty'}
+            </Text>
 
             {/* Ours, always, and stated first. */}
             <View style={styles.row}>
@@ -94,10 +104,22 @@ export default function WarrantyCard({ bookingId }: Props) {
                         ? <ShieldCheck size={17} color={colors.successDark} />
                         : <ShieldOff size={17} color={colors.textSecondary} />}
                     <View style={styles.rowBody}>
-                        <Text style={styles.rowTitle}>
-                            {p.partName}{p.quantity > 1 ? ` ×${p.quantity}` : ''}
-                            {p.brand ? <Text style={styles.brand}>  {p.brand}</Text> : null}
-                        </Text>
+                        <View style={styles.rowHead}>
+                            <Text style={styles.rowTitle}>
+                                {p.partName}{p.quantity > 1 ? ` ×${p.quantity}` : ''}
+                                {p.brand ? <Text style={styles.brand}>  {p.brand}</Text> : null}
+                            </Text>
+                            {p.lineTotalRupees > 0 && (
+                                <Text style={styles.rowPrice}>₹{p.lineTotalRupees}</Text>
+                            )}
+                        </View>
+                        {/* Where it was bought, shown on its own line and
+                            regardless of whether anything warrants it. This is the
+                            shop the technician typed in; it used to be swallowed
+                            whenever the bill photo was missing. */}
+                        {!!p.purchasedFrom && (
+                            <Text style={styles.rowSource}>Bought from {p.purchasedFrom}</Text>
+                        )}
                         <Text style={styles.rowText}>{p.statement}</Text>
                     </View>
                 </View>
@@ -106,16 +128,20 @@ export default function WarrantyCard({ bookingId }: Props) {
             {/* One door. Deliberately offered even when nothing is in date — a
                 customer whose part failed on day 92 deserves an answer, not a
                 disabled button and no way to ask. */}
-            <TouchableOpacity
-                style={styles.claimBtn}
-                onPress={() => setClaimFor({ partItemId: null, label: 'this job' })}
-            >
-                <Text style={styles.claimBtnText}>Something's gone wrong — report it</Text>
-            </TouchableOpacity>
+            {claimable && (
+                <TouchableOpacity
+                    style={styles.claimBtn}
+                    onPress={() => setClaimFor({ partItemId: null, label: 'this job' })}
+                >
+                    <Text style={styles.claimBtnText}>Something's gone wrong — report it</Text>
+                </TouchableOpacity>
+            )}
 
             {data.parts.length > 0 && (
                 <Text style={styles.footnote}>
-                    Report it to us and we deal with the supplier. You never have to contact the shop.
+                    {claimable
+                        ? 'Report it to us and we deal with the supplier. You never have to contact the shop.'
+                        : 'If any of these fail, report it to us — we deal with the supplier for you.'}
                 </Text>
             )}
 
@@ -187,8 +213,11 @@ const styles = StyleSheet.create({
     title: { ...typography.bodySemibold, color: colors.textPrimary, marginBottom: spacing.sm },
     row: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
     rowBody: { flex: 1 },
-    rowTitle: { ...typography.captionMedium, color: colors.textPrimary },
+    rowHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
+    rowTitle: { ...typography.captionMedium, color: colors.textPrimary, flex: 1 },
+    rowPrice: { ...typography.captionMedium, color: colors.textPrimary },
     brand: { ...typography.caption, color: colors.textSecondary },
+    rowSource: { ...typography.caption, color: colors.textPrimary, marginTop: 2 },
     rowText: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     claimBtn: {
         borderWidth: 1, borderColor: colors.primary, borderRadius: radii.sm,

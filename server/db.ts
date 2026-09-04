@@ -206,6 +206,16 @@ export async function runStartupMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS warranty_claims_status_idx  ON warranty_claims (status);
     `);
 
+    // Who keyed the claim in, when it did not come from the customer's own app.
+    // Most warranty calls in Uttara Kannada arrive by telephone, and a claim the
+    // office logged on someone's behalf must not be indistinguishable from one
+    // the customer raised themselves — the claim stays attributed to the
+    // customer, this records who took the call. Additive and nullable: existing
+    // rows keep meaning exactly what they meant.
+    await client.query(`
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS logged_by_admin_id INTEGER;
+    `);
+
     console.log('[DB] Startup schema migrations verified successfully');
   } catch (err: any) {
     console.error('[DB] Startup migration error:', err.message);

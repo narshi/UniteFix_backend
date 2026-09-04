@@ -19,7 +19,7 @@ import { serviceRequests, servicePartItems } from '@shared/schema';
 import { authenticateToken, authenticatePartner, authenticateAny } from '../middleware/auth.middleware';
 import {
     warrantySummary, createClaim, settleClaim, listClaims, getPartItems,
-    partStatement, attachBillToPart, type Verdict,
+    partStatement, attachBillToPart, findBookingByRef, sourceLabel, type Verdict,
 } from '../services/warranty.service';
 import logger from '../lib/logger';
 
@@ -130,6 +130,113 @@ export function registerWarrantyRoutes(app: Express) {
                 serviceRequestId: req.query.serviceRequestId ? parseInt(String(req.query.serviceRequestId)) : undefined,
             });
             res.json({ success: true, data: claims });
+        } catch (error) { next(error); }
+    });
+
+    /**
+     * GET /api/admin/warranty-claims/lookup?ref=SR-1234
+     *
+     * What the office needs in front of them while the customer is still on the
+     * line: whose booking it is, and what was fitted, so the claim is filed
+     * against the right part instead of a free-text guess.
+     */
+    app.get('/api/admin/warranty-claims/lookup', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const ref = String(req.query.ref ?? '');
+            const booking = await findBookingByRef(ref);
+            if (!booking) {
+                return res.status(404).json({
+                    success: false,
+                    message: `No booking matches "${ref}". Ask for the number on their invoice or SMS.`,
+                });
+            }
+
+            const parts = await getPartItems(booking.id);
+            res.json({
+                success: true,
+                data: {
+                    booking: {
+                        id: booking.id,
+                        serviceId: booking.serviceId,
+                        serviceType: booking.serviceType,
+                        status: booking.status,
+                        address: booking.address,
+                        completedAt: (booking as any).completedAt ?? null,
+                    },
+                    parts: parts.map(p => ({
+                        id: p.id,
+                        partName: p.partName,
+                        brand: p.brand,
+                        quantity: p.quantity,
+                        purchasedFrom: sourceLabel(p as any),
+                        isDocumented: p.isDocumented,
+                        statement: partStatement(p as any),
+                    })),
+                },
+            });
+        } catch (error) { next(error); }
+    });
+
+    /**
+     * POST /api/admin/warranty-claims
+     *
+     * The office logs a claim the customer made by telephone.
+     *
+     * Without this the only door into the claims queue was the customer's own
+     * app, which is not how most of these arrive here — someone rings the office
+     * about a capacitor that failed in month three. A queue that can only be fed
+     * by a channel the customer may not use is a queue that stays empty while the
+     * calls keep coming.
+     *
+     * The claim is attributed to the CUSTOMER, not to the admin. Who took the
+     * call is recorded separately, so the record says what actually happened.
+     */
+    app.post('/api/admin/warranty-claims', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+            const ref = String(req.body?.bookingRef ?? req.body?.serviceRequestId ?? '');
+            const partItemId = req.body?.partItemId ? parseInt(String(req.body.partItemId)) : null;
+
+            if (description.length < 5) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Write down what the customer reported, in their words.',
+                });
+            }
+
+            const booking = await findBookingByRef(ref);
+            if (!booking) {
+                return res.status(404).json({ success: false, message: `No booking matches "${ref}".` });
+            }
+            if (!booking.userId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'That booking has no customer account attached, so a claim cannot be filed against it.',
+                });
+            }
+
+            if (partItemId) {
+                const [part] = await db.select().from(servicePartItems)
+                    .where(eq(servicePartItems.id, partItemId)).limit(1);
+                if (!part || part.serviceRequestId !== booking.id) {
+                    return res.status(400).json({ success: false, message: 'That part is not on this booking' });
+                }
+            }
+
+            const claim = await createClaim({
+                serviceRequestId: booking.id,
+                partItemId,
+                raisedByUserId: booking.userId,
+                description,
+                loggedByAdminId: (req as any).admin?.userId ?? null,
+            });
+
+            logger.info(`[WARRANTY] Claim ${claim.claimId} logged by office on ${booking.serviceId}`);
+            res.status(201).json({
+                success: true,
+                message: `Claim ${claim.claimId} logged against ${booking.serviceId}.`,
+                data: claim,
+            });
         } catch (error) { next(error); }
     });
 

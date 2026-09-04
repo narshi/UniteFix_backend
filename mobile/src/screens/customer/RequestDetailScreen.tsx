@@ -634,9 +634,14 @@ export function RequestDetailScreen({ navigation, route }: Props) {
 
 
 
-                {/* What this job is covered for, and one door to claim on it. */}
-                {request.status === 'completed' && !showRating && (
-                    <WarrantyCard bookingId={request.id} />
+                {/* What was fitted, where it came from, and one door to claim on it.
+                    Shown from the moment payment is requested, not just after the
+                    job closes: the customer is being asked to pay for these parts,
+                    and "Spare Parts ₹850" with no names and no source is asking
+                    them to take it on trust. Claiming is offered only once the job
+                    is actually finished. */}
+                {(request.status === 'completed' || request.status === 'pending_payment') && !showRating && (
+                    <WarrantyCard bookingId={request.id} claimable={request.status === 'completed'} />
                 )}
 
                 {/* Rating */}

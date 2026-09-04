@@ -21,7 +21,7 @@
 import 'dotenv/config';
 import {
     resolvePartItem, routeCost, warrantyWindow, resolveBacker, isDocumented,
-    partsTotalPaise, synthesiseFromLumpSum, partStatement, backerLabel,
+    partsTotalPaise, synthesiseFromLumpSum, partStatement, backerLabel, sourceLabel,
     WORKMANSHIP_WARRANTY_DAYS,
     type PartSource, type Verdict,
 } from '../server/services/warranty.service';
@@ -191,6 +191,40 @@ const INSTALL = new Date('2026-09-01T10:00:00Z');
 
     check('an unnamed vendor still gets a readable label, not "null"',
         backerLabel('vendor', null) === 'Supplying vendor');
+}
+
+// ── provenance survives missing paperwork ───────────────────────────────────
+// The regression these guard: the shop a technician typed in was stored, and
+// then dropped from every screen the moment the bill photo was missing, because
+// every display path asked backerLabel() — which answers "No warranty" — and
+// nothing ever asked where the part came from.
+{
+    const undocumentedLocal = resolvePartItem({
+        partName: 'Fan capacitor', vendorName: 'Sirsi Electricals', unitPriceRupees: 450,
+    });
+    check('an undocumented local part is still backed by nobody',
+        undocumentedLocal.warrantyBacker === 'none');
+    check('...but the shop it came from is not lost with the warranty',
+        sourceLabel(undocumentedLocal as any) === 'Sirsi Electricals');
+    check('...and the customer is told the shop even though nothing covers it',
+        /Sirsi Electricals/.test(partStatement(undocumentedLocal as any)),
+        partStatement(undocumentedLocal as any));
+
+    const anonLocal = resolvePartItem({ partName: 'Washer', unitPriceRupees: 20 });
+    check('an unnamed local purchase reads as a local shop, not as "null"',
+        sourceLabel(anonLocal as any) === 'a local shop');
+
+    check('platform stock names us', sourceLabel({ sourceType: 'platform', vendorName: null }) === 'UniteFix stock');
+    check('a customer-supplied part has no source worth reciting back to them',
+        sourceLabel({ sourceType: 'customer_supplied', vendorName: 'Their shop' }) === null);
+
+    const documented = resolvePartItem({
+        partName: 'Fan capacitor', category: 'electrical', vendorName: 'Sirsi Electricals',
+        billPhotoUrl: 'bill.jpg', unitPriceRupees: 450,
+    });
+    const s = partStatement(documented as any);
+    check('a covered part names its shop once, not twice',
+        (s.match(/Sirsi Electricals/g) ?? []).length === 1, s.slice(0, 100) + '...');
 }
 
 // ── persistence (skipped without a database) ────────────────────────────────

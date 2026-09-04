@@ -33,6 +33,7 @@ import {
 } from 'lucide-react-native';
 import { Assignment } from '../../api/partner.api';
 import MissingBills from '../../components/partner/MissingBills';
+import PartsFitted from '../../components/partner/PartsFitted';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -144,6 +145,11 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Paperwork the technician still owes on this job. */}
                 {isDone && <MissingBills bookingId={assignment.id} />}
+
+                {/* What was actually fitted, shop name included. Recorded at the
+                    doorstep and then never shown back to the technician anywhere,
+                    which made the entry look like it had gone nowhere. */}
+                {isDone && <PartsFitted bookingId={assignment.id} />}
 
                 {/* Status Badge */}
                 <View style={[styles.statusBadge, {
@@ -318,7 +324,7 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.surface },
     header: {
-        flexDirection: 'row', alignItems: 'center',
+        flexDirection: 'row', alignItems: 'center',
         paddingBottom: spacing.base, paddingHorizontal: spacing.lg,
         backgroundColor: colors.background,
         borderBottomWidth: 1, borderBottomColor: colors.divider,

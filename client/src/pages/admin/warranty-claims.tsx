@@ -23,13 +23,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
-import { ShieldCheck, AlertTriangle, FileWarning, Receipt } from "lucide-react";
+import { ShieldCheck, AlertTriangle, FileWarning, Receipt, PhoneCall, Search } from "lucide-react";
 
 type Claim = {
     claim: {
@@ -62,6 +63,27 @@ type Claim = {
         billPhotoUrl: string | null;
     } | null;
     wouldRoute: { part_failed: string };
+};
+
+/** What the office sees while the customer is still on the line. */
+type Lookup = {
+    booking: {
+        id: number;
+        serviceId: string;
+        serviceType: string;
+        status: string;
+        address: string;
+        completedAt: string | null;
+    };
+    parts: Array<{
+        id: number;
+        partName: string;
+        brand: string | null;
+        quantity: number;
+        purchasedFrom: string | null;
+        isDocumented: boolean;
+        statement: string;
+    }>;
 };
 
 /** The five verdicts, with what each one means for who pays. */
@@ -168,6 +190,14 @@ export default function WarrantyClaimsPage() {
     const [verdict, setVerdict] = useState<string>("");
     const [notes, setNotes] = useState("");
 
+    // Logging a claim taken over the phone.
+    const [logOpen, setLogOpen] = useState(false);
+    const [lookupRef, setLookupRef] = useState("");
+    const [found, setFound] = useState<Lookup | null>(null);
+    const [lookupError, setLookupError] = useState<string | null>(null);
+    const [logPartId, setLogPartId] = useState<number | null>(null);
+    const [logDesc, setLogDesc] = useState("");
+
     const { data, isLoading } = useQuery<{ data: Claim[] }>({
         queryKey: ["/api/admin/warranty-claims", statusFilter],
         queryFn: async () => {
@@ -176,6 +206,56 @@ export default function WarrantyClaimsPage() {
             return res.json();
         },
     });
+
+    const lookup = useMutation({
+        mutationFn: async (ref: string) => {
+            const res = await apiRequest("GET", `/api/admin/warranty-claims/lookup?ref=${encodeURIComponent(ref)}`);
+            const body = await res.json();
+            if (!res.ok) throw new Error(body?.message ?? "Could not find that booking");
+            return body.data as Lookup;
+        },
+        onSuccess: (data) => {
+            setFound(data);
+            setLookupError(null);
+            // Pre-select when there is only one part: the common call is about the
+            // only part that was fitted, and making someone click it changes nothing.
+            setLogPartId(data.parts.length === 1 ? data.parts[0].id : null);
+        },
+        onError: (error: any) => {
+            setFound(null);
+            setLookupError(error.message);
+        },
+    });
+
+    const logClaim = useMutation({
+        mutationFn: async () => {
+            const res = await apiRequest("POST", "/api/admin/warranty-claims", {
+                bookingRef: found?.booking.serviceId ?? lookupRef,
+                partItemId: logPartId,
+                description: logDesc,
+            });
+            const body = await res.json();
+            if (!res.ok) throw new Error(body?.message ?? "Could not log the claim");
+            return body;
+        },
+        onSuccess: (result: any) => {
+            toast({ title: "Claim logged", description: result?.message });
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/warranty-claims"] });
+            closeLog();
+        },
+        onError: (error: any) => {
+            toast({ title: "Not logged", description: error.message, variant: "destructive" });
+        },
+    });
+
+    const closeLog = () => {
+        setLogOpen(false);
+        setLookupRef("");
+        setFound(null);
+        setLookupError(null);
+        setLogPartId(null);
+        setLogDesc("");
+    };
 
     const settle = useMutation({
         mutationFn: async ({ id, verdict, notes }: { id: number; verdict: string; notes: string }) => {
@@ -216,7 +296,15 @@ export default function WarrantyClaimsPage() {
                         cost — the customer pays nothing on any genuine failure.
                     </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                    {/* Most warranty calls arrive by telephone, not through the
+                        app. Without this the queue could only be fed by a channel
+                        the customer may never use, and stayed empty while the
+                        calls kept coming. */}
+                    <Button size="sm" onClick={() => setLogOpen(true)}>
+                        <PhoneCall className="mr-1.5 h-3.5 w-3.5" />
+                        Log a phoned-in claim
+                    </Button>
                     {["open", "inspecting", "resolved", "all"].map(s => (
                         <Button
                             key={s}
@@ -259,7 +347,8 @@ export default function WarrantyClaimsPage() {
                                             <ShieldCheck className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
                                             <p className="text-sm font-medium">No {statusFilter === "all" ? "" : statusFilter} claims</p>
                                             <p className="mt-1 text-sm text-muted-foreground">
-                                                Claims raised from the customer app appear here.
+                                                Claims raised from the customer app appear here. If a customer
+                                                rings the office, use "Log a phoned-in claim" above.
                                             </p>
                                         </TableCell>
                                     </TableRow>
@@ -389,6 +478,142 @@ export default function WarrantyClaimsPage() {
                             onClick={() => active && settle.mutate({ id: active.claim.id, verdict, notes })}
                         >
                             {settle.isPending ? "Recording…" : "Record verdict"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Log a claim taken over the phone. */}
+            <Dialog open={logOpen} onOpenChange={(open) => !open && closeLog()}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>Log a phoned-in claim</DialogTitle>
+                        <DialogDescription>
+                            Filed against the customer who booked the job, not against you. Who took
+                            the call is recorded separately.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-sm font-medium">Booking reference</label>
+                            <p className="mb-2 mt-0.5 text-xs text-muted-foreground">
+                                Whatever is on their invoice or SMS — the SR number, or the booking number.
+                            </p>
+                            <div className="flex gap-2">
+                                <Input
+                                    value={lookupRef}
+                                    onChange={(e) => setLookupRef(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && lookupRef.trim()) {
+                                            e.preventDefault();
+                                            lookup.mutate(lookupRef.trim());
+                                        }
+                                    }}
+                                    placeholder="e.g. SR-1042"
+                                />
+                                <Button
+                                    variant="outline"
+                                    disabled={!lookupRef.trim() || lookup.isPending}
+                                    onClick={() => lookup.mutate(lookupRef.trim())}
+                                >
+                                    <Search className="mr-1.5 h-3.5 w-3.5" />
+                                    {lookup.isPending ? "Finding…" : "Find"}
+                                </Button>
+                            </div>
+                            {lookupError && (
+                                <p className="mt-2 text-sm text-destructive">{lookupError}</p>
+                            )}
+                        </div>
+
+                        {found && (
+                            <>
+                                <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                                    <div className="font-medium">{found.booking.serviceType}</div>
+                                    <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                        {found.booking.serviceId}
+                                    </div>
+                                    <div className="mt-1 text-xs text-muted-foreground">{found.booking.address}</div>
+                                </div>
+
+                                <div>
+                                    <label className="text-sm font-medium">What are they claiming on?</label>
+                                    <div className="mt-2 space-y-1.5">
+                                        {/* A workmanship claim is always available: the part
+                                            may be fine and the fitting wrong, and that is our
+                                            guarantee either way. */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setLogPartId(null)}
+                                            className={`w-full rounded-md border p-2.5 text-left text-sm transition ${
+                                                logPartId === null ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                                            }`}
+                                        >
+                                            <div className="font-medium">The work itself</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                Our 30-day workmanship guarantee
+                                            </div>
+                                        </button>
+
+                                        {found.parts.map(p => (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                onClick={() => setLogPartId(p.id)}
+                                                className={`w-full rounded-md border p-2.5 text-left text-sm transition ${
+                                                    logPartId === p.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="font-medium">
+                                                        {p.partName}{p.quantity > 1 ? ` ×${p.quantity}` : ""}
+                                                        {p.brand ? <span className="ml-1.5 font-normal text-muted-foreground">{p.brand}</span> : null}
+                                                    </span>
+                                                    {!p.isDocumented && (
+                                                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                                                            <FileWarning className="mr-1 h-3 w-3" />
+                                                            No bill
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                {p.purchasedFrom && (
+                                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                                        Bought from {p.purchasedFrom}
+                                                    </div>
+                                                )}
+                                            </button>
+                                        ))}
+
+                                        {found.parts.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                No parts were recorded on this job, so this can only be a
+                                                workmanship claim.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-sm font-medium">What did they say?</label>
+                                    <Textarea
+                                        className="mt-2"
+                                        rows={3}
+                                        value={logDesc}
+                                        onChange={(e) => setLogDesc(e.target.value)}
+                                        placeholder="In their words — e.g. the fan stopped again after three weeks"
+                                    />
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeLog}>Cancel</Button>
+                        <Button
+                            disabled={!found || logDesc.trim().length < 5 || logClaim.isPending}
+                            onClick={() => logClaim.mutate()}
+                        >
+                            {logClaim.isPending ? "Logging…" : "Log claim"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

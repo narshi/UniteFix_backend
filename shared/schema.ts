@@ -2062,6 +2062,10 @@ export const warrantyClaims = pgTable("warranty_claims", {
   partItemId: integer("part_item_id").references(() => servicePartItems.id),  // null = a workmanship claim
 
   raisedByUserId: integer("raised_by_user_id").notNull(),
+  // Set only when the office keyed the claim in on the customer's behalf — most
+  // warranty calls arrive by telephone. The claim still belongs to the customer;
+  // this records who took the call.
+  loggedByAdminId: integer("logged_by_admin_id"),
   description: text("description").notNull(),
 
   status: warrantyClaimStatusEnum("status").notNull().default('open'),

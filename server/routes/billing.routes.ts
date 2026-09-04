@@ -153,11 +153,16 @@ export function registerBillingRoutes(app: Express) {
             // sparePartsCost; itemise it when the app sent line items, and record an
             // honest undocumented line when it did not. Missing this path was how
             // half the parts kept leaking after the first fix.
+            // Hoisted so the customer's "bill is ready" notification can name what
+            // was fitted. Inside the try it was invisible to the notification, and
+            // the customer was told an amount with no idea a part was in it.
+            let recordedParts: PartItemInput[] = [];
             if (parts > 0) {
                 try {
                     const submitted: PartItemInput[] = Array.isArray(req.body?.partItems) && req.body.partItems.length
                         ? req.body.partItems.slice(0, 40)
                         : synthesiseFromLumpSum(parts, req.body?.partsNote);
+                    recordedParts = submitted;
                     await recordPartItems(bookingId, submitted, partnerId ?? null);
                 } catch (partsErr: any) {
                     logger.error(`[PARTS] Failed to record parts on SR #${bookingId}: ${partsErr?.message}`);
@@ -168,7 +173,11 @@ export function registerBillingRoutes(app: Express) {
 
             // The expert is standing there waiting to be paid — the customer needs
             // this immediately, not on their next app open.
-            void BookingNotifications.billSubmitted(bookingId, billedSnapshot.finalTotal ?? 0);
+            void BookingNotifications.billSubmitted(
+                bookingId,
+                billedSnapshot.finalTotal ?? 0,
+                recordedParts.map(x => ({ partName: String(x.partName ?? '').trim(), quantity: Number(x.quantity) || 1 })),
+            );
 
             res.json({
                 success: true,
@@ -285,7 +294,11 @@ export function registerBillingRoutes(app: Express) {
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
                 (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts, ${resolvedItems.length} line(s))` : ''));
 
-            void BookingNotifications.billSubmitted(bookingId, updatedSnapshot.finalTotal ?? 0);
+            void BookingNotifications.billSubmitted(
+                bookingId,
+                updatedSnapshot.finalTotal ?? 0,
+                resolvedItems.map(x => ({ partName: String(x.partName ?? '').trim(), quantity: Number(x.quantity) || 1 })),
+            );
 
             res.json({
                 success: true,
