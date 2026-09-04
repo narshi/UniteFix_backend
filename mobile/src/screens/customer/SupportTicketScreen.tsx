@@ -18,7 +18,6 @@ import {
     Modal,
     Pressable,
     KeyboardAvoidingView,
-    Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
@@ -226,8 +225,29 @@ export function SupportTicketScreen({ navigation, route }: Props) {
             </View>
 
             {mode === 'create' ? (
-                /* Create Form */
-                <ScrollView contentContainerStyle={styles.formContent}>
+                /* Create Form.
+
+                   The description box sits low on the screen, and the keyboard
+                   was covering it: this app builds with edgeToEdgeEnabled, and
+                   under edge-to-edge the manifest's windowSoftInputMode
+                   adjustResize no longer shrinks the window for the IME on its
+                   own. Nothing was compensating, so the field the customer was
+                   typing into was behind the keys.
+
+                   behavior="padding" on Android as well as iOS — the same fix
+                   already applied on StartServiceScreen and AssignmentDetailScreen,
+                   which hit this first. */
+                <KeyboardAvoidingView
+                    style={styles.flex}
+                    behavior="padding"
+                    keyboardVerticalOffset={0}
+                >
+                <ScrollView
+                    contentContainerStyle={styles.formContent}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    showsVerticalScrollIndicator={false}
+                >
                     {prefilledServiceRequestId && (
                         <View style={styles.linkedBookingBadge}>
                             <CircleDot size={14} color={colors.primary} />
@@ -263,6 +283,7 @@ export function SupportTicketScreen({ navigation, route }: Props) {
                         loading={isPending}
                     />
                 </ScrollView>
+                </KeyboardAvoidingView>
             ) : (
                 /* Ticket List */
                 isLoading ? (
@@ -305,8 +326,11 @@ export function SupportTicketScreen({ navigation, route }: Props) {
                 <View style={styles.modalRoot}>
                     <Pressable style={styles.backdrop} onPress={() => setOpenTicketId(null)} />
 
+                    {/* Same defect as the create form: the reply box is pinned to
+                        the bottom of the sheet, which is exactly where the keyboard
+                        opens. Android was passed `undefined` and so got nothing. */}
                     <KeyboardAvoidingView
-                        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                        behavior="padding"
                         style={styles.sheet}
                     >
                         <View style={styles.sheetHandle} />
@@ -409,6 +433,7 @@ export function SupportTicketScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+    flex: { flex: 1 },
     container: { flex: 1, backgroundColor: colors.surface },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     header: {

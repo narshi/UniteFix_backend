@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, User, Star, Navigation } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { MapPin, User, Star, Navigation, Search, X } from "lucide-react";
 
 interface Partner {
   id: number;
@@ -33,6 +34,7 @@ export default function PartnerAssignmentModal({
   service 
 }: PartnerAssignmentModalProps) {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
   const { toast } = useToast();
 
   const { data: partnersData, isLoading } = useQuery({
@@ -57,6 +59,33 @@ export default function PartnerAssignmentModal({
   });
 
   const partners: Partner[] = partnersData?.data || partnersData || [];
+
+  // Verification first, then the search. The nearby list is ordered by distance,
+  // and that order is worth keeping — filtering preserves it, so the closest
+  // match to what was typed still sorts to the top.
+  const verified = useMemo(
+    () => (Array.isArray(partners) ? partners : []).filter(
+      (p: Partner) => p.verificationStatus === 'verified' || p.verificationStatus === 'Verified'
+    ),
+    [partners]
+  );
+
+  const visiblePartners = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return verified;
+    // Matched across every field the dispatcher can actually read off the row:
+    // they search by the name the customer gave, by the employee code on a
+    // roster, or by the trade the job needs.
+    return verified.filter((p: Partner) => {
+      const haystack = [
+        p.partnerName,
+        p.partnerId,
+        p.partnerType,
+        ...(Array.isArray(p.services) ? p.services : []),
+      ].filter(Boolean).join(" ").toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [verified, search]);
 
   const assignPartnerMutation = useMutation({
     mutationFn: async (partnerId: number) => {
@@ -98,7 +127,18 @@ export default function PartnerAssignmentModal({
   const getRandomRating = () => (4.2 + Math.random() * 0.7).toFixed(1);
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    // Cleared on close. A search left over from the last job would silently hide
+    // most of the roster on the next one, and read as "no employees available".
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          setSearch("");
+          setSelectedPartnerId(null);
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="w-full max-w-lg mx-4 glass-panel border-[rgba(255,255,255,0.08)] bg-[hsla(222,40%,10%,0.8)] shadow-[0_0_40px_rgba(0,0,0,0.5)]" data-testid="partner-assignment-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white text-xl">
@@ -135,6 +175,30 @@ export default function PartnerAssignmentModal({
           </div>
         )}
 
+        {/* Search. The nearby list runs to every verified employee in the
+            district once the geo filter is loose, and scrolling it to find a
+            named person is the slowest part of dispatching a job. */}
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(215,20%,55%)]" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, employee ID or trade"
+            className="border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.03)] pl-9 pr-9 text-white placeholder:text-[hsl(215,20%,50%)] focus-visible:ring-[hsl(217,91%,60%)]"
+            data-testid="partner-search"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(215,20%,55%)] transition-colors hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
           {isLoading ? (
             <div className="space-y-3">
@@ -150,10 +214,8 @@ export default function PartnerAssignmentModal({
                 </div>
               ))}
             </div>
-          ) : Array.isArray(partners) && partners.length > 0 ? (
-            partners
-              .filter((p: Partner) => p.verificationStatus === 'verified' || p.verificationStatus === 'Verified')
-              .map((partner: Partner, index: number) => (
+          ) : visiblePartners.length > 0 ? (
+            visiblePartners.map((partner: Partner, index: number) => (
               <div
                 key={partner.id}
                 className={`border rounded-xl p-4 cursor-pointer transition-all duration-300 ${
@@ -219,8 +281,32 @@ export default function PartnerAssignmentModal({
               <div className="w-16 h-16 bg-[rgba(255,255,255,0.05)] border border-[rgba(255,255,255,0.1)] rounded-full flex items-center justify-center mx-auto mb-4">
                 <User className="w-8 h-8 text-[hsl(215,20%,50%)]" />
               </div>
-              <p className="text-[hsl(210,20%,85%)] font-medium">No verified employees available</p>
-              <p className="text-sm text-[hsl(215,20%,55%)] mt-1">Add employees in Employee Management</p>
+              {/* Two different problems: nobody matched what was typed, versus
+                  nobody is available at all. Telling a dispatcher to go add an
+                  employee because they mistyped a name wastes their time. */}
+              {search.trim() && verified.length > 0 ? (
+                <>
+                  <p className="text-[hsl(210,20%,85%)] font-medium">
+                    No employee matches "{search.trim()}"
+                  </p>
+                  <p className="text-sm text-[hsl(215,20%,55%)] mt-1">
+                    {verified.length} verified {verified.length === 1 ? "employee is" : "employees are"} available —
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="underline underline-offset-2 hover:text-[hsl(210,20%,85%)]"
+                    >
+                      clear the search
+                    </button>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[hsl(210,20%,85%)] font-medium">No verified employees available</p>
+                  <p className="text-sm text-[hsl(215,20%,55%)] mt-1">Add employees in Employee Management</p>
+                </>
+              )}
             </div>
           )}
         </div>
