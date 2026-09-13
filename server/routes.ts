@@ -62,6 +62,7 @@ import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
 import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
+import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes";
 import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
@@ -3560,6 +3561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
+  registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerUploadRoutes(app); // Image uploads (Cloudinary)
   registerPaymentRoutes(app); // Register Razorpay and webhook routes

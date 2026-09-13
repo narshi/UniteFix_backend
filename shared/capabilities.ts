@@ -73,6 +73,8 @@ export const CAPABILITY_AREAS: CapabilityArea[] = [
     // ---- Growth -----------------------------------------------------------
     { key: 'marketing', label: 'Marketing Push', group: 'Growth', scope: 'staff',
       description: 'Broadcast notifications and campaigns' },
+    { key: 'partners', label: 'Business Partners', group: 'Growth', scope: 'staff',
+      description: 'ISPs, CCTV installers, computer shops and other companies trading with UniteFix; their terms, verticals and ledger' },
     { key: 'ftth', label: 'FTTH Operators', group: 'Growth', scope: 'staff',
       description: 'Broadband partners: applications, terms, coverage and settlements' },
 

@@ -37,7 +37,9 @@
     "reconcile:wallets": "node -r dotenv/config scripts/reconcile-wallets.mjs",
     "smoke:warranty": "tsx scripts/smoke-warranty-parts.ts",
     "smoke:ftth-addons": "tsx scripts/smoke-ftth-addons.ts",
-    "backfill:addon-catalog": "tsx scripts/backfill-addon-catalog.ts"
+    "backfill:addon-catalog": "tsx scripts/backfill-addon-catalog.ts",
+    "backfill:business-partners": "tsx scripts/backfill-business-partners.ts",
+    "smoke:business-partners": "tsx scripts/smoke-business-partners.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

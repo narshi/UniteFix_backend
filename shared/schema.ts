@@ -4,8 +4,9 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums for better data integrity
-export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'serviceman']);
+export const userRoleEnum = pgEnum('user_role', ['user', 'admin', 'serviceman', 'business_partner']);
 export const verificationStatusEnum = pgEnum('verification_status', ['pending', 'verified', 'rejected', 'suspended']);
+export const partsAccessEnum = pgEnum('parts_access', ['none', 'requested', 'active', 'suspended']);
 export const withdrawalStatusEnum = pgEnum("withdrawal_status", ["pending", "processing", "completed", "failed", "rejected"]);
 // PHASE 2: Updated booking state machine - normalized states
 export const serviceStatusEnum = pgEnum('service_status', [
@@ -182,6 +183,12 @@ export const employees = pgTable("employees", {
   // automated payout has never been set up, which is what the admin dialog
   // reads to decide between an automatic transfer and a manual one.
   cashfreeBeneId: text("cashfree_bene_id"),
+  // Spare parts from UniteFix stock. Not a boolean: 'requested' is the state
+  // between paying the deposit and being approved, and 'suspended' is what a
+  // drawn-down deposit produces without deleting anything.
+  partsAccess: partsAccessEnum("parts_access").notNull().default('none'),
+  partsAccessGrantedAt: timestamp("parts_access_granted_at"),
+  partsAccessGrantedBy: integer("parts_access_granted_by"),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
@@ -900,6 +907,9 @@ export const paymentTransactions = pgTable("payment_transactions", {
   // no entity link has already gone wrong here once.
   // Declared lazily: ftthRecharges is defined further down the file.
   ftthRechargeId: integer("ftth_recharge_id").references((): any => ftthRecharges.id),
+  // Two more kinds of payment, linked the same way.
+  b2bOrderId: integer("b2b_order_id").references((): any => b2bOrders.id),
+  partnerDepositId: integer("partner_deposit_id").references((): any => partnerDeposits.id),
   razorpayOrderId: text("razorpay_order_id"),
   razorpayPaymentId: text("razorpay_payment_id"),
   amount: integer("amount").notNull(), // In paise
@@ -1650,10 +1660,16 @@ export const ftthOperators = pgTable("ftth_operators", {
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
 
+  // The party this operator IS. An ISP is one vertical of a business partner;
+  // this row keeps the FTTH-specific terms and the party row keeps the rest.
+  // Nullable until the backfill has run, NOT NULL after.
+  businessPartnerId: integer("business_partner_id").references((): any => businessPartners.id),
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   adminUserIdx: uniqueIndex("ftth_operators_admin_user_idx").on(table.adminUserId),
+  businessPartnerIdx: uniqueIndex("ftth_operators_business_partner_idx").on(table.businessPartnerId),
   statusIdx: index("ftth_operators_status_idx").on(table.status),
 }));
 
@@ -2135,6 +2151,12 @@ export const servicePartItems = pgTable("service_part_items", {
   brand: text("brand"),
   category: text("category"),                       // drives the default warranty period
 
+  // What makes 'platform' true rather than asserted. A platform line without
+  // this is downgraded to technician_local by resolvePartItem().
+  sparePartId: integer("spare_part_id").references((): any => spareParts.id),
+  // Set when the technician could not find the part and proposed it.
+  proposalId: integer("proposal_id").references((): any => sparePartProposals.id),
+
   sourceType: partSourceTypeEnum("source_type").notNull().default('technician_local'),
   vendorName: text("vendor_name"),                  // free text until an approved-vendor table exists
   vendorId: integer("vendor_id"),                   // reserved for that table; no FK yet
@@ -2210,3 +2232,386 @@ export type ServicePartItem = typeof servicePartItems.$inferSelect;
 export type InsertServicePartItem = typeof servicePartItems.$inferInsert;
 export type WarrantyClaim = typeof warrantyClaims.$inferSelect;
 export type InsertWarrantyClaim = typeof warrantyClaims.$inferInsert;
+
+// ==================== BUSINESS PARTNERS, SPARE PARTS, B2B ====================
+//
+// See spare_parts_inventory_plan.md. Two words, deliberately:
+//   "partner"          = a TECHNICIAN (employees). Unchanged everywhere.
+//   "business partner" = a company that does commerce with UniteFix — an ISP, a
+//                        CCTV installer, a computer shop, a consultant.
+// Nothing new here uses bare "partner" for the second thing.
+
+export const businessPartnerStatusEnum = pgEnum('business_partner_status', [
+  'pending_approval', 'active', 'paused', 'disabled',
+]);
+
+/** Admin-managed, like technician_types. A partner may hold several. */
+export const partnerVerticals = pgTable("partner_verticals", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),            // 'isp', 'computer', 'cctv', 'consultation'
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/**
+ * The party. Who a business is, how to reach them, what terms they are on, and
+ * how they sign in. What they DO is in partner_verticals; anything a vertical
+ * needs beyond that lives in its own profile table (ftth_operators is the first).
+ */
+export const businessPartners = pgTable("business_partners", {
+  id: serial("id").primaryKey(),
+  partnerCode: text("partner_code").notNull().unique(),   // "BP-0001"
+  legalName: text("legal_name").notNull(),
+  displayName: text("display_name").notNull(),
+  gstin: text("gstin"),
+  pan: text("pan"),
+  contactName: text("contact_name"),
+  contactPhone: text("contact_phone").notNull(),
+  contactEmail: text("contact_email"),
+  address: text("address"),
+  pincode: text("pincode"),
+  district: text("district"),
+  status: businessPartnerStatusEnum("status").notNull().default('pending_approval'),
+
+  // Two doors. The web portal signs in through admin_users (today's operator
+  // login); the mobile app through users (Truecaller, role business_partner).
+  adminUserId: integer("admin_user_id").references(() => adminUsers.id),
+  userId: integer("user_id").references(() => users.id),
+
+  // Commerce terms. 0 = prepaid only.
+  creditLimitPaise: integer("credit_limit_paise").notNull().default(0),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(0),
+
+  // Payout, for verticals where UniteFix owes them. Admin-only to edit — a
+  // compromised portal login that can swap an account number redirects the
+  // next settlement to the attacker.
+  beneficiaryName: text("beneficiary_name"),
+  bankAccountNumber: text("bank_account_number"),
+  bankIfsc: text("bank_ifsc"),
+  upiId: text("upi_id"),
+  cashfreeBeneId: text("cashfree_bene_id"),
+
+  approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  statusIdx: index("business_partners_status_idx").on(table.status),
+  adminUserIdx: uniqueIndex("business_partners_admin_user_idx").on(table.adminUserId),
+  userIdx: uniqueIndex("business_partners_user_idx").on(table.userId),
+}));
+
+export const businessPartnerVerticals = pgTable("business_partner_verticals", {
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  verticalId: integer("vertical_id").notNull().references(() => partnerVerticals.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.businessPartnerId, table.verticalId] }),
+}));
+
+// ── Spare parts ─────────────────────────────────────────────────────────────
+
+export const sparePartStatusEnum = pgEnum('spare_part_status', ['active', 'discontinued', 'pending_review']);
+export const sparePartProposalStatusEnum = pgEnum('spare_part_proposal_status', ['pending', 'approved', 'rejected', 'merged']);
+export const stockLocationEnum = pgEnum('stock_location', ['warehouse', 'technician']);
+export const stockMovementTypeEnum = pgEnum('stock_movement_type', [
+  'purchase_in', 'transfer_to_technician', 'return_to_warehouse',
+  'consumed', 'sold_to_partner', 'partner_return', 'adjustment', 'write_off',
+]);
+
+/**
+ * The catalogue. Three prices, three audiences:
+ *   unitPricePaise   — billed to a CUSTOMER when fitted on a job
+ *   tradePricePaise  — billed to a BUSINESS PARTNER on a B2B order; null = not sold B2B
+ *   costPricePaise   — what UniteFix paid; never leaves the admin panel
+ */
+export const spareParts = pgTable("spare_parts", {
+  id: serial("id").primaryKey(),
+  partCode: text("part_code").notNull().unique(),         // "AC-CAP-2.5UF"
+  name: text("name").notNull(),
+  brand: text("brand"),
+  specification: text("specification"),
+  unit: text("unit").notNull().default('piece'),
+  unitPricePaise: integer("unit_price_paise").notNull(),
+  tradePricePaise: integer("trade_price_paise"),
+  costPricePaise: integer("cost_price_paise"),
+  warrantyDays: integer("warranty_days").notNull().default(0),
+  gstPercent: decimal("gst_percent", { precision: 4, scale: 2 }),
+  photoUrl: text("photo_url"),
+  status: sparePartStatusEnum("status").notNull().default('active'),
+  createdFromProposalId: integer("created_from_proposal_id").references((): any => sparePartProposals.id),
+  createdByAdminId: integer("created_by_admin_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  statusIdx: index("spare_parts_status_idx").on(table.status, table.isActive),
+  nameIdx: index("spare_parts_name_idx").on(table.name),
+}));
+
+/** A capacitor fits AC and fan. Many-to-many, searched by the job's category first. */
+export const sparePartCategories = pgTable("spare_part_categories", {
+  sparePartId: integer("spare_part_id").notNull().references(() => spareParts.id, { onDelete: 'cascade' }),
+  categoryId: integer("category_id").notNull().references(() => serviceCategories.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.sparePartId, table.categoryId] }),
+  categoryIdx: index("spare_part_categories_category_idx").on(table.categoryId),
+}));
+
+/**
+ * On-hand quantity per location. The real flow is "pick up five capacitors
+ * Monday, fit them across the week", so a technician's kit is a location.
+ * A CACHE of spare_part_movements — rebuildable, never authoritative.
+ */
+export const sparePartStock = pgTable("spare_part_stock", {
+  id: serial("id").primaryKey(),
+  sparePartId: integer("spare_part_id").notNull().references(() => spareParts.id, { onDelete: 'cascade' }),
+  location: stockLocationEnum("location").notNull(),
+  holderEmployeeId: integer("holder_employee_id").references(() => employees.id),
+  quantity: integer("quantity").notNull().default(0),
+  reorderLevel: integer("reorder_level").notNull().default(5),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Postgres treats NULLs as distinct in a unique index, so warehouse rows
+  // (holder NULL) are made unique by the migration's partial index instead.
+  partLocationHolderIdx: index("spare_part_stock_part_loc_holder_idx").on(table.sparePartId, table.location, table.holderEmployeeId),
+}));
+
+/** Append-only. Every change to any quantity, with what caused it. */
+export const sparePartMovements = pgTable("spare_part_movements", {
+  id: serial("id").primaryKey(),
+  movementId: text("movement_id").notNull().unique(),     // "SPM-…"
+  sparePartId: integer("spare_part_id").notNull().references(() => spareParts.id),
+  movementType: stockMovementTypeEnum("movement_type").notNull(),
+  quantity: integer("quantity").notNull(),                // signed, from the point of view of the affected row
+  fromLocation: stockLocationEnum("from_location"),
+  toLocation: stockLocationEnum("to_location"),
+  fromHolderEmployeeId: integer("from_holder_employee_id"),
+  toHolderEmployeeId: integer("to_holder_employee_id"),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  servicePartItemId: integer("service_part_item_id").references(() => servicePartItems.id),
+  b2bOrderItemId: integer("b2b_order_item_id").references((): any => b2bOrderItems.id),
+  unitCostPaise: integer("unit_cost_paise"),
+  performedByEmployeeId: integer("performed_by_employee_id"),
+  performedByAdminId: integer("performed_by_admin_id"),
+  stockBefore: integer("stock_before").notNull(),
+  stockAfter: integer("stock_after").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  partIdx: index("spare_part_movements_part_idx").on(table.sparePartId, table.createdAt),
+  // One consumption per fitted line, one sale per order line — however many
+  // times the button is pressed.
+  lineIdx: uniqueIndex("spare_part_movements_line_idx").on(table.servicePartItemId, table.movementType),
+  b2bLineIdx: uniqueIndex("spare_part_movements_b2b_line_idx").on(table.b2bOrderItemId, table.movementType),
+}));
+
+/** What a technician could not find. Nothing enters the catalogue without an admin's id. */
+export const sparePartProposals = pgTable("spare_part_proposals", {
+  id: serial("id").primaryKey(),
+  proposedByEmployeeId: integer("proposed_by_employee_id").notNull().references(() => employees.id),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  name: text("name").notNull(),
+  brand: text("brand"),
+  specification: text("specification"),
+  categoryId: integer("category_id").references(() => serviceCategories.id),
+  unit: text("unit").notNull().default('piece'),
+  indicativePricePaise: integer("indicative_price_paise"),
+  vendorName: text("vendor_name"),
+  photoUrl: text("photo_url"),
+  status: sparePartProposalStatusEnum("status").notNull().default('pending'),
+  resolvedSparePartId: integer("resolved_spare_part_id").references((): any => spareParts.id),
+  reviewedByAdminId: integer("reviewed_by_admin_id"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  statusIdx: index("spare_part_proposals_status_idx").on(table.status),
+  proposerIdx: index("spare_part_proposals_proposer_idx").on(table.proposedByEmployeeId),
+}));
+
+// ── Technician deposit (parts access) ───────────────────────────────────────
+
+export const depositStatusEnum = pgEnum('deposit_status', [
+  'unpaid', 'pending_payment', 'held', 'partially_drawn', 'refund_requested', 'refunded', 'forfeited',
+]);
+export const depositEntryTypeEnum = pgEnum('deposit_entry_type', [
+  'paid_in', 'drawn_warranty', 'drawn_shortage', 'drawn_damage', 'topped_up', 'refunded', 'adjustment',
+]);
+
+/**
+ * Collateral, NOT earnings. Never touches partner_wallets — that table has
+ * twelve writers and two ledgers already found disagreeing in production.
+ */
+export const partnerDeposits = pgTable("partner_deposits", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  purpose: text("purpose").notNull().default('parts_access'),
+  requiredPaise: integer("required_paise").notNull(),
+  paidPaise: integer("paid_paise").notNull().default(0),
+  drawnPaise: integer("drawn_paise").notNull().default(0),
+  status: depositStatusEnum("status").notNull().default('unpaid'),
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  paidAt: timestamp("paid_at"),
+  refundedAt: timestamp("refunded_at"),
+  refundReference: text("refund_reference"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  employeePurposeIdx: uniqueIndex("partner_deposits_employee_purpose_idx").on(table.employeeId, table.purpose),
+  rzpOrderIdx: uniqueIndex("partner_deposits_rzp_order_idx").on(table.razorpayOrderId),
+}));
+
+export const partnerDepositLedger = pgTable("partner_deposit_ledger", {
+  id: serial("id").primaryKey(),
+  depositId: integer("deposit_id").notNull().references(() => partnerDeposits.id),
+  entryType: depositEntryTypeEnum("entry_type").notNull(),
+  amountPaise: integer("amount_paise").notNull(),         // signed: + into the deposit, − out of it
+  warrantyClaimId: integer("warranty_claim_id").references(() => warrantyClaims.id),
+  sparePartMovementId: integer("spare_part_movement_id").references(() => sparePartMovements.id),
+  balanceBeforePaise: integer("balance_before_paise").notNull(),
+  balanceAfterPaise: integer("balance_after_paise").notNull(),
+  createdByAdminId: integer("created_by_admin_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  depositIdx: index("partner_deposit_ledger_deposit_idx").on(table.depositId, table.createdAt),
+  // One draw per claim, however many times the button is pressed.
+  claimIdx: uniqueIndex("partner_deposit_ledger_claim_idx").on(table.warrantyClaimId, table.entryType),
+}));
+
+// ── B2B ordering ────────────────────────────────────────────────────────────
+
+export const b2bOrderStatusEnum = pgEnum('b2b_order_status', [
+  'draft', 'placed', 'paid', 'confirmed', 'packed', 'dispatched', 'delivered', 'cancelled', 'returned',
+]);
+export const b2bPaymentModeEnum = pgEnum('b2b_payment_mode', ['prepaid', 'credit']);
+export const b2bPaymentStatusEnum = pgEnum('b2b_payment_status', ['unpaid', 'paid', 'partially_paid', 'refunded']);
+export const b2bEventTypeEnum = pgEnum('b2b_event_type', [
+  'placed', 'payment_received', 'confirmed', 'packed', 'dispatched', 'out_for_delivery',
+  'delivered', 'cancelled', 'return_requested', 'returned', 'note',
+]);
+export const b2bActorTypeEnum = pgEnum('b2b_actor_type', ['partner', 'admin', 'system']);
+
+export const b2bOrders = pgTable("b2b_orders", {
+  id: serial("id").primaryKey(),
+  orderCode: text("order_code").notNull().unique(),       // "B2B-2026-00042"
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id),
+  status: b2bOrderStatusEnum("status").notNull().default('placed'),
+  paymentMode: b2bPaymentModeEnum("payment_mode").notNull().default('prepaid'),
+  paymentStatus: b2bPaymentStatusEnum("payment_status").notNull().default('unpaid'),
+  subtotalPaise: integer("subtotal_paise").notNull(),
+  gstPaise: integer("gst_paise").notNull().default(0),
+  shippingPaise: integer("shipping_paise").notNull().default(0),
+  discountPaise: integer("discount_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull(),
+  deliveryAddress: jsonb("delivery_address"),
+  deliveryContact: jsonb("delivery_contact"),
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  notes: text("notes"),
+  cancelReason: text("cancel_reason"),
+  placedAt: timestamp("placed_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  dispatchedAt: timestamp("dispatched_at"),
+  deliveredAt: timestamp("delivered_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  confirmedByAdminId: integer("confirmed_by_admin_id"),
+  dispatchedByAdminId: integer("dispatched_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  partnerIdx: index("b2b_orders_partner_idx").on(table.businessPartnerId, table.createdAt),
+  statusIdx: index("b2b_orders_status_idx").on(table.status),
+  rzpOrderIdx: uniqueIndex("b2b_orders_rzp_order_idx").on(table.razorpayOrderId),
+}));
+
+/** Frozen at placement, as every other price in this system is. */
+export const b2bOrderItems = pgTable("b2b_order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => b2bOrders.id, { onDelete: 'cascade' }),
+  sparePartId: integer("spare_part_id").notNull().references(() => spareParts.id),
+  partCode: text("part_code").notNull(),
+  name: text("name").notNull(),
+  specification: text("specification"),
+  quantity: integer("quantity").notNull(),
+  unitPricePaise: integer("unit_price_paise").notNull(),  // = trade price at placement
+  gstPercent: decimal("gst_percent", { precision: 4, scale: 2 }),
+  lineTotalPaise: integer("line_total_paise").notNull(),
+  quantityFulfilled: integer("quantity_fulfilled").notNull().default(0),
+  // Soft stock check at placement: true when the warehouse could not cover it
+  // and the order was allowed anyway, so admin knows to procure.
+  backordered: boolean("backordered").notNull().default(false),
+}, (table) => ({
+  orderIdx: index("b2b_order_items_order_idx").on(table.orderId),
+}));
+
+/** The tracking timeline. Rendered as stages, like recharge tracking. */
+export const b2bOrderEvents = pgTable("b2b_order_events", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => b2bOrders.id, { onDelete: 'cascade' }),
+  eventType: b2bEventTypeEnum("event_type").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  actorType: b2bActorTypeEnum("actor_type").notNull(),
+  actorId: integer("actor_id"),
+  payload: jsonb("payload"),                              // courier, tracking id, photo, note
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  orderIdx: index("b2b_order_events_order_idx").on(table.orderId, table.createdAt),
+}));
+
+export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
+  'order_invoice', 'payment_received', 'credit_note', 'refund', 'adjustment',
+  'settlement_paid', 'settlement_received',
+]);
+
+/**
+ * Partner transactions. SIGN CONVENTION, stated once:
+ *   balance > 0  → the partner owes UniteFix
+ *   balance < 0  → UniteFix owes the partner
+ * An order on credit is +, a payment received is −, a refund we issue is +.
+ *
+ * ftth_operator_ledger runs the OPPOSITE convention and is live money. It is
+ * not migrated; the statement API unions the two at read time.
+ */
+export const businessPartnerLedger = pgTable("business_partner_ledger", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id),
+  entryType: bpLedgerEntryTypeEnum("entry_type").notNull(),
+  amountPaise: integer("amount_paise").notNull(),         // signed
+  b2bOrderId: integer("b2b_order_id").references(() => b2bOrders.id),
+  paymentTransactionId: integer("payment_transaction_id"),
+  balanceBeforePaise: integer("balance_before_paise").notNull(),
+  balanceAfterPaise: integer("balance_after_paise").notNull(),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdByAdminId: integer("created_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  partnerIdx: index("bp_ledger_partner_idx").on(table.businessPartnerId, table.createdAt),
+  // One invoice per order, one refund per order.
+  orderEntryIdx: uniqueIndex("bp_ledger_order_entry_idx").on(table.entryType, table.b2bOrderId),
+}));
+
+export type PartnerVertical = typeof partnerVerticals.$inferSelect;
+export type BusinessPartner = typeof businessPartners.$inferSelect;
+export type InsertBusinessPartner = typeof businessPartners.$inferInsert;
+export type SparePart = typeof spareParts.$inferSelect;
+export type InsertSparePart = typeof spareParts.$inferInsert;
+export type SparePartStockRow = typeof sparePartStock.$inferSelect;
+export type SparePartMovement = typeof sparePartMovements.$inferSelect;
+export type SparePartProposal = typeof sparePartProposals.$inferSelect;
+export type PartnerDeposit = typeof partnerDeposits.$inferSelect;
+export type B2bOrder = typeof b2bOrders.$inferSelect;
+export type B2bOrderItem = typeof b2bOrderItems.$inferSelect;
+export type B2bOrderEvent = typeof b2bOrderEvents.$inferSelect;
+export type BusinessPartnerLedgerEntry = typeof businessPartnerLedger.$inferSelect;
+

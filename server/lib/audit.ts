@@ -30,7 +30,14 @@ export type AuditEntity =
     | 'admin_role'
     | 'ftth_operator'
     | 'ftth_connection'
-    | 'ftth_lead';
+    | 'ftth_lead'
+    // Business partners, spare parts, B2B — see spare_parts_inventory_plan.md
+    | 'business_partner'
+    | 'spare_part'
+    | 'spare_part_proposal'
+    | 'stock_movement'
+    | 'partner_deposit'
+    | 'b2b_order';
 
 export interface AuditEntry {
     entityType: AuditEntity;

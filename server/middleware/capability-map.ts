@@ -60,6 +60,8 @@ const RULES: Rule[] = [
     { test: /^\/accounts\/employee(\/|$)/, area: 'employees', force: 'manage' },
 
     // --- Growth -----------------------------------------------------------
+    { test: /^\/business-partners(\/|$)/, area: 'partners' },
+    { test: /^\/b2b-orders(\/|$)/, area: 'orders' },
     { test: /^\/ftth(\/|$)/, area: 'ftth' },
     { test: /^\/notifications(\/|$)/, area: 'marketing' },
 
@@ -87,6 +89,9 @@ const RULES: Rule[] = [
     // --- Operations -------------------------------------------------------
     { test: /^\/warranty-claims(\/|$)/, area: 'bookings' },
     { test: /^\/tickets(\/|$)/, area: 'support' },
+    // Spare parts, stock and the technician deposit that unlocks them.
+    { test: /^\/spare-parts(\/|$)/, area: 'inventory' },
+    { test: /^\/parts-access(\/|$)/, area: 'inventory' },
     { test: /^\/inventory(\/|$)/, area: 'inventory' },
     { test: /^\/products(\/|$)/, area: 'orders' },
     { test: /^\/returns(\/|$)/, area: 'orders' },

@@ -566,6 +566,93 @@ export function authenticateOperator(req: Request, res: Response, next: NextFunc
 }
 
 /**
+ * A BUSINESS PARTNER — a company that does commerce with UniteFix — through
+ * either of its two doors:
+ *
+ *   - the web portal: an admin_users JWT with role 'operator' (today's ISP login)
+ *   - the mobile app: a users JWT with role 'business_partner'
+ *
+ * Resolves the business_partners row, requires it to be active, and attaches
+ * `req.businessPartner = { id, partnerCode, displayName, status, verticals[], ... }`.
+ *
+ * Deliberately INDEPENDENT of authenticateOperator. That middleware guards
+ * every FTTH route and has a hard-won set of refusals (no profile, paused,
+ * pending) that FTTH depends on; wrapping or rewriting it for a new feature
+ * would put live recharge traffic behind untested code. New /api/b2b routes
+ * use this; FTTH routes keep what they have. The two can converge later.
+ *
+ * "partner" elsewhere in this file means a TECHNICIAN. Not this.
+ */
+export function authenticateBusinessPartner(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Business partner access token required' });
+    }
+
+    let decoded: any;
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as any;
+    } catch (error: any) {
+        if (error?.name === 'TokenExpiredError') {
+            return res.status(401).json({ success: false, message: 'Session expired. Please sign in again.', code: 'SESSION_EXPIRED' });
+        }
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    const viaPortal = decoded.role === 'operator';
+    const viaMobile = decoded.role === 'business_partner';
+    if (!viaPortal && !viaMobile) {
+        return res.status(403).json({ success: false, message: 'Business partner access required' });
+    }
+
+    import('../services/business-partner.service')
+        .then(async ({ BusinessPartnerService }) => {
+            const bp = viaPortal
+                ? await BusinessPartnerService.byAdminUserId(decoded.userId)
+                : await BusinessPartnerService.byUserId(decoded.userId);
+
+            if (!bp) {
+                logger.warn('[AUTH] Business partner token has no business_partners row', {
+                    door: viaPortal ? 'portal' : 'mobile', claimedUserId: decoded.userId,
+                });
+                return res.status(403).json({
+                    success: false,
+                    message: 'This account is not linked to a business partner. Please contact UniteFix support.',
+                });
+            }
+
+            // The mobile door must also still be a live user. The portal door's
+            // admin_users liveness is checked by the operator middleware on FTTH
+            // routes; here the business_partners status is the authority for both.
+            if (viaMobile) {
+                const [u] = await db.select({ isActive: users.isActive }).from(users)
+                    .where(eq(users.id, decoded.userId)).limit(1);
+                if (!u || u.isActive === false) {
+                    return res.status(403).json({ success: false, message: 'This account has been deactivated.' });
+                }
+            }
+
+            if (bp.status !== 'active') {
+                return res.status(403).json({
+                    success: false,
+                    code: 'BUSINESS_PARTNER_NOT_ACTIVE',
+                    message: bp.status === 'pending_approval'
+                        ? 'Your application is still under review.'
+                        : 'This business partner account is currently suspended. Please contact UniteFix.',
+                });
+            }
+
+            (req as any).businessPartner = await BusinessPartnerService.context(bp);
+            next();
+        })
+        .catch((err: any) => {
+            logger.error('[AUTH] Business partner authentication lookup failed', { error: err?.message });
+            return res.status(500).json({ success: false, message: 'Authentication lookup failed' });
+        });
+}
+
+/**
  * Dual authentication middleware accepting EITHER an active FTTH operator token OR a staff admin token.
  */
 export function authenticateOperatorOrAdmin(req: Request, res: Response, next: NextFunction) {
