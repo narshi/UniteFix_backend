@@ -12,7 +12,7 @@
  */
 
 import { db } from "../db";
-import { sql, eq, and, lt, lte } from "drizzle-orm";
+import { sql, eq, and, lt, lte, inArray } from "drizzle-orm";
 import {
     partnerWallets,
     walletTransactionsV2,
@@ -199,6 +199,76 @@ async function checkLowStockAlerts(): Promise<void> {
         );
     } catch (err: any) {
         logger.error('[CRON] Low stock alert job failed', { error: err.message });
+    }
+
+    // Spare parts: the warehouse rows at or under their reorder level. Separate
+    // try so a failure here cannot mask the product-store alert above.
+    try {
+        const { sparePartStock, spareParts } = await import("@shared/schema");
+        const rows = await db.select({
+            partCode: spareParts.partCode, name: spareParts.name,
+            quantity: sparePartStock.quantity, reorderLevel: sparePartStock.reorderLevel,
+        })
+            .from(sparePartStock)
+            .innerJoin(spareParts, eq(spareParts.id, sparePartStock.sparePartId))
+            .where(and(
+                eq(sparePartStock.location, 'warehouse'),
+                eq(spareParts.isActive, true),
+                sql`${sparePartStock.quantity} <= ${sparePartStock.reorderLevel}`,
+            ));
+        if (rows.length) {
+            logger.warn(`[CRON] ${rows.length} spare part(s) at or below reorder level`, { rows });
+            void NotificationService.sendToAdmins(
+                `${rows.length} spare part(s) need reordering`,
+                rows.slice(0, 10).map(r => `${r.partCode} ${r.name} — ${r.quantity} left (reorder at ${r.reorderLevel})`).join('\n'),
+                { count: rows.length, kind: 'spare_parts' },
+            );
+        }
+    } catch (err: any) {
+        logger.error('[CRON] Spare parts reorder alert failed', { error: err.message });
+    }
+}
+
+// ==================== JOB: B2B FULFILMENT AGEING ====================
+/**
+ * B2B orders that are sitting. A paid order nobody has confirmed, or a
+ * dispatched order that never got marked delivered, is a partner waiting on a
+ * person. Named to admins once per run; the thresholds are hours.
+ */
+async function alertStaleB2bOrders(): Promise<void> {
+    try {
+        const { b2bOrders, businessPartners } = await import("@shared/schema");
+        const now = Date.now();
+        const rows = await db.select({
+            orderCode: b2bOrders.orderCode, status: b2bOrders.status, paymentMode: b2bOrders.paymentMode,
+            paymentStatus: b2bOrders.paymentStatus, placedAt: b2bOrders.placedAt, dispatchedAt: b2bOrders.dispatchedAt,
+            partner: businessPartners.displayName,
+        })
+            .from(b2bOrders)
+            .innerJoin(businessPartners, eq(businessPartners.id, b2bOrders.businessPartnerId))
+            .where(inArray(b2bOrders.status, ['placed', 'paid', 'confirmed', 'packed', 'dispatched']));
+
+        const stale = rows.filter(r => {
+            const placedAge = r.placedAt ? (now - new Date(r.placedAt).getTime()) / 3_600_000 : 0;
+            const dispatchedAge = r.dispatchedAt ? (now - new Date(r.dispatchedAt).getTime()) / 3_600_000 : 0;
+            // Awaiting UniteFix: paid (or credit) and unconfirmed for a day; or
+            // confirmed/packed and not dispatched for two.
+            if ((r.status === 'paid' || (r.status === 'placed' && r.paymentMode === 'credit')) && placedAge > 24) return true;
+            if ((r.status === 'confirmed' || r.status === 'packed') && placedAge > 48) return true;
+            // In transit for a week with no delivery mark.
+            if (r.status === 'dispatched' && dispatchedAge > 168) return true;
+            return false;
+        });
+        if (!stale.length) return;
+
+        logger.warn(`[CRON] ${stale.length} B2B order(s) stalled`, { orders: stale.map(s => `${s.orderCode}:${s.status}`) });
+        void NotificationService.sendToAdmins(
+            `${stale.length} B2B order(s) waiting on UniteFix`,
+            stale.slice(0, 10).map(s => `${s.orderCode} (${s.partner}) — ${s.status}`).join('\n'),
+            { count: stale.length, kind: 'b2b_orders' },
+        );
+    } catch (err: any) {
+        logger.error('[CRON] B2B ageing job failed', { error: err.message });
     }
 }
 
@@ -521,6 +591,10 @@ export function startBackgroundJobs(): void {
     // Run low stock alerts every 6 hours
     intervals.push(setInterval(checkLowStockAlerts, SIX_HOURS));
     setTimeout(checkLowStockAlerts, 50000);
+
+    // B2B orders waiting on a person, every 6 hours, offset from the stock job.
+    intervals.push(setInterval(alertStaleB2bOrders, SIX_HOURS));
+    setTimeout(alertStaleB2bOrders, 70000);
 
     // Run refresh token cleanup daily
     intervals.push(setInterval(cleanupExpiredRefreshTokens, DAY));

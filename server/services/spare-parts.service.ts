@@ -391,7 +391,8 @@ export class SparePartsService {
      * is for consumption only — a job must complete even if the count is
      * wrong, so the row is floored at zero and the movement notes 'oversold'.
      */
-    private static async move(tx: typeof db, input: {
+    /** The single writer for stock. Public so B2B dispatch can use it; nothing else should. */
+    static async move(tx: typeof db, input: {
         sparePartId: number; movementType: MovementType; delta: number;
         location: StockLocation; holderEmployeeId?: number | null;
         fromLocation?: StockLocation | null; toLocation?: StockLocation | null;

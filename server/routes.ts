@@ -64,6 +64,8 @@ import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
+import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
+import { registerB2bOrderRoutes } from "./routes/b2b-order.routes";
 import { registerAdminVerificationRoutes } from "./routes/admin-verification.routes";
 import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes";
 import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
@@ -3564,6 +3566,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
+  registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
+  registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment
   registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerUploadRoutes(app); // Image uploads (Cloudinary)
   registerPaymentRoutes(app); // Register Razorpay and webhook routes

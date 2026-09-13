@@ -1,7 +1,20 @@
 # Business Partners, Spare Parts & B2B Ordering — Architecture Plan
 
-**Status:** Proposal for review, v2. No code changed.
+**Status:** v2 approved 13 Sep 2026. **Phases 0–6 implemented** (backend + APIs). Phase 7 (mobile screens) and Phase 8 (dropping the dead tables) pending.
 **Written against:** `feature/react-native-app` @ `72c6da2`, 13 Sep 2026
+
+**§9 decisions applied (as recommended, no objection raised):**
+1. `business_partners` + `/api/b2b/*`; technicians stay "partner" in code.
+2. No netting — both ledgers shown side by side on one statement.
+3. Schema supports credit; partners launch prepaid; credit set per partner by super_admin.
+4. One `trade_price_paise` per part.
+5. Deposit ₹5,000 and 40% floor from `platform_config`.
+6. **Platform parts fitted on a job are UniteFix's sale, not technician earning.** Customer pays for them; they are carved out of `employeeEarnings` / `technicianEarning` and frozen as `platformPartsCost`. Margin (`unit − cost`) is admin-visible only.
+7. super_admin approves business partners and parts access.
+
+**Also in scope, discovered while building:** the earlier FTTH add-on migration emitted `$do` instead of `$do$` and every startup statement after it was failing silently. Fixed in Phase 0; never pushed, so production never ran it.
+
+**Verification:** `npm run smoke:parts-platform` — warranty 64, FTTH add-ons 41, business partners 28, spare parts 35, deposit + B2B 41. All green.
 **Scope:** a general business-partner model (FTTH becomes one vertical of it), a purpose-built spare-parts inventory keyed to service categories, a parts-enabled technician tier backed by a deposit, and B2B ordering from that inventory with tracking and a partner ledger. **Backend and mobile APIs first; mobile screens later.**
 
 ---

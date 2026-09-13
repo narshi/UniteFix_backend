@@ -40,7 +40,9 @@
     "backfill:addon-catalog": "tsx scripts/backfill-addon-catalog.ts",
     "backfill:business-partners": "tsx scripts/backfill-business-partners.ts",
     "smoke:business-partners": "tsx scripts/smoke-business-partners.ts",
-    "smoke:spare-parts": "tsx scripts/smoke-spare-parts.ts"
+    "smoke:spare-parts": "tsx scripts/smoke-spare-parts.ts",
+    "smoke:b2b-deposit": "tsx scripts/smoke-b2b-deposit.ts",
+    "smoke:parts-platform": "npm run smoke:warranty && npm run smoke:ftth-addons && npm run smoke:business-partners && npm run smoke:spare-parts && npm run smoke:b2b-deposit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

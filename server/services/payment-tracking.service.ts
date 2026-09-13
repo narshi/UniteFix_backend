@@ -36,6 +36,9 @@ export class PaymentTrackingService {
         /** FTTH recharge link. Without it, recharges are invisible to the admin
          *  stuck-payment and reconcile tooling. */
         ftthRechargeId?: number;
+        /** B2B order and technician deposit — the fourth and fifth kinds of payment. */
+        b2bOrderId?: number;
+        partnerDepositId?: number;
         razorpayOrderId?: string;
         razorpayPaymentId?: string;
         amount: number;
@@ -49,6 +52,8 @@ export class PaymentTrackingService {
             orderId: data.orderId || null,
             serviceRequestId: data.serviceRequestId || null,
             ftthRechargeId: data.ftthRechargeId || null,
+            b2bOrderId: data.b2bOrderId || null,
+            partnerDepositId: data.partnerDepositId || null,
             razorpayOrderId: data.razorpayOrderId || null,
             razorpayPaymentId: data.razorpayPaymentId || null,
             amount: data.amount,

@@ -439,10 +439,17 @@ export class PaymentService {
                 }
             }
 
+            const linkedDepositId = notes?.payment_type === 'parts_deposit' && notes?.partner_deposit_id
+                ? parseInt(notes.partner_deposit_id) : undefined;
+            const linkedB2bOrderId = notes?.payment_type === 'b2b_order' && notes?.b2b_order_id
+                ? parseInt(notes.b2b_order_id) : undefined;
+
             // Record capture event via Drizzle ORM (correct columns)
             await PaymentTrackingService.recordPaymentEvent({
                 serviceRequestId: Number.isFinite(linkedServiceId as number) ? linkedServiceId : undefined,
                 ftthRechargeId: linkedFtthRechargeId,
+                partnerDepositId: Number.isFinite(linkedDepositId as number) ? linkedDepositId : undefined,
+                b2bOrderId: Number.isFinite(linkedB2bOrderId as number) ? linkedB2bOrderId : undefined,
                 razorpayOrderId: orderId,
                 razorpayPaymentId: paymentId,
                 amount: amountPaise, // stored as paise
@@ -515,6 +522,34 @@ export class PaymentService {
                     logger.error(`[WEBHOOK] FTTH recharge apply failed: ${err.message}`, {
                         orderId, paymentId,
                     });
+                }
+            }
+
+            // Technician deposit and B2B order captures ride the same webhook and
+            // land on their own idempotent apply — the same shape as FTTH above.
+            if (notes?.payment_type === 'parts_deposit') {
+                try {
+                    const { PartsAccessService } = await import('./parts-access.service');
+                    const result = await PartsAccessService.applyCapture({
+                        razorpayOrderId: orderId, razorpayPaymentId: paymentId,
+                        depositId: Number.isFinite(linkedDepositId as number) ? linkedDepositId : null, amountPaise,
+                    });
+                    logger.info('[WEBHOOK] Parts deposit capture handled', result);
+                } catch (err: any) {
+                    logger.error(`[WEBHOOK] Parts deposit apply failed: ${err.message}`, { orderId, paymentId });
+                }
+            }
+            if (notes?.payment_type === 'b2b_order') {
+                try {
+                    const { B2bOrderService } = await import('./b2b-order.service');
+                    const result = await B2bOrderService.applyCapture({
+                        razorpayOrderId: orderId, razorpayPaymentId: paymentId,
+                        orderId: Number.isFinite(linkedB2bOrderId as number) ? linkedB2bOrderId : null, amountPaise,
+                        method: payload.payment?.entity?.method,
+                    });
+                    logger.info('[WEBHOOK] B2B order capture handled', result);
+                } catch (err: any) {
+                    logger.error(`[WEBHOOK] B2B order apply failed: ${err.message}`, { orderId, paymentId });
                 }
             }
 
