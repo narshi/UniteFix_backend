@@ -127,6 +127,14 @@ export async function runStartupMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS negative_balance_flag BOOLEAN DEFAULT FALSE;
     `);
 
+    // Cashfree payout beneficiary. Payouts moved off RazorpayX in September 2026;
+    // the razorpay_* columns stay as they are, this sits beside them. Nullable and
+    // additive — a partner is simply "not yet set up" until the first sync.
+    await client.query(`
+      ALTER TABLE employees
+      ADD COLUMN IF NOT EXISTS cashfree_bene_id TEXT;
+    `);
+
     // 8. Spare parts provenance and warranty claims.
     //
     // The enums are created defensively: CREATE TYPE has no IF NOT EXISTS, and a

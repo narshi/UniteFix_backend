@@ -1155,7 +1155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // unconfigured or not activated rather than anything being wrong with the
         // individual partner.
         hasPayoutDestination: !!(p.upiId || (p.bankAccountNumber && p.bankIfsc)),
-        payoutAutomationReady: !!p.razorpayFundAccountId,
+        payoutAutomationReady: !!p.cashfreeBeneId,
       }));
 
       res.json({ success: true, data, pagination: paginationMeta(params, Number(total)) });
@@ -1888,7 +1888,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             pinCode: employee.pinCode,
             hasPayoutDestination: !!(employee.employee.upiId
               || (employee.employee.bankAccountNumber && employee.employee.bankIfsc)),
-            payoutAutomationReady: !!employee.employee.razorpayFundAccountId,
+            payoutAutomationReady: !!employee.employee.cashfreeBeneId,
           },
           stats: {
             jobsTotal: jobs.length,

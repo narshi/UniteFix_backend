@@ -173,9 +173,15 @@ export const employees = pgTable("employees", {
   documentVerifiedAt: timestamp("document_verified_at"),
   documentVerifiedBy: integer("document_verified_by"),
   adminRemarks: text("admin_remarks"),
-  // Razorpay Payouts
+  // RazorpayX payouts — retired September 2026 (RazorpayX does not open current
+  // accounts in this region). Columns kept so existing rows are untouched; new
+  // payouts go through Cashfree below.
   razorpayContactId: text("razorpay_contact_id"),
   razorpayFundAccountId: text("razorpay_fund_account_id"),
+  // Cashfree Payouts. The beneficiary registered for this partner — null means
+  // automated payout has never been set up, which is what the admin dialog
+  // reads to decide between an automatic transfer and a manual one.
+  cashfreeBeneId: text("cashfree_bene_id"),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),

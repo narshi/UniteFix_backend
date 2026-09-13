@@ -3,7 +3,7 @@ import multer from "multer";
 import { db } from "../db";
 import { eq, desc, and, or, ilike, count } from "drizzle-orm";
 import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, users } from "@shared/schema";
-import { RazorpayXService } from "../services/razorpayx.service";
+import { CashfreeService } from "../services/cashfree.service";
 import { uploadImageBuffer } from "../services/cloudinary.service";
 import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
@@ -108,7 +108,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
 
     /**
      * POST /api/admin/withdrawals/:id/approve
-     * Approves a withdrawal and triggers RazorpayX Payout
+     * Approves a withdrawal and triggers a Cashfree payout
      */
     app.post("/api/admin/withdrawals/:id/approve", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -153,34 +153,37 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 return res.status(404).json({ error: "Employee not found" });
             }
 
-            // Ensure employee has RazorpayX contacts/fund accounts setup
-            let fundAccountId: string;
+            // Ensure the partner is registered as a Cashfree beneficiary, with
+            // details matching their profile as it stands now.
+            let beneId: string;
             try {
-                fundAccountId = await RazorpayXService.syncEmployeeForPayouts(employee);
+                beneId = await CashfreeService.syncEmployeeForPayouts(employee);
             } catch (syncError: any) {
                 // No payout was attempted — release the claim so it can be retried.
                 await db.update(withdrawalRequests)
                     .set({ status: 'pending', updatedAt: new Date() })
                     .where(eq(withdrawalRequests.id, requestId));
-                return res.status(400).json({ error: "Razorpay setup failed: " + syncError.message });
+                return res.status(400).json({ error: "Payout setup failed: " + syncError.message });
             }
 
             // Create Payout
             try {
                 const amountFloat = parseFloat(withdrawal.amount as any);
-                const payoutData = await RazorpayXService.createPayout(
-                    fundAccountId,
+                // The transferId doubles as the idempotency key: even if a retry
+                // slipped past the claim above, Cashfree refuses a repeated id and
+                // the service hands back the ORIGINAL transfer instead of paying
+                // twice.
+                const payoutData = await CashfreeService.createPayout(
+                    beneId,
                     amountFloat,
                     `WDRW-${withdrawal.id}`,
                     'payout',
-                    // Second layer: even if a retry slipped past the claim, RazorpayX
-                    // returns the original payout for a repeated idempotency key
-                    // instead of sending money twice.
-                    `wdrw-${withdrawal.id}`,
                 );
 
-                // Status is already 'processing' from the claim above; record the
-                // payout id so the webhook and the status poll can find it.
+                // Status is already 'processing' from the claim above. The column
+                // is still named for RazorpayX; it now holds the Cashfree transferId,
+                // which is what the status poll needs. Renaming it is a separate,
+                // non-additive migration and not part of this cut-over.
                 await db.update(withdrawalRequests).set({
                     razorpayPayoutId: payoutData.id,
                     updatedAt: new Date()
@@ -208,7 +211,13 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     payoutData.id,
                 );
 
-                res.json({ success: true, message: "Payout processing via RazorpayX", payout: payoutData });
+                res.json({
+                    success: true,
+                    message: payoutData.alreadyExisted
+                        ? "This payout had already been sent — no second transfer was made."
+                        : "Payout processing via Cashfree",
+                    payout: payoutData,
+                });
             } catch (payoutError: any) {
                 // If it fails immediately, mark failed and refund the wallet.
                 logger.error(`Immediate Payout Failure: ${payoutError.message}`);
@@ -308,7 +317,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 return res.status(500).json({ error: "Failed to store the payment proof photo. Please try again." });
             }
 
-            // ATOMIC CLAIM — same guard as the RazorpayX path: flip pending ->
+            // ATOMIC CLAIM — same guard as the automated path: flip pending ->
             // completed in one conditional statement so a double-click or two
             // admins can't both mark (and pay) the same request.
             const [withdrawal] = await db.update(withdrawalRequests)
@@ -361,7 +370,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
     /**
      * POST /api/admin/withdrawals/:id/sync
      *
-     * Asks RazorpayX for the real state of a payout and reconciles our record.
+     * Asks Cashfree for the real state of a payout and reconciles our record.
      * Fallback for the payout.processed / payout.failed webhook — while that
      * webhook fails, successful payouts sit at 'processing' forever and reversed
      * payouts never return the money to the partner's wallet.
@@ -379,9 +388,10 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 return res.status(400).json({ error: "No payout has been issued for this request yet." });
             }
 
-            const { status, failureReason } = await RazorpayXService.fetchPayoutStatus(withdrawal.razorpayPayoutId);
+            const { status, providerStatus, failureReason, utr } =
+                await CashfreeService.fetchPayoutStatus(withdrawal.razorpayPayoutId);
 
-            // RazorpayX terminal states: processed | reversed | failed | cancelled
+            // Already normalised by the service: processed | processing | failed | reversed.
             if (status === 'processed') {
                 await db.update(withdrawalRequests)
                     .set({ status: 'completed', updatedAt: new Date() })
@@ -397,7 +407,9 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     metadata: {
                         amount: parseFloat(withdrawal.amount as any),
                         partnerId: withdrawal.partnerId,
-                        razorpayPayoutId: withdrawal.razorpayPayoutId,
+                        transferId: withdrawal.razorpayPayoutId,
+                        utr,
+                        providerStatus,
                         reconciledVia: 'admin_sync',
                     },
                 });
@@ -408,7 +420,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 });
             }
 
-            if (['reversed', 'failed', 'cancelled'].includes(status)) {
+            if (status === 'reversed' || status === 'failed') {
                 // Guard: only refund once, however many times sync is pressed.
                 if (withdrawal.status === 'failed') {
                     return res.json({

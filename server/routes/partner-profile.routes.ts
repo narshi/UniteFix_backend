@@ -3,7 +3,7 @@ import { db } from "../db";
 import { employees, users } from "../../shared/schema";
 import { eq } from "drizzle-orm";
 import { authenticatePartner as requireAuth } from "../middleware/auth.middleware";
-import { RazorpayXService } from "../services/razorpayx.service";
+import { CashfreeService } from "../services/cashfree.service";
 import { UpiValidationService } from "../services/upi-validation.service";
 import { checkUpiFormat } from "../../shared/upi";
 import logger from "../lib/logger";
@@ -152,7 +152,11 @@ export function registerPartnerProfileRoutes(app: Express) {
         .where(eq(employees.id, employee.id))
         .returning();
 
-      // 3. Sync with RazorpayX (creates Contact & VPA Fund Account)
+      // 3. Register (or re-register) the Cashfree beneficiary for this UPI id.
+      //
+      // Cashfree cannot edit a beneficiary, so the service compares what it has
+      // against the id just saved and re-creates it on any difference — without
+      // that, a partner who changed their UPI would keep being paid to the old one.
       //
       // Still non-fatal — the UPI id is saved either way, and an automated payout
       // is not the only way this partner gets paid; admins settle by hand through
@@ -166,22 +170,22 @@ export function registerPartnerProfileRoutes(app: Express) {
       let payoutWarning: string | null = null;
 
       try {
-        await RazorpayXService.syncEmployeeForPayouts(updatedEmployee);
-      } catch (rzpError: any) {
+        await CashfreeService.syncEmployeeForPayouts(updatedEmployee);
+      } catch (payoutError: any) {
         payoutReady = false;
         payoutWarning =
           "Your UPI ID is saved. Automatic payouts aren't set up yet, so UniteFix will "
           + "transfer your money manually — you can still request a payout as normal.";
 
         // Loud, and identifiable: this is the single point where automated payout
-        // setup breaks, and it breaks for every partner at once when RazorpayX is
-        // unconfigured or not activated on the account.
-        logger.error("[PAYOUT_SETUP] RazorpayX sync failed — partner has no fund account", {
+        // setup breaks, and it breaks for every partner at once when Cashfree is
+        // unconfigured or the credentials are wrong.
+        logger.error("[PAYOUT_SETUP] Cashfree sync failed — partner has no beneficiary", {
           employeeId: updatedEmployee.id,
           userId,
           upiId,
-          hasContact: !!updatedEmployee.razorpayContactId,
-          error: rzpError?.message || String(rzpError),
+          hadBeneficiary: !!updatedEmployee.cashfreeBeneId,
+          error: payoutError?.message || String(payoutError),
         });
       }
 
