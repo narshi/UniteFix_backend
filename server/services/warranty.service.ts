@@ -53,6 +53,14 @@ const MAX_UNIT_PRICE_PAISE = 5_000_000;  // Rs.50,000 a unit
 const MAX_QUANTITY = 50;             // matches the booking quantity ceiling
 
 export interface PartItemInput {
+    /**
+     * The catalogue row behind a 'platform' part. What makes 'platform' TRUE
+     * rather than asserted: without it the line is downgraded to
+     * technician_local by resolvePartItem(), whatever the client said.
+     */
+    sparePartId?: number | null;
+    /** Set when the technician could not find the part and proposed it. */
+    proposalId?: number | null;
     partName?: string;
     brand?: string | null;
     category?: string | null;
@@ -70,6 +78,10 @@ export interface PartItemInput {
 }
 
 export interface ResolvedPartItem {
+    sparePartId: number | null;
+    proposalId: number | null;
+    /** Why a line ended up different from what was sent, for the app to show. */
+    downgradeReason: string | null;
     partName: string;
     brand: string | null;
     category: string | null;
@@ -154,9 +166,27 @@ export function warrantyWindow(
 
 /** Validate, clamp and complete one line. Never trusts the client. */
 export function resolvePartItem(raw: PartItemInput, installedAt = new Date()): ResolvedPartItem {
-    const sourceType: PartSource = VALID_SOURCES.includes(raw.sourceType as PartSource)
+    let sourceType: PartSource = VALID_SOURCES.includes(raw.sourceType as PartSource)
         ? raw.sourceType as PartSource
         : 'technician_local';
+
+    // THE INTEGRITY RULE. 'platform' means "from UniteFix stock", and that is
+    // a fact about a catalogue row, not a word a technician picks from a list.
+    // A platform line with no reference is recorded as what it demonstrably is:
+    // a part of unknown origin, undocumented, backed by nobody. The word alone
+    // no longer buys UniteFix's warranty on it.
+    const sparePartId = Number.isInteger(raw.sparePartId) && (raw.sparePartId as number) > 0
+        ? (raw.sparePartId as number) : null;
+    let downgradeReason: string | null = null;
+    if (sourceType === 'platform' && sparePartId === null) {
+        sourceType = 'technician_local';
+        downgradeReason = 'Marked as UniteFix stock but no catalogue part was referenced; recorded as a local purchase.';
+        logger.warn('[PARTS] platform line without sparePartId downgraded to technician_local', {
+            partName: raw.partName,
+        });
+    }
+    const proposalId = Number.isInteger(raw.proposalId) && (raw.proposalId as number) > 0
+        ? (raw.proposalId as number) : null;
 
     const category = str(raw.category, 60);
     const defaultDays = category ? (DEFAULT_WARRANTY_DAYS[category.toLowerCase()] ?? 0) : 0;
@@ -177,6 +207,9 @@ export function resolvePartItem(raw: PartItemInput, installedAt = new Date()): R
     const { startsAt, expiresAt } = warrantyWindow(warrantyBacker, warrantyDays, vendorBillDate, installedAt);
 
     return {
+        sparePartId,
+        proposalId,
+        downgradeReason,
         partName: str(raw.partName, 120) ?? 'Spare part',
         brand: str(raw.brand, 80),
         category,
@@ -200,6 +233,26 @@ export function resolvePartItem(raw: PartItemInput, installedAt = new Date()): R
 export const lineTotalPaise = (i: { unitPricePaise: number; quantity: number }) => i.unitPricePaise * i.quantity;
 export const partsTotalPaise = (items: Array<{ unitPricePaise: number; quantity: number }>) =>
     items.reduce((s, i) => s + lineTotalPaise(i), 0);
+
+/**
+ * Who the parts money belongs to.
+ *
+ * A part the technician bought is theirs: the customer's payment for it passes
+ * through to them, as it always has. A part UniteFix supplied from stock is
+ * UniteFix's sale — the customer pays for it, but it must NOT land in the
+ * technician's earning, or we pay them for our own capacitor. Two buckets,
+ * split here so both bill paths do it the same way.
+ */
+export function splitPartsMoney(items: ResolvedPartItem[]) {
+    const platform = items.filter(i => i.sourceType === 'platform' && i.sparePartId !== null);
+    const technician = items.filter(i => !(i.sourceType === 'platform' && i.sparePartId !== null));
+    return {
+        platformPartsPaise: partsTotalPaise(platform),
+        technicianPartsPaise: partsTotalPaise(technician),
+        platformItems: platform,
+        technicianItems: technician,
+    };
+}
 
 /**
  * An older app build sends one lump sum and a note, with no line items. Rather
@@ -241,6 +294,8 @@ export async function recordPartItems(
 
     await ctx.insert(servicePartItems).values(resolved.map(r => ({
         serviceRequestId,
+        sparePartId: r.sparePartId,
+        proposalId: r.proposalId,
         partName: r.partName,
         brand: r.brand,
         category: r.category,

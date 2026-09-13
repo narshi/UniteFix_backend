@@ -39,7 +39,8 @@
     "smoke:ftth-addons": "tsx scripts/smoke-ftth-addons.ts",
     "backfill:addon-catalog": "tsx scripts/backfill-addon-catalog.ts",
     "backfill:business-partners": "tsx scripts/backfill-business-partners.ts",
-    "smoke:business-partners": "tsx scripts/smoke-business-partners.ts"
+    "smoke:business-partners": "tsx scripts/smoke-business-partners.ts",
+    "smoke:spare-parts": "tsx scripts/smoke-spare-parts.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

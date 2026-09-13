@@ -24,10 +24,11 @@ import { BookingState, validateStateTransition } from '../business/booking-state
 import { PaymentService } from '../services/payment.service';
 import { BillingEngine, type PricingSnapshot } from '../services/billing-engine';
 import {
-    recordPartItems, resolvePartItem, partsTotalPaise, synthesiseFromLumpSum,
+    recordPartItems, resolvePartItem, partsTotalPaise, synthesiseFromLumpSum, splitPartsMoney,
     type PartItemInput,
 } from '../services/warranty.service';
 import { BookingNotifications } from '../services/booking-notifications';
+import { SparePartsService, SparePartsError } from '../services/spare-parts.service';
 import logger from '../lib/logger';
 
 export function registerBillingRoutes(app: Express) {
@@ -48,7 +49,7 @@ export function registerBillingRoutes(app: Express) {
             const partnerId = (req as any).partner?.partnerId;
 
             // Validate numeric inputs
-            const parts = parseFloat(sparePartsCost);
+            let parts = parseFloat(sparePartsCost);
             const labor = parseFloat(serviceLaborCost);
 
             if (isNaN(parts) || isNaN(labor) || parts < 0 || labor < 0) {
@@ -115,8 +116,28 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
+            // Part lines, rewritten against the catalogue first: a 'platform' line
+            // takes its name and price from the catalogue (or is downgraded to a
+            // local purchase if it references nothing), and a technician without
+            // parts access cannot fit from stock. When lines are present they are
+            // AUTHORITATIVE over the lump sum — the v2 path already worked this
+            // way, and a v1 bill that priced off one number while recording
+            // different lines could print a receipt that disagreed with itself.
+            const rawV1Items: PartItemInput[] = Array.isArray(req.body?.partItems) ? req.body.partItems.slice(0, 40) : [];
+            let partsWarnings: string[] = [];
+            let enrichedV1Items: PartItemInput[] = rawV1Items;
+            let platformPartsCost = 0;
+            if (rawV1Items.length) {
+                const enriched = await SparePartsService.enrichPlatformItems(rawV1Items, partnerId ?? null);
+                enrichedV1Items = enriched.items;
+                partsWarnings = enriched.warnings;
+                const resolvedV1 = enrichedV1Items.map(r => resolvePartItem(r));
+                parts = Math.round(partsTotalPaise(resolvedV1) / 100);
+                platformPartsCost = Math.round(splitPartsMoney(resolvedV1).platformPartsPaise / 100);
+            }
+
             // Calculate full billing using FROZEN rates (not live config)
-            const billedSnapshot = BillingEngine.calculateFinalBill(parts, labor, existingSnapshot);
+            const billedSnapshot = BillingEngine.calculateFinalBill(parts, labor, existingSnapshot, platformPartsCost);
 
             // Create Razorpay order for the balance due
             let razorpayOrder = null;
@@ -159,8 +180,8 @@ export function registerBillingRoutes(app: Express) {
             let recordedParts: PartItemInput[] = [];
             if (parts > 0) {
                 try {
-                    const submitted: PartItemInput[] = Array.isArray(req.body?.partItems) && req.body.partItems.length
-                        ? req.body.partItems.slice(0, 40)
+                    const submitted: PartItemInput[] = enrichedV1Items.length
+                        ? enrichedV1Items
                         : synthesiseFromLumpSum(parts, req.body?.partsNote);
                     recordedParts = submitted;
                     await recordPartItems(bookingId, submitted, partnerId ?? null);
@@ -182,6 +203,7 @@ export function registerBillingRoutes(app: Express) {
             res.json({
                 success: true,
                 message: 'Bill submitted. Waiting for customer payment.',
+                partsWarnings,
                 data: {
                     bookingId: updated.id,
                     status: updated.status,
@@ -191,6 +213,11 @@ export function registerBillingRoutes(app: Express) {
                 },
             });
         } catch (error) {
+            // A parts-access refusal under the strict gate is the technician's to
+            // fix, not a server fault — say so, and say how.
+            if (error instanceof SparePartsError) {
+                return res.status(400).json({ success: false, code: error.code, message: error.message });
+            }
             next(error);
         }
     });
@@ -216,8 +243,13 @@ export function registerBillingRoutes(app: Express) {
         try {
             const bookingId = parseInt(req.params.id);
             const partnerId = (req as any).partner?.partnerId;
-            const rawItems: PartItemInput[] = Array.isArray(req.body?.partItems) ? req.body.partItems.slice(0, 40) : [];
+            const submittedItems: PartItemInput[] = Array.isArray(req.body?.partItems) ? req.body.partItems.slice(0, 40) : [];
             const partsNote = typeof req.body?.partsNote === 'string' ? req.body.partsNote.trim().slice(0, 500) : '';
+
+            // Catalogue first: platform lines are re-priced from the catalogue or
+            // downgraded, and parts access is checked. See SparePartsService.
+            const { items: rawItems, warnings: partsWarnings } =
+                await SparePartsService.enrichPlatformItems(submittedItems, partnerId ?? null);
 
             // Line items win when given. Otherwise fall back to the lump sum, and
             // synthesise a line from it so a charged job never has an empty parts
@@ -227,7 +259,14 @@ export function registerBillingRoutes(app: Express) {
                 ? rawItems.map(r => resolvePartItem(r))
                 : synthesiseFromLumpSum(Math.max(0, parseFloat(req.body?.extraPartsCost) || 0), partsNote)
                     .map(r => resolvePartItem(r));
-            const extraPartsCost = Math.round(partsTotalPaise(resolvedItems) / 100);
+
+            // Two buckets. What the technician bought passes through to them;
+            // what UniteFix supplied is UniteFix's sale and never reaches their
+            // earning. Both are billed to the customer.
+            const money = splitPartsMoney(resolvedItems);
+            const extraPartsCost = Math.round(money.technicianPartsPaise / 100);
+            const platformPartsCost = Math.round(money.platformPartsPaise / 100);
+            const allPartsCost = extraPartsCost + platformPartsCost;
 
             const [booking] = await db.select().from(serviceRequests)
                 .where(eq(serviceRequests.id, bookingId)).limit(1);
@@ -256,14 +295,16 @@ export function registerBillingRoutes(app: Express) {
             // Apply an optional customer-approved parts add-on (pass-through to the
             // technician). The base breakdown (gst/fee on P) is untouched.
             const round2 = (x: number) => Math.round(x * 100) / 100;
-            const updatedSnapshot: PricingSnapshot = extraPartsCost > 0
+            const updatedSnapshot: PricingSnapshot = allPartsCost > 0
                 ? {
                     ...snapshot,
-                    grossTotal: round2((snapshot.grossTotal ?? 0) + extraPartsCost),
-                    finalTotal: round2((snapshot.finalTotal ?? 0) + extraPartsCost),
+                    grossTotal: round2((snapshot.grossTotal ?? 0) + allPartsCost),
+                    finalTotal: round2((snapshot.finalTotal ?? 0) + allPartsCost),
+                    // Only the technician's own purchases reach their earning.
                     technicianEarning: round2((snapshot.technicianEarning ?? 0) + extraPartsCost),
                     employeeEarnings: round2((snapshot.employeeEarnings ?? 0) + extraPartsCost),
                     extraPartsCost,
+                    platformPartsCost,
                     partsNote: partsNote || undefined,
                 }
                 : snapshot;
@@ -292,7 +333,7 @@ export function registerBillingRoutes(app: Express) {
             }
 
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
-                (extraPartsCost > 0 ? ` (incl. ₹${extraPartsCost} approved parts, ${resolvedItems.length} line(s))` : ''));
+                (allPartsCost > 0 ? ` (incl. ₹${extraPartsCost} technician parts + ₹${platformPartsCost} UniteFix parts, ${resolvedItems.length} line(s))` : ''));
 
             void BookingNotifications.billSubmitted(
                 bookingId,
@@ -303,6 +344,7 @@ export function registerBillingRoutes(app: Express) {
             res.json({
                 success: true,
                 message: 'Payment requested. Waiting for customer payment.',
+                partsWarnings,
                 data: {
                     bookingId: updated.id,
                     status: updated.status,
@@ -311,6 +353,11 @@ export function registerBillingRoutes(app: Express) {
                 },
             });
         } catch (error) {
+            // A parts-access refusal under the strict gate is the technician's to
+            // fix, not a server fault — say so, and say how.
+            if (error instanceof SparePartsError) {
+                return res.status(400).json({ success: false, code: error.code, message: error.message });
+            }
             next(error);
         }
     });

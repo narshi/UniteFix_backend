@@ -2437,6 +2437,28 @@ export class DatabaseStorage implements IStorage {
           throw walletError; // Rollback entire transaction
         }
 
+        // 3a. SPARE PARTS CONSUMPTION — the platform lines this job fitted come
+        // out of stock: the technician's kit if they hold any, else the warehouse.
+        // Deliberately NON-FATAL and oversold-tolerant. The customer has paid; a
+        // wrong count is fixed by a count, not by refusing their payment. The
+        // movement is idempotent per fitted line, so a replayed completion cannot
+        // consume twice.
+        try {
+          const { SparePartsService } = await import('./services/spare-parts.service');
+          // A nested transaction is a SAVEPOINT: if consumption fails part-way, only
+          // its own statements roll back and the outer completion — wallet credit
+          // included — is untouched. Without this, one failed INSERT would abort
+          // the whole Postgres transaction and the catch below could not save it.
+          const consumed = await (tx as any).transaction(async (sp: any) =>
+            SparePartsService.consumeForJob(sp, serviceRequestId, service.providerId ?? null));
+          if (consumed.length) {
+            console.log(`[PARTS] Consumed ${consumed.length} platform line(s) for SR ${serviceRequestId}`
+              + (consumed.some((c: { oversold: boolean }) => c.oversold) ? ' — OVERSOLD, count needed' : ''));
+          }
+        } catch (partsErr: any) {
+          console.error(`[PARTS] Consumption failed for SR ${serviceRequestId} (completion continues):`, partsErr?.message);
+        }
+
         // 3b. INVENTORY DEDUCTION (if items used)
         if (metadata?.inventoryItems && Array.isArray(metadata.inventoryItems)) {
           try {

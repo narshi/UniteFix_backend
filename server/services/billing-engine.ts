@@ -56,8 +56,15 @@ export interface PricingSnapshot {
   basePrice?: number;          // ₹719.10 — what the customer actually pays, all-in
   gst?: number;                // ₹143.82 — cgst + sgst (= P × gstPercent%)
   technicianEarning?: number;  // ₹460.30 — P − gst − platformFee − bookingCharge
-  extraPartsCost?: number;     // customer-approved parts add-on (pass-through to technician)
+  extraPartsCost?: number;     // parts the TECHNICIAN bought — passes through to them
   partsNote?: string;          // what the extra parts were for
+  /**
+   * Parts UniteFix supplied from its own stock, billed to the customer at the
+   * catalogue price. NOT technician earning — we do not pay a technician for
+   * our own capacitor. Carried separately so the settlement and the receipt
+   * both know whose sale it was.
+   */
+  platformPartsCost?: number;
 
   /**
    * How the listPrice was arrived at: unitPrice x quantity.
@@ -290,7 +297,9 @@ export class BillingEngine {
   static calculateFinalBill(
     sparePartsCost: number,
     serviceLaborCost: number,
-    existingSnapshot: PricingSnapshot
+    existingSnapshot: PricingSnapshot,
+    /** The part of sparePartsCost that was UniteFix stock; stays out of the earning. */
+    platformPartsCost: number = 0,
   ): PricingSnapshot {
     const { bookingFee, platformFeePercent, gstPercent } = existingSnapshot;
     // Frozen at booking creation. Older snapshots predate the field entirely,
@@ -338,7 +347,9 @@ export class BillingEngine {
       grossTotal,
       bookingFeeCredit,
       finalTotal,
-      employeeEarnings: subtotal,
+      // The technician keeps parts + labour, minus whatever UniteFix supplied.
+      employeeEarnings: Math.max(0, subtotal - Math.round(platformPartsCost)),
+      platformPartsCost: Math.round(platformPartsCost),
       billedAt: new Date().toISOString(),
     };
   }
