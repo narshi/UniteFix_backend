@@ -250,6 +250,48 @@ export async function runStartupMigrations(): Promise<void> {
       ALTER TABLE ftth_recharges ADD COLUMN IF NOT EXISTS addons_total_paise INTEGER NOT NULL DEFAULT 0;
     `);
 
+    // ── FTTH add-on catalogue (Phase 1 of the modular-packages plan) ─────────
+    // The price moves off the per-plan row into a per-operator catalogue;
+    // ftth_plan_addons becomes a link with an optional override. Everything
+    // here is additive: a link row with catalog_id NULL prices exactly as it
+    // did before this existed, so nothing changes on deploy until the backfill
+    // is run and reviewed.
+    await client.query(
+      `DO ${'$do'} BEGIN
+         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ftth_pricing_basis') THEN
+           CREATE TYPE ftth_pricing_basis AS ENUM ('flat', 'per_month');
+         END IF;
+       END ${'$do'};`
+    );
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ftth_addon_catalog (
+        id SERIAL PRIMARY KEY,
+        operator_id INTEGER NOT NULL REFERENCES ftth_operators(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind ftth_addon_kind NOT NULL DEFAULT 'other',
+        description TEXT,
+        pricing_basis ftth_pricing_basis NOT NULL DEFAULT 'flat',
+        default_price_paise INTEGER NOT NULL,
+        default_optional BOOLEAN NOT NULL DEFAULT TRUE,
+        exclusive_group TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS ftth_addon_catalog_operator_idx ON ftth_addon_catalog (operator_id, is_active);
+      CREATE UNIQUE INDEX IF NOT EXISTS ftth_addon_catalog_operator_name_idx ON ftth_addon_catalog (operator_id, name);
+    `);
+    // RESTRICT rather than CASCADE: deleting a catalogue item that plans still
+    // link to must fail loudly, not silently un-bill a line from every plan.
+    await client.query(`
+      ALTER TABLE ftth_plan_addons ADD COLUMN IF NOT EXISTS catalog_id INTEGER REFERENCES ftth_addon_catalog(id) ON DELETE RESTRICT;
+      ALTER TABLE ftth_plan_addons ADD COLUMN IF NOT EXISTS price_override_paise INTEGER;
+      CREATE INDEX IF NOT EXISTS ftth_plan_addons_catalog_idx ON ftth_plan_addons (catalog_id);
+    `);
+
     // Who keyed the claim in, when it did not come from the customer's own app.
     // Most warranty calls in Uttara Kannada arrive by telephone, and a claim the
     // office logged on someone's behalf must not be indistinguishable from one

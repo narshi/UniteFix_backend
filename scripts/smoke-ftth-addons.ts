@@ -22,8 +22,8 @@
 import 'dotenv/config';
 import { db } from '../server/db';
 import { eq } from 'drizzle-orm';
-import { ftthOperators, ftthPlans, ftthPlanAddons } from '@shared/schema';
-import { FtthService } from '../server/services/ftth.service';
+import { ftthOperators, ftthPlans, ftthPlanAddons, ftthAddonCatalog } from '@shared/schema';
+import { FtthService, AddonSelectionError, resolveAddon } from '../server/services/ftth.service';
 
 const results: Array<{ name: string; pass: boolean }> = [];
 const check = (name: string, pass: boolean, detail = '') => {
@@ -187,7 +187,200 @@ async function main() {
                 R(q.operatorPayablePaise));
             check('...and the add-on total is untouched by it',
                 q.addonsTotalPaise === 11_800, R(q.addonsTotalPaise));
+
+            // Put the plan back to list price for the catalogue cases below.
+            await db.update(ftthPlans).set({ discountPaise: 0 }).where(eq(ftthPlans.id, planId));
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // Phase 1: the catalogue. Price in one place, derived per plan.
+        // ════════════════════════════════════════════════════════════════════
+
+        // A 12-month plan on the same operator. Telephone rental is a monthly
+        // figure; this is what the per_month basis exists for.
+        const [annual] = await db.insert(ftthPlans).values({
+            operatorId,
+            name: `QA 30 Mbps annual ${stamp}`,
+            speedMbps: 30,
+            durationMonths: 12,
+            listPricePaise: 4_23_600,           // Rs.4,236
+            discountPaise: 0,
+        }).returning();
+
+        // ── a catalogue item, per_month, followed by two plans ──────────────
+        const phoneName = `QA Telephone ${stamp}`;
+        const [catPhone] = await db.insert(ftthAddonCatalog).values({
+            operatorId,
+            name: phoneName,
+            kind: 'telephone',
+            pricingBasis: 'per_month',
+            defaultPricePaise: 11_800,          // Rs.118 a month
+            defaultOptional: false,
+        }).returning();
+
+        // The legacy self-priced Telephone from earlier is still on the monthly
+        // plan; retire it so the catalogue one is the only telephone line there.
+        await db.update(ftthPlanAddons).set({ isActive: false }).where(eq(ftthPlanAddons.id, phone.id));
+
+        const [linkMonthly] = await db.insert(ftthPlanAddons).values({
+            planId, catalogId: catPhone.id, label: 'ignored', kind: 'telephone', amountPaise: 0,
+            isOptional: false, sortOrder: 0,
+        }).returning();
+        const [linkAnnual] = await db.insert(ftthPlanAddons).values({
+            planId: annual.id, catalogId: catPhone.id, label: 'ignored', kind: 'telephone', amountPaise: 0,
+            isOptional: false, sortOrder: 0,
+        }).returning();
+
+        {
+            const monthly = await FtthService.quote(plan, operatorId);
+            const yearly = await FtthService.quote(annual, operatorId);
+            const tm = monthly.addons.find(a => a.id === linkMonthly.id)!;
+            const ta = yearly.addons.find(a => a.id === linkAnnual.id)!;
+
+            check('a catalogue-linked add-on takes its name from the catalogue, not the link',
+                tm.label === phoneName, tm.label);
+            check('per_month on a 1-month plan is the monthly figure',
+                tm.amountPaise === 11_800, R(tm.amountPaise));
+            check('per_month on a 12-month plan is twelve times it — priced ONCE in the catalogue',
+                ta.amountPaise === 11_800 * 12, R(ta.amountPaise));
+            check('...and the derivation is carried for the receipt',
+                ta.unitPaise === 11_800 && ta.months === 12 && ta.pricingBasis === 'per_month',
+                R(ta.unitPaise) + ' x ' + ta.months);
+            check('the annual bill adds up: 4,236 + 1,416 + 10',
+                yearly.totalPaise === 4_23_600 + 1_41_600 + 1_000, R(yearly.totalPaise));
+        }
+
+        // ── change the catalogue once, every follower moves ─────────────────
+        {
+            await db.update(ftthAddonCatalog).set({ defaultPricePaise: 12_900 })   // Rs.129
+                .where(eq(ftthAddonCatalog.id, catPhone.id));
+
+            const monthly = await FtthService.quote(plan, operatorId);
+            const yearly = await FtthService.quote(annual, operatorId);
+            check('raising the catalogue price moves the monthly plan',
+                monthly.addons.find(a => a.id === linkMonthly.id)!.amountPaise === 12_900);
+            check('...and the annual plan, with no per-plan edit anywhere',
+                yearly.addons.find(a => a.id === linkAnnual.id)!.amountPaise === 12_900 * 12,
+                R(12_900 * 12));
+        }
+
+        // ── an override pins one plan and ignores the catalogue ─────────────
+        {
+            await db.update(ftthPlanAddons).set({ priceOverridePaise: 99_900 })   // Rs.999 negotiated
+                .where(eq(ftthPlanAddons.id, linkAnnual.id));
+
+            let yearly = await FtthService.quote(annual, operatorId);
+            const ta = yearly.addons.find(a => a.id === linkAnnual.id)!;
+            check('an override beats the catalogue for that plan alone',
+                ta.amountPaise === 99_900 && ta.overridden, R(ta.amountPaise));
+            check('...and is NOT multiplied by the term — it is the agreed figure',
+                ta.months === 1 && ta.pricingBasis === 'flat');
+
+            await db.update(ftthAddonCatalog).set({ defaultPricePaise: 15_000 })
+                .where(eq(ftthAddonCatalog.id, catPhone.id));
+            yearly = await FtthService.quote(annual, operatorId);
+            const monthly = await FtthService.quote(plan, operatorId);
+            check('a later catalogue change leaves the overridden plan alone',
+                yearly.addons.find(a => a.id === linkAnnual.id)!.amountPaise === 99_900);
+            check('...while the plan without an override still follows',
+                monthly.addons.find(a => a.id === linkMonthly.id)!.amountPaise === 15_000);
+
+            await db.update(ftthPlanAddons).set({ priceOverridePaise: null })
+                .where(eq(ftthPlanAddons.id, linkAnnual.id));
+            await db.update(ftthAddonCatalog).set({ defaultPricePaise: 11_800 })
+                .where(eq(ftthAddonCatalog.id, catPhone.id));
+        }
+
+        // ── exclusive groups: Hotstar Basic OR Premium, never both ──────────
+        const group = 'hotstar-' + stamp;
+        const [basic] = await db.insert(ftthAddonCatalog).values({
+            operatorId, name: 'QA Hotstar Basic ' + stamp, kind: 'ott',
+            pricingBasis: 'flat', defaultPricePaise: 14_900, defaultOptional: true, exclusiveGroup: group,
+        }).returning();
+        const [premium] = await db.insert(ftthAddonCatalog).values({
+            operatorId, name: 'QA Hotstar Premium ' + stamp, kind: 'ott',
+            pricingBasis: 'flat', defaultPricePaise: 29_900, defaultOptional: true, exclusiveGroup: group,
+        }).returning();
+        const [lBasic] = await db.insert(ftthPlanAddons).values({
+            planId, catalogId: basic.id, label: 'x', kind: 'ott', amountPaise: 0, isOptional: true, sortOrder: 1,
+        }).returning();
+        const [lPremium] = await db.insert(ftthPlanAddons).values({
+            planId, catalogId: premium.id, label: 'x', kind: 'ott', amountPaise: 0, isOptional: true, sortOrder: 2,
+        }).returning();
+
+        {
+            const one = await FtthService.quote(plan, operatorId, [lPremium.id]);
+            check('one tier from an exclusive group is fine',
+                one.addons.some(a => a.id === lPremium.id) && !one.addons.some(a => a.id === lBasic.id));
+            check('...and the group name rides on the line for the app to render radios',
+                one.addons.find(a => a.id === lPremium.id)!.exclusiveGroup === group);
+
+            let refused: unknown = null;
+            try { await FtthService.quote(plan, operatorId, [lBasic.id, lPremium.id]); }
+            catch (e) { refused = e; }
+            check('two tiers from one exclusive group are REFUSED, not summed',
+                refused instanceof AddonSelectionError && refused.code === 'ADDON_EXCLUSIVE_GROUP',
+                (refused as any)?.message);
+            check('...with both names in the message so the customer knows what to drop',
+                /Basic/.test((refused as any)?.message ?? '') && /Premium/.test((refused as any)?.message ?? ''));
+
+            // A mandatory Basic plus an opted-in Premium is the same mistake:
+            // the operator said "Basic unless you upgrade", not "Basic and Premium".
+            await db.update(ftthPlanAddons).set({ isOptional: false }).where(eq(ftthPlanAddons.id, lBasic.id));
+            let refused2: unknown = null;
+            try { await FtthService.quote(plan, operatorId, [lPremium.id]); }
+            catch (e) { refused2 = e; }
+            check('a mandatory tier plus an optional one in the same group is also refused',
+                refused2 instanceof AddonSelectionError);
+            await db.update(ftthPlanAddons).set({ isOptional: true }).where(eq(ftthPlanAddons.id, lBasic.id));
+        }
+
+        // ── retiring a catalogue item pulls it from every plan ──────────────
+        {
+            await db.update(ftthAddonCatalog).set({ isActive: false }).where(eq(ftthAddonCatalog.id, premium.id));
+            const q = await FtthService.quote(plan, operatorId, [lPremium.id]);
+            check('a retired catalogue item is not for sale even when its link is active and selected',
+                !q.addons.some(a => a.id === lPremium.id));
+            await db.update(ftthAddonCatalog).set({ isActive: true }).where(eq(ftthAddonCatalog.id, premium.id));
+        }
+
+        // ── legacy and catalogue rows coexist on one plan ───────────────────
+        {
+            const [legacy] = await db.insert(ftthPlanAddons).values({
+                planId, label: 'QA Legacy Static IP', kind: 'static_ip', amountPaise: 50_000,
+                isOptional: false, sortOrder: 9,   // no catalogId: written before the catalogue existed
+            }).returning();
+            const q = await FtthService.quote(plan, operatorId);
+            const l = q.addons.find(a => a.id === legacy.id)!;
+            check('a pre-catalogue row still prices from its own amount',
+                l.amountPaise === 50_000 && l.catalogId === null, R(l.amountPaise));
+            check('...beside catalogue-linked rows on the same plan',
+                q.addons.some(a => a.catalogId === catPhone.id));
+            await db.delete(ftthPlanAddons).where(eq(ftthPlanAddons.id, legacy.id));
+        }
+
+        // ── the database refuses to orphan a link ───────────────────────────
+        {
+            let blocked = false;
+            try { await db.delete(ftthAddonCatalog).where(eq(ftthAddonCatalog.id, catPhone.id)); }
+            catch { blocked = true; }
+            check('deleting a catalogue item that plans still link to is refused (ON DELETE RESTRICT)',
+                blocked);
+        }
+
+        // ── the same resolver serves the plan listing ───────────────────────
+        {
+            const [link] = await db.select().from(ftthPlanAddons).where(eq(ftthPlanAddons.id, linkAnnual.id));
+            const [cat] = await db.select().from(ftthAddonCatalog).where(eq(ftthAddonCatalog.id, catPhone.id));
+            const viaResolver = resolveAddon(link, cat, annual.durationMonths).amountPaise;
+            const viaQuote = (await FtthService.quote(annual, operatorId)).addons.find(a => a.id === linkAnnual.id)!.amountPaise;
+            check('the card (resolveAddon) and the charge (quote) cannot disagree',
+                viaResolver === viaQuote, R(viaResolver) + ' both ways');
+        }
+
+        // Annual plan and its links out before the finally runs.
+        await db.delete(ftthPlanAddons).where(eq(ftthPlanAddons.planId, annual.id));
+        await db.delete(ftthPlans).where(eq(ftthPlans.id, annual.id));
 
     } finally {
         // Fixtures out, in FK order. Add-ons cascade with the plan, but deleting
@@ -198,6 +391,7 @@ async function main() {
         }
         if (operatorId) {
             await db.delete(ftthPlans).where(eq(ftthPlans.operatorId, operatorId));
+            await db.delete(ftthAddonCatalog).where(eq(ftthAddonCatalog.operatorId, operatorId));
             await db.delete(ftthOperators).where(eq(ftthOperators.id, operatorId));
         }
     }

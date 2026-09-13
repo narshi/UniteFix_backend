@@ -1785,6 +1785,54 @@ export const ftthAddonKindEnum = pgEnum('ftth_addon_kind', [
 ]);
 
 /**
+ * How a catalogue price turns into a line on a specific plan.
+ *
+ *   flat       — charged once, whatever the plan's term (an OTT pack, a setup fee)
+ *   per_month  — multiplied by the plan's durationMonths (telephone rental)
+ *
+ * This is what lets the price live in ONE place. The first version of add-ons
+ * priced each plan separately precisely because telephone on a 12-month plan is
+ * the twelve-month charge; with a basis, the catalogue holds ₹118 once and every
+ * plan derives its own figure.
+ */
+export const ftthPricingBasisEnum = pgEnum('ftth_pricing_basis', ['flat', 'per_month']);
+
+/**
+ * The operator's master list of add-ons, priced once.
+ *
+ * Strictly PER OPERATOR. Every ISP negotiates its own rate with Hotstar and its
+ * own telephone rental; a shared catalogue would mean either one price for all
+ * or an override on every row, which is the per-plan problem again one level up.
+ *
+ * `exclusiveGroup` says "at most one of these per plan": Hotstar Basic and
+ * Hotstar Premium share a group, so a customer cannot buy both. Enforced in
+ * quote(), not only in the UI.
+ *
+ * No logo column yet — decided: icons come from `kind` until Phase 4.
+ */
+export const ftthAddonCatalog = pgTable("ftth_addon_catalog", {
+  id: serial("id").primaryKey(),
+  operatorId: integer("operator_id").notNull().references(() => ftthOperators.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),                            // "Netflix Basic", "Telephone"
+  kind: ftthAddonKindEnum("kind").notNull().default('other'),
+  description: text("description"),
+  pricingBasis: ftthPricingBasisEnum("pricing_basis").notNull().default('flat'),
+  defaultPricePaise: integer("default_price_paise").notNull(),
+  // What a link inherits when it does not say otherwise.
+  defaultOptional: boolean("default_optional").notNull().default(true),
+  exclusiveGroup: text("exclusive_group"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  // Soft-retired: links keep pointing here, recharges keep their snapshot, and
+  // the operator gets it back with its price when the season returns.
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  operatorIdx: index("ftth_addon_catalog_operator_idx").on(table.operatorId, table.isActive),
+  operatorNameIdx: uniqueIndex("ftth_addon_catalog_operator_name_idx").on(table.operatorId, table.name),
+}));
+
+/**
  * Extras billed alongside a broadband plan — telephone rental, an OTT pack, a
  * static IP.
  *
@@ -1795,10 +1843,16 @@ export const ftthAddonKindEnum = pgEnum('ftth_addon_kind', [
  * would have silently repriced every live plan the moment someone itemised one.
  * A plan with no add-ons costs precisely what it costs today.
  *
- * Per PLAN, not per operator, because the amount is duration-bound: telephone
- * rental on a 12-month plan is the twelve-month charge. Hanging add-ons off the
- * operator would mean multiplying by duration somewhere, and that arithmetic
- * would eventually disagree with what the operator actually quotes.
+ * NOW A LINK. A row attaches one catalogue item to one plan. The price is the
+ * catalogue's — derived through its pricing basis — unless `priceOverridePaise`
+ * says otherwise for this plan alone. Change the catalogue and every plan
+ * without an override follows; a negotiated "₹99 OTT on the annual plan only"
+ * is one override on one link.
+ *
+ * `label`, `kind` and `amountPaise` remain for rows written before the
+ * catalogue existed (`catalogId IS NULL`). Those price exactly as they always
+ * did, which is what makes this deployable without a freeze. They go away in
+ * Phase 4, after the backfill has had a full cycle to prove itself.
  *
  * Mandatory add-ons are always billed. Optional ones the customer chooses, and
  * the choice is frozen onto the recharge row so a bill reprinted later shows
@@ -1807,6 +1861,11 @@ export const ftthAddonKindEnum = pgEnum('ftth_addon_kind', [
 export const ftthPlanAddons = pgTable("ftth_plan_addons", {
   id: serial("id").primaryKey(),
   planId: integer("plan_id").notNull().references(() => ftthPlans.id, { onDelete: 'cascade' }),
+  // The link. Null only on legacy rows.
+  catalogId: integer("catalog_id").references(() => ftthAddonCatalog.id, { onDelete: 'restrict' }),
+  // Beats the catalogue for this plan only. Null = follow the catalogue.
+  priceOverridePaise: integer("price_override_paise"),
+  // Legacy self-description; authoritative only while catalogId is null.
   label: text("label").notNull(),                          // "Telephone", "OTT Pack"
   kind: ftthAddonKindEnum("kind").notNull().default('other'),
   amountPaise: integer("amount_paise").notNull(),
@@ -1821,8 +1880,11 @@ export const ftthPlanAddons = pgTable("ftth_plan_addons", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   planIdx: index("ftth_plan_addons_plan_idx").on(table.planId, table.isActive),
+  catalogIdx: index("ftth_plan_addons_catalog_idx").on(table.catalogId),
 }));
 
+export type FtthAddonCatalogItem = typeof ftthAddonCatalog.$inferSelect;
+export type InsertFtthAddonCatalogItem = typeof ftthAddonCatalog.$inferInsert;
 export type FtthPlanAddon = typeof ftthPlanAddons.$inferSelect;
 export type InsertFtthPlanAddon = typeof ftthPlanAddons.$inferInsert;
 

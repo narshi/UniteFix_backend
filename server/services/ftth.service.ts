@@ -19,6 +19,7 @@ import {
     ftthOperators,
     ftthPlans,
     ftthPlanAddons,
+    ftthAddonCatalog,
     ftthConnections,
     ftthRecharges,
     ftthLeads,
@@ -34,13 +35,110 @@ import logger from "../lib/logger";
 /** Paise → rupees, for display only. */
 export const paiseToRupees = (paise: number) => Math.round(paise) / 100;
 
-/** One billed extra, as it appears on the customer's bill and on the receipt. */
+/**
+ * One billed extra, as it appears on the customer's bill and on the receipt.
+ *
+ * `amountPaise` is the EFFECTIVE line amount — override, or catalogue price
+ * through its basis, or the legacy self-price. `unitPaise` and `pricingBasis`
+ * carry the derivation so a receipt can say "Telephone · ₹118 × 12 months"
+ * instead of an unexplained ₹1,416.
+ */
 export interface QuotedAddon {
     id: number;
+    catalogId: number | null;
     label: string;
     kind: string;
     amountPaise: number;
+    unitPaise: number;
+    pricingBasis: 'flat' | 'per_month';
+    months: number;
     isOptional: boolean;
+    exclusiveGroup: string | null;
+    /** True when this plan's link overrides the catalogue price. */
+    overridden: boolean;
+}
+
+/** Thrown by quote() when a selection breaks a plan's rules. Routes map it to 400. */
+export class AddonSelectionError extends Error {
+    constructor(message: string, public readonly code: string) {
+        super(message);
+        this.name = 'AddonSelectionError';
+    }
+}
+
+type LinkRow = typeof ftthPlanAddons.$inferSelect;
+type CatalogRow = typeof ftthAddonCatalog.$inferSelect;
+
+/**
+ * Resolve one link into the line it produces on THIS plan.
+ *
+ * Precedence, in words: the plan's own override wins; otherwise the catalogue
+ * price, multiplied by the term when the basis says so; otherwise — only for a
+ * row written before the catalogue existed — the amount stored on the row.
+ * The last branch is what lets this deploy over live data without repricing
+ * anything, and it is removed in Phase 4.
+ */
+export function resolveAddon(link: LinkRow, catalog: CatalogRow | null, durationMonths: number): QuotedAddon {
+    const months = Math.max(1, durationMonths || 1);
+
+    if (catalog) {
+        const basis = catalog.pricingBasis as 'flat' | 'per_month';
+        const unit = catalog.defaultPricePaise;
+        const derived = basis === 'per_month' ? unit * months : unit;
+        const overridden = link.priceOverridePaise !== null && link.priceOverridePaise !== undefined;
+        return {
+            id: link.id,
+            catalogId: catalog.id,
+            label: catalog.name,
+            kind: catalog.kind as string,
+            amountPaise: overridden ? link.priceOverridePaise! : derived,
+            unitPaise: overridden ? link.priceOverridePaise! : unit,
+            pricingBasis: overridden ? 'flat' : basis,
+            months: overridden || basis === 'flat' ? 1 : months,
+            // A link may pin optional/mandatory; otherwise the catalogue's default.
+            // The link column is NOT NULL today (legacy), so it always wins here;
+            // Phase 4 relaxes it to nullable and the catalogue default takes over.
+            isOptional: link.isOptional,
+            exclusiveGroup: catalog.exclusiveGroup ?? null,
+            overridden,
+        };
+    }
+
+    // Legacy: self-priced row, no catalogue behind it.
+    return {
+        id: link.id,
+        catalogId: null,
+        label: link.label,
+        kind: link.kind as string,
+        amountPaise: link.amountPaise,
+        unitPaise: link.amountPaise,
+        pricingBasis: 'flat',
+        months: 1,
+        isOptional: link.isOptional,
+        exclusiveGroup: null,
+        overridden: false,
+    };
+}
+
+/**
+ * Every active add-on on a plan, resolved. One query for the links, one for
+ * their catalogue rows — never one per add-on.
+ */
+export async function resolvedAddonsForPlan(plan: typeof ftthPlans.$inferSelect): Promise<QuotedAddon[]> {
+    const links = await db.select().from(ftthPlanAddons)
+        .where(and(eq(ftthPlanAddons.planId, plan.id), eq(ftthPlanAddons.isActive, true)))
+        .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
+
+    const catalogIds = links.map(l => l.catalogId).filter((x): x is number => x !== null);
+    const catalogRows = catalogIds.length
+        ? await db.select().from(ftthAddonCatalog).where(inArray(ftthAddonCatalog.id, catalogIds))
+        : [];
+    const byId = new Map(catalogRows.map(c => [c.id, c]));
+
+    return links
+        // A link to a retired catalogue item is not for sale, whatever the link says.
+        .filter(l => l.catalogId === null || byId.get(l.catalogId)?.isActive)
+        .map(l => resolveAddon(l, l.catalogId !== null ? byId.get(l.catalogId) ?? null : null, plan.durationMonths));
 }
 
 export interface RechargeQuote {
@@ -141,20 +239,28 @@ export class FtthService {
 
         // Priced from the database, never from the request. The client says which
         // optional add-ons it wants; what each one costs is ours to say.
-        const available = await db.select().from(ftthPlanAddons)
-            .where(and(eq(ftthPlanAddons.planId, plan.id), eq(ftthPlanAddons.isActive, true)))
-            .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
+        const available = await resolvedAddonsForPlan(plan);
 
         const wanted = new Set(selectedAddonIds);
-        const addons: QuotedAddon[] = available
-            .filter(a => !a.isOptional || wanted.has(a.id))
-            .map(a => ({
-                id: a.id,
-                label: a.label,
-                kind: a.kind as string,
-                amountPaise: a.amountPaise,
-                isOptional: a.isOptional,
-            }));
+        const addons: QuotedAddon[] = available.filter(a => !a.isOptional || wanted.has(a.id));
+
+        // "Pick one": Hotstar Basic and Hotstar Premium share an exclusive group,
+        // and a customer must not be able to buy both. Checked here, after
+        // selection, so a mandatory add-on in a group still counts — an operator
+        // who makes Basic mandatory and Premium optional has said "Basic unless
+        // you upgrade", and choosing Premium on top would bill both.
+        const seen = new Map<string, QuotedAddon>();
+        for (const a of addons) {
+            if (!a.exclusiveGroup) continue;
+            const prior = seen.get(a.exclusiveGroup);
+            if (prior) {
+                throw new AddonSelectionError(
+                    `Choose either ${prior.label} or ${a.label}, not both.`,
+                    'ADDON_EXCLUSIVE_GROUP',
+                );
+            }
+            seen.set(a.exclusiveGroup, a);
+        }
 
         const addonsTotalPaise = addons.reduce((sum, a) => sum + a.amountPaise, 0);
 

@@ -27,6 +27,7 @@ import {
     ftthOperatorPincodes,
     ftthPlans,
     ftthPlanAddons,
+    ftthAddonCatalog,
     ftthConnections,
     ftthIdRequests,
     ftthLeads,
@@ -47,7 +48,7 @@ import { validateBody } from "../middleware/validate";
 import { withTransaction } from "../lib/transaction";
 import { recordAudit } from "../lib/audit";
 import { operatorApplyLimiter, mobileLimiter } from "../middleware/rate-limit";
-import { FtthService, paiseToRupees } from "../services/ftth.service";
+import { FtthService, paiseToRupees, resolveAddon, AddonSelectionError } from "../services/ftth.service";
 import { configService } from "../services/config.service";
 import { NotificationService } from "../services/notification.service";
 import logger from "../lib/logger";
@@ -2062,7 +2063,7 @@ export function registerFtthRoutes(app: Express) {
             // the recharge screen renders the whole speed × duration matrix, and
             // a query per cell would be dozens of round trips to draw one screen.
             const planIds = rows.map(p => p.id);
-            const addonRows = planIds.length
+            const linkRows = planIds.length
                 ? await db.select().from(ftthPlanAddons)
                     .where(and(
                         inArray(ftthPlanAddons.planId, planIds),
@@ -2071,17 +2072,31 @@ export function registerFtthRoutes(app: Express) {
                     .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id))
                 : [];
 
-            const addonsByPlan = new Map<number, typeof addonRows>();
-            for (const a of addonRows) {
-                const list = addonsByPlan.get(a.planId) ?? [];
-                list.push(a);
-                addonsByPlan.set(a.planId, list);
+            // ...and one more for the catalogue rows behind them. Then the same
+            // resolver quote() uses, so the card and the charge cannot disagree.
+            const catalogIds = Array.from(new Set(
+                linkRows.map(l => l.catalogId).filter((x): x is number => x !== null),
+            ));
+            const catalogRows = catalogIds.length
+                ? await db.select().from(ftthAddonCatalog).where(inArray(ftthAddonCatalog.id, catalogIds))
+                : [];
+            const catalogById = new Map(catalogRows.map(c => [c.id, c]));
+
+            const linksByPlan = new Map<number, typeof linkRows>();
+            for (const l of linkRows) {
+                const list = linksByPlan.get(l.planId) ?? [];
+                list.push(l);
+                linksByPlan.set(l.planId, list);
             }
 
             const bySpeed = new Map<number, any[]>();
             for (const p of rows) {
                 const list = bySpeed.get(p.speedMbps) ?? [];
-                const addons = addonsByPlan.get(p.id) ?? [];
+                const addons = (linksByPlan.get(p.id) ?? [])
+                    .filter(l => l.catalogId === null || catalogById.get(l.catalogId)?.isActive)
+                    .map(l => resolveAddon(
+                        l, l.catalogId !== null ? catalogById.get(l.catalogId) ?? null : null, p.durationMonths,
+                    ));
                 // `payable` is what it costs with nothing optional chosen — the
                 // figure the card shows before anyone opens it. Mandatory extras
                 // are in it because they are not a choice; optional ones are not,
@@ -2089,15 +2104,25 @@ export function registerFtthRoutes(app: Express) {
                 const mandatoryPaise = addons
                     .filter(a => !a.isOptional)
                     .reduce((sum, a) => sum + a.amountPaise, 0);
+                const legacyDesc = new Map((linksByPlan.get(p.id) ?? []).map(l => [l.id, l.description]));
                 list.push({
                     ...planView(p),
                     addons: addons.map(a => ({
                         id: a.id,
+                        catalogId: a.catalogId,
                         label: a.label,
                         kind: a.kind,
                         amount: paiseToRupees(a.amountPaise),
+                        // How the amount was arrived at, so the app can print
+                        // "₹118 × 12 months" rather than an unexplained ₹1,416.
+                        unitAmount: paiseToRupees(a.unitPaise),
+                        pricingBasis: a.pricingBasis,
+                        months: a.months,
                         isOptional: a.isOptional,
-                        description: a.description,
+                        exclusiveGroup: a.exclusiveGroup,
+                        description: a.catalogId !== null
+                            ? (catalogById.get(a.catalogId)?.description ?? null)
+                            : (legacyDesc.get(a.id) ?? null),
                     })),
                     mandatoryAddonsTotal: paiseToRupees(mandatoryPaise),
                     convenienceFee: paiseToRupees(convenienceFeePaise),
@@ -2426,6 +2451,11 @@ export function registerFtthRoutes(app: Express) {
                     },
                 });
             } catch (error: any) {
+                // A selection the plan's rules refuse (two from one exclusive
+                // group). The customer's mistake, phrased for the customer.
+                if (error instanceof AddonSelectionError) {
+                    return res.status(400).json({ success: false, code: error.code, message: error.message });
+                }
                 if (/Razorpay credentials/i.test(error?.message ?? '')) {
                     return res.status(503).json({ success: false, message: 'Payments are unavailable right now.' });
                 }
