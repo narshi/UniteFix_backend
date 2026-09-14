@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -202,17 +202,18 @@ export default function WarrantyClaimsPage() {
         queryKey: ["/api/admin/warranty-claims", statusFilter],
         queryFn: async () => {
             const qs = statusFilter === "all" ? "" : `?status=${statusFilter}`;
-            const res = await apiRequest("GET", `/api/admin/warranty-claims${qs}`);
-            return res.json();
+            return apiRequest("GET", `/api/admin/warranty-claims${qs}`);
         },
     });
 
     const lookup = useMutation({
         mutationFn: async (ref: string) => {
-            const res = await apiRequest("GET", `/api/admin/warranty-claims/lookup?ref=${encodeURIComponent(ref)}`);
-            const body = await res.json();
-            if (!res.ok) throw new Error(body?.message ?? "Could not find that booking");
-            return body.data as Lookup;
+            try {
+                const body = await apiRequest("GET", `/api/admin/warranty-claims/lookup?ref=${encodeURIComponent(ref)}`);
+                return body.data as Lookup;
+            } catch (e) {
+                throw new Error(apiErrorMessage(e, "Could not find that booking"));
+            }
         },
         onSuccess: (data) => {
             setFound(data);
@@ -234,9 +235,7 @@ export default function WarrantyClaimsPage() {
                 partItemId: logPartId,
                 description: logDesc,
             });
-            const body = await res.json();
-            if (!res.ok) throw new Error(body?.message ?? "Could not log the claim");
-            return body;
+            return res;
         },
         onSuccess: (result: any) => {
             toast({ title: "Claim logged", description: result?.message });
@@ -244,7 +243,7 @@ export default function WarrantyClaimsPage() {
             closeLog();
         },
         onError: (error: any) => {
-            toast({ title: "Not logged", description: error.message, variant: "destructive" });
+            toast({ title: "Not logged", description: apiErrorMessage(error), variant: "destructive" });
         },
     });
 
@@ -259,9 +258,11 @@ export default function WarrantyClaimsPage() {
 
     const settle = useMutation({
         mutationFn: async ({ id, verdict, notes }: { id: number; verdict: string; notes: string }) => {
-            const res = await apiRequest("POST", `/api/admin/warranty-claims/${id}/verdict`, { verdict, notes });
-            if (!res.ok) throw new Error((await res.json())?.message ?? "Could not record the verdict");
-            return res.json();
+            try {
+                return await apiRequest("POST", `/api/admin/warranty-claims/${id}/verdict`, { verdict, notes });
+            } catch (e) {
+                throw new Error(apiErrorMessage(e, "Could not record the verdict"));
+            }
         },
         onSuccess: (result: any) => {
             toast({ title: "Verdict recorded", description: result?.message });

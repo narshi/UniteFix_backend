@@ -24,7 +24,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { Plus, Trash2, RotateCcw } from "lucide-react";
 
 type Addon = {
@@ -61,8 +61,7 @@ export default function PlanAddonsEditor({ planId, planPrice }: { planId: number
     const { data, isLoading } = useQuery<{ data: Addon[] }>({
         queryKey: key,
         queryFn: async () => {
-            const res = await apiRequest("GET", `/api/ftth/admin/plans/${planId}/addons`);
-            return res.json();
+            return apiRequest("GET", `/api/ftth/admin/plans/${planId}/addons`);
         },
     });
 
@@ -78,9 +77,7 @@ export default function PlanAddonsEditor({ planId, planPrice }: { planId: number
                 isOptional,
                 sortOrder: addons.length,
             });
-            const body = await res.json();
-            if (!res.ok) throw new Error(body?.message ?? "Could not add it");
-            return body;
+            return res;
         },
         onSuccess: () => {
             refresh();
@@ -89,18 +86,16 @@ export default function PlanAddonsEditor({ planId, planPrice }: { planId: number
             setIsOptional(false);
             toast({ title: "Add-on saved" });
         },
-        onError: (e: Error) => toast({ title: "Not saved", description: e.message, variant: "destructive" }),
+        onError: (e: Error) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" }),
     });
 
     const update = useMutation({
         mutationFn: async (vars: { id: number; body: Record<string, unknown> }) => {
             const res = await apiRequest("PATCH", `/api/ftth/admin/plans/${planId}/addons/${vars.id}`, vars.body);
-            const body = await res.json();
-            if (!res.ok) throw new Error(body?.message ?? "Could not update it");
-            return body;
+            return res;
         },
         onSuccess: () => refresh(),
-        onError: (e: Error) => toast({ title: "Not updated", description: e.message, variant: "destructive" }),
+        onError: (e: Error) => toast({ title: "Not updated", description: apiErrorMessage(e), variant: "destructive" }),
     });
 
     // Retire rather than delete: an operator pulling an OTT pack for the season

@@ -41,6 +41,32 @@ function endAdminSession(): void {
     window.location.reload();
 }
 
+/**
+ * The server's own message from an apiRequest() failure.
+ *
+ * apiRequest throws `"<status>: <body text>"`, and the body is usually the
+ * JSON `{ success: false, message }` the route wrote for the person reading
+ * it. A toast that shows `400: {"success":false,"message":"…"}` is technically
+ * accurate and useless; this returns the message.
+ */
+export function apiErrorMessage(err: unknown, fallback = "Request failed"): string {
+  const raw = String((err as any)?.message ?? "");
+  const m = raw.match(/^\d{3}: ([\s\S]*)$/);
+  if (m) {
+    try {
+      const body = JSON.parse(m[1]);
+      if (body && typeof body.message === "string") return body.message;
+      if (body && typeof body.error === "string") return body.error;
+    } catch { /* not JSON — fall through */ }
+    return m[1].trim() || fallback;
+  }
+  return raw || fallback;
+}
+
+/**
+ * NOTE: resolves to the PARSED JSON body, not a Response. Do not call .json()
+ * or read .ok on the result — a non-2xx throws instead (see apiErrorMessage).
+ */
 export async function apiRequest(
   method: string,
   url: string,

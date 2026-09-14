@@ -132,8 +132,8 @@ export default function WithdrawalsPage() {
 
   const rejectMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/reject`, { reason: "Admin rejected" });
-      return res.json();
+      // apiRequest resolves to the parsed body already; a non-2xx throws.
+      return apiRequest("POST", `/api/admin/withdrawals/${id}/reject`, { reason: "Admin rejected" });
     },
     onSuccess: () => {
       toast({ title: "Rejected", description: "Withdrawal rejected and refunded." });
@@ -155,8 +155,7 @@ export default function WithdrawalsPage() {
    */
   const syncMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/admin/withdrawals/${id}/sync`);
-      return res.json();
+      return apiRequest("POST", `/api/admin/withdrawals/${id}/sync`);
     },
     onSuccess: (result: any) => {
       const d = result?.data ?? {};
