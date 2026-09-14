@@ -3,6 +3,7 @@ import { useState } from "react";
 import OperatorSidebar from "@/components/operator/sidebar";
 import OperatorOverview from "@/pages/operator/overview";
 import OperatorPlans from "@/pages/operator/plans";
+import OperatorAddons from "@/pages/operator/addons";
 import OperatorCoverage from "@/pages/operator/coverage";
 import OperatorCustomers from "@/pages/operator/customers";
 import OperatorLeads from "@/pages/operator/leads";
@@ -74,6 +75,7 @@ export default function OperatorLayout() {
           <Route path="/" component={OperatorOverview} />
           <Route path="/operator" component={OperatorOverview} />
           <Route path="/operator/plans" component={OperatorPlans} />
+          <Route path="/operator/addons" component={OperatorAddons} />
           <Route path="/operator/coverage" component={OperatorCoverage} />
           <Route path="/operator/customers" component={OperatorCustomers} />
           <Route path="/operator/leads" component={OperatorLeads} />

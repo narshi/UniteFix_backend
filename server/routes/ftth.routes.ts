@@ -119,6 +119,37 @@ const planBulkSchema = z.object({
 
 const ADDON_KINDS = ['telephone', 'ott', 'iptv', 'static_ip', 'installation', 'other'] as const;
 
+const catalogItemSchema = z.object({
+    name: z.string().trim().min(2).max(80),
+    kind: z.enum(ADDON_KINDS).optional().default('other'),
+    description: z.string().trim().max(200).nullable().optional(),
+    pricingBasis: z.enum(['flat', 'per_month']).optional().default('flat'),
+    defaultPriceRupees: z.number().min(0).max(1_000_000),
+    defaultOptional: z.boolean().optional().default(true),
+    exclusiveGroup: z.string().trim().max(40).nullable().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    isActive: z.boolean().optional(),
+});
+const attachSchema = z.object({
+    planIds: z.array(z.number().int().positive()).max(200).optional(),
+    speedMbps: z.number().int().positive().optional(),
+    all: z.boolean().optional(),
+    isOptional: z.boolean().optional(),
+});
+/** Attach a catalogue item to one plan, with an optional per-plan override. */
+const linkSchema = z.object({
+    catalogId: z.number().int().positive(),
+    priceOverrideRupees: z.number().min(0).max(1_000_000).nullable().optional(),
+    isOptional: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+});
+const linkPatchSchema = z.object({
+    priceOverrideRupees: z.number().min(0).max(1_000_000).nullable().optional(),
+    isOptional: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    isActive: z.boolean().optional(),
+});
+
 const addonSchema = z.object({
     label: z.string().trim().min(2).max(80),
     kind: z.enum(ADDON_KINDS).optional().default('other'),
@@ -865,112 +896,251 @@ export function registerFtthRoutes(app: Express) {
             } catch (error) { next(error); }
         });
 
-    // ── Plan add-ons ────────────────────────────────────────────────────────
+    // ── Add-on catalogue ────────────────────────────────────────────────────
     //
-    // Telephone rental, OTT packs, a static IP: billed as their own lines on top
-    // of the broadband plan. Every route here is scoped through the plan's
-    // operatorId, so an operator can only touch add-ons on their own plans.
+    // Priced ONCE per operator. A plan links to an item and derives its own
+    // figure through the pricing basis (Rs.118 per month × 12 on an annual
+    // plan), unless the link carries an override. Change the catalogue and
+    // every plan without an override follows.
 
-    /** The plan's add-ons, active or not — the operator is editing the catalogue. */
+    /** The catalogue with usage: how many plans link to each item, how many override. */
+    app.get("/api/ftth/admin/addons", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const { operatorId } = (req as any).operator;
+            const items = await db.select().from(ftthAddonCatalog)
+                .where(eq(ftthAddonCatalog.operatorId, operatorId))
+                .orderBy(asc(ftthAddonCatalog.sortOrder), asc(ftthAddonCatalog.name));
+            const ids = items.map(i => i.id);
+            const links = ids.length
+                ? await db.select({ catalogId: ftthPlanAddons.catalogId, override: ftthPlanAddons.priceOverridePaise, isActive: ftthPlanAddons.isActive })
+                    .from(ftthPlanAddons).where(inArray(ftthPlanAddons.catalogId, ids))
+                : [];
+            res.json({
+                success: true,
+                data: items.map(i => ({
+                    ...catalogView(i),
+                    usedByPlans: links.filter(l => l.catalogId === i.id && l.isActive).length,
+                    overriddenOn: links.filter(l => l.catalogId === i.id && l.isActive && l.override !== null).length,
+                })),
+            });
+        } catch (error) { next(error); }
+    });
+
+    app.post("/api/ftth/admin/addons", authenticateOperator, validateBody(catalogItemSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const b = req.body as z.infer<typeof catalogItemSchema>;
+                const [row] = await db.insert(ftthAddonCatalog).values({
+                    operatorId, name: b.name, kind: b.kind as any, description: b.description ?? null,
+                    pricingBasis: b.pricingBasis as any, defaultPricePaise: rupeesToPaise(b.defaultPriceRupees),
+                    defaultOptional: b.defaultOptional ?? true, exclusiveGroup: b.exclusiveGroup?.trim() || null,
+                    sortOrder: b.sortOrder ?? 0, ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
+                }).onConflictDoNothing().returning();
+                if (!row) return res.status(409).json({ success: false, message: `You already have an add-on called "${b.name}".` });
+                res.status(201).json({ success: true, data: catalogView(row) });
+            } catch (error) { next(error); }
+        });
+
+    /**
+     * Edit an item. The response says how many plans the change reaches and how
+     * many it does NOT (they carry an override) — the blast radius, so the
+     * operator sees what a price change does before their customers do.
+     */
+    app.patch("/api/ftth/admin/addons/:id", authenticateOperator, validateBody(catalogItemSchema.partial()),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const id = Number(req.params.id);
+                const [existing] = await db.select().from(ftthAddonCatalog)
+                    .where(and(eq(ftthAddonCatalog.id, id), eq(ftthAddonCatalog.operatorId, operatorId))).limit(1);
+                if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
+                const b = req.body as Partial<z.infer<typeof catalogItemSchema>>;
+                const [row] = await db.update(ftthAddonCatalog).set({
+                    ...(b.name !== undefined ? { name: b.name } : {}),
+                    ...(b.kind !== undefined ? { kind: b.kind as any } : {}),
+                    ...(b.description !== undefined ? { description: b.description } : {}),
+                    ...(b.pricingBasis !== undefined ? { pricingBasis: b.pricingBasis as any } : {}),
+                    ...(b.defaultPriceRupees !== undefined ? { defaultPricePaise: rupeesToPaise(b.defaultPriceRupees) } : {}),
+                    ...(b.defaultOptional !== undefined ? { defaultOptional: b.defaultOptional } : {}),
+                    ...(b.exclusiveGroup !== undefined ? { exclusiveGroup: b.exclusiveGroup?.trim() || null } : {}),
+                    ...(b.sortOrder !== undefined ? { sortOrder: b.sortOrder } : {}),
+                    ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),
+                    updatedAt: new Date(),
+                }).where(eq(ftthAddonCatalog.id, id)).returning();
+                const links = await db.select({ override: ftthPlanAddons.priceOverridePaise })
+                    .from(ftthPlanAddons).where(and(eq(ftthPlanAddons.catalogId, id), eq(ftthPlanAddons.isActive, true)));
+                const follows = links.filter(l => l.override === null).length;
+                const pinned = links.length - follows;
+                res.json({
+                    success: true,
+                    message: links.length
+                        ? `Saved. ${follows} plan(s) follow this price${pinned ? `; ${pinned} keep their own override` : ''}.`
+                        : 'Saved. No plans use this yet.',
+                    data: { ...catalogView(row), usedByPlans: links.length, overriddenOn: pinned },
+                });
+            } catch (error) { next(error); }
+        });
+
+    /** Retire (soft). ?hard=true removes it only if no plan links to it. */
+    app.delete("/api/ftth/admin/addons/:id", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const { operatorId } = (req as any).operator;
+            const id = Number(req.params.id);
+            const [existing] = await db.select().from(ftthAddonCatalog)
+                .where(and(eq(ftthAddonCatalog.id, id), eq(ftthAddonCatalog.operatorId, operatorId))).limit(1);
+            if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
+            if (String(req.query.hard) === 'true') {
+                const [used] = await db.select({ id: ftthPlanAddons.id }).from(ftthPlanAddons).where(eq(ftthPlanAddons.catalogId, id)).limit(1);
+                if (used) return res.status(409).json({ success: false, message: 'Plans still use this add-on. Retire it instead, or detach it from every plan first.' });
+                await db.delete(ftthAddonCatalog).where(eq(ftthAddonCatalog.id, id));
+                return res.json({ success: true, message: `"${existing.name}" removed.` });
+            }
+            const [row] = await db.update(ftthAddonCatalog).set({ isActive: false, updatedAt: new Date() }).where(eq(ftthAddonCatalog.id, id)).returning();
+            res.json({ success: true, message: `"${existing.name}" is no longer offered on any plan. Re-activate it any time.`, data: catalogView(row) });
+        } catch (error) { next(error); }
+    });
+
+    /**
+     * Attach an item to many plans at once: a list of ids, every plan at a
+     * speed, or every plan. Skips plans that already link it. This is what makes
+     * onboarding an ISP with twenty plans a five-minute job.
+     */
+    app.post("/api/ftth/admin/addons/:id/attach", authenticateOperator, validateBody(attachSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const id = Number(req.params.id);
+                const [item] = await db.select().from(ftthAddonCatalog)
+                    .where(and(eq(ftthAddonCatalog.id, id), eq(ftthAddonCatalog.operatorId, operatorId))).limit(1);
+                if (!item) return res.status(404).json({ success: false, message: 'Add-on not found' });
+                const b = req.body as z.infer<typeof attachSchema>;
+
+                const where = [eq(ftthPlans.operatorId, operatorId), eq(ftthPlans.isActive, true)] as any[];
+                if (b.planIds?.length) where.push(inArray(ftthPlans.id, b.planIds));
+                else if (b.speedMbps) where.push(eq(ftthPlans.speedMbps, b.speedMbps));
+                else if (!b.all) return res.status(400).json({ success: false, message: 'Say which plans: planIds, speedMbps, or all.' });
+                const plans = await db.select({ id: ftthPlans.id }).from(ftthPlans).where(and(...where));
+
+                const existing = plans.length
+                    ? await db.select({ planId: ftthPlanAddons.planId }).from(ftthPlanAddons)
+                        .where(and(eq(ftthPlanAddons.catalogId, id), inArray(ftthPlanAddons.planId, plans.map(p => p.id))))
+                    : [];
+                const have = new Set(existing.map(e => e.planId));
+                const toAdd = plans.filter(p => !have.has(p.id));
+                if (toAdd.length) {
+                    await db.insert(ftthPlanAddons).values(toAdd.map(p => ({
+                        planId: p.id, catalogId: id, label: item.name, kind: item.kind, amountPaise: 0,
+                        isOptional: b.isOptional ?? item.defaultOptional, sortOrder: item.sortOrder,
+                    })));
+                }
+                res.json({ success: true, message: `Attached to ${toAdd.length} plan(s)${have.size ? `; ${have.size} already had it` : ''}.`, data: { attached: toAdd.length, skipped: have.size } });
+            } catch (error) { next(error); }
+        });
+
+    // ── Plan add-ons (links) ────────────────────────────────────────────────
+    //
+    // Every route here is scoped through the plan's operatorId, so an operator
+    // can only touch add-ons on their own plans.
+
+    /** The plan's add-ons, resolved: what each line costs on THIS plan and how it got there. */
     app.get("/api/ftth/admin/plans/:planId/addons", authenticateOperator,
         async (req: Request, res: Response, next: NextFunction) => {
             try {
                 const { operatorId } = (req as any).operator;
                 const plan = await operatorPlan(Number(req.params.planId), operatorId);
                 if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
-
-                const rows = await db.select().from(ftthPlanAddons)
-                    .where(eq(ftthPlanAddons.planId, plan.id))
-                    .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
-
-                res.json({ success: true, data: rows.map(addonView) });
-            } catch (error) { next(error); }
-        });
-
-    app.post("/api/ftth/admin/plans/:planId/addons", authenticateOperator, validateBody(addonSchema),
-        async (req: Request, res: Response, next: NextFunction) => {
-            try {
-                const { operatorId } = (req as any).operator;
-                const plan = await operatorPlan(Number(req.params.planId), operatorId);
-                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
-
-                const body = req.body as z.infer<typeof addonSchema>;
-                const [row] = await db.insert(ftthPlanAddons).values({
-                    planId: plan.id,
-                    label: body.label,
-                    kind: body.kind as any,
-                    amountPaise: rupeesToPaise(body.amountRupees),
-                    isOptional: body.isOptional ?? false,
-                    description: body.description ?? null,
-                    sortOrder: body.sortOrder ?? 0,
-                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-                }).returning();
-
-                res.status(201).json({ success: true, data: addonView(row) });
-            } catch (error) { next(error); }
-        });
-
-    app.patch("/api/ftth/admin/plans/:planId/addons/:id", authenticateOperator,
-        validateBody(addonSchema.partial()),
-        async (req: Request, res: Response, next: NextFunction) => {
-            try {
-                const { operatorId } = (req as any).operator;
-                const plan = await operatorPlan(Number(req.params.planId), operatorId);
-                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
-
-                const id = Number(req.params.id);
-                const [existing] = await db.select().from(ftthPlanAddons)
-                    .where(and(eq(ftthPlanAddons.id, id), eq(ftthPlanAddons.planId, plan.id))).limit(1);
-                if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
-
-                const body = req.body as Partial<z.infer<typeof addonSchema>>;
-                const [row] = await db.update(ftthPlanAddons).set({
-                    ...(body.label !== undefined ? { label: body.label } : {}),
-                    ...(body.kind !== undefined ? { kind: body.kind as any } : {}),
-                    ...(body.amountRupees !== undefined ? { amountPaise: rupeesToPaise(body.amountRupees) } : {}),
-                    ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
-                    ...(body.description !== undefined ? { description: body.description } : {}),
-                    ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-                    updatedAt: new Date(),
-                }).where(eq(ftthPlanAddons.id, id)).returning();
-
-                res.json({ success: true, data: addonView(row) });
+                res.json({ success: true, data: await planAddonViews(plan) });
             } catch (error) { next(error); }
         });
 
     /**
-     * Retire an add-on. Soft by default: past recharges froze their own snapshot,
-     * so a hard delete would not corrupt a receipt — but an operator who pulls an
-     * OTT pack for the season usually wants it back, and deactivating keeps the
-     * price they set. ?hard=true removes it outright.
+     * Attach a catalogue item to this plan (body: catalogId, optional override).
+     * The legacy body (label / kind / amountRupees) still creates a self-priced
+     * row, so an older portal build keeps working until it is updated.
      */
+    app.post("/api/ftth/admin/plans/:planId/addons", authenticateOperator,
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+                if (req.body?.catalogId !== undefined) {
+                    const parsed = linkSchema.safeParse(req.body);
+                    if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid body' });
+                    const b = parsed.data;
+                    const [item] = await db.select().from(ftthAddonCatalog)
+                        .where(and(eq(ftthAddonCatalog.id, b.catalogId), eq(ftthAddonCatalog.operatorId, operatorId))).limit(1);
+                    if (!item) return res.status(404).json({ success: false, message: 'Catalogue add-on not found' });
+                    const [dup] = await db.select({ id: ftthPlanAddons.id }).from(ftthPlanAddons)
+                        .where(and(eq(ftthPlanAddons.planId, plan.id), eq(ftthPlanAddons.catalogId, item.id))).limit(1);
+                    if (dup) return res.status(409).json({ success: false, message: `"${item.name}" is already on this plan.` });
+                    await db.insert(ftthPlanAddons).values({
+                        planId: plan.id, catalogId: item.id, label: item.name, kind: item.kind, amountPaise: 0,
+                        priceOverridePaise: b.priceOverrideRupees != null ? rupeesToPaise(b.priceOverrideRupees) : null,
+                        isOptional: b.isOptional ?? item.defaultOptional, sortOrder: b.sortOrder ?? item.sortOrder,
+                    });
+                    return res.status(201).json({ success: true, data: await planAddonViews(plan) });
+                }
+
+                const parsed = addonSchema.safeParse(req.body);
+                if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid body' });
+                const body = parsed.data;
+                await db.insert(ftthPlanAddons).values({
+                    planId: plan.id, label: body.label, kind: body.kind as any, amountPaise: rupeesToPaise(body.amountRupees),
+                    isOptional: body.isOptional ?? false, description: body.description ?? null, sortOrder: body.sortOrder ?? 0,
+                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+                });
+                res.status(201).json({ success: true, data: await planAddonViews(plan) });
+            } catch (error) { next(error); }
+        });
+
+    /** Override, optional flag, order, active — the per-plan knobs. Null override = follow the catalogue. */
+    app.patch("/api/ftth/admin/plans/:planId/addons/:id", authenticateOperator, validateBody(linkPatchSchema.merge(addonSchema.partial())),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId } = (req as any).operator;
+                const plan = await operatorPlan(Number(req.params.planId), operatorId);
+                if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+                const id = Number(req.params.id);
+                const [existing] = await db.select().from(ftthPlanAddons)
+                    .where(and(eq(ftthPlanAddons.id, id), eq(ftthPlanAddons.planId, plan.id))).limit(1);
+                if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
+                const body = req.body as Partial<z.infer<typeof linkPatchSchema>> & Partial<z.infer<typeof addonSchema>>;
+                await db.update(ftthPlanAddons).set({
+                    ...(body.priceOverrideRupees !== undefined ? { priceOverridePaise: body.priceOverrideRupees == null ? null : rupeesToPaise(body.priceOverrideRupees) } : {}),
+                    ...(body.isOptional !== undefined ? { isOptional: body.isOptional } : {}),
+                    ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+                    ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+                    // Legacy self-priced rows only.
+                    ...(existing.catalogId === null && body.label !== undefined ? { label: body.label } : {}),
+                    ...(existing.catalogId === null && body.kind !== undefined ? { kind: body.kind as any } : {}),
+                    ...(existing.catalogId === null && body.amountRupees !== undefined ? { amountPaise: rupeesToPaise(body.amountRupees) } : {}),
+                    updatedAt: new Date(),
+                }).where(eq(ftthPlanAddons.id, id));
+                res.json({ success: true, data: await planAddonViews(plan) });
+            } catch (error) { next(error); }
+        });
+
+    /** Detach from this plan. The catalogue item is untouched. */
     app.delete("/api/ftth/admin/plans/:planId/addons/:id", authenticateOperator,
         async (req: Request, res: Response, next: NextFunction) => {
             try {
                 const { operatorId } = (req as any).operator;
                 const plan = await operatorPlan(Number(req.params.planId), operatorId);
                 if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
-
                 const id = Number(req.params.id);
                 const [existing] = await db.select().from(ftthPlanAddons)
                     .where(and(eq(ftthPlanAddons.id, id), eq(ftthPlanAddons.planId, plan.id))).limit(1);
                 if (!existing) return res.status(404).json({ success: false, message: 'Add-on not found' });
-
-                if (String(req.query.hard) === 'true') {
+                if (String(req.query.hard) === 'true' || existing.catalogId !== null) {
+                    // A link row carries nothing of its own worth keeping; recharges froze their snapshot.
                     await db.delete(ftthPlanAddons).where(eq(ftthPlanAddons.id, id));
-                    return res.json({ success: true, message: `"${existing.label}" removed.` });
+                    return res.json({ success: true, message: 'Detached from this plan.', data: await planAddonViews(plan) });
                 }
-
-                const [row] = await db.update(ftthPlanAddons)
-                    .set({ isActive: false, updatedAt: new Date() })
-                    .where(eq(ftthPlanAddons.id, id)).returning();
-
-                res.json({
-                    success: true,
-                    message: `"${existing.label}" is no longer offered. Re-activate it any time.`,
-                    data: addonView(row),
-                });
+                await db.update(ftthPlanAddons).set({ isActive: false, updatedAt: new Date() }).where(eq(ftthPlanAddons.id, id));
+                res.json({ success: true, message: `"${existing.label}" is no longer offered. Re-activate it any time.`, data: await planAddonViews(plan) });
             } catch (error) { next(error); }
         });
 
@@ -2662,6 +2832,42 @@ async function operatorPlan(planId: number, operatorId: number) {
     const [plan] = await db.select().from(ftthPlans)
         .where(and(eq(ftthPlans.id, planId), eq(ftthPlans.operatorId, operatorId))).limit(1);
     return plan ?? null;
+}
+
+function catalogView(i: typeof ftthAddonCatalog.$inferSelect) {
+    return {
+        id: i.id, name: i.name, kind: i.kind, description: i.description,
+        pricingBasis: i.pricingBasis, defaultPrice: paiseToRupees(i.defaultPricePaise),
+        defaultOptional: i.defaultOptional, exclusiveGroup: i.exclusiveGroup,
+        sortOrder: i.sortOrder, isActive: i.isActive,
+    };
+}
+
+/**
+ * Every add-on on a plan as the operator needs to see it: the effective amount
+ * on THIS plan, how it was derived, and whether the plan overrides the
+ * catalogue. Same resolver quote() uses, so the editor and the bill agree.
+ */
+async function planAddonViews(plan: typeof ftthPlans.$inferSelect) {
+    const links = await db.select().from(ftthPlanAddons)
+        .where(eq(ftthPlanAddons.planId, plan.id))
+        .orderBy(asc(ftthPlanAddons.sortOrder), asc(ftthPlanAddons.id));
+    const ids = links.map(l => l.catalogId).filter((x): x is number => x !== null);
+    const items = ids.length ? await db.select().from(ftthAddonCatalog).where(inArray(ftthAddonCatalog.id, ids)) : [];
+    const byId = new Map(items.map(i => [i.id, i]));
+    return links.map(l => {
+        const cat = l.catalogId !== null ? byId.get(l.catalogId) ?? null : null;
+        const r = resolveAddon(l, cat, plan.durationMonths);
+        return {
+            id: l.id, planId: l.planId, catalogId: l.catalogId,
+            label: r.label, kind: r.kind, description: cat?.description ?? l.description,
+            amount: paiseToRupees(r.amountPaise), unitAmount: paiseToRupees(r.unitPaise), pricingBasis: r.pricingBasis, months: r.months,
+            catalogDefault: cat ? paiseToRupees(cat.pricingBasis === 'per_month' ? cat.defaultPricePaise * plan.durationMonths : cat.defaultPricePaise) : null,
+            overridden: r.overridden, priceOverride: l.priceOverridePaise !== null ? paiseToRupees(l.priceOverridePaise) : null,
+            isOptional: l.isOptional, exclusiveGroup: r.exclusiveGroup, sortOrder: l.sortOrder, isActive: l.isActive && (cat ? cat.isActive : true),
+            catalogRetired: cat ? !cat.isActive : false, legacy: l.catalogId === null,
+        };
+    });
 }
 
 function addonView(a: typeof ftthPlanAddons.$inferSelect) {

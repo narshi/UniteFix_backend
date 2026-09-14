@@ -15,6 +15,7 @@ import { useOperatorMe } from "@/lib/operator-auth";
 const navigation: Array<{ name: string; href: string; icon: string; soon?: boolean }> = [
   { name: "Overview", href: "/operator", icon: "dashboard" },
   { name: "Plans", href: "/operator/plans", icon: "speed" },
+  { name: "Add-ons", href: "/operator/addons", icon: "add_circle" },
   { name: "Coverage", href: "/operator/coverage", icon: "map" },
   { name: "Customers", href: "/operator/customers", icon: "people" },
   { name: "Leads", href: "/operator/leads", icon: "person_add" },
