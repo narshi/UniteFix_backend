@@ -156,7 +156,11 @@ export class InvoiceGenerator {
                 if (Number.isFinite(Number(snapshot?.gstPercent))) {
                     gstPercent = Number(snapshot.gstPercent);
                 }
-                if (snapshot?.extraPartsCost > 0) {
+                // Parts taxed on the bill (snapshots with partsGst) print as
+                // line items inside the taxable table below. Older v2 snapshots
+                // added the parts after tax, and their invoices keep that shape.
+                const partsTaxed = snapshot?.partsGst != null;
+                if (!partsTaxed && snapshot?.extraPartsCost > 0) {
                     approvedPartsCost = Number(snapshot.extraPartsCost);
                     approvedPartsNote = typeof snapshot.partsNote === 'string' ? snapshot.partsNote : "";
                 }
@@ -202,6 +206,28 @@ export class InvoiceGenerator {
                             unitPrice: Number(snapshot.platformFee),
                             total: Number(snapshot.platformFee)
                         });
+                    }
+                    if (partsTaxed && Number(snapshot.partsTaxable) > 0) {
+                        // One line per part fitted, at the price the customer was
+                        // charged. If the provenance rows are missing (recording
+                        // is best-effort), a single honest line keeps the table
+                        // adding up to the taxable base.
+                        let partLines: typeof items = [];
+                        try {
+                            const rows = await getPartItems(service.id);
+                            partLines = rows.map(p => ({
+                                description: `${p.partName}${p.brand ? ` (${p.brand})` : ''}${p.sourceType === 'platform' ? ' — UniteFix stock' : ''}`,
+                                quantity: p.quantity,
+                                unitPrice: round2(p.unitPricePaise / 100),
+                                total: round2(p.unitPricePaise * p.quantity / 100),
+                            }));
+                        } catch { partLines = []; }
+                        const linesSum = round2(partLines.reduce((s, l) => s + l.total, 0));
+                        if (partLines.length && Math.abs(linesSum - Number(snapshot.partsTaxable)) < 1) {
+                            items.push(...partLines);
+                        } else {
+                            items.push({ description: "Spare Parts", quantity: 1, unitPrice: Number(snapshot.partsTaxable), total: Number(snapshot.partsTaxable) });
+                        }
                     }
                 } else {
                     // Legacy fallback: use service_charges table

@@ -448,10 +448,20 @@ export default function PartsEntry({ parts, onChange, serviceRequestId }: Props)
             />
 
             {parts.length > 0 && (
-                <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Parts total</Text>
-                    <Text style={styles.totalValue}>₹{partsTotalRupees(parts).toFixed(2)}</Text>
-                </View>
+                <>
+                    <View style={styles.totalRow}>
+                        <Text style={styles.totalLabel}>Parts total</Text>
+                        <Text style={styles.totalValue}>₹{partsTotalRupees(parts).toFixed(2)}</Text>
+                    </View>
+                    {/* The customer's bill adds GST on top of these prices. The
+                        technician is reimbursed what they paid for their own parts;
+                        UniteFix stock is UniteFix's sale. Saying so here stops the
+                        "why is the customer's total higher than my parts" call. */}
+                    <Text style={styles.totalNote}>
+                        GST is added on the customer's bill. You receive ₹{partsTotalRupees(parts.filter(p => p.sourceType !== 'platform')).toFixed(2)} for the parts you bought
+                        {parts.some(p => p.sourceType === 'platform') ? '; UniteFix stock is billed by UniteFix.' : '.'}
+                    </Text>
+                </>
             )}
         </View>
     );
@@ -523,4 +533,5 @@ const styles = StyleSheet.create({
     },
     totalLabel: { ...typography.captionMedium, color: colors.textSecondary },
     totalValue: { ...typography.bodySemibold, color: colors.textPrimary },
+    totalNote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
 });

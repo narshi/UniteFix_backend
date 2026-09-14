@@ -202,6 +202,11 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const gst = billing.gst || Math.round((subtotal + platformFee) * 0.18);
     const bookingCredit = request?.bookingFee ?? publicConfig?.bookingFee ?? 99;
     const total = billing.finalTotal || request.totalCharge || (subtotal + platformFee + gst - bookingCredit);
+    // v2 parts ride on top of the fixed price with their own GST. Shown as their
+    // own lines so the summary adds up to the total the customer is asked for.
+    const addedParts = Number(billing.extraPartsCost || 0) + Number(billing.platformPartsCost || 0);
+    const addedPartsGst = Number(billing.partsGst || 0);
+    const gstRate = Number(billing.gstPercent) || 18;
 
     if (paymentState === 'success') {
         return (
@@ -276,9 +281,23 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                                 <Text style={styles.billValue}>₹{platformFee}</Text>
                             </View>
                             <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>GST (18%)</Text>
+                                <Text style={styles.billLabel}>GST ({gstRate}%)</Text>
                                 <Text style={styles.billValue}>₹{gst}</Text>
                             </View>
+                            {addedParts > 0 && (
+                                <>
+                                    <View style={styles.billRow}>
+                                        <Text style={styles.billLabel}>Spare parts fitted</Text>
+                                        <Text style={styles.billValue}>₹{addedParts}</Text>
+                                    </View>
+                                    {addedPartsGst > 0 && (
+                                        <View style={styles.billRow}>
+                                            <Text style={styles.billLabel}>GST on parts</Text>
+                                            <Text style={styles.billValue}>₹{addedPartsGst}</Text>
+                                        </View>
+                                    )}
+                                </>
+                            )}
                             <View style={styles.billRow}>
                                 <Text style={[styles.billLabel, { color: colors.success }]}>
                                     Booking Fee Credit

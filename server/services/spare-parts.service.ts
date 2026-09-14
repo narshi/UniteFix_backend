@@ -242,6 +242,7 @@ export class SparePartsService {
                 brand: part.brand,
                 unitPricePaise: part.unitPricePaise,          // the catalogue says how much
                 unitPriceRupees: undefined,
+                gstPercent: part.gstPercent != null ? Number(part.gstPercent) : null,
                 warrantyDays: part.warrantyDays,
                 vendorName: null,
                 billPhotoUrl: null,

@@ -717,6 +717,14 @@ export class PaymentService {
             cgst = snapshot.cgst || 0;
             sgst = snapshot.sgst || 0;
             totalAmount = snapshot.grossTotal;
+            // v2 parts are taxed on top of the service price. Fold them into
+            // the invoice's taxable base and tax so base + CGST + SGST = total,
+            // and the PDF prints a line per part rather than an "other charge".
+            if (snapshot.partsGst != null) {
+                baseAmount = Math.round((baseAmount + Number(snapshot.partsTaxable || 0)) * 100) / 100;
+                cgst = Math.round((cgst + Number(snapshot.partsCgst || 0)) * 100) / 100;
+                sgst = Math.round((sgst + Number(snapshot.partsSgst || 0)) * 100) / 100;
+            }
             bookingFee = (snapshot.bookingFeeCredit !== undefined && snapshot.bookingFeeCredit !== null)
                 ? snapshot.bookingFeeCredit
                 : ((snapshot.bookingFee !== undefined && snapshot.bookingFee !== null) ? snapshot.bookingFee : defaultFee);

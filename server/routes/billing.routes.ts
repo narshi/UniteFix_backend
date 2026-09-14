@@ -292,19 +292,27 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
-            // Apply an optional customer-approved parts add-on (pass-through to the
-            // technician). The base breakdown (gst/fee on P) is untouched.
+            // Apply the parts to the bill. The base breakdown (gst/fee on P) is
+            // untouched; the parts go on top of P with their own GST on top of
+            // them. The customer pays parts + parts GST; the technician's earning
+            // takes only their own purchases, before tax — the tax is UniteFix's
+            // to remit, and a UniteFix-supplied part is UniteFix's sale.
             const round2 = (x: number) => Math.round(x * 100) / 100;
+            const tax = BillingEngine.partsTax(resolvedItems, Number(snapshot.gstPercent) || 18);
             const updatedSnapshot: PricingSnapshot = allPartsCost > 0
                 ? {
                     ...snapshot,
-                    grossTotal: round2((snapshot.grossTotal ?? 0) + allPartsCost),
-                    finalTotal: round2((snapshot.finalTotal ?? 0) + allPartsCost),
+                    grossTotal: round2((snapshot.grossTotal ?? 0) + allPartsCost + tax.partsGst),
+                    finalTotal: round2((snapshot.finalTotal ?? 0) + allPartsCost + tax.partsGst),
                     // Only the technician's own purchases reach their earning.
                     technicianEarning: round2((snapshot.technicianEarning ?? 0) + extraPartsCost),
                     employeeEarnings: round2((snapshot.employeeEarnings ?? 0) + extraPartsCost),
                     extraPartsCost,
                     platformPartsCost,
+                    partsTaxable: tax.partsTaxable,
+                    partsGst: tax.partsGst,
+                    partsCgst: tax.partsCgst,
+                    partsSgst: tax.partsSgst,
                     partsNote: partsNote || undefined,
                 }
                 : snapshot;
@@ -333,7 +341,7 @@ export function registerBillingRoutes(app: Express) {
             }
 
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
-                (allPartsCost > 0 ? ` (incl. ₹${extraPartsCost} technician parts + ₹${platformPartsCost} UniteFix parts, ${resolvedItems.length} line(s))` : ''));
+                (allPartsCost > 0 ? ` (incl. ₹${extraPartsCost} technician parts + ₹${platformPartsCost} UniteFix parts + ₹${tax.partsGst} GST, ${resolvedItems.length} line(s))` : ''));
 
             void BookingNotifications.billSubmitted(
                 bookingId,

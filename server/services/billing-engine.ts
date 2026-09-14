@@ -65,6 +65,16 @@ export interface PricingSnapshot {
    * both know whose sale it was.
    */
   platformPartsCost?: number;
+  /**
+   * GST on the parts (v2). The service price carves its GST out of P; parts
+   * are added on top of P, so their tax is added on top too — a catalogue part
+   * at its own rate, a local purchase at the booking's service rate. Absent on
+   * snapshots billed before parts were taxed; those invoices print as they did.
+   */
+  partsTaxable?: number;       // extraPartsCost + platformPartsCost
+  partsGst?: number;           // partsCgst + partsSgst
+  partsCgst?: number;
+  partsSgst?: number;
 
   /**
    * How the listPrice was arrived at: unitPrice x quantity.
@@ -368,15 +378,45 @@ export class BillingEngine {
   }
 
   /**
+   * GST on the parts lines of a bill, in rupees.
+   *
+   * Each line is taxed at its own rate: a catalogue part at the rate on its
+   * catalogue row, a local purchase at the service rate frozen on the booking.
+   * Summed in paise and split into CGST/SGST once, so the halves add back to
+   * the whole.
+   */
+  static partsTax(
+    items: Array<{ unitPricePaise: number; quantity: number; gstPercent?: number | null }>,
+    defaultGstPercent: number,
+  ): { partsTaxable: number; partsGst: number; partsCgst: number; partsSgst: number } {
+    let taxablePaise = 0;
+    let gstPaise = 0;
+    for (const it of items) {
+      const line = it.unitPricePaise * it.quantity;
+      const rate = it.gstPercent != null && Number.isFinite(Number(it.gstPercent)) ? Number(it.gstPercent) : defaultGstPercent;
+      taxablePaise += line;
+      gstPaise += Math.round(line * rate / 100);
+    }
+    const cgstPaise = Math.round(gstPaise / 2);
+    const sgstPaise = gstPaise - cgstPaise;
+    const r = (p: number) => Math.round(p) / 100;
+    return { partsTaxable: r(taxablePaise), partsGst: r(gstPaise), partsCgst: r(cgstPaise), partsSgst: r(sgstPaise) };
+  }
+
+  /**
    * Calculate the amount to DEBIT from employee wallet when customer pays cash.
-   * This is UniteFix's share: platformFee + CGST + SGST.
-   * Employee collected the full amount in cash — we recover our cut from their wallet.
+   * This is UniteFix's share: platformFee + CGST + SGST, plus — when the job
+   * used parts — the GST on those parts and the price of any part UniteFix
+   * supplied. The technician collected all of it in cash; only their own
+   * labour and their own purchases are theirs to keep.
    */
   static calculateCashDebitAmount(snapshot: PricingSnapshot): number {
     const platformFee = snapshot.platformFee ?? 0;
     const cgst = snapshot.cgst ?? 0;
     const sgst = snapshot.sgst ?? 0;
-    return platformFee + cgst + sgst;
+    const partsGst = (snapshot.partsCgst ?? 0) + (snapshot.partsSgst ?? 0);
+    const platformParts = snapshot.platformPartsCost ?? 0;
+    return Math.round((platformFee + cgst + sgst + partsGst + platformParts) * 100) / 100;
   }
 
   /**

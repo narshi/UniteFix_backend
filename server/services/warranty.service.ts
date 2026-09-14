@@ -70,6 +70,8 @@ export interface PartItemInput {
     /** Convenience for clients that think in rupees. Ignored if paise is given. */
     unitPriceRupees?: number;
     quantity?: number;
+    /** Set by enrichPlatformItems from the catalogue. Null → the booking's service rate. */
+    gstPercent?: number | null;
     warrantyDays?: number;
     vendorBillDate?: string | Date | null;
     billPhotoUrl?: string | null;
@@ -89,6 +91,8 @@ export interface ResolvedPartItem {
     vendorName: string | null;
     unitPricePaise: number;
     quantity: number;
+    /** Catalogue rate for a platform part; null means "use the booking's service rate". */
+    gstPercent: number | null;
     warrantyDays: number;
     warrantyBacker: WarrantyBacker;
     vendorBillDate: Date | null;
@@ -217,6 +221,8 @@ export function resolvePartItem(raw: PartItemInput, installedAt = new Date()): R
         vendorName,
         unitPricePaise,
         quantity: clamp(int(raw.quantity, 1) || 1, 1, MAX_QUANTITY),
+        gstPercent: sparePartId !== null && raw.gstPercent != null && Number.isFinite(Number(raw.gstPercent))
+            ? clamp(Number(raw.gstPercent), 0, 28) : null,
         warrantyDays,
         warrantyBacker,
         vendorBillDate,
@@ -303,6 +309,7 @@ export async function recordPartItems(
         vendorName: r.vendorName,
         unitPricePaise: r.unitPricePaise,
         quantity: r.quantity,
+        gstPercent: r.gstPercent != null ? String(r.gstPercent) : null,
         warrantyDays: r.warrantyDays,
         warrantyBacker: r.warrantyBacker as any,
         vendorBillDate: r.vendorBillDate,

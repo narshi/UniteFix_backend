@@ -2166,6 +2166,12 @@ export const servicePartItems = pgTable("service_part_items", {
   // cannot silently lose half a rupee on a split.
   unitPricePaise: integer("unit_price_paise").notNull().default(0),
   quantity: integer("quantity").notNull().default(1),
+  /**
+   * The GST rate this line was taxed at on the customer's invoice. Catalogue
+   * parts carry their own rate; a local purchase takes the service rate frozen
+   * on the booking. Null on rows recorded before parts were taxed.
+   */
+  gstPercent: decimal("gst_percent", { precision: 4, scale: 2 }),
 
   warrantyDays: integer("warranty_days").notNull().default(0),
   warrantyBacker: warrantyBackerEnum("warranty_backer").notNull().default('none'),

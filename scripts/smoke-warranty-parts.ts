@@ -25,6 +25,7 @@ import {
     WORKMANSHIP_WARRANTY_DAYS,
     type PartSource, type Verdict,
 } from '../server/services/warranty.service';
+import { BillingEngine } from '../server/services/billing-engine';
 
 const results: Array<{ name: string; pass: boolean }> = [];
 const check = (name: string, pass: boolean, detail = '') => {
@@ -118,6 +119,33 @@ const INSTALL = new Date('2026-09-01T10:00:00Z');
     check('on EVERY genuine failure the customer bears nothing',
         genuineFailures.every(([v, p]) => routeCost(v, p) !== 'customer'),
         'five failure paths, none of them billed to the customer');
+
+    // ── GST on parts ─────────────────────────────────────────────────
+    // Parts go on the customer's bill with tax on top: a catalogue part at its
+    // own rate, a local purchase at the booking's service rate. The technician
+    // is reimbursed before tax; UniteFix remits the tax and keeps its own sale.
+    const tax = BillingEngine.partsTax([
+        { unitPricePaise: 45000, quantity: 2, gstPercent: 18 },   // 900 @ 18 → 162
+        { unitPricePaise: 12000, quantity: 1, gstPercent: 5 },    // 120 @ 5  → 6
+        { unitPricePaise: 30000, quantity: 1, gstPercent: null }, // 300 @ service rate 18 → 54
+    ], 18);
+    check('parts GST is charged per line at each line\'s own rate',
+        tax.partsTaxable === 1320 && tax.partsGst === 222, `taxable ₹${tax.partsTaxable}, GST ₹${tax.partsGst}`);
+    check('CGST and SGST halves add back to the whole', tax.partsCgst + tax.partsSgst === tax.partsGst);
+    check('a local purchase with no catalogue rate takes the service rate',
+        BillingEngine.partsTax([{ unitPricePaise: 10000, quantity: 1, gstPercent: null }], 12).partsGst === 12);
+    check('a catalogue part carries its rate onto the resolved line',
+        resolvePartItem({ sparePartId: 7, sourceType: 'platform', partName: 'Cap', unitPricePaise: 100, gstPercent: 5 }).gstPercent === 5);
+    check('a local part never carries a catalogue rate',
+        resolvePartItem({ sourceType: 'technician_local', partName: 'Cap', unitPricePaise: 100, gstPercent: 5 } as any).gstPercent === null);
+    const cashDebit = BillingEngine.calculateCashDebitAmount({
+        bookingFee: 99, platformFeePercent: 15, gstPercent: 18, discountPercent: 0,
+        platformFee: 100, cgst: 50, sgst: 50, partsCgst: tax.partsCgst, partsSgst: tax.partsSgst, platformPartsCost: 1020,
+    });
+    check('cash collected by the technician is debited for parts GST and UniteFix\'s own parts',
+        cashDebit === 100 + 100 + 222 + 1020, `debit ₹${cashDebit}`);
+    check('...but not for the parts the technician bought themselves',
+        BillingEngine.calculateCashDebitAmount({ bookingFee: 99, platformFeePercent: 15, gstPercent: 18, discountPercent: 0, platformFee: 0, cgst: 0, sgst: 0, partsCgst: 27, partsSgst: 27, platformPartsCost: 0 }) === 54);
 
     const verdicts: Verdict[] = ['workmanship_fault', 'part_failed', 'customer_damage', 'out_of_warranty', 'unrelated'];
     const bearers = ['unitefix', 'vendor', 'technician', 'customer'];

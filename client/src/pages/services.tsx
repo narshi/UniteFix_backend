@@ -137,6 +137,16 @@ export default function ServicesPage() {
       finalTotal = Math.max(0, grossTotal - bookingFee);
     }
 
+    // v2 parts sit on top of the fixed price with their own GST (older v2
+    // snapshots added them untaxed; partsGst is then absent and prints as 0).
+    const addedParts = Number(snapshot?.extraPartsCost || 0) + Number(snapshot?.platformPartsCost || 0);
+    const addedPartsGst = Number(snapshot?.partsGst || 0);
+    const partsBlock = addedParts > 0 ? `
+Spare Parts Fitted:                   ₹${addedParts.toFixed(2)}
+  of which UniteFix stock:            ₹${Number(snapshot?.platformPartsCost || 0).toFixed(2)}
+GST on Parts:                         ₹${addedPartsGst.toFixed(2)}
+` : '';
+
     const invoiceId = `UF-INV-${service.id}-${Date.now().toString(36).toUpperCase()}`;
     const invoiceDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     const serviceDate = new Date(service.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -189,7 +199,7 @@ Taxable Amount:                       ₹${taxableAmount.toFixed(2)}
 CGST (${gstPercent / 2}%):                           ₹${cgst.toFixed(2)}
 SGST (${gstPercent / 2}%):                           ₹${sgst.toFixed(2)}
                                       ──────────
-Gross Total:                          ₹${grossTotal.toFixed(2)}
+${partsBlock}Gross Total:                          ₹${grossTotal.toFixed(2)}
 
 Less: Booking Fee (Paid Earlier):     -₹${bookingFee.toFixed(2)}
                                       ══════════
