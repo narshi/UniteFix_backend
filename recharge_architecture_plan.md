@@ -1,6 +1,6 @@
 # FTTH Recharge — Modular Packages Architecture Plan
 
-**Status:** Approved 13 Sep 2026 with the §5 decisions below. **Phase 1 implemented** (backend). Phases 2–4 pending.
+**Status:** Approved 13 Sep 2026 with the §5 decisions below. **Phases 1–3 implemented** (pricing, operator catalogue, mobile rewrite). Phase 4 (cleanup) waits a cycle.
 **Written against:** `feature/react-native-app` @ `940ce4a`, 13 Sep 2026
 
 **§5 decisions (locked):**
