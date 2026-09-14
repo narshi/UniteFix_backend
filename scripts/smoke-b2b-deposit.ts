@@ -34,6 +34,7 @@ const R = (paise: number) => `Rs.${(paise / 100).toFixed(2)}`;
 async function main() {
     const stamp = Date.now().toString(36).toUpperCase();
     let userId = 0, employeeId = 0, srId = 0, claimId = 0, bpId = 0;
+    let inhouseUserId = 0, inhouseEmployeeId = 0;
     const partIds: number[] = [];
     const orderIds: number[] = [];
 
@@ -124,6 +125,44 @@ async function main() {
             const capped = await PartsAccessService.status(employeeId);
             check('a draw larger than the deposit takes what is there and reports the shortfall — never a negative balance',
                 over === null && capped.deposit!.remainingPaise === 0 && capped.deposit!.status === 'forfeited');
+        }
+
+        // ── in-house staff: access with no deposit ──────────────────────────
+        {
+            const [iu] = await db.insert(users).values({ phone: `+919200${stamp.slice(-6).replace(/[^0-9]/g, '3').padStart(6, '3')}`, username: `QA InHouse ${stamp}`, role: 'serviceman', isActive: true, password: null as any } as any).returning();
+            inhouseUserId = iu.id;
+            const [ie] = await db.insert(employees).values({ userId: inhouseUserId, fullName: `QA InHouse ${stamp}`, partnerType: 'Individual', services: [], isActive: true, documentVerificationStatus: 'pending' } as any).returning();
+            inhouseEmployeeId = ie.id;
+
+            let unverified: any = null;
+            try { await PartsAccessService.grantWithoutDeposit(inhouseEmployeeId, 1, 'In-house employee'); } catch (err) { unverified = err; }
+            check('a waiver still requires document verification — parts access is our warranty', unverified?.code === 'NOT_VERIFIED');
+
+            await db.update(employees).set({ documentVerificationStatus: 'verified' }).where(eq(employees.id, inhouseEmployeeId));
+            const g = await PartsAccessService.grantWithoutDeposit(inhouseEmployeeId, 1, 'In-house employee');
+            const gst = await PartsAccessService.status(inhouseEmployeeId);
+            check('an in-house employee is enabled with NO deposit row', g?.access === 'active' && gst.deposit === null && gst.depositWaived === true, gst.depositWaivedReason ?? '');
+            check('...and appears in the admin list flagged as waived', (await PartsAccessService.listForAdmin()).some(r => r.employeeId === inhouseEmployeeId && r.depositWaived));
+
+            let pay: any = null;
+            try { await PartsAccessService.initiatePayment((await db.select().from(employees).where(eq(employees.id, inhouseEmployeeId)))[0]); } catch (err) { pay = err; }
+            check('the app cannot start a deposit payment on a waived account', pay?.code === 'WAIVED');
+
+            let drawn: any = null;
+            try { await PartsAccessService.draw({ employeeId: inhouseEmployeeId, amountPaise: 1000, entryType: 'drawn_shortage', adminId: 1, notes: 'x' }); } catch (err) { drawn = err; }
+            check('nothing can be drawn from a waived account — the loss is UniteFix\'s own', drawn?.code === 'WAIVED');
+
+            await PartsAccessService.suspend(inhouseEmployeeId, 1, 'QA');
+            await PartsAccessService.reinstate(inhouseEmployeeId, 1);
+            check('a waived account can be suspended and reinstated without a floor check', (await PartsAccessService.status(inhouseEmployeeId)).partsAccess === 'active');
+
+            let coexist: any = null;
+            try { await PartsAccessService.grantWithoutDeposit(employeeId, 1, 'x'); } catch (err) { coexist = err; }
+            check('a technician holding a deposit cannot also be waived', coexist?.code === 'DEPOSIT_HELD' || (await PartsAccessService.status(employeeId)).deposit!.remainingPaise === 0);
+
+            const rv = await PartsAccessService.revokeWaiver(inhouseEmployeeId, 1, 'QA left the company');
+            const after = await PartsAccessService.status(inhouseEmployeeId);
+            check('revoking the waiver turns access off and clears the flag', rv?.access === 'none' && after.depositWaived === false);
         }
 
         // ── refund is gated ─────────────────────────────────────────────────
@@ -278,6 +317,8 @@ async function main() {
         }
         if (employeeId) await db.delete(employees).where(eq(employees.id, employeeId));
         if (userId) await db.delete(users).where(eq(users.id, userId));
+        if (inhouseEmployeeId) await db.delete(employees).where(eq(employees.id, inhouseEmployeeId));
+        if (inhouseUserId) await db.delete(users).where(eq(users.id, inhouseUserId));
     }
 }
 

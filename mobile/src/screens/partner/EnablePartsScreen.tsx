@@ -104,6 +104,7 @@ export function EnablePartsScreen({ navigation }: Props) {
     const access = data.partsAccess;
     const dep = data.deposit;
     const remaining = dep?.remaining ?? 0;
+    const waived = !!data.depositWaived;
 
     return (
         <View style={styles.screen}>
@@ -123,9 +124,11 @@ export function EnablePartsScreen({ navigation }: Props) {
                                         : 'Not enabled'}
                         </Text>
                         <Text style={styles.statusText}>
-                            {access === 'active' ? 'Pick from the catalogue when you bill a job. No shop bills, no warranty paperwork — UniteFix stands behind the part.'
+                            {access === 'active' ? (waived
+                                ? 'Enabled by UniteFix for in-house staff — no deposit. Pick from the catalogue when you bill a job; UniteFix stands behind the part.'
+                                : 'Pick from the catalogue when you bill a job. No shop bills, no warranty paperwork — UniteFix stands behind the part.')
                                 : access === 'requested' ? 'UniteFix reviews new requests within a working day.'
-                                    : access === 'suspended' ? `Your deposit fell below ₹${data.floor}. Top it up to restore access.`
+                                    : access === 'suspended' ? (waived ? 'Contact UniteFix to restore access.' : `Your deposit fell below ₹${data.floor}. Top it up to restore access.`)
                                         : `A refundable deposit of ₹${data.required} enables it.`}
                         </Text>
                     </View>

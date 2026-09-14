@@ -189,6 +189,13 @@ export const employees = pgTable("employees", {
   partsAccess: partsAccessEnum("parts_access").notNull().default('none'),
   partsAccessGrantedAt: timestamp("parts_access_granted_at"),
   partsAccessGrantedBy: integer("parts_access_granted_by"),
+  /**
+   * In-house staff: access granted by an admin with NO deposit. There is
+   * nothing to draw against — a warranty verdict or a stock shortage on an
+   * in-house job is UniteFix's own cost, not a claim on a deposit.
+   */
+  partsDepositWaived: boolean("parts_deposit_waived").notNull().default(false),
+  partsDepositWaivedReason: text("parts_deposit_waived_reason"),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),

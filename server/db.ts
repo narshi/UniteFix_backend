@@ -472,6 +472,8 @@ export async function runStartupMigrations(): Promise<void> {
       ALTER TABLE service_part_items ADD COLUMN IF NOT EXISTS spare_part_id INTEGER REFERENCES spare_parts(id);
       ALTER TABLE service_part_items ADD COLUMN IF NOT EXISTS proposal_id INTEGER REFERENCES spare_part_proposals(id);
       ALTER TABLE service_part_items ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(4,2);
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS parts_deposit_waived BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS parts_deposit_waived_reason TEXT;
     `);
 
     // ── deposits ─────────────────────────────────────────────────────────

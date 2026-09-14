@@ -48,6 +48,8 @@ function statusView(st: Awaited<ReturnType<typeof PartsAccessService.status>>) {
         name: st.name,
         partsAccess: st.partsAccess,
         grantedAt: st.grantedAt,
+        depositWaived: st.depositWaived,
+        depositWaivedReason: st.depositWaivedReason,
         required: paiseToRupees(st.requiredPaise),
         floor: paiseToRupees(st.floorPaise),
         deposit: st.deposit ? {
@@ -159,7 +161,7 @@ export function registerPartsAccessRoutes(app: Express) {
             res.json({
                 success: true,
                 data: rows.map(r => ({
-                    employeeId: r.employeeId, name: r.name, partsAccess: r.access, grantedAt: r.grantedAt,
+                    employeeId: r.employeeId, name: r.name, partsAccess: r.access, grantedAt: r.grantedAt, depositWaived: r.depositWaived,
                     deposit: r.deposit ? {
                         status: r.deposit.status, paid: paiseToRupees(r.deposit.paidPaise), drawn: paiseToRupees(r.deposit.drawnPaise),
                         remaining: paiseToRupees(Math.max(0, r.deposit.paidPaise - r.deposit.drawnPaise)), paidAt: r.deposit.paidAt,
@@ -185,6 +187,33 @@ export function registerPartsAccessRoutes(app: Express) {
             if (!row) return res.status(404).json({ success: false, message: 'Technician not found' });
             await recordAudit({ entityType: 'partner_deposit', entityId: employeeId, action: 'parts_access_approved', changedBy: admin.userId });
             res.json({ success: true, message: 'Spare-parts access enabled.', data: statusView(await PartsAccessService.status(employeeId)) });
+        } catch (error) { mapErr(error, res, next); }
+    });
+
+    /** In-house staff: enable spare parts with no deposit. Super-admin, with a reason on record. */
+    app.post('/api/admin/parts-access/:employeeId/grant', authenticateAdmin, requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const admin = (req as any).admin as { userId: number };
+            const employeeId = Number(req.params.employeeId);
+            const reason = String(req.body?.reason ?? '').trim().slice(0, 200);
+            if (reason.length < 3) return res.status(400).json({ success: false, message: 'Say why the deposit is waived (e.g. "in-house employee").' });
+            const row = await PartsAccessService.grantWithoutDeposit(employeeId, admin.userId, reason);
+            if (!row) return res.status(404).json({ success: false, message: 'Technician not found' });
+            await recordAudit({ entityType: 'partner_deposit', entityId: employeeId, action: 'parts_access_granted_no_deposit', changedBy: admin.userId, metadata: { reason } });
+            res.json({ success: true, message: 'Spare-parts access enabled without a deposit.', data: statusView(await PartsAccessService.status(employeeId)) });
+        } catch (error) { mapErr(error, res, next); }
+    });
+
+    app.post('/api/admin/parts-access/:employeeId/revoke-waiver', authenticateAdmin, requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const admin = (req as any).admin as { userId: number };
+            const employeeId = Number(req.params.employeeId);
+            const reason = String(req.body?.reason ?? '').trim().slice(0, 200);
+            if (reason.length < 3) return res.status(400).json({ success: false, message: 'Give a reason.' });
+            const row = await PartsAccessService.revokeWaiver(employeeId, admin.userId, reason);
+            if (!row) return res.status(404).json({ success: false, message: 'No waiver on this technician.' });
+            await recordAudit({ entityType: 'partner_deposit', entityId: employeeId, action: 'parts_deposit_waiver_revoked', changedBy: admin.userId, metadata: { reason } });
+            res.json({ success: true, message: 'Waiver removed. Access is off until a deposit is paid.', data: statusView(await PartsAccessService.status(employeeId)) });
         } catch (error) { mapErr(error, res, next); }
     });
 

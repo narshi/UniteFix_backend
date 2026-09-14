@@ -90,8 +90,10 @@ export class PartsAccessService {
 
     /** Everything the technician's screen and the admin tab need. */
     static async status(employeeId: number) {
-        const [e] = await db.select({ access: employees.partsAccess, grantedAt: employees.partsAccessGrantedAt, name: employees.fullName })
-            .from(employees).where(eq(employees.id, employeeId)).limit(1);
+        const [e] = await db.select({
+            access: employees.partsAccess, grantedAt: employees.partsAccessGrantedAt, name: employees.fullName,
+            waived: employees.partsDepositWaived, waivedReason: employees.partsDepositWaivedReason,
+        }).from(employees).where(eq(employees.id, employeeId)).limit(1);
         const deposit = await this.depositOf(employeeId);
         const required = await this.requiredPaise();
         const floorPct = await this.floorPercent();
@@ -105,6 +107,8 @@ export class PartsAccessService {
             name: e?.name ?? null,
             partsAccess: e?.access ?? 'none',
             grantedAt: e?.grantedAt ?? null,
+            depositWaived: !!e?.waived,
+            depositWaivedReason: e?.waivedReason ?? null,
             requiredPaise: required,
             floorPaise,
             deposit: deposit ? {
@@ -126,6 +130,9 @@ export class PartsAccessService {
      * still held — so a partially drawn deposit tops up to full, never over.
      */
     static async initiatePayment(employee: typeof employees.$inferSelect) {
+        if (employee.partsDepositWaived) {
+            throw new PartsAccessError('Spare-parts access on this account is managed by UniteFix; no deposit is needed.', 'WAIVED');
+        }
         if (employee.documentVerificationStatus !== 'verified') {
             throw new PartsAccessError('Complete document verification before enabling spare parts.', 'NOT_VERIFIED');
         }
@@ -251,6 +258,40 @@ export class PartsAccessService {
         return row ?? null;
     }
 
+    /**
+     * In-house staff: enable without a deposit. The waiver is a fact about the
+     * employment relationship, decided by an admin and recorded with a reason,
+     * so a later reviewer can tell it apart from a deposit that was never paid.
+     * Verification is still required — parts access means UniteFix's warranty.
+     */
+    static async grantWithoutDeposit(employeeId: number, adminId: number, reason: string) {
+        const [emp] = await db.select({ id: employees.id, status: employees.documentVerificationStatus, name: employees.fullName })
+            .from(employees).where(eq(employees.id, employeeId)).limit(1);
+        if (!emp) return null;
+        if (emp.status !== 'verified') {
+            throw new PartsAccessError(`${emp.name ?? 'This technician'} is not document-verified yet. Verify them first.`, 'NOT_VERIFIED');
+        }
+        const d = await this.depositOf(employeeId);
+        if (d && ['held', 'partially_drawn', 'refund_requested'].includes(d.status) && this.remainingPaise(d) > 0) {
+            throw new PartsAccessError('This technician holds a deposit. Refund it before waiving; a waiver and a deposit cannot coexist.', 'DEPOSIT_HELD');
+        }
+        const [row] = await db.update(employees).set({
+            partsAccess: 'active', partsAccessGrantedAt: new Date(), partsAccessGrantedBy: adminId,
+            partsDepositWaived: true, partsDepositWaivedReason: reason, updatedAt: new Date(),
+        }).where(eq(employees.id, employeeId)).returning({ id: employees.id, access: employees.partsAccess });
+        logger.info(`[DEPOSIT] Parts access granted WITHOUT deposit to employee #${employeeId} by admin #${adminId}: ${reason}`);
+        return row ?? null;
+    }
+
+    /** Undo a waiver. Access goes back to none; the technician can pay a deposit like anyone else. */
+    static async revokeWaiver(employeeId: number, adminId: number, reason: string) {
+        const [row] = await db.update(employees).set({
+            partsAccess: 'none', partsDepositWaived: false, partsDepositWaivedReason: null, updatedAt: new Date(),
+        }).where(and(eq(employees.id, employeeId), eq(employees.partsDepositWaived, true))).returning({ id: employees.id, access: employees.partsAccess });
+        if (row) logger.warn(`[DEPOSIT] Deposit waiver revoked for employee #${employeeId} by admin #${adminId}: ${reason}`);
+        return row ?? null;
+    }
+
     static async suspend(employeeId: number, adminId: number, reason: string) {
         const [row] = await db.update(employees).set({ partsAccess: 'suspended', updatedAt: new Date() })
             .where(eq(employees.id, employeeId)).returning({ id: employees.id, access: employees.partsAccess });
@@ -260,7 +301,8 @@ export class PartsAccessService {
 
     static async reinstate(employeeId: number, adminId: number) {
         const st = await this.status(employeeId);
-        if (!st.deposit || st.deposit.belowFloor) {
+        // A waived account has no floor to be below.
+        if (!st.depositWaived && (!st.deposit || st.deposit.belowFloor)) {
             throw new PartsAccessError('The deposit is below the floor; it must be topped up before access is restored.', 'BELOW_FLOOR');
         }
         const [row] = await db.update(employees).set({ partsAccess: 'active', partsAccessGrantedBy: adminId, updatedAt: new Date() })
@@ -279,6 +321,10 @@ export class PartsAccessService {
     }) {
         if (!(input.amountPaise > 0)) throw new PartsAccessError('Amount must be positive', 'BAD_AMOUNT');
         return withTransaction(async (tx) => {
+            const [emp] = await tx.select({ waived: employees.partsDepositWaived }).from(employees).where(eq(employees.id, input.employeeId)).limit(1);
+            if (emp?.waived) {
+                throw new PartsAccessError('This is an in-house technician with no deposit. The cost is UniteFix\'s own; recover it through the wallet or payroll if that is the decision.', 'WAIVED');
+            }
             const d = await this.depositOf(input.employeeId, tx as any);
             if (!d || d.paidPaise <= 0) throw new PartsAccessError('No deposit held for this technician.', 'DEPOSIT_UNPAID');
 
@@ -404,6 +450,7 @@ export class PartsAccessService {
     static async listForAdmin(filter?: { access?: string }) {
         const rows = await db.select({
             employeeId: employees.id, name: employees.fullName, access: employees.partsAccess, grantedAt: employees.partsAccessGrantedAt,
+            depositWaived: employees.partsDepositWaived,
             deposit: partnerDeposits,
         }).from(employees)
             .leftJoin(partnerDeposits, and(eq(partnerDeposits.employeeId, employees.id), eq(partnerDeposits.purpose, 'parts_access')))

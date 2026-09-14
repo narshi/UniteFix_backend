@@ -7,7 +7,7 @@
  * so nothing here is done to them silently.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -16,21 +16,24 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { ShieldCheck, AlertTriangle } from "lucide-react";
+import { ShieldCheck, AlertTriangle, UserPlus, BadgeCheck } from "lucide-react";
 
 type Row = {
-    employeeId: number; name: string | null; partsAccess: string; grantedAt: string | null;
+    employeeId: number; name: string | null; partsAccess: string; grantedAt: string | null; depositWaived?: boolean;
     deposit: { status: string; paid: number; drawn: number; remaining: number; paidAt: string | null } | null;
 };
 type Detail = {
     employeeId: number; name: string | null; partsAccess: string; grantedAt: string | null; required: number; floor: number;
+    depositWaived: boolean; depositWaivedReason: string | null;
     deposit: { id: number; status: string; paid: number; drawn: number; remaining: number; belowFloor: boolean; topUpNeeded: number; paidAt: string | null; refundedAt: string | null } | null;
     ledger: Array<{ id: number; type: string; amount: number; balanceAfter: number; warrantyClaimId: number | null; notes: string | null; at: string }>;
     refundBlockers: string[];
 };
+type Technician = { id: number; partnerName: string; verificationStatus: string; partsAccess?: string; partnerType?: string | null };
 
 const ACCESS_TONE: Record<string, string> = {
     none: "bg-slate-100 text-slate-700 hover:bg-slate-100",
@@ -68,6 +71,22 @@ export default function PartsAccessPage() {
         onError: fail("Not done"),
     });
 
+    // In-house staff: enabled by an admin, no deposit. Picked from the
+    // verified technicians who do not already have access.
+    const [grantOpen, setGrantOpen] = useState(false);
+    const [grantForm, setGrantForm] = useState({ employeeId: "", reason: "In-house employee" });
+    const technicians = useQuery<Technician[]>({
+        queryKey: ["/api/business/partners"],
+        queryFn: async () => apiRequest("GET", "/api/business/partners"),
+        enabled: grantOpen,
+    });
+    const grantable = useMemo(() => (technicians.data ?? []).filter(t => t.verificationStatus === "verified" && t.partsAccess !== "active"), [technicians.data]);
+    const grant = useMutation({
+        mutationFn: async () => apiRequest("POST", `/api/admin/parts-access/${grantForm.employeeId}/grant`, { reason: grantForm.reason }),
+        onSuccess: (r: any) => { refresh(); qc.invalidateQueries({ queryKey: ["/api/business/partners"] }); setGrantOpen(false); toast({ title: "Enabled", description: r?.message }); },
+        onError: fail("Not enabled"),
+    });
+
     const [reason, setReason] = useState("");
     const [draw, setDraw] = useState({ amountRupees: "", entryType: "drawn_shortage", notes: "" });
     const [manualRef, setManualRef] = useState("");
@@ -84,7 +103,8 @@ export default function PartsAccessPage() {
                         Technicians who can fit parts from UniteFix stock, and the refundable deposit that stands behind them. A warranty verdict against a technician is drawn from here.
                     </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => { setGrantForm({ employeeId: "", reason: "In-house employee" }); setGrantOpen(true); }}><UserPlus className="mr-1.5 h-3.5 w-3.5" /> Add in-house employee</Button>
                     {["all", "requested", "active", "suspended"].map(s => (
                         <Button key={s} size="sm" variant={filter === s ? "default" : "outline"} onClick={() => setFilter(s)}>
                             {s[0].toUpperCase() + s.slice(1)}{s === "requested" && pendingCount > 0 && <span className="ml-1.5 rounded bg-background/20 px-1.5 text-xs">{pendingCount}</span>}
@@ -108,7 +128,7 @@ export default function PartsAccessPage() {
                                 <TableRow key={r.employeeId}>
                                     <TableCell className="text-sm font-medium">{r.name ?? `#${r.employeeId}`}</TableCell>
                                     <TableCell><Badge variant="secondary" className={ACCESS_TONE[r.partsAccess]}>{r.partsAccess}</Badge></TableCell>
-                                    <TableCell className="text-sm text-muted-foreground">{r.deposit ? r.deposit.status.replace("_", " ") : "—"}</TableCell>
+                                    <TableCell className="text-sm text-muted-foreground">{r.depositWaived ? <span className="inline-flex items-center gap-1 text-sky-800"><BadgeCheck className="h-3.5 w-3.5" /> waived · in-house</span> : r.deposit ? r.deposit.status.replace("_", " ") : "—"}</TableCell>
                                     <TableCell className="text-right tabular-nums">{r.deposit?.paid ?? "—"}</TableCell>
                                     <TableCell className="text-right tabular-nums">{r.deposit?.drawn ?? "—"}</TableCell>
                                     <TableCell className="text-right tabular-nums">{r.deposit?.remaining ?? "—"}</TableCell>
@@ -120,13 +140,35 @@ export default function PartsAccessPage() {
                 </CardContent>
             </Card>
 
+            <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Enable spare parts for an in-house employee</DialogTitle>
+                        <DialogDescription>No deposit is taken. They fit from UniteFix stock like any parts-enabled technician; the difference is only who bears a loss. Only document-verified technicians are listed.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <div><Label>Technician</Label>
+                            <Select value={grantForm.employeeId} onValueChange={v => setGrantForm({ ...grantForm, employeeId: v })}>
+                                <SelectTrigger><SelectValue placeholder={technicians.isLoading ? "Loading…" : grantable.length ? "Choose" : "No verified technicians without access"} /></SelectTrigger>
+                                <SelectContent>{grantable.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.partnerName}{t.partnerType ? ` · ${t.partnerType}` : ""}</SelectItem>)}</SelectContent>
+                            </Select>
+                        </div>
+                        <div><Label>Reason (on record)</Label><Input value={grantForm.reason} onChange={e => setGrantForm({ ...grantForm, reason: e.target.value })} /></div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setGrantOpen(false)}>Cancel</Button>
+                        <Button disabled={!grantForm.employeeId || grantForm.reason.trim().length < 3 || grant.isPending} onClick={() => grant.mutate()}>Enable without deposit</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={activeId !== null} onOpenChange={o => !o && setActiveId(null)}>
                 <DialogContent className="max-w-2xl">
                     {d && (
                         <>
                             <DialogHeader>
                                 <DialogTitle className="flex items-center gap-2">{d.name ?? `#${d.employeeId}`} <Badge variant="secondary" className={ACCESS_TONE[d.partsAccess]}>{d.partsAccess}</Badge></DialogTitle>
-                                <DialogDescription>Deposit required ₹{d.required.toLocaleString("en-IN")} · access suspends below ₹{d.floor.toLocaleString("en-IN")}</DialogDescription>
+                                <DialogDescription>{d.depositWaived ? `No deposit — in-house. ${d.depositWaivedReason ?? ""}` : `Deposit required ₹${d.required.toLocaleString("en-IN")} · access suspends below ₹${d.floor.toLocaleString("en-IN")}`}</DialogDescription>
                             </DialogHeader>
 
                             {d.deposit ? (
@@ -135,7 +177,9 @@ export default function PartsAccessPage() {
                                     <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Drawn</div><div className="text-lg tabular-nums">₹{d.deposit.drawn.toLocaleString("en-IN")}</div></div>
                                     <div className={`rounded-md border p-3 ${d.deposit.belowFloor ? "border-rose-300 bg-rose-50" : ""}`}><div className="text-xs text-muted-foreground">Remaining</div><div className="text-lg tabular-nums">₹{d.deposit.remaining.toLocaleString("en-IN")}</div>{d.deposit.belowFloor && <div className="mt-0.5 flex items-center gap-1 text-xs text-rose-800"><AlertTriangle className="h-3 w-3" /> below floor · top-up ₹{d.deposit.topUpNeeded}</div>}</div>
                                 </div>
-                            ) : <p className="text-sm text-muted-foreground">No deposit has been paid.</p>}
+                            ) : d.depositWaived
+                                ? <p className="text-sm text-muted-foreground">In-house employee. Nothing is drawn against a deposit; a warranty verdict or a stock shortage on their jobs is UniteFix's own cost.</p>
+                                : <p className="text-sm text-muted-foreground">No deposit has been paid.</p>}
 
                             <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                                 {d.partsAccess === "requested" && <Button size="sm" onClick={() => act.mutate({ path: "/approve" })}>Approve access</Button>}
@@ -145,6 +189,9 @@ export default function PartsAccessPage() {
                                         <Input className="h-8 w-56" placeholder="Reason to suspend" value={reason} onChange={e => setReason(e.target.value)} />
                                         <Button size="sm" variant="outline" disabled={reason.trim().length < 3} onClick={() => act.mutate({ path: "/suspend", body: { reason } })}>Suspend</Button>
                                     </>
+                                )}
+                                {d.depositWaived && (
+                                    <Button size="sm" variant="ghost" className="text-rose-700" disabled={reason.trim().length < 3} onClick={() => act.mutate({ path: "/revoke-waiver", body: { reason } })}>Remove waiver</Button>
                                 )}
                                 {d.deposit?.status === "refund_requested" && (
                                     <>

@@ -124,6 +124,9 @@ export interface PartsAccessStatus {
     employeeId: number;
     partsAccess: 'none' | 'requested' | 'active' | 'suspended';
     grantedAt: string | null;
+    /** In-house staff: enabled by UniteFix with no deposit. */
+    depositWaived?: boolean;
+    depositWaivedReason?: string | null;
     required: number;
     floor: number;
     deposit: {
