@@ -210,7 +210,7 @@ export class NotificationService {
      * navigate to the stack first and pass the screen through.
      */
     static getNavigationRoute(notification: Notifications.Notification): {
-        stack: 'CustomerMain' | 'EmployeeMain';
+        stack: 'CustomerMain' | 'EmployeeMain' | 'BusinessPartnerMain';
         screen: string;
         params?: Record<string, any>;
         /**
@@ -283,6 +283,10 @@ export class NotificationService {
 
             case 'order_update':
                 return { stack: 'CustomerMain', screen: 'OrderDetail', params: { id: serviceId } };
+
+            // ── Business partner: trade order tracking ─────────────────
+            case 'b2b_order_update':
+                return { stack: 'BusinessPartnerMain', screen: 'OrderDetail', params: { id: data.orderId != null ? Number(data.orderId) : undefined } };
 
             default:
                 // Marketing and system notifications have nowhere specific to go.

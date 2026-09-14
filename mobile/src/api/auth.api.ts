@@ -38,6 +38,7 @@ export interface AuthUser {
   phone: string | null;
   email: string | null;
   username: string | null;
+  /** 'user' | 'serviceman' | 'business_partner' — the server decides; the app only branches on it. */
   role: string;
   phoneVerified: boolean;
   emailVerified: boolean;

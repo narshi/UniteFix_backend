@@ -38,6 +38,11 @@ export function getPendingOnboardingSteps(
 ): OnboardingStep[] {
     if (!user) return ['profile', 'location'];
 
+    // A business partner's profile lives on business_partners and is written by
+    // an admin at approval. Nothing here applies, and returning 'location' would
+    // trap a shop owner in the customer onboarding stack on first login.
+    if ((user as any).role === 'business_partner') return [];
+
     const pending: OnboardingStep[] = [];
 
     if (!user.username || !user.username.trim()) {

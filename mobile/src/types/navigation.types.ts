@@ -44,6 +44,22 @@ export type PartnerTabParamList = {
     ProfileTab: undefined;
 };
 
+/** Business partner (company) mode — trade catalogue, orders, statement. */
+export type BusinessPartnerTabParamList = {
+    CatalogueTab: undefined;
+    OrdersTab: undefined;
+    AccountTab: undefined;
+};
+
+export type BusinessPartnerStackParamList = {
+    BusinessPartnerTabs: undefined;
+    PartDetail: { id: number };
+    Cart: undefined;
+    OrderDetail: { id: number };
+    Notifications: undefined;
+    Legal: undefined;
+};
+
 // Stack params for nested navigators
 export type HomeStackParamList = {
     Home: undefined;

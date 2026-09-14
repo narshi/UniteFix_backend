@@ -77,6 +77,8 @@ export type NotificationType =
     | "account_suspended"
     // Orders
     | "order_update"
+    // Business partner — trade order tracking
+    | "b2b_order_update"
     // Broadcast
     | "marketing"
     | "system";

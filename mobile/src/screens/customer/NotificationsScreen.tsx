@@ -119,10 +119,17 @@ export function NotificationsScreen({ navigation }: Props) {
         // Notifications store their deep-link target in `data`. FCM stringifies
         // every value, so serviceId can arrive as "42".
         const data = item.data ?? {};
+        const type = String(item.type ?? '');
+
+        // Trade orders (business partner mode) carry orderId, not serviceId.
+        if (type === 'b2b_order_update') {
+            if (data.orderId != null) navigation.navigate('OrderDetail', { id: Number(data.orderId) });
+            return;
+        }
+
         const serviceId = data.serviceId != null ? Number(data.serviceId) : undefined;
         if (!serviceId) return;
 
-        const type = String(item.type ?? '');
         if (type.startsWith('assignment')) {
             navigation.navigate('AssignmentDetail', { id: serviceId });
         } else if (type === 'service_bill_ready') {

@@ -876,8 +876,10 @@ export function authenticateAny(req: Request, res: Response, next: NextFunction)
         return res.status(403).json({ success: false, message: 'Invalid or expired token' });
     }
 
-    // Accept user and serviceman, block admin tokens
-    if (decoded.role !== 'user' && decoded.role !== 'serviceman') {
+    // Accept every mobile role — customer, technician, business partner —
+    // and block admin tokens. Shared endpoints (push registration, uploads,
+    // notifications) are for anyone signed into the app.
+    if (decoded.role !== 'user' && decoded.role !== 'serviceman' && decoded.role !== 'business_partner') {
         return res.status(403).json({
             success: false,
             message: 'This endpoint requires a customer or partner account',

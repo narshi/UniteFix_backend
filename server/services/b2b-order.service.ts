@@ -40,6 +40,7 @@ import { withTransaction } from '../lib/transaction';
 import { configService } from './config.service';
 import { BusinessPartnerService } from './business-partner.service';
 import { SparePartsService } from './spare-parts.service';
+import { NotificationService } from './notification.service';
 import logger from '../lib/logger';
 
 export type B2bStatus = 'draft' | 'placed' | 'paid' | 'confirmed' | 'packed' | 'dispatched' | 'delivered' | 'cancelled' | 'returned';
@@ -261,7 +262,7 @@ export class B2bOrderService {
     }
 
     static async transition(orderId: number, to: B2bStatus, actor: { type: 'admin' | 'partner' | 'system'; id?: number | null }, payload?: Record<string, unknown> | null) {
-        return withTransaction(async (tx) => {
+        const updated = await withTransaction(async (tx) => {
             const [order] = await tx.select().from(b2bOrders).where(eq(b2bOrders.id, orderId)).for('update').limit(1);
             if (!order) return null;
             const from = order.status as B2bStatus;
@@ -341,6 +342,33 @@ export class B2bOrderService {
             logger.info(`[B2B] ${order.orderCode}: ${from} → ${to} by ${actor.type}${actor.id ? ` #${actor.id}` : ''}`);
             return updated;
         });
+
+        // Tell the partner's phone, after commit and outside the transaction —
+        // a push that fails must never roll back a dispatch. The partner's own
+        // actions (cancel) are not echoed back to them.
+        if (updated && actor.type !== 'partner') void this.notifyPartner(updated, to, payload);
+        return updated;
+    }
+
+    /** Push to the business partner's mobile login, if it has one. Never throws. */
+    private static async notifyPartner(order: B2bOrder, to: B2bStatus, payload?: Record<string, unknown> | null) {
+        try {
+            const bp = await BusinessPartnerService.byId(order.businessPartnerId);
+            if (!bp?.userId) return;
+            const text: Partial<Record<B2bStatus, [string, string]>> = {
+                confirmed: ['Order confirmed', `${order.orderCode} is confirmed and being picked.`],
+                packed: ['Order packed', `${order.orderCode} is packed and waiting for the courier.`],
+                dispatched: ['Order dispatched', `${order.orderCode} is on its way${payload?.courier ? ` via ${payload.courier}` : ''}${payload?.trackingId ? ` (${payload.trackingId})` : ''}.`],
+                delivered: ['Order delivered', `${order.orderCode} has been delivered. Check the goods and report any problem from the order page.`],
+                cancelled: ['Order cancelled', `${order.orderCode} was cancelled by UniteFix${payload?.reason ? `: ${payload.reason}` : ''}.`],
+                returned: ['Return accepted', `Your return on ${order.orderCode} is accepted and credited to your statement.`],
+            };
+            const t = text[to];
+            if (!t) return;
+            await NotificationService.sendToUser(bp.userId, t[0], t[1], 'b2b_order_update', { type: 'b2b_order_update', orderId: String(order.id), role: 'business_partner' });
+        } catch (err: any) {
+            logger.warn(`[B2B] partner push failed for ${order.orderCode}: ${err?.message}`);
+        }
     }
 
     /** A partner may cancel only what UniteFix has not yet committed to. */

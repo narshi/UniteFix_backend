@@ -18,6 +18,7 @@ import { useAuthStore } from '../stores/auth.store';
 import { AuthStack } from './AuthStack';
 import { CustomerStack } from './CustomerStack';
 import { PartnerStack } from './PartnerStack';
+import { BusinessPartnerStack } from './BusinessPartnerStack';
 import { OnboardingStack } from './OnboardingStack';
 import { EmployeePendingScreen } from '../screens/partner/EmployeePendingScreen';
 import { linkingConfig } from './linking';
@@ -70,8 +71,13 @@ function LoadingScreen() {
  */
 function getNavigationBranch(
     user: any,
-): 'auth' | 'onboarding' | 'customer' | 'employee_verified' | 'employee_pending' {
+): 'auth' | 'onboarding' | 'customer' | 'employee_verified' | 'employee_pending' | 'business_partner' {
     if (!user) return 'auth';
+
+    // A business partner (a shop, an ISP) is provisioned by an admin and has no
+    // onboarding of its own — the server reports it complete. Checked before
+    // the onboarding gate so a stale flag can never trap it in the customer flow.
+    if (user.role === 'business_partner') return 'business_partner';
 
     // Mandatory setup outranks every other branch: a signup that has not supplied
     // profile details, a location (and skills, for technicians) cannot use the
@@ -136,7 +142,8 @@ export function RootNavigator() {
         const activeStack = getNavigationBranch(useAuthStore.getState().user);
         const stackIsMounted =
             (route.stack === 'CustomerMain' && activeStack === 'customer') ||
-            (route.stack === 'EmployeeMain' && activeStack === 'employee_verified');
+            (route.stack === 'EmployeeMain' && activeStack === 'employee_verified') ||
+            (route.stack === 'BusinessPartnerMain' && activeStack === 'business_partner');
 
         if (!stackIsMounted) {
             if (__DEV__) {
@@ -243,6 +250,9 @@ export function RootNavigator() {
                     )}
                     {branch === 'customer' && (
                         <RootStack.Screen name="CustomerMain" component={CustomerStack} />
+                    )}
+                    {branch === 'business_partner' && (
+                        <RootStack.Screen name="BusinessPartnerMain" component={BusinessPartnerStack} />
                     )}
                 </RootStack.Navigator>
                 {/* Alerts are rendered by <PremiumAlertProvider /> in App.tsx,

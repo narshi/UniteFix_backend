@@ -181,6 +181,23 @@ export function registerB2bOrderRoutes(app: Express) {
         } catch (error) { mapErr(error, res, next); }
     });
 
+    /**
+     * Resume an interrupted checkout. A prepaid order whose Razorpay checkout
+     * was dismissed still has its Razorpay order (they stay payable), so the app
+     * re-opens the same one rather than creating a second order for the same goods.
+     */
+    app.get('/api/b2b/orders/:id/payment', authenticateBusinessPartner, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const ctx = (req as any).businessPartner as { id: number };
+            const [order] = await db.select().from(b2bOrders).where(and(eq(b2bOrders.id, Number(req.params.id)), eq(b2bOrders.businessPartnerId, ctx.id))).limit(1);
+            if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+            if (order.paymentMode !== 'prepaid' || order.paymentStatus === 'paid' || order.status !== 'placed' || !order.razorpayOrderId) {
+                return res.status(409).json({ success: false, message: 'This order has nothing left to pay.' });
+            }
+            res.json({ success: true, data: { orderId: order.razorpayOrderId, keyId: await B2bOrderService.razorpayKeyId(), amount: paiseToRupees(order.totalPaise) } });
+        } catch (error) { mapErr(error, res, next); }
+    });
+
     app.get('/api/b2b/orders', authenticateBusinessPartner, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const ctx = (req as any).businessPartner as { id: number };

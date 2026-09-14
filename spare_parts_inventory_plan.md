@@ -1,6 +1,6 @@
 # Business Partners, Spare Parts & B2B Ordering — Architecture Plan
 
-**Status:** v2 approved 13 Sep 2026. **Phases 0–6 implemented** (backend + APIs), plus the admin pages (§6) and the technician half of Phase 7. Pending: the business-partner app surface (Phase 7, second half) and Phase 8 (dropping the dead tables).
+**Status:** v2 approved 13 Sep 2026. **Phases 0–7 implemented** (backend + APIs, admin pages §6, technician app, and the business-partner mode in the same app as of 14 Sep 2026 — a fourth role branch `business_partner` with catalogue/cart/orders/account tabs). Pending: Phase 8 (dropping the dead tables) after a release cycle.
 **Written against:** `feature/react-native-app` @ `72c6da2`, 13 Sep 2026
 
 **§9 decisions applied (as recommended, no objection raised):**
