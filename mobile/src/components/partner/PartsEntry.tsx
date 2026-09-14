@@ -19,20 +19,30 @@
  */
 
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigation } from '@react-navigation/native';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Plus, X, Camera, ShieldCheck, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Plus, X, Camera, ShieldCheck, ShieldAlert, ChevronDown, ChevronUp, Package, Lock } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
 import { customerApi } from '../../api/customer.api';
+import { partnerApi, CataloguePart } from '../../api/partner.api';
+import PartsPickerSheet from './PartsPickerSheet';
 
 export type PartSource = 'platform' | 'approved_vendor' | 'technician_local' | 'customer_supplied';
 
 export interface PartDraft {
     key: string;
+    /**
+     * Set when the part came from the UniteFix catalogue. Name, price and
+     * warranty are then the catalogue's and cannot be edited here — the app
+     * says WHICH part, the server says how much.
+     */
+    sparePartId: number | null;
     partName: string;
     brand: string;
     sourceType: PartSource;
@@ -49,6 +59,7 @@ export interface PartDraft {
 
 export const newPartDraft = (): PartDraft => ({
     key: `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+    sparePartId: null,
     partName: '', brand: '', sourceType: 'technician_local', vendorName: '',
     unitPriceRupees: '', quantity: '1', warrantyDays: '', serialNumber: '',
     billPhotoUri: null, billPhotoUrl: null, expanded: false,
@@ -57,7 +68,9 @@ export const newPartDraft = (): PartDraft => ({
 const SOURCES: Array<{ value: PartSource; label: string; hint: string }> = [
     { value: 'technician_local', label: 'Local shop', hint: 'You bought it from a hardware or electrical shop' },
     { value: 'approved_vendor', label: 'Approved vendor', hint: 'A vendor UniteFix has an arrangement with' },
-    { value: 'platform', label: 'UniteFix stock', hint: 'Issued to you by UniteFix' },
+    // 'platform' is deliberately absent: a UniteFix-stock line comes only from
+    // the picker, with a catalogue reference behind it. Typed by hand it would
+    // be a word, and the server records a word as a local purchase.
     { value: 'customer_supplied', label: "Customer's own", hint: 'The customer already had the part' },
 ];
 
@@ -83,7 +96,7 @@ export function coverageOf(p: PartDraft): { covered: boolean; text: string } {
     if (p.sourceType === 'platform') {
         return {
             covered: days > 0,
-            text: days > 0 ? `Covered by UniteFix for ${days} days` : 'Add the warranty period',
+            text: days > 0 ? `UniteFix stock — covered by UniteFix for ${days} days` : 'UniteFix stock — no part warranty; your fitting is covered for 30 days',
         };
     }
     if (days <= 0) return { covered: false, text: 'Not covered — add the warranty period' };
@@ -97,6 +110,7 @@ export const toPartItems = (parts: PartDraft[]) =>
     parts
         .filter(p => p.partName.trim() && (parseFloat(p.unitPriceRupees) || 0) >= 0)
         .map(p => ({
+            sparePartId: p.sparePartId ?? undefined,
             partName: p.partName.trim(),
             brand: p.brand.trim() || undefined,
             sourceType: p.sourceType,
@@ -137,10 +151,35 @@ export async function uploadPendingBills(parts: PartDraft[]): Promise<{ parts: P
 interface Props {
     parts: PartDraft[];
     onChange: (parts: PartDraft[]) => void;
+    /** The job, so the picker shows its category's parts first. */
+    serviceRequestId?: number;
 }
 
-export default function PartsEntry({ parts, onChange }: Props) {
+/** A locked line from the catalogue: what the picker returned, ready to bill. */
+export const draftFromCatalogue = (c: CataloguePart): PartDraft => ({
+    ...newPartDraft(),
+    sparePartId: c.id,
+    partName: c.name,
+    brand: c.brand ?? '',
+    sourceType: 'platform',
+    unitPriceRupees: String(c.unitPrice),
+    warrantyDays: String(c.warrantyDays),
+});
+
+export default function PartsEntry({ parts, onChange, serviceRequestId }: Props) {
     const [picking, setPicking] = useState<string | null>(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const navigation = useNavigation<any>();
+
+    // Whether this technician may fit from stock. Read once; the picker button
+    // and the nudge below depend on it, and a 403 from search would be a worse
+    // way to find out.
+    const { data: access } = useQuery({
+        queryKey: ['parts-access'],
+        queryFn: async () => (await partnerApi.getPartsAccess()).data.data,
+        staleTime: 60_000,
+    });
+    const canUseStock = access?.partsAccess === 'active';
 
     const update = (key: string, patch: Partial<PartDraft>) =>
         onChange(parts.map(p => (p.key === key ? { ...p, ...patch } : p)));
@@ -189,27 +228,41 @@ export default function PartsEntry({ parts, onChange }: Props) {
                             )}
                         </View>
 
-                        {/* Required: what it is and what it cost. */}
-                        <TextInput
-                            style={styles.input}
-                            placeholder="What is it? e.g. Fan capacitor"
-                            value={p.partName}
-                            onChangeText={v => update(p.key, { partName: v })}
-                            placeholderTextColor={colors.textDisabled}
-                        />
+                        {/* Required: what it is and what it cost. A catalogue line is
+                            locked — the name and price are the catalogue's. */}
+                        {p.sparePartId !== null ? (
+                            <View style={styles.lockedRow}>
+                                <Package size={16} color={colors.primary} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.lockedName}>{p.partName}{p.brand ? <Text style={styles.lockedBrand}>  {p.brand}</Text> : null}</Text>
+                                    <Text style={styles.lockedMeta}>From UniteFix stock · ₹{p.unitPriceRupees} each</Text>
+                                </View>
+                                <Lock size={13} color={colors.textDisabled} />
+                            </View>
+                        ) : (
+                            <TextInput
+                                style={styles.input}
+                                placeholder="What is it? e.g. Fan capacitor"
+                                value={p.partName}
+                                onChangeText={v => update(p.key, { partName: v })}
+                                placeholderTextColor={colors.textDisabled}
+                            />
+                        )}
 
                         <View style={styles.row}>
-                            <View style={styles.flex2}>
-                                <Text style={styles.miniLabel}>Price each (₹)</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="450"
-                                    value={p.unitPriceRupees}
-                                    onChangeText={v => update(p.key, { unitPriceRupees: v.replace(/[^0-9.]/g, '') })}
-                                    keyboardType="numeric"
-                                    placeholderTextColor={colors.textDisabled}
-                                />
-                            </View>
+                            {p.sparePartId === null && (
+                                <View style={styles.flex2}>
+                                    <Text style={styles.miniLabel}>Price each (₹)</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="450"
+                                        value={p.unitPriceRupees}
+                                        onChangeText={v => update(p.key, { unitPriceRupees: v.replace(/[^0-9.]/g, '') })}
+                                        keyboardType="numeric"
+                                        placeholderTextColor={colors.textDisabled}
+                                    />
+                                </View>
+                            )}
                             <View style={styles.flex1}>
                                 <Text style={styles.miniLabel}>Qty</Text>
                                 <TextInput
@@ -233,6 +286,7 @@ export default function PartsEntry({ parts, onChange }: Props) {
                             </Text>
                         </View>
 
+                        {p.sparePartId === null && (
                         <TouchableOpacity
                             style={styles.expandBtn}
                             onPress={() => update(p.key, { expanded: !p.expanded })}
@@ -244,8 +298,9 @@ export default function PartsEntry({ parts, onChange }: Props) {
                                 ? <ChevronUp size={15} color={colors.primary} />
                                 : <ChevronDown size={15} color={colors.primary} />}
                         </TouchableOpacity>
+                        )}
 
-                        {p.expanded && (
+                        {p.expanded && p.sparePartId === null && (
                             <View style={styles.details}>
                                 <Text style={styles.miniLabel}>Where did it come from?</Text>
                                 <View style={styles.sourceRow}>
@@ -342,10 +397,55 @@ export default function PartsEntry({ parts, onChange }: Props) {
                 );
             })}
 
-            <TouchableOpacity style={styles.addBtn} onPress={() => onChange([...parts, newPartDraft()])}>
-                <Plus size={16} color={colors.primary} />
-                <Text style={styles.addBtnText}>Add another part</Text>
-            </TouchableOpacity>
+            <View style={styles.addRow}>
+                {canUseStock && (
+                    <TouchableOpacity style={[styles.addBtn, styles.stockBtn]} onPress={() => setPickerOpen(true)}>
+                        <Package size={16} color={colors.background} />
+                        <Text style={[styles.addBtnText, { color: colors.background }]}>From UniteFix stock</Text>
+                    </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.addBtn} onPress={() => onChange([...parts, newPartDraft()])}>
+                    <Plus size={16} color={colors.primary} />
+                    <Text style={styles.addBtnText}>{canUseStock ? 'Bought locally' : 'Add another part'}</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Said once, plainly: what enabling stock access would save them. */}
+            {access && !canUseStock && (
+                <TouchableOpacity onPress={() => navigation.navigate('EnableParts')} style={styles.nudge}>
+                    <Text style={styles.nudgeText}>
+                        {access.partsAccess === 'requested'
+                            ? 'Your spare-parts access is awaiting approval.'
+                            : access.partsAccess === 'suspended'
+                                ? 'Spare-parts access is suspended — top up your deposit to restore it.'
+                                : 'Fit parts from UniteFix stock and skip the bill photos — enable spare parts.'}
+                    </Text>
+                </TouchableOpacity>
+            )}
+
+            <PartsPickerSheet
+                visible={pickerOpen}
+                onClose={() => setPickerOpen(false)}
+                serviceRequestId={serviceRequestId}
+                onPick={c => {
+                    // Same part twice bumps the quantity rather than adding a twin line.
+                    const existing = parts.find(x => x.sparePartId === c.id);
+                    if (existing) {
+                        update(existing.key, { quantity: String((parseInt(existing.quantity) || 1) + 1) });
+                    } else {
+                        // Replace an empty first line rather than leaving it dangling.
+                        const rest = parts.filter(x => x.partName.trim() || x.sparePartId !== null);
+                        onChange([...rest, draftFromCatalogue(c)]);
+                    }
+                }}
+                onProposed={d => {
+                    const rest = parts.filter(x => x.partName.trim() || x.sparePartId !== null);
+                    onChange([...rest, {
+                        ...newPartDraft(), partName: d.name, brand: d.brand, unitPriceRupees: d.indicativePrice,
+                        vendorName: d.vendorName, sourceType: 'technician_local', expanded: true,
+                    }]);
+                }}
+            />
 
             {parts.length > 0 && (
                 <View style={styles.totalRow}>
@@ -359,6 +459,14 @@ export default function PartsEntry({ parts, onChange }: Props) {
 
 const styles = StyleSheet.create({
     wrap: { marginBottom: spacing.md },
+    lockedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm + 2, borderRadius: radii.sm, backgroundColor: colors.primarySurface, marginBottom: spacing.sm },
+    lockedName: { ...typography.bodyMedium, color: colors.textPrimary },
+    lockedBrand: { ...typography.caption, color: colors.textSecondary },
+    lockedMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
+    addRow: { flexDirection: 'row', gap: spacing.sm },
+    stockBtn: { backgroundColor: colors.primary, borderColor: colors.primary },
+    nudge: { marginTop: spacing.sm, padding: spacing.sm, borderRadius: radii.sm, backgroundColor: colors.warningLight },
+    nudgeText: { ...typography.caption, color: colors.warningDark, textAlign: 'center' },
     card: {
         backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md,
         marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border,

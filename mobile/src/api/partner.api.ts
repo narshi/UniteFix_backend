@@ -102,7 +102,79 @@ export interface RecordedPart {
     isDocumented: boolean;
 }
 
+// ── Spare parts & parts access ─────────────────────────────────────────────
+
+/** A catalogue part as the picker shows it. Only the customer price — trade and cost are not the technician's. */
+export interface CataloguePart {
+    id: number;
+    partCode: string;
+    name: string;
+    brand: string | null;
+    specification: string | null;
+    unit: string;
+    unitPrice: number;
+    warrantyDays: number;
+    inJobCategory: boolean;
+    kitQty: number;
+    warehouseQty: number;
+    availability: 'in_your_kit' | 'warehouse' | 'out_of_stock';
+}
+
+export interface PartsAccessStatus {
+    employeeId: number;
+    partsAccess: 'none' | 'requested' | 'active' | 'suspended';
+    grantedAt: string | null;
+    required: number;
+    floor: number;
+    deposit: {
+        id: number; status: string; paid: number; drawn: number; remaining: number;
+        belowFloor: boolean; topUpNeeded: number; paidAt: string | null; refundedAt: string | null;
+    } | null;
+    ledger: Array<{ id: number; type: string; amount: number; balanceAfter: number; warrantyClaimId: number | null; notes: string | null; at: string }>;
+}
+
+export interface KitItem { sparePartId: number; partCode: string; name: string; brand: string | null; quantity: number; unitPrice: number }
+export interface KitMovement { id: number; type: string; quantity: number; part: { partCode: string; name: string }; notes: string | null; at: string }
+
 export const partnerApi = {
+    // ── Spare parts ──────────────────────────────────────────────────────
+    /** Search the catalogue, the job's category first. Needs parts access. */
+    searchParts: (q: string, opts?: { serviceRequestId?: number; categoryId?: number }) =>
+        apiClient.get<{ success: boolean; data: CataloguePart[] }>('/api/partner/parts/search', {
+            params: { q, serviceRequestId: opts?.serviceRequestId, categoryId: opts?.categoryId },
+        }),
+
+    proposePart: (data: {
+        serviceRequestId?: number | null; name: string; brand?: string | null; specification?: string | null;
+        categoryId?: number | null; indicativePriceRupees?: number | null; vendorName?: string | null; photoUrl?: string | null;
+    }) => apiClient.post<{ success: boolean; message: string; data: { id: number } }>('/api/partner/parts/proposals', data),
+
+    getMyProposals: () =>
+        apiClient.get<{ success: boolean; data: Array<{ id: number; name: string; status: string; reviewNotes: string | null; createdAt: string; categoryName: string | null }> }>('/api/partner/parts/proposals'),
+
+    getMyStock: () =>
+        apiClient.get<{ success: boolean; data: { items: KitItem[]; movements: KitMovement[] } }>('/api/partner/parts/stock'),
+
+    returnStock: (sparePartId: number, quantity: number) =>
+        apiClient.post<{ success: boolean; message: string }>('/api/partner/parts/stock/return', { sparePartId, quantity }),
+
+    // ── Parts access (the deposit) ───────────────────────────────────────
+    getPartsAccess: () =>
+        apiClient.get<{ success: boolean; data: PartsAccessStatus }>('/api/partner/parts-access'),
+
+    /** Start paying the deposit or a top-up. Returns a Razorpay order for the sheet. */
+    requestPartsAccess: () =>
+        apiClient.post<{ success: boolean; message: string; data: {
+            depositId: number; razorpayOrderId: string; razorpayKeyId: string; amount: number; isTopUp: boolean;
+            customer: { name: string | null; email: string | null; phone: string | null };
+        } }>('/api/partner/parts-access/request'),
+
+    verifyPartsAccessPayment: (data: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
+        apiClient.post<{ success: boolean; message: string; data: PartsAccessStatus }>('/api/partner/parts-access/verify-payment', data),
+
+    requestPartsRefund: () =>
+        apiClient.post<{ success: boolean; message: string }>('/api/partner/parts-access/refund-request'),
+
     /** The parts I recorded on this job, and which are missing paperwork. */
     getJobParts: (bookingId: number) =>
         apiClient.get<{ success: boolean; data: { items: RecordedPart[]; undocumented: number; hint: string | null } }>(

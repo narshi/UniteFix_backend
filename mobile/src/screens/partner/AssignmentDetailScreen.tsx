@@ -477,7 +477,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 {showPartsForm ? (
                                     <View>
                                         <Text style={styles.label}>Spare parts — customer approved</Text>
-                                        <PartsEntry parts={parts} onChange={setParts} />
+                                        <PartsEntry parts={parts} onChange={setParts} serviceRequestId={assignment?.id} />
                                     </View>
                                 ) : (
                                     <TouchableOpacity onPress={() => { setShowPartsForm(true); setParts([newPartDraft()]); }}>

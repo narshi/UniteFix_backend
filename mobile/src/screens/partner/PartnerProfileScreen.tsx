@@ -17,7 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase, Map as MapIcon } from 'lucide-react-native';
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase, Map as MapIcon, Package, Boxes } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
 import * as Location from 'expo-location';
@@ -494,6 +494,24 @@ export function PartnerProfileScreen() {
                                 return Array.isArray(s) && s.length > 0 ? ` (${s.length})` : '';
                             })()}
                         </Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+            </View>
+
+            {/* Spare parts: fit from UniteFix stock, and the kit you carry. */}
+            <View style={[styles.section, { marginTop: spacing.md }]}>
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('EnableParts')}>
+                    <View style={styles.menuLeft}>
+                        <Package size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Spare parts access</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('MyStock')}>
+                    <View style={styles.menuLeft}>
+                        <Boxes size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>My stock</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

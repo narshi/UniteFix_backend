@@ -189,7 +189,7 @@ export function SubmitBillScreen({ navigation, route }: Props) {
                                 <Text style={styles.addPartsBtnText}>+ Add a spare part</Text>
                             </TouchableOpacity>
                         ) : (
-                            <PartsEntry parts={partDrafts} onChange={setPartDrafts} />
+                            <PartsEntry parts={partDrafts} onChange={setPartDrafts} serviceRequestId={Number(bookingId) || undefined} />
                         )}
                         <Text style={styles.inputHint}>Leave empty if no parts were used</Text>
                     </View>
