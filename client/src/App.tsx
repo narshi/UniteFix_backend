@@ -32,6 +32,10 @@ import FtthOperatorsPage from "@/pages/admin/ftth-operators";
 import FtthOperatorDetailPage from "@/pages/admin/ftth-operator-detail";
 import EmployeeDetailPage from "@/pages/admin/employee-detail";
 import WarrantyClaimsPage from "@/pages/admin/warranty-claims";
+import SparePartsPage from "@/pages/admin/spare-parts";
+import BusinessPartnersPage from "@/pages/admin/business-partners";
+import PartsAccessPage from "@/pages/admin/parts-access";
+import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import OperatorLayout from "@/layouts/OperatorLayout";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -92,6 +96,7 @@ const LANDING_FALLBACKS: Array<{ capability: string; href: string }> = [
   { capability: "locations:view", href: "/locations" },
   { capability: "marketing:view", href: "/admin/marketing" },
   { capability: "ftth:view", href: "/admin/ftth-operators" },
+  { capability: "partners:view", href: "/admin/business-partners" },
   { capability: "accounts:view", href: "/admin/admins" },
   { capability: "audit:view", href: "/admin/audit-logs" },
   { capability: "settings:view", href: "/settings" },
@@ -259,6 +264,10 @@ function Router() {
           <Route path="/admin/inventory"><Gate capability="inventory:view" component={InventoryPage} /></Route>
           <Route path="/admin/withdrawals"><Gate capability="withdrawals:view" component={WithdrawalsPage} /></Route>
           <Route path="/admin/warranty-claims"><Gate capability="bookings:view" component={WarrantyClaimsPage} /></Route>
+          <Route path="/admin/spare-parts"><Gate capability="inventory:view" component={SparePartsPage} /></Route>
+          <Route path="/admin/parts-access"><Gate capability="inventory:view" component={PartsAccessPage} /></Route>
+          <Route path="/admin/business-partners"><Gate capability="partners:view" component={BusinessPartnersPage} /></Route>
+          <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>
           <Route path="/admin/admins"><Gate capability="accounts:view" component={AdminsPage} /></Route>

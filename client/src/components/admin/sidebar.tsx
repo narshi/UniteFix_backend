@@ -24,7 +24,12 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Service Expert Types", href: "/admin/technician-types", icon: "engineering", capability: "catalog:view" },
   { name: "Category Expertise", href: "/admin/category-expertise", icon: "hub", capability: "catalog:view" },
   { name: "Product Orders", href: "/orders", icon: "shopping_cart", capability: "orders:view" },
-  { name: "Inventory", href: "/admin/inventory", icon: "inventory_2", capability: "inventory:view" },
+  // The old "Inventory" page edits the halted product store — renamed so it is
+  // not mistaken for spare parts, which live on their own page.
+  { name: "Product Store", href: "/admin/inventory", icon: "storefront", capability: "inventory:view" },
+  { name: "Spare Parts", href: "/admin/spare-parts", icon: "inventory_2", capability: "inventory:view" },
+  { name: "Parts Access", href: "/admin/parts-access", icon: "verified", capability: "inventory:view" },
+  { name: "B2B Orders", href: "/admin/b2b-orders", icon: "local_shipping", capability: "orders:view" },
   { name: "Employees", href: "/partners", icon: "handyman", capability: "employees:view" },
   { name: "Payments & Invoices", href: "/payments", icon: "payment", capability: "payments:view" },
   { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance", capability: "withdrawals:view" },
@@ -33,6 +38,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", capability: "audit:view" },
   { name: "Districts", href: "/admin/districts", icon: "map", capability: "locations:view" },
   { name: "Location Management", href: "/locations", icon: "location_on", capability: "locations:view" },
+  { name: "Business Partners", href: "/admin/business-partners", icon: "business", capability: "partners:view" },
   { name: "FTTH Operators", href: "/admin/ftth-operators", icon: "router", capability: "ftth:view" },
   { name: "Roles & Access", href: "/admin/admins", icon: "admin_panel_settings", capability: "accounts:view" },
   { name: "Database Console", href: "/admin/developer", icon: "storage", capability: "db_console:manage" },
