@@ -33,10 +33,18 @@ export interface FtthOperator {
  */
 export interface FtthPlanAddon {
     id: number;
+    catalogId?: number | null;
     label: string;
     kind: 'telephone' | 'ott' | 'iptv' | 'static_ip' | 'installation' | 'other';
+    /** The line amount on THIS plan — already multiplied by the term where the basis is per_month. */
     amount: number;
+    /** How the amount was arrived at, for "₹118 × 12 months" on the bill. */
+    unitAmount?: number;
+    pricingBasis?: 'flat' | 'per_month';
+    months?: number;
     isOptional: boolean;
+    /** "Pick one": two add-ons sharing a group cannot both be chosen. */
+    exclusiveGroup?: string | null;
     description?: string | null;
 }
 
