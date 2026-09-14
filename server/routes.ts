@@ -1924,7 +1924,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Business partners endpoints (backward compatibility)
   app.get("/api/business/partners", authenticateAdmin, async (req, res, next) => {
     try {
-      const providers = await storage.getAllServiceProviders();
+      // A directory, not a page: the pickers need everyone.
+      const providers = await storage.getAllServiceProviders(1000);
       // PHASE 1: Map employees columns → legacy partner field names
       const mapped = await Promise.all(
         providers.map(async (p) => {

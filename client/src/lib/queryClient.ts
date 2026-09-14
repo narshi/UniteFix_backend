@@ -11,6 +11,10 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 function isDashboardCall(url: string): boolean {
     return url.includes("/api/admin/")
         || url.includes("/api/ftth/")
+        // Admin-only despite the legacy prefix: the technician directory used by
+        // the assignment modal and the parts pickers. Without the token every
+        // picker showed an empty list with no error.
+        || url.includes("/api/business/")
         || url.includes("/api/service-partners");
 }
 
