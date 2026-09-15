@@ -40,6 +40,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 type Audience = "customers" | "experts" | "all";
 
@@ -89,6 +90,7 @@ export default function MarketingPage() {
 
   const stats = audienceData?.data;
   const campaigns = campaignData?.data ?? [];
+  const campaignSearch = useListSearch(campaigns, c => [c.title, c.body, c.audience, c.deepLink]);
 
   // Recipients for the currently selected audience, so the confirm dialog can
   // state exactly how many people are about to be messaged.
@@ -330,8 +332,9 @@ export default function MarketingPage() {
 
       {/* ── History ────────────────────────────────────────────── */}
       <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 mt-6 stagger-enter">
-        <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
           <CardTitle className="text-xl text-white">Past Campaigns</CardTitle>
+          <ListSearch value={campaignSearch.q} onChange={campaignSearch.setQ} placeholder="Title, message, audience…" className="w-64" />
         </CardHeader>
         <CardContent className="p-0">
           {campaignsLoading ? (
@@ -354,7 +357,7 @@ export default function MarketingPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {campaigns.map((c) => (
+                  {campaignSearch.filtered.map((c) => (
                     <TableRow key={c.id} className="border-[rgba(255,255,255,0.04)]">
                       <TableCell className="text-[hsl(215,20%,65%)] whitespace-nowrap">
                         {c.createdAt ? format(new Date(c.createdAt), "dd MMM yyyy, HH:mm") : "—"}

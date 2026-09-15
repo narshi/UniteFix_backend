@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { ShoppingCart, Truck, PackageCheck, CheckCircle2, XCircle, Undo2 } from "lucide-react";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 type Row = {
     id: number; orderCode: string; status: string; paymentMode: string; paymentStatus: string; total: number | null;
@@ -54,6 +55,7 @@ export default function B2bOrdersPage() {
         queryFn: async () => (await apiRequest("GET", `/api/admin/b2b-orders?status=${status}`)).data,
     });
     const [activeId, setActiveId] = useState<number | null>(null);
+    const search = useListSearch(list.data, r => [r.orderCode, r.partnerName, r.partnerCode, r.status, r.paymentMode, r.paymentStatus, r.total]);
     const detail = useQuery<Detail>({
         queryKey: ["/api/admin/b2b-orders", activeId, "detail"],
         queryFn: async () => (await apiRequest("GET", `/api/admin/b2b-orders/${activeId}`)).data,
@@ -87,17 +89,20 @@ export default function B2bOrdersPage() {
             </div>
 
             <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-base font-medium">{list.isLoading ? "Loading…" : `${list.data?.length ?? 0} order${list.data?.length === 1 ? "" : "s"}${actionCount ? ` · ${actionCount} waiting on you` : ""}`}</CardTitle></CardHeader>
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-3">
+                    <CardTitle className="text-base font-medium">{list.isLoading ? "Loading…" : `${list.data?.length ?? 0} order${list.data?.length === 1 ? "" : "s"}${actionCount ? ` · ${actionCount} waiting on you` : ""}`}</CardTitle>
+                    <ListSearch value={search.q} onChange={search.setQ} placeholder="Order code, partner, status…" className="w-72" />
+                </CardHeader>
                 <CardContent className="p-0">
                     <Table>
                         <TableHeader><TableRow>
                             <TableHead>Order</TableHead><TableHead>Partner</TableHead><TableHead>Payment</TableHead><TableHead className="text-right">Total ₹</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Age</TableHead><TableHead className="text-right">Action</TableHead>
                         </TableRow></TableHeader>
                         <TableBody>
-                            {!list.isLoading && (list.data?.length ?? 0) === 0 && (
-                                <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground"><ShoppingCart className="mx-auto mb-2 h-8 w-8 opacity-40" />No orders{status !== "all" ? ` that are ${status}` : ""}.</TableCell></TableRow>
+                            {!list.isLoading && search.filtered.length === 0 && (
+                                <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground"><ShoppingCart className="mx-auto mb-2 h-8 w-8 opacity-40" />{search.active ? `No orders match "${search.q}".` : `No orders${status !== "all" ? ` that are ${status}` : ""}.`}</TableCell></TableRow>
                             )}
-                            {(list.data ?? []).map(r => (
+                            {search.filtered.map(r => (
                                 <TableRow key={r.id} className={needsAction(r) ? "bg-amber-50/40" : ""}>
                                     <TableCell><div className="font-mono text-xs">{r.orderCode}</div><div className="text-xs text-muted-foreground">{r.placedAt && format(new Date(r.placedAt), "d MMM, HH:mm")}</div></TableCell>
                                     <TableCell><div className="text-sm font-medium">{r.partnerName}</div><div className="font-mono text-xs text-muted-foreground">{r.partnerCode}</div></TableCell>

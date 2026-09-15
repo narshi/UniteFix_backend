@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { ShieldCheck, AlertTriangle, FileWarning, Receipt, PhoneCall, Search } from "lucide-react";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 type Claim = {
     claim: {
@@ -277,6 +278,7 @@ export default function WarrantyClaimsPage() {
     });
 
     const claims = data?.data ?? [];
+    const search = useListSearch(claims, c => [c.claim.claimId, c.claim.status, c.claim.verdict, c.claim.description, c.booking?.serviceId, c.booking?.serviceType, c.booking?.address, c.customerName, c.customerPhone, c.part?.partName, c.part?.brand, c.part?.vendorName]);
     const openCount = claims.filter(c => c.claim.status === "open").length;
 
     /** What this verdict would cost, for this specific part. */
@@ -323,10 +325,11 @@ export default function WarrantyClaimsPage() {
             </div>
 
             <Card>
-                <CardHeader className="pb-3">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-3">
                     <CardTitle className="text-base font-medium">
-                        {isLoading ? "Loading…" : `${claims.length} claim${claims.length === 1 ? "" : "s"}`}
+                        {isLoading ? "Loading…" : `${claims.length} claim${claims.length === 1 ? "" : "s"}${search.active ? ` · ${search.filtered.length} shown` : ""}`}
                     </CardTitle>
+                    <ListSearch value={search.q} onChange={search.setQ} placeholder="Claim ID, booking, customer, phone, part, shop…" className="w-80" />
                 </CardHeader>
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -342,7 +345,7 @@ export default function WarrantyClaimsPage() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {!isLoading && claims.length === 0 && (
+                                {!isLoading && search.filtered.length === 0 && (
                                     <TableRow>
                                         <TableCell colSpan={6} className="py-12 text-center">
                                             <ShieldCheck className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
@@ -355,7 +358,7 @@ export default function WarrantyClaimsPage() {
                                     </TableRow>
                                 )}
 
-                                {claims.map(c => (
+                                {search.filtered.map(c => (
                                     <TableRow key={c.claim.id}>
                                         <TableCell className="align-top">
                                             <div className="font-mono text-xs">{c.claim.claimId}</div>

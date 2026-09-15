@@ -107,7 +107,8 @@ export async function runStartupMigrations(): Promise<void> {
     await client.query(`
       ALTER TABLE ftth_plans
       ADD COLUMN IF NOT EXISTS is_recommended BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS badge_text TEXT;
+      ADD COLUMN IF NOT EXISTS badge_text TEXT,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
     `);
 
     // 7. employees.negative_balance_flag

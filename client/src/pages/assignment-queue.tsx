@@ -5,7 +5,8 @@
  * Right panel: Available employees with workload indicators
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Label } from "@/components/ui/label";
 import {
   Search, Clock, AlertTriangle, User, Phone, MapPin,
   Briefcase, Star, CheckCircle, ArrowRight, Image, RefreshCw,
@@ -58,7 +61,30 @@ interface EmployeeItem {
   activeJobCount: number;
   completedJobCount: number;
   averageRating: string;
+  partnerType?: string;
+  partsEnabled?: boolean;
 }
+
+/**
+ * Expert-side filters. Each one narrows; "any" is the neutral value. Kept as
+ * one object so the count of active filters — shown on the button — is one
+ * line, and so reset is one assignment.
+ */
+interface ExpertFilters {
+  trade: string;          // a trade name from emp.services, or "any"
+  match: "any" | "qualified";
+  area: "any" | "same" | "pincode";
+  pincode: string;        // used when area === "pincode"; prefix match
+  online: "any" | "online";
+  workload: "any" | "free" | "light";
+  minRating: "any" | "3" | "4" | "4.5";
+  partnerType: string;    // "any" | "Individual" | "Business" …
+  parts: "any" | "enabled";
+}
+const NO_FILTERS: ExpertFilters = { trade: "any", match: "any", area: "any", pincode: "", online: "any", workload: "any", minRating: "any", partnerType: "any", parts: "any" };
+const activeFilterCount = (f: ExpertFilters) =>
+  (f.trade !== "any" ? 1 : 0) + (f.match !== "any" ? 1 : 0) + (f.area !== "any" ? 1 : 0) + (f.online !== "any" ? 1 : 0)
+  + (f.workload !== "any" ? 1 : 0) + (f.minRating !== "any" ? 1 : 0) + (f.partnerType !== "any" ? 1 : 0) + (f.parts !== "any" ? 1 : 0);
 
 interface QueueStats {
   totalPending: number;
@@ -72,9 +98,18 @@ export default function AssignmentQueuePage() {
   const [urgencyFilter, setUrgencyFilter] = useState("all");
   const [serviceTypeFilter, setServiceTypeFilter] = useState("all");
   const [selectedRequest, setSelectedRequest] = useState<QueueItem | null>(null);
-  // Off by default: seeing everyone who *could* take the job is the point.
-  const [onlineOnly, setOnlineOnly] = useState(false);
+  // Expert search and filters. Off by default: seeing everyone who *could*
+  // take the job is the point; the dispatcher narrows when the list is long.
+  const [expertSearch, setExpertSearch] = useState("");
+  const [filters, setFilters] = useState<ExpertFilters>(NO_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const onlineOnly = filters.online === "online";
+  const setOnlineOnly = (fn: (v: boolean) => boolean) => setFilters(f => ({ ...f, online: fn(f.online === "online") ? "online" : "any" }));
   const { toast } = useToast();
+  // ?request=<id> — opened from the Services page's Assign action with a
+  // booking already chosen.
+  const searchString = useSearch();
+  const requestedId = useMemo(() => { const v = new URLSearchParams(searchString).get("request"); return v ? Number(v) : null; }, [searchString]);
 
   // Fetch assignment queue data
   const { data, isLoading, refetch } = useQuery({
@@ -84,6 +119,18 @@ export default function AssignmentQueuePage() {
 
   const queue: QueueItem[] = (data as any)?.queue || [];
   const employees: EmployeeItem[] = (data as any)?.employees || [];
+
+  useEffect(() => {
+    if (!requestedId || selectedRequest || !queue.length) return;
+    const hit = queue.find(r => r.id === requestedId);
+    if (hit) setSelectedRequest(hit);
+    else toast({ title: "Not in the queue", description: "That booking is not awaiting assignment (already assigned, unpaid, or cancelled)." });
+  }, [requestedId, queue.length]);
+
+  // Trade and partner-type options come from the roster itself, so the
+  // dropdowns never offer a value that matches nobody.
+  const tradeOptions = useMemo(() => Array.from(new Set(employees.flatMap(e => e.services ?? []))).sort(), [employees]);
+  const partnerTypeOptions = useMemo(() => Array.from(new Set(employees.map(e => e.partnerType).filter(Boolean) as string[])).sort(), [employees]);
   const stats: QueueStats = (data as any)?.stats || { totalPending: 0, urgentCount: 0, avgWaitHours: 0, oldestHours: 0 };
 
   // Get unique service types for filter dropdown
@@ -170,7 +217,24 @@ export default function AssignmentQueuePage() {
    * app open.
    */
   const sortedEmployees = useMemo(() => {
-    const sorted = [...employees].filter((e) => (onlineOnly ? e.isOnline : true));
+    const q = expertSearch.trim().toLowerCase();
+    const sorted = employees.filter((e) => {
+      if (q) {
+        const hay = [e.fullName, e.partnerId, e.phone, e.pinCode, ...(e.services ?? [])].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (filters.online === "online" && !e.isOnline) return false;
+      if (filters.trade !== "any" && !(e.services ?? []).includes(filters.trade)) return false;
+      if (filters.match === "qualified" && !isQualified(e, selectedRequest)) return false;
+      if (filters.area === "same" && !isSameArea(e, selectedRequest)) return false;
+      if (filters.area === "pincode" && filters.pincode.trim() && !String(e.pinCode ?? "").startsWith(filters.pincode.trim())) return false;
+      if (filters.workload === "free" && e.activeJobCount > 0) return false;
+      if (filters.workload === "light" && e.activeJobCount > 2) return false;
+      if (filters.minRating !== "any" && parseFloat(e.averageRating || "0") < Number(filters.minRating)) return false;
+      if (filters.partnerType !== "any" && e.partnerType !== filters.partnerType) return false;
+      if (filters.parts === "enabled" && !e.partsEnabled) return false;
+      return true;
+    });
     sorted.sort((a, b) => {
       if (selectedRequest) {
         const aQ = isQualified(a, selectedRequest) ? 1 : 0;
@@ -185,7 +249,7 @@ export default function AssignmentQueuePage() {
       return a.activeJobCount - b.activeJobCount;
     });
     return sorted;
-  }, [employees, selectedRequest, onlineOnly]);
+  }, [employees, selectedRequest, expertSearch, filters]);
 
   const qualifiedCount = useMemo(
     () => sortedEmployees.filter((e) => isQualified(e, selectedRequest)).length,
@@ -419,13 +483,37 @@ export default function AssignmentQueuePage() {
             <CardHeader className="pb-3 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl mb-4">
               <CardTitle className="text-base flex items-center gap-2 text-white">
                 <User className="w-4 h-4 text-[hsl(217,91%,60%)]" />
-                Employees ({employees.length})
+                Employees ({sortedEmployees.length}{sortedEmployees.length !== employees.length ? ` of ${employees.length}` : ""})
                 {selectedRequest && (
                   <Badge variant="secondary" className="ml-auto text-xs font-normal bg-[hsla(217,91%,60%,0.1)] text-[hsl(217,91%,70%)] border-[hsla(217,91%,60%,0.2)]">
                     Sorted for: {selectedRequest.serviceType}
                   </Badge>
                 )}
               </CardTitle>
+              {/* Search + filters. The roster grows with every onboarding; a
+                  dispatcher should find one person by name, code, phone or
+                  pincode without scrolling, and narrow by trade, area,
+                  availability and workload without the panel turning into a
+                  wall of dropdowns — hence the sheet. */}
+              <div className="mt-3 flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[hsl(215,20%,50%)]" />
+                  <Input
+                    placeholder="Name, ID, phone, pincode, trade…"
+                    value={expertSearch}
+                    onChange={(e) => setExpertSearch(e.target.value)}
+                    className="pl-9 h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white placeholder:text-[hsl(215,20%,40%)] focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFiltersOpen(true)}
+                  className={`h-9 border-[rgba(255,255,255,0.1)] text-[hsl(210,20%,85%)] hover:bg-[rgba(255,255,255,0.05)] ${activeFilterCount(filters) > 0 ? "border-[hsla(217,91%,60%,0.5)] text-[hsl(217,91%,70%)]" : ""}`}
+                >
+                  Filters{activeFilterCount(filters) > 0 && <span className="ml-1.5 rounded bg-[hsla(217,91%,60%,0.25)] px-1.5 text-[10px]">{activeFilterCount(filters)}</span>}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
               {!selectedRequest ? (
@@ -589,7 +677,16 @@ export default function AssignmentQueuePage() {
                   {sortedEmployees.length === 0 && (
                     <div className="text-center py-8">
                       <User className="w-8 h-8 text-[hsl(215,20%,40%)] mx-auto mb-2" />
-                      <p className="text-sm text-[hsl(215,20%,55%)]">No verified employees available</p>
+                      {employees.length > 0 ? (
+                        <>
+                          <p className="text-sm text-[hsl(210,20%,80%)]">Nobody matches the search and filters</p>
+                          <button type="button" className="text-xs text-[hsl(217,91%,70%)] underline underline-offset-2 mt-1" onClick={() => { setExpertSearch(""); setFilters(NO_FILTERS); }}>
+                            Clear search and filters ({employees.length} experts)
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-[hsl(215,20%,55%)]">No verified employees available</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -598,6 +695,90 @@ export default function AssignmentQueuePage() {
           </Card>
         </div>
       </div>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent className="w-[360px] overflow-y-auto bg-[hsl(222,40%,10%)] border-[rgba(255,255,255,0.08)] text-white">
+          <SheetHeader>
+            <SheetTitle className="text-white">Filter experts</SheetTitle>
+            <SheetDescription className="text-[hsl(215,20%,60%)]">Narrow the roster. Everyone still qualifies for assignment; these only decide who is listed.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-5 space-y-4">
+            <FilterField label="Trade">
+              <Select value={filters.trade} onValueChange={(v) => setFilters(f => ({ ...f, trade: v }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Any trade</SelectItem>{tradeOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Trade match for this booking">
+              <Select value={filters.match} onValueChange={(v) => setFilters(f => ({ ...f, match: v as ExpertFilters["match"] }))} disabled={!selectedRequest || isUnrestricted(selectedRequest)}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Everyone</SelectItem><SelectItem value="qualified">Only experts registered for the required trade</SelectItem></SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Area">
+              <Select value={filters.area} onValueChange={(v) => setFilters(f => ({ ...f, area: v as ExpertFilters["area"] }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Anywhere</SelectItem>
+                  <SelectItem value="same" disabled={!selectedRequest?.pinCode}>Same pincode as the job{selectedRequest?.pinCode ? ` (${selectedRequest.pinCode})` : ""}</SelectItem>
+                  <SelectItem value="pincode">A pincode I type</SelectItem>
+                </SelectContent>
+              </Select>
+              {filters.area === "pincode" && (
+                <Input className={`mt-2 ${SHEET_SELECT}`} inputMode="numeric" placeholder="Pincode or prefix, e.g. 5811" value={filters.pincode} onChange={(e) => setFilters(f => ({ ...f, pincode: e.target.value }))} />
+              )}
+            </FilterField>
+            <FilterField label="Availability">
+              <Select value={filters.online} onValueChange={(v) => setFilters(f => ({ ...f, online: v as ExpertFilters["online"] }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Online and offline</SelectItem><SelectItem value="online">Online now</SelectItem></SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Workload">
+              <Select value={filters.workload} onValueChange={(v) => setFilters(f => ({ ...f, workload: v as ExpertFilters["workload"] }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Any</SelectItem><SelectItem value="free">Free now (no active jobs)</SelectItem><SelectItem value="light">Up to 2 active jobs</SelectItem></SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Minimum rating">
+              <Select value={filters.minRating} onValueChange={(v) => setFilters(f => ({ ...f, minRating: v as ExpertFilters["minRating"] }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Any</SelectItem><SelectItem value="3">3.0 and above</SelectItem><SelectItem value="4">4.0 and above</SelectItem><SelectItem value="4.5">4.5 and above</SelectItem></SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Partner type">
+              <Select value={filters.partnerType} onValueChange={(v) => setFilters(f => ({ ...f, partnerType: v }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Any</SelectItem>{partnerTypeOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="Spare parts">
+              <Select value={filters.parts} onValueChange={(v) => setFilters(f => ({ ...f, parts: v as ExpertFilters["parts"] }))}>
+                <SelectTrigger className={SHEET_SELECT}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="any">Any</SelectItem><SelectItem value="enabled">Can fit parts from UniteFix stock</SelectItem></SelectContent>
+              </Select>
+            </FilterField>
+            <div className="flex items-center justify-between pt-2 border-t border-[rgba(255,255,255,0.08)]">
+              <span className="text-xs text-[hsl(215,20%,60%)]">{sortedEmployees.length} of {employees.length} listed</span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" className="text-[hsl(210,20%,85%)]" onClick={() => setFilters(NO_FILTERS)} disabled={activeFilterCount(filters) === 0}>Reset</Button>
+                <Button size="sm" className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white" onClick={() => setFiltersOpen(false)}>Done</Button>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+const SHEET_SELECT = "h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white focus:ring-[hsla(217,91%,60%,0.3)]";
+
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <Label className="text-xs text-[hsl(215,20%,65%)]">{label}</Label>
+      <div className="mt-1.5">{children}</div>
     </div>
   );
 }

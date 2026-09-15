@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Sparkles, Check } from "lucide-react";
+import { Sparkles, Check, Trash2 } from "lucide-react";
 import PlanAddonsEditor from "@/components/operator/PlanAddonsEditor";
 
 interface PlanRow {
@@ -122,6 +122,17 @@ export default function OperatorPlans() {
     onSuccess: () => refresh(),
     onError: (e: Error) => toast({ title: "Could not update", description: e.message, variant: "destructive" }),
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/ftth/admin/plans/${id}`),
+    onSuccess: (r: any) => { refresh(); toast({ title: "Plan deleted", description: r?.message }); },
+    onError: (e: Error) => toast({ title: "Could not delete", description: e.message, variant: "destructive" }),
+  });
+  const confirmDelete = (p: { id: number; name: string; speedMbps: number; durationMonths: number }) => {
+    if (window.confirm(`Delete "${p.name}" (${p.speedMbps} Mbps · ${p.durationMonths} mo)?\n\nIt disappears from the app immediately. Past recharges keep their record. This cannot be undone.`)) {
+      deleteMutation.mutate(p.id);
+    }
+  };
 
   const importMutation = useMutation({
     mutationFn: async () => {
@@ -307,6 +318,16 @@ export default function OperatorPlans() {
                       onClick={() => toggleMutation.mutate({ id: p.id, isActive: !p.isActive })}
                     >
                       {p.isActive ? "Hide" : "Show"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-rose-400 hover:text-rose-300"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => confirmDelete(p)}
+                      title="Delete plan"
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </li>

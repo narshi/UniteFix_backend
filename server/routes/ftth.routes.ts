@@ -802,7 +802,7 @@ export function registerFtthRoutes(app: Express) {
         try {
             const { operatorId } = (req as any).operator;
             const rows = await db.select().from(ftthPlans)
-                .where(eq(ftthPlans.operatorId, operatorId))
+                .where(and(eq(ftthPlans.operatorId, operatorId), isNull(ftthPlans.deletedAt)))
                 .orderBy(asc(ftthPlans.speedMbps), asc(ftthPlans.durationMonths));
             res.json({ success: true, data: rows.map(planView) });
         } catch (error) { next(error); }
@@ -1020,6 +1020,7 @@ export function registerFtthRoutes(app: Express) {
                 if (b.planIds?.length) where.push(inArray(ftthPlans.id, b.planIds));
                 else if (b.speedMbps) where.push(eq(ftthPlans.speedMbps, b.speedMbps));
                 else if (!b.all) return res.status(400).json({ success: false, message: 'Say which plans: planIds, speedMbps, or all.' });
+                where.push(isNull(ftthPlans.deletedAt));
                 const plans = await db.select({ id: ftthPlans.id }).from(ftthPlans).where(and(...where));
 
                 const existing = plans.length
@@ -1044,6 +1045,31 @@ export function registerFtthRoutes(app: Express) {
     // can only touch add-ons on their own plans.
 
     /** The plan's add-ons, resolved: what each line costs on THIS plan and how it got there. */
+    /**
+     * DELETE /api/ftth/admin/plans/:id
+     *
+     * Gone from every list. If no recharge has ever been sold on it the row is
+     * removed outright (its add-on links cascade); otherwise it is soft-deleted,
+     * because the recharges that reference it are financial records. Either way
+     * the speed × duration cell is free again.
+     */
+    app.delete("/api/ftth/admin/plans/:id", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const { operatorId } = (req as any).operator;
+            const plan = await operatorPlan(Number(req.params.id), operatorId);
+            if (!plan) return res.status(404).json({ success: false, message: 'Plan not found' });
+
+            const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(ftthRecharges).where(eq(ftthRecharges.planId, plan.id));
+            if (n > 0) {
+                await db.update(ftthPlans).set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() }).where(eq(ftthPlans.id, plan.id));
+                await db.update(ftthPlanAddons).set({ isActive: false }).where(eq(ftthPlanAddons.planId, plan.id));
+                return res.json({ success: true, message: `"${plan.name}" deleted. ${n} past recharge${n === 1 ? '' : 's'} keep their record of it.`, data: { hardDeleted: false } });
+            }
+            await db.delete(ftthPlans).where(eq(ftthPlans.id, plan.id));
+            res.json({ success: true, message: `"${plan.name}" deleted.`, data: { hardDeleted: true } });
+        } catch (error) { next(error); }
+    });
+
     app.get("/api/ftth/admin/plans/:planId/addons", authenticateOperator,
         async (req: Request, res: Response, next: NextFunction) => {
             try {
@@ -1191,6 +1217,9 @@ export function registerFtthRoutes(app: Express) {
                             benefits: (p.benefits ?? null) as any,
                             sortOrder: p.sortOrder ?? 0,
                             isActive: p.isActive ?? true,
+                            // A deleted cell that comes back in a price list is
+                            // the operator selling it again.
+                            deletedAt: null,
                             updatedAt: new Date(),
                         };
                         if (match) {
@@ -2050,7 +2079,7 @@ export function registerFtthRoutes(app: Express) {
 
                 const [plans, connections, leads, recharges, ledger] = await Promise.all([
                     db.select().from(ftthPlans)
-                        .where(eq(ftthPlans.operatorId, id))
+                        .where(and(eq(ftthPlans.operatorId, id), isNull(ftthPlans.deletedAt)))
                         .orderBy(asc(ftthPlans.speedMbps), asc(ftthPlans.durationMonths)),
 
                     db.select({
@@ -2224,7 +2253,7 @@ export function registerFtthRoutes(app: Express) {
             }
 
             const rows = await db.select().from(ftthPlans)
-                .where(and(eq(ftthPlans.operatorId, operatorId), eq(ftthPlans.isActive, true)))
+                .where(and(eq(ftthPlans.operatorId, operatorId), eq(ftthPlans.isActive, true), isNull(ftthPlans.deletedAt)))
                 .orderBy(asc(ftthPlans.speedMbps), asc(ftthPlans.durationMonths));
 
             const convenienceFeePaise = await convenienceFeeFor(operatorId);
@@ -2830,7 +2859,7 @@ async function activeOperator(operatorId: number) {
 async function operatorPlan(planId: number, operatorId: number) {
     if (!Number.isInteger(planId)) return null;
     const [plan] = await db.select().from(ftthPlans)
-        .where(and(eq(ftthPlans.id, planId), eq(ftthPlans.operatorId, operatorId))).limit(1);
+        .where(and(eq(ftthPlans.id, planId), eq(ftthPlans.operatorId, operatorId), isNull(ftthPlans.deletedAt))).limit(1);
     return plan ?? null;
 }
 

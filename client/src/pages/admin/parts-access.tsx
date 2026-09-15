@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { ShieldCheck, AlertTriangle, UserPlus, BadgeCheck } from "lucide-react";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 type Row = {
     employeeId: number; name: string | null; partsAccess: string; grantedAt: string | null; depositWaived?: boolean;
@@ -56,6 +57,8 @@ export default function PartsAccessPage() {
         queryKey: ["/api/admin/parts-access", filter],
         queryFn: async () => (await apiRequest("GET", `/api/admin/parts-access?access=${filter}`)).data,
     });
+
+    const search = useListSearch(list.data, r => [r.name, r.employeeId, r.partsAccess, r.deposit?.status, r.depositWaived ? "waived in-house" : null]);
 
     const [activeId, setActiveId] = useState<number | null>(null);
     const detail = useQuery<Detail>({
@@ -114,6 +117,7 @@ export default function PartsAccessPage() {
             </div>
 
             <Card>
+                <CardHeader className="pb-3"><ListSearch value={search.q} onChange={search.setQ} placeholder="Technician name, ID, access, deposit status…" className="max-w-sm" /></CardHeader>
                 <CardContent className="p-0">
                     <Table>
                         <TableHeader><TableRow>
@@ -121,10 +125,10 @@ export default function PartsAccessPage() {
                             <TableHead className="text-right">Paid ₹</TableHead><TableHead className="text-right">Drawn ₹</TableHead><TableHead className="text-right">Remaining ₹</TableHead><TableHead className="text-right">Action</TableHead>
                         </TableRow></TableHeader>
                         <TableBody>
-                            {!list.isLoading && (list.data?.length ?? 0) === 0 && (
-                                <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground"><ShieldCheck className="mx-auto mb-2 h-8 w-8 opacity-40" />Nobody has requested spare-parts access yet. Technicians start it from their profile in the app.</TableCell></TableRow>
+                            {!list.isLoading && search.filtered.length === 0 && (
+                                <TableRow><TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground"><ShieldCheck className="mx-auto mb-2 h-8 w-8 opacity-40" />{search.active ? `Nobody matches "${search.q}".` : "Nobody has requested spare-parts access yet. Technicians start it from their profile in the app."}</TableCell></TableRow>
                             )}
-                            {(list.data ?? []).map(r => (
+                            {search.filtered.map(r => (
                                 <TableRow key={r.employeeId}>
                                     <TableCell className="text-sm font-medium">{r.name ?? `#${r.employeeId}`}</TableCell>
                                     <TableCell><Badge variant="secondary" className={ACCESS_TONE[r.partsAccess]}>{r.partsAccess}</Badge></TableCell>

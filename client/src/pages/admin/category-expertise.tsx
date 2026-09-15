@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Check, Loader2, Users } from "lucide-react";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 interface TradeOption {
     id: number;
@@ -47,6 +48,7 @@ export default function CategoryExpertisePage() {
     });
 
     const categories: CategoryMapping[] = mappingResponse?.data ?? [];
+    const search = useListSearch(categories, c => [c.categoryName, ...c.technicianTypes.map(t => t.name)]);
     const trades: TradeOption[] = tradesResponse?.data ?? [];
 
     // Seed the draft from the server once loaded, so a tick is instant and the
@@ -110,7 +112,9 @@ export default function CategoryExpertisePage() {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {categories.map((c) => {
+                    <ListSearch value={search.q} onChange={search.setQ} placeholder="Category or trade name…" className="max-w-sm" />
+                    {search.active && search.filtered.length === 0 && <p className="text-sm text-[hsl(215,20%,65%)]">No category or trade matches "{search.q}".</p>}
+                    {search.filtered.map((c) => {
                         const selected = draft[c.categoryId] ?? [];
                         const dirty = isDirty(c);
                         return (

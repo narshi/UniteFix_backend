@@ -1795,6 +1795,13 @@ export const ftthPlans = pgTable("ftth_plans", {
   sortOrder: integer("sort_order").notNull().default(0),
   // Plans are SOFT-deleted only — ftth_recharges holds an FK to them.
   isActive: boolean("is_active").notNull().default(true),
+  /**
+   * Operator deleted it. Distinct from isActive=false ("hidden"): a hidden
+   * plan still shows in the operator's catalogue to be re-shown; a deleted one
+   * is gone from every list. The row stays because recharges point at it.
+   * A plan nothing points at is hard-deleted instead.
+   */
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

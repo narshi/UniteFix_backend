@@ -20,6 +20,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { FileSpreadsheet } from "lucide-react";
 import { BulkCustomerImporter } from "@/components/ftth/BulkCustomerImporter";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 interface ConnectionRow {
   id: number;
@@ -124,7 +125,8 @@ export default function OperatorCustomers() {
     onError: (e: Error) => toast({ title: "Could not update", description: e.message, variant: "destructive" }),
   });
 
-  const connections = connData?.data ?? [];
+  const search = useListSearch(connData?.data, c => [c.customerName, c.ispConnectionId, c.installationAddress, c.planName, c.speedMbps, c.status]);
+  const connections = search.filtered;
   const requests = reqData?.data ?? [];
   const recharges = rechargeData?.data ?? [];
   const unfulfilled = recharges.filter(r => r.status === "success" && !r.fulfilledAt);
@@ -233,10 +235,11 @@ export default function OperatorCustomers() {
               ))}
             </div>
           </div>
+          <ListSearch value={search.q} onChange={search.setQ} placeholder="Customer, ISP ID, address, plan…" className="mt-3 max-w-sm" />
         </CardHeader>
         <CardContent>
           {connections.length === 0 ? (
-            <p className="text-sm text-[hsl(215,20%,55%)]">No connections in this view.</p>
+            <p className="text-sm text-[hsl(215,20%,55%)]">{search.active ? `No connection matches "${search.q}".` : "No connections in this view."}</p>
           ) : (
             <ul className="space-y-2">
               {connections.map(c => {

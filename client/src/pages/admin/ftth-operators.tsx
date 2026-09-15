@@ -28,6 +28,7 @@ import { useAdminMe } from "@/lib/admin-auth";
 import { Router as RouterIcon, Check, X, Pause, Play, FileSpreadsheet } from "lucide-react";
 import { format } from "date-fns";
 import { BulkCustomerImporter } from "@/components/ftth/BulkCustomerImporter";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 type OperatorStatus = "pending_approval" | "active" | "paused" | "disabled";
 
@@ -96,8 +97,9 @@ export default function FtthOperatorsPage() {
     ledgerData?.data.find(l => l.operatorId === id)?.balance ?? 0;
 
   const operators = data?.data ?? [];
-  const pending = operators.filter((o) => o.status === "pending_approval");
-  const live = operators.filter((o) => o.status !== "pending_approval");
+  const search = useListSearch(operators, o => [o.companyName, o.legalName, o.gstin, o.contactName, o.contactEmail, o.contactPhone, o.username, o.status]);
+  const pending = search.filtered.filter((o) => o.status === "pending_approval");
+  const live = search.filtered.filter((o) => o.status !== "pending_approval");
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/admin/ftth/operators"] });
@@ -191,6 +193,7 @@ export default function FtthOperatorsPage() {
         <p className="text-[hsl(215,20%,65%)]">Loading…</p>
       ) : (
         <>
+          <ListSearch value={search.q} onChange={search.setQ} placeholder="Company, GSTIN, contact, phone, login…" className="max-w-sm" />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -202,7 +205,7 @@ export default function FtthOperatorsPage() {
             </CardHeader>
             <CardContent>
               {pending.length === 0 ? (
-                <p className="text-sm text-[hsl(215,20%,55%)]">No applications waiting.</p>
+                <p className="text-sm text-[hsl(215,20%,55%)]">{search.active ? "No application matches the search." : "No applications waiting."}</p>
               ) : (
                 <ul className="space-y-3">
                   {pending.map((row) => (
@@ -250,7 +253,7 @@ export default function FtthOperatorsPage() {
             </CardHeader>
             <CardContent>
               {live.length === 0 ? (
-                <p className="text-sm text-[hsl(215,20%,55%)]">No operators yet.</p>
+                <p className="text-sm text-[hsl(215,20%,55%)]">{search.active ? "No operator matches the search." : "No operators yet."}</p>
               ) : (
                 <ul className="space-y-3">
                   {live.map((row) => (

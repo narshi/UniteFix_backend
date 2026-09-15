@@ -35,6 +35,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAdminMe } from "@/lib/admin-auth";
 import { ShieldCheck, UserPlus, Shield, Router, Plus, Trash2, KeyRound } from "lucide-react";
 import { format } from "date-fns";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 interface CapabilityArea {
   key: string; label: string; description: string;
@@ -108,6 +109,7 @@ export default function AdminsPage() {
   const areas = capData?.data.areas ?? [];
   const roles = roleData?.data ?? [];
   const accounts = accountData?.data ?? [];
+  const accountSearch = useListSearch(accounts, r => [r.username, r.email, r.roleName, r.role, r.operatorCompany]);
   const impact = impactData?.data;
 
   const refresh = () => {
@@ -292,11 +294,16 @@ export default function AdminsPage() {
             </label>
           </CardHeader>
           <CardContent className="p-0">
+            <div className="border-b border-[rgba(255,255,255,0.05)] p-3">
+              <ListSearch value={accountSearch.q} onChange={accountSearch.setQ} placeholder="Username, email, role, operator…" className="max-w-sm" />
+            </div>
             {accountsLoading ? (
               <div className="p-8 text-center text-[hsl(215,20%,65%)]">Loading…</div>
+            ) : accountSearch.filtered.length === 0 ? (
+              <div className="p-8 text-center text-sm text-[hsl(215,20%,65%)]">{accountSearch.active ? `No account matches "${accountSearch.q}".` : "No accounts."}</div>
             ) : (
               <ul className="divide-y divide-[rgba(255,255,255,0.05)]">
-                {accounts.map(row => {
+                {accountSearch.filtered.map(row => {
                   const isMe = me?.id === row.id;
                   const archived = row.deletedAt !== null;
                   const isOperator = row.roleScope === "operator" || row.role === "operator";

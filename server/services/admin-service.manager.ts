@@ -545,6 +545,8 @@ export class AdminServiceManager {
                 isActive: employees.isActive,
                 totalServicesCompleted: employees.totalServicesCompleted,
                 averageRating: employees.averageRating,
+                partnerType: employees.partnerType,
+                partsAccess: employees.partsAccess,
                 userId: employees.userId,
                 phone: users.phone,
                 pinCode: users.pinCode,
@@ -587,6 +589,8 @@ export class AdminServiceManager {
             activeJobCount: jobCountMap.get(emp.id) || 0,
             completedJobCount: emp.totalServicesCompleted || 0,
             averageRating: emp.averageRating || '0.00',
+            partnerType: emp.partnerType || 'Individual',
+            partsEnabled: emp.partsAccess === 'active',
         }));
 
         // 2b. Attach expertise matching.

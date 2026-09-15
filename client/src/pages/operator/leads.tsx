@@ -19,6 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 interface LeadRow {
   id: number;
@@ -72,8 +73,9 @@ export default function OperatorLeads() {
     onError: (e: Error) => toast({ title: "Could not convert", description: e.message, variant: "destructive" }),
   });
 
-  const open = leads.filter(l => l.status === "new" || l.status === "contacted");
-  const done = leads.filter(l => l.status === "converted" || l.status === "closed");
+  const search = useListSearch(leads, l => [l.name, l.phone, l.address, l.pincode, l.notes, l.status]);
+  const open = search.filtered.filter(l => l.status === "new" || l.status === "contacted");
+  const done = search.filtered.filter(l => l.status === "converted" || l.status === "closed");
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -83,6 +85,7 @@ export default function OperatorLeads() {
           People asking for a new connection through the UniteFix app.
         </p>
       </header>
+      <ListSearch value={search.q} onChange={search.setQ} placeholder="Name, phone, address, pincode…" className="max-w-sm" />
 
       <Card>
         <CardHeader>

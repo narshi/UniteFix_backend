@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { MapPin, User, Star, Navigation, Search, X } from "lucide-react";
+import { MapPin, User, Star, Navigation, Search, X, SlidersHorizontal } from "lucide-react";
+import { useLocation } from "wouter";
 
 interface Partner {
   id: number;
@@ -36,6 +37,7 @@ export default function PartnerAssignmentModal({
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const { data: partnersData, isLoading } = useQuery({
     queryKey: ["/api/admin/servicemen/nearby", service?.locationLat, service?.locationLong],
@@ -198,6 +200,21 @@ export default function PartnerAssignmentModal({
             </button>
           )}
         </div>
+
+        {/* The full roster with trade / area / workload filters lives on the
+            Assignment Queue. This modal stays the quick path; the queue is
+            where a long list gets narrowed. Only bookings still awaiting
+            assignment appear there. */}
+        {service?.status === "created" && (
+          <button
+            type="button"
+            onClick={() => { onClose(); navigate(`/admin/assignments?request=${service.id}`); }}
+            className="mb-3 flex w-full items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] px-3 py-2 text-left text-xs text-[hsl(210,20%,80%)] hover:bg-[rgba(255,255,255,0.05)]"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 text-[hsl(217,91%,65%)]" />
+            Need to filter by trade, area, workload or rating? Open this booking in the Assignment Queue.
+          </button>
+        )}
 
         <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
           {isLoading ? (

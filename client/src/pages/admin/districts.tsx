@@ -20,6 +20,7 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
 interface District {
     id: number;
@@ -44,6 +45,7 @@ export default function DistrictsPage() {
     const { data: districts, isLoading } = useQuery<District[]>({
         queryKey: ["/api/admin/districts"],
     });
+    const search = useListSearch(districts, d => [d.name, d.state, d.pincodePrefix, d.isActive ? "active" : "inactive"]);
 
     const addDistrictMutation = useMutation({
         mutationFn: async (district: typeof newDistrict) => {
@@ -182,8 +184,9 @@ export default function DistrictsPage() {
             </div>
 
             <Card className="glass-card border-[rgba(255,255,255,0.08)] relative z-10 stagger-enter">
-                <CardHeader className="border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl">
                     <CardTitle className="text-xl text-white">Defined Districts</CardTitle>
+                    <ListSearch value={search.q} onChange={search.setQ} placeholder="District, state, prefix…" className="w-64" />
                 </CardHeader>
                 <CardContent className="p-0">
                     <div className="overflow-x-auto custom-scrollbar">
@@ -199,7 +202,7 @@ export default function DistrictsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {districts?.map((district) => (
+                                {search.filtered.map((district) => (
                                     <tr key={district.id} className="border-b border-[rgba(255,255,255,0.04)] transition-colors hover:bg-[rgba(255,255,255,0.03)] group">
                                         <td className="p-4">
                                             <p className="font-medium text-[hsl(210,20%,90%)]">{district.name}</p>
