@@ -10,6 +10,7 @@ import {
   // serviceProviders, // PHASE 1: DELETED — merged into employees
   walletTransactions,
   serviceablePincodes,
+  ftthOperatorPincodes,
   districts,
   // PHASE 2: New tables
   platformConfig,
@@ -87,6 +88,7 @@ import {
   Notification
 } from "@shared/schema";
 import { db } from "./db";
+import { withTransaction } from "./lib/transaction";
 import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne, isNull } from "drizzle-orm";
 import { EXCLUDE_UNPAID_DRAFTS } from "./lib/booking-visibility";
 import logger from "./lib/logger";
@@ -2064,9 +2066,45 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Only the columns of the row. The dashboard sends the row back with
+    // whatever else it was carrying (a client-side _originalPincode, a
+    // createdAt string) and none of that may reach the UPDATE.
+    const patch = {
+      ...(data.pincode !== undefined ? { pincode: String(data.pincode).trim() } : {}),
+      ...(data.area !== undefined ? { area: data.area } : {}),
+      ...(data.district !== undefined ? { district: data.district } : {}),
+      ...(data.state !== undefined ? { state: data.state } : {}),
+      ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      districtId,
+    };
+
+    const newPincode = patch.pincode;
+    if (newPincode && newPincode !== originalPincode) {
+      // The pincode is the primary key and operator coverage points at it, so
+      // an in-place UPDATE trips the foreign key. Move it: create the new row,
+      // repoint the references, drop the old one — atomically.
+      return withTransaction(async (tx) => {
+        const [dupe] = await tx.select({ pincode: serviceablePincodes.pincode }).from(serviceablePincodes)
+          .where(eq(serviceablePincodes.pincode, newPincode)).limit(1);
+        if (dupe) throw new Error(`Validation Error: Pincode ${newPincode} already exists.`);
+        const [created] = await tx.insert(serviceablePincodes).values({
+          pincode: newPincode,
+          area: patch.area ?? existing.area,
+          district: patch.district ?? existing.district,
+          districtId,
+          state: patch.state ?? existing.state,
+          isActive: patch.isActive ?? existing.isActive,
+          createdAt: existing.createdAt,
+        }).returning();
+        await tx.update(ftthOperatorPincodes).set({ pincode: newPincode }).where(eq(ftthOperatorPincodes.pincode, originalPincode));
+        await tx.delete(serviceablePincodes).where(eq(serviceablePincodes.pincode, originalPincode));
+        return created;
+      });
+    }
+
     const [result] = await db
       .update(serviceablePincodes)
-      .set({ ...data, districtId })
+      .set(patch)
       .where(eq(serviceablePincodes.pincode, originalPincode))
       .returning();
     return result || undefined;

@@ -201,6 +201,17 @@ const bulkImportCustomersSchema = z.object({
     rows: z.array(z.record(z.any())).min(1).max(10000),
 });
 
+/** One customer, typed in by the operator. Mirrors a bulk-import row. */
+const connectionUpsertSchema = z.object({
+    ispConnectionId: z.string().trim().min(1).max(80),
+    customerName: z.string().trim().min(1).max(120),
+    customerPhone: z.string().trim().max(20).optional().nullable(),
+    customerEmail: z.string().trim().email().max(120).optional().nullable().or(z.literal('')),
+    installationAddress: z.string().trim().max(500).optional().nullable(),
+    validTill: z.string().optional().nullable(),
+    currentPlanId: z.number().int().positive().optional().nullable(),
+});
+
 const initiateSchema = z.object({
     connectionId: z.number().int().positive(),
     planId: z.number().int().positive(),
@@ -1352,7 +1363,10 @@ export function registerFtthRoutes(app: Express) {
                 status: ftthConnections.status,
                 validTill: ftthConnections.validTill,
                 customerName: ftthConnections.customerName,
+                customerPhone: ftthConnections.customerPhone,
+                customerEmail: ftthConnections.customerEmail,
                 installationAddress: ftthConnections.installationAddress,
+                currentPlanId: ftthConnections.currentPlanId,
                 createdAt: ftthConnections.createdAt,
                 planName: ftthPlans.name,
                 speedMbps: ftthPlans.speedMbps,
@@ -1366,6 +1380,110 @@ export function registerFtthRoutes(app: Express) {
                 .orderBy(asc(ftthConnections.validTill));
 
             res.json({ success: true, data: rows });
+        } catch (error) { next(error); }
+    });
+
+    /**
+     * POST /api/ftth/admin/connections — add one customer by hand.
+     *
+     * The import handles a roster; this is the walk-in. Same rules: the ISP
+     * id is unique per operator, the phone is normalised to ten digits and
+     * auto-links a UniteFix login if one exists, so the customer can recharge
+     * from the app the moment they sign in.
+     */
+    app.post("/api/ftth/admin/connections", authenticateOperator, validateBody(connectionUpsertSchema),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId, adminUserId } = (req as any).operator;
+                const b = req.body as z.infer<typeof connectionUpsertSchema>;
+                const fields = await normaliseConnectionInput(b, operatorId);
+                if ('error' in fields) return res.status(400).json({ success: false, message: fields.error });
+
+                const [dupe] = await db.select({ id: ftthConnections.id }).from(ftthConnections)
+                    .where(and(eq(ftthConnections.operatorId, operatorId), eq(ftthConnections.ispConnectionId, fields.ispConnectionId))).limit(1);
+                if (dupe) return res.status(409).json({ success: false, message: `Customer ID ${fields.ispConnectionId} already exists.` });
+
+                const userId = fields.customerPhone ? await userIdByPhone(fields.customerPhone) : null;
+                const [row] = await db.insert(ftthConnections).values({
+                    operatorId, ...fields, userId, status: 'active', createdAt: new Date(), updatedAt: new Date(),
+                }).returning();
+
+                await recordAudit({ entityType: 'ftth_connection', entityId: row.id, action: 'ftth_connection_created', changedBy: adminUserId, metadata: { operatorId, ispConnectionId: row.ispConnectionId, linkedUserId: userId } });
+                res.status(201).json({
+                    success: true,
+                    message: userId ? `${row.customerName} added and linked to their UniteFix login.` : `${row.customerName} added. They will be linked when they sign in with ${fields.customerPhone || 'this number'}.`,
+                    data: row,
+                });
+            } catch (error) { next(error); }
+        });
+
+    /** PATCH /api/ftth/admin/connections/:id — edit a customer's details. */
+    app.patch("/api/ftth/admin/connections/:id", authenticateOperator, validateBody(connectionUpsertSchema.partial()),
+        async (req: Request, res: Response, next: NextFunction) => {
+            try {
+                const { operatorId, adminUserId } = (req as any).operator;
+                const id = Number(req.params.id);
+                const [conn] = await db.select().from(ftthConnections)
+                    .where(and(eq(ftthConnections.id, id), eq(ftthConnections.operatorId, operatorId))).limit(1);
+                if (!conn) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+                const b = req.body as Partial<z.infer<typeof connectionUpsertSchema>>;
+                const fields = await normaliseConnectionInput({
+                    ispConnectionId: b.ispConnectionId ?? conn.ispConnectionId ?? '',
+                    customerName: b.customerName ?? conn.customerName ?? '',
+                    customerPhone: b.customerPhone !== undefined ? b.customerPhone : conn.customerPhone,
+                    customerEmail: b.customerEmail !== undefined ? b.customerEmail : conn.customerEmail,
+                    installationAddress: b.installationAddress !== undefined ? b.installationAddress : conn.installationAddress,
+                    validTill: b.validTill !== undefined ? b.validTill : (conn.validTill ? conn.validTill.toISOString() : null),
+                    currentPlanId: b.currentPlanId !== undefined ? b.currentPlanId : conn.currentPlanId,
+                }, operatorId);
+                if ('error' in fields) return res.status(400).json({ success: false, message: fields.error });
+
+                if (fields.ispConnectionId !== conn.ispConnectionId) {
+                    const [dupe] = await db.select({ id: ftthConnections.id }).from(ftthConnections)
+                        .where(and(eq(ftthConnections.operatorId, operatorId), eq(ftthConnections.ispConnectionId, fields.ispConnectionId), ne(ftthConnections.id, id))).limit(1);
+                    if (dupe) return res.status(409).json({ success: false, message: `Customer ID ${fields.ispConnectionId} is already used by another customer.` });
+                }
+
+                // A login already linked stays linked — the phone on file is the
+                // operator's record, not the app account. An unlinked row gets a
+                // fresh chance to link on the new number.
+                const userId = conn.userId ?? (fields.customerPhone ? await userIdByPhone(fields.customerPhone) : null);
+                // Assigning an ID to a row that was waiting for one activates it.
+                const status = conn.status === 'pending_id' && fields.ispConnectionId ? 'active' : conn.status;
+
+                const [row] = await db.update(ftthConnections)
+                    .set({ ...fields, userId, status: status as any, updatedAt: new Date() })
+                    .where(eq(ftthConnections.id, id)).returning();
+                await recordAudit({ entityType: 'ftth_connection', entityId: id, action: 'ftth_connection_updated', changedBy: adminUserId, metadata: { operatorId, changed: Object.keys(b) } });
+                res.json({ success: true, message: 'Customer updated.', data: row });
+            } catch (error) { next(error); }
+        });
+
+    /**
+     * DELETE /api/ftth/admin/connections/:id
+     *
+     * A customer with recharge history is closed, not erased — the recharges
+     * are money records. One with no history is removed outright.
+     */
+    app.delete("/api/ftth/admin/connections/:id", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const { operatorId, adminUserId } = (req as any).operator;
+            const id = Number(req.params.id);
+            const [conn] = await db.select().from(ftthConnections)
+                .where(and(eq(ftthConnections.id, id), eq(ftthConnections.operatorId, operatorId))).limit(1);
+            if (!conn) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+            const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(ftthRecharges).where(eq(ftthRecharges.connectionId, id));
+            if (n > 0) {
+                await db.update(ftthConnections).set({ status: 'closed', updatedAt: new Date() }).where(eq(ftthConnections.id, id));
+                await recordAudit({ entityType: 'ftth_connection', entityId: id, action: 'ftth_connection_closed', fromState: conn.status, toState: 'closed', changedBy: adminUserId, metadata: { operatorId, recharges: n } });
+                return res.json({ success: true, message: `${conn.customerName ?? conn.ispConnectionId} closed. ${n} past recharge${n === 1 ? '' : 's'} stay on record.`, data: { closed: true } });
+            }
+            await db.update(ftthIdRequests).set({ connectionId: null }).where(eq(ftthIdRequests.connectionId, id));
+            await db.delete(ftthConnections).where(eq(ftthConnections.id, id));
+            await recordAudit({ entityType: 'ftth_connection', entityId: id, action: 'ftth_connection_deleted', changedBy: adminUserId, metadata: { operatorId, ispConnectionId: conn.ispConnectionId } });
+            res.json({ success: true, message: `${conn.customerName ?? conn.ispConnectionId} removed.`, data: { closed: false } });
         } catch (error) { next(error); }
     });
 
@@ -2853,6 +2971,50 @@ async function activeOperator(operatorId: number) {
         .where(eq(ftthOperators.id, operatorId))
         .limit(1);
     return row && row.status === 'active' ? row : null;
+}
+
+/** Ten-digit Indian mobile, or null. Same rule as the bulk importer. */
+function tenDigits(raw: string | null | undefined): string | null {
+    const clean = String(raw ?? '').replace(/\D/g, '').slice(-10);
+    return clean.length === 10 ? clean : null;
+}
+
+/** The UniteFix login for a phone, if one exists. */
+async function userIdByPhone(tenDigit: string): Promise<number | null> {
+    const [u] = await db.select({ id: users.id }).from(users)
+        .where(and(sql`right(regexp_replace(coalesce(${users.phone}, ''), '\\D', '', 'g'), 10) = ${tenDigit}`, isNull(users.deletedAt))).limit(1);
+    return u?.id ?? null;
+}
+
+/** Trim, normalise and check one hand-entered customer. */
+async function normaliseConnectionInput(
+    b: { ispConnectionId: string; customerName: string; customerPhone?: string | null; customerEmail?: string | null; installationAddress?: string | null; validTill?: string | null; currentPlanId?: number | null },
+    operatorId: number,
+) {
+    const ispConnectionId = String(b.ispConnectionId ?? '').trim();
+    const customerName = String(b.customerName ?? '').trim();
+    if (!ispConnectionId) return { error: 'Customer ID (from your own system) is required.' } as const;
+    if (!customerName) return { error: 'Customer name is required.' } as const;
+    const customerPhone = b.customerPhone ? tenDigits(b.customerPhone) : null;
+    if (b.customerPhone && !customerPhone) return { error: 'Phone must be a 10-digit mobile number.' } as const;
+    let validTill: Date | null = null;
+    if (b.validTill) {
+        const d = new Date(b.validTill);
+        if (isNaN(d.getTime())) return { error: 'Valid-till is not a date.' } as const;
+        validTill = d;
+    }
+    let currentPlanId: number | null = null;
+    if (b.currentPlanId) {
+        const plan = await operatorPlan(b.currentPlanId, operatorId);
+        if (!plan) return { error: 'That plan is not in your catalogue.' } as const;
+        currentPlanId = plan.id;
+    }
+    return {
+        ispConnectionId, customerName, customerPhone,
+        customerEmail: b.customerEmail ? String(b.customerEmail).trim().toLowerCase() : null,
+        installationAddress: b.installationAddress ? String(b.installationAddress).trim() : null,
+        validTill, currentPlanId,
+    };
 }
 
 /** A plan, only if it belongs to this operator. The ownership check, in one place. */

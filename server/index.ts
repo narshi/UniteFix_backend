@@ -180,6 +180,26 @@ app.use((req, res, next) => {
 
   // Global JSON Error Handler — ALWAYS returns JSON, never HTML
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    // Expected failures that reached here through a bare next(error) are
+    // still the caller's problem, not the server's: a body that failed
+    // validation, a duplicate key, a row something else still points at.
+    // Reporting them as "500 Internal Server Error" in production hid the
+    // reason from the person who could fix it (an admin editing a pincode
+    // saw "500" for a validation message).
+    if (err?.name === 'ZodError' && Array.isArray(err.issues)) {
+      const detail = err.issues.map((i: any) => `${i.path?.join('.') || 'body'}: ${i.message}`).join('; ');
+      return res.status(400).json({ success: false, message: `Invalid input — ${detail}`, issues: err.issues });
+    }
+    if (err?.code === '23505') {
+      return res.status(409).json({ success: false, message: 'That value already exists.' + (err.detail ? ` ${String(err.detail).replace(/^Key /, '')}` : '') });
+    }
+    if (err?.code === '23503') {
+      return res.status(409).json({ success: false, message: 'Other records still refer to this one; change or remove those first.' + (err.detail ? ` ${err.detail}` : '') });
+    }
+    if (typeof err?.message === 'string' && /^Validation Error:/i.test(err.message)) {
+      return res.status(400).json({ success: false, message: err.message.replace(/^Validation Error:\s*/i, '') });
+    }
+
     logger.error('Unhandled error', {
       message: err.message,
       stack: isProduction ? undefined : err.stack,
