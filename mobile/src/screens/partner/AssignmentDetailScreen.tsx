@@ -48,6 +48,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, ScreenHeader } from '../../components/ui';
+import { callCustomer, canCallCustomer } from '../../utils/callCustomer';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
@@ -401,6 +402,21 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 <Text style={styles.phoneText}>{assignment.customerPhone}</Text>
                             </View>
                         </View>
+                        {/* Once the job is theirs, ringing the customer — running
+                            late, can't find the gate, need the model number — is
+                            one tap into the dialer. Hidden on finished jobs. */}
+                        {canCallCustomer(assignment.status, assignment.customerPhone) && (
+                            <TouchableOpacity
+                                style={styles.callBtn}
+                                onPress={() => callCustomer(assignment.customerPhone, assignment.customerName)}
+                                activeOpacity={0.8}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Call ${assignment.customerName ?? 'customer'}`}
+                            >
+                                <Phone size={16} color={colors.textInverse} />
+                                <Text style={styles.callBtnText}>Call</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 
@@ -744,6 +760,8 @@ const styles = StyleSheet.create({
     customerName: { ...typography.bodyMedium, color: colors.textPrimary },
     phoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
     phoneText: { ...typography.caption, color: colors.textSecondary },
+    callBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.success, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.full },
+    callBtnText: { ...typography.bodySemibold, color: colors.textInverse },
     actionsCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.lg, ...shadows.md },
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     acceptBtn: { flex: 1 },

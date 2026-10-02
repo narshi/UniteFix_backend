@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell, AlertTriangle } from 'lucide-react-native';
+import { MapPin, Calendar, ChevronRight, Inbox, WifiOff, Bell, AlertTriangle, Phone } from 'lucide-react-native';
+import { callCustomer, canCallCustomer } from '../../utils/callCustomer';
 import { useAssignments } from '../../hooks/usePartnerData';
 import { useProfile, useUnreadNotificationCount } from '../../hooks/useCustomerData';
 import { useServiceability } from '../../hooks/useServiceability';
@@ -72,7 +73,21 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
                     <Calendar size={13} color={colors.textSecondary} />
                     <Text style={styles.infoText}>{date}</Text>
                 </View>
-                <ChevronRight size={18} color={colors.textSecondary} />
+                <View style={styles.footerActions}>
+                    {canCallCustomer(item.status, item.customerPhone) && (
+                        <TouchableOpacity
+                            style={styles.callChip}
+                            onPress={() => callCustomer(item.customerPhone, item.customerName)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Call ${item.customerName ?? 'customer'}`}
+                        >
+                            <Phone size={14} color={colors.success} />
+                            <Text style={styles.callChipText}>Call</Text>
+                        </TouchableOpacity>
+                    )}
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </View>
             </View>
         </TouchableOpacity>
     );
@@ -271,6 +286,9 @@ const styles = StyleSheet.create({
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
     infoText: { ...typography.small, color: colors.textSecondary, flex: 1 },
     cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
+    footerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    callChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radii.full, borderWidth: 1, borderColor: colors.success },
+    callChipText: { ...typography.captionMedium, color: colors.success },
 
     // Mirrors the customer home banner so the two apps read as one product.
     unserviceableCard: {
