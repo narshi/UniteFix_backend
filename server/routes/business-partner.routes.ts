@@ -7,6 +7,7 @@
  * Everything partner-facing here lives under /api/b2b.
  */
 
+import { PartnerHubService } from '../services/partner-hub.service';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
@@ -265,9 +266,12 @@ export function registerBusinessPartnerRoutes(app: Express) {
                     paymentTermsDays: body.paymentTermsDays,
                 });
                 if (!updated) return res.status(404).json({ success: false, message: 'Business partner not found' });
+                // Partner Hub: switch the owner login on; a broadband partner gets
+                // the FTTH operator its Broadband module runs on.
+                const hub = await PartnerHubService.afterApproval(id, admin.userId);
                 await recordAudit({
                     entityType: 'business_partner', entityId: id, action: 'business_partner_approved',
-                    changedBy: admin.userId, metadata: body,
+                    changedBy: admin.userId, metadata: { ...body, ftthOperatorId: hub?.ftthOperatorId ?? null },
                 });
                 res.json({ success: true, message: `${updated.partnerCode} is now active.`, data: await view(updated) });
             } catch (error: any) {

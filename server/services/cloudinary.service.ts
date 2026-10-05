@@ -130,3 +130,36 @@ export async function deleteImage(publicId: string): Promise<void> {
     logger.error('[CLOUDINARY] Delete failed', { publicId, error: error.message });
   }
 }
+
+/**
+ * Upload a document — a PDF or an image — such as a GST certificate or a
+ * cancelled cheque. `resource_type: 'auto'` keeps PDFs as PDFs; the image
+ * helper above would try to transcode them.
+ */
+export async function uploadDocumentBuffer(
+  buffer: Buffer,
+  folder: string,
+  mimeType: string,
+): Promise<UploadResult> {
+  const isConfigured = ensureInitialized();
+  if (!isConfigured) {
+    logger.info('[CLOUDINARY] Dev mode — returning document as data URI');
+    return { url: `data:${mimeType || 'application/octet-stream'};base64,${buffer.toString('base64')}`, publicId: `dev_${Date.now()}` };
+  }
+  return new Promise<UploadResult>((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      // PDFs as 'raw': Cloudinary blocks delivery of image-type PDFs by default,
+      // which would leave an uploaded certificate unviewable by the reviewer.
+      { folder: `unitefix/${folder}`, resource_type: mimeType === 'application/pdf' ? 'raw' : 'image' },
+      (error, result: UploadApiResponse | undefined) => {
+        if (error) {
+          logger.error('[CLOUDINARY] Document upload failed', { error: error.message, folder });
+          return reject(new Error(`Document upload failed: ${error.message}`));
+        }
+        if (!result) return reject(new Error('Document upload returned no result'));
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      },
+    );
+    stream.end(buffer);
+  });
+}

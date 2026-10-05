@@ -146,7 +146,12 @@ export const SYSTEM_ROLES = {
     SUPER_ADMIN: 'super_admin',
     ADMIN: 'admin',
     FTTH_OPERATOR: 'operator',
+    /** A Partner Hub login (any business partner, any team role). Operator-scoped: never staff. */
+    PARTNER: 'partner',
 } as const;
+
+/** Slugs that are partner-facing logins, never staff, whatever their role row says. */
+export const PARTNER_SCOPED_SLUGS: string[] = [SYSTEM_ROLES.FTTH_OPERATOR, SYSTEM_ROLES.PARTNER];
 
 export function isSystemRole(slug: string): boolean {
     return (Object.values(SYSTEM_ROLES) as string[]).includes(slug);

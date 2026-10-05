@@ -135,6 +135,10 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
               Password: <span className="text-white">admin123</span>
             </p>
           </div>
+          <p className="mt-5 text-center text-sm text-[hsl(215,20%,60%)]">
+            Run a business and want to work with UniteFix?{" "}
+            <a href="/apply" className="text-[hsl(217,91%,70%)] underline underline-offset-4 hover:text-white">Apply to become a partner</a>
+          </p>
         </CardContent>
       </Card>
     </div>

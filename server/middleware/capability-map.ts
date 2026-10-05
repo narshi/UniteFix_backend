@@ -61,6 +61,7 @@ const RULES: Rule[] = [
 
     // --- Growth -----------------------------------------------------------
     { test: /^\/business-partners(\/|$)/, area: 'partners' },
+    { test: /^\/hub(\/|$)/, area: 'partners' },
     { test: /^\/b2b-orders(\/|$)/, area: 'orders' },
     { test: /^\/ftth(\/|$)/, area: 'ftth' },
     { test: /^\/notifications(\/|$)/, area: 'marketing' },

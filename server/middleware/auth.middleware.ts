@@ -20,6 +20,7 @@ import {
     CAPABILITY_AREA_BY_KEY,
     DEFAULT_ADMIN_CAPABILITIES,
     OPERATOR_CAPABILITIES,
+    PARTNER_SCOPED_SLUGS,
 } from '@shared/capabilities';
 import logger from '../lib/logger';
 
@@ -243,7 +244,8 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
     }
 
     // The token's role claim is only a cheap pre-filter — the ROW decides.
-    if (decoded.role === 'operator') {
+    // Partner Hub logins ('partner') are refused here exactly like operators.
+    if (decoded.role === 'operator' || decoded.role === 'partner') {
         return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
@@ -355,9 +357,11 @@ export async function resolveAdminIdentity(userId: number): Promise<AdminIdentit
     if (!row) return null;
 
     const slug = row.roleSlug ?? row.legacyRole;
-    const scope: 'staff' | 'operator' =
-        (row.roleScope as 'staff' | 'operator' | null)
-        ?? (slug === SYSTEM_ROLES.FTTH_OPERATOR ? 'operator' : 'staff');
+    // A partner-facing slug is operator-scoped even with no role row — a
+    // 'partner' login falling back to 'staff' would reach staff routes.
+    const scope: 'staff' | 'operator' = PARTNER_SCOPED_SLUGS.includes(slug)
+        ? 'operator'
+        : ((row.roleScope as 'staff' | 'operator' | null) ?? 'staff');
 
     let capabilities: Set<string>;
     if (slug === SYSTEM_ROLES.SUPER_ADMIN) {
@@ -472,7 +476,7 @@ export function authenticateOperator(req: Request, res: Response, next: NextFunc
         return res.status(403).json({ success: false, message: 'Invalid or expired token' });
     }
 
-    if (decoded.role !== 'operator') {
+    if (decoded.role !== 'operator' && decoded.role !== 'partner') {
         return res.status(403).json({ success: false, message: 'Operator access required' });
     }
 
@@ -492,12 +496,20 @@ export function authenticateOperator(req: Request, res: Response, next: NextFunc
         .leftJoin(ftthOperators, eq(ftthOperators.adminUserId, adminUsers.id))
         .where(eq(adminUsers.id, decoded.userId))
         .limit(1)
-        .then(([row]) => {
+        .then(async ([row]) => {
             if (!row) {
                 logger.warn('[AUTH] Operator token rejected — no matching account', {
                     claimedUserId: decoded.userId,
                 });
                 return res.status(403).json({ success: false, message: 'Operator access required' });
+            }
+
+            // Partner Hub: a team member (or a self-applied ISP owner) has no
+            // ftth_operators row of their own — their business does. Resolve the
+            // operator through partner_users → business partner.
+            if (!row.operatorId) {
+                const viaHub = await operatorViaPartnerMembership(row.adminId);
+                if (viaHub) Object.assign(row, viaHub);
             }
 
             if (row.deletedAt) {
@@ -507,7 +519,7 @@ export function authenticateOperator(req: Request, res: Response, next: NextFunc
             // Row wins over claim, same as the admin middleware. Scope is the
             // authority once a role row exists; the slug is the fallback for an
             // install part-way through the migration.
-            const scope = row.roleScope ?? (row.role === SYSTEM_ROLES.FTTH_OPERATOR ? 'operator' : 'staff');
+            const scope = PARTNER_SCOPED_SLUGS.includes(row.role) ? 'operator' : (row.roleScope ?? 'staff');
             if (scope !== 'operator') {
                 logger.warn('[AUTH] Operator token rejected — role is not operator-scoped', {
                     adminId: row.adminId, role: row.role,
@@ -600,7 +612,7 @@ export function authenticateBusinessPartner(req: Request, res: Response, next: N
         return res.status(403).json({ success: false, message: 'Invalid or expired token' });
     }
 
-    const viaPortal = decoded.role === 'operator';
+    const viaPortal = decoded.role === 'operator' || decoded.role === 'partner';
     const viaMobile = decoded.role === 'business_partner';
     if (!viaPortal && !viaMobile) {
         return res.status(403).json({ success: false, message: 'Business partner access required' });
@@ -608,8 +620,11 @@ export function authenticateBusinessPartner(req: Request, res: Response, next: N
 
     import('../services/business-partner.service')
         .then(async ({ BusinessPartnerService }) => {
+            // Portal door: resolve through Hub team membership, so every team
+            // member acts for the business (not only the owner login).
             const bp = viaPortal
-                ? await BusinessPartnerService.byAdminUserId(decoded.userId)
+                ? (await (await import('../services/partner-hub.service')).PartnerHubService.resolve(decoded.userId))?.bp
+                    ?? await BusinessPartnerService.byAdminUserId(decoded.userId)
                 : await BusinessPartnerService.byUserId(decoded.userId);
 
             if (!bp) {
@@ -893,3 +908,18 @@ export function authenticateAny(req: Request, res: Response, next: NextFunction)
     next();
 }
 
+
+/**
+ * The FTTH operator a Hub login acts for, when the login itself is not the
+ * operator's owner account: an active partner_users membership whose
+ * business partner is linked to an ftth_operators row.
+ */
+async function operatorViaPartnerMembership(adminUserId: number): Promise<{ operatorId: number; companyName: string; operatorStatus: string } | null> {
+    const { partnerUsers } = await import('@shared/schema');
+    const [m] = await db.select({ bpId: partnerUsers.businessPartnerId, status: partnerUsers.status })
+        .from(partnerUsers).where(eq(partnerUsers.adminUserId, adminUserId)).limit(1);
+    if (!m || m.status !== 'active') return null;
+    const [op] = await db.select({ id: ftthOperators.id, companyName: ftthOperators.companyName, status: ftthOperators.status })
+        .from(ftthOperators).where(eq(ftthOperators.businessPartnerId, m.bpId)).limit(1);
+    return op ? { operatorId: op.id, companyName: op.companyName, operatorStatus: op.status } : null;
+}

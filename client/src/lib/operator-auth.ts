@@ -16,7 +16,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-export type DashboardRole = "admin" | "super_admin" | "operator" | null;
+export type DashboardRole = "admin" | "super_admin" | "operator" | "partner" | null;
 
 export interface OperatorMe {
   id: number;
@@ -42,7 +42,7 @@ export function getDashboardRole(): DashboardRole {
   try {
     const payload = JSON.parse(atob(token.split(".")[1]));
     const role = payload?.role;
-    return role === "admin" || role === "super_admin" || role === "operator" ? role : null;
+    return role === "admin" || role === "super_admin" || role === "operator" || role === "partner" ? role : null;
   } catch {
     return null;
   }

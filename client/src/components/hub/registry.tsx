@@ -1,0 +1,56 @@
+/**
+ * Partner Hub navigation and routes — one registry.
+ *
+ * Each entry names the module it belongs to and the permission it needs. The
+ * shell shows an entry only when the business has the module and the person
+ * has the permission; `pending: true` entries are also open while an
+ * application is under review. Later phases add their pages here.
+ */
+
+import type { ComponentType } from "react";
+import type { HubModule, HubPermission } from "@shared/hub";
+
+import HubHome from "@/pages/hub/home";
+import HubOnboarding from "@/pages/hub/onboarding";
+import HubTeam from "@/pages/hub/team";
+import HubSettings from "@/pages/hub/settings";
+import HubDocuments from "@/pages/hub/documents";
+import OperatorPlans from "@/pages/operator/plans";
+import OperatorAddons from "@/pages/operator/addons";
+import OperatorCoverage from "@/pages/operator/coverage";
+import OperatorCustomers from "@/pages/operator/customers";
+import OperatorLeads from "@/pages/operator/leads";
+import OperatorSettlements from "@/pages/operator/settlements";
+import OperatorOverview from "@/pages/operator/overview";
+
+export interface HubEntry {
+  path: string;
+  /** Older URLs that land on the same page (bookmarks from the operator portal). */
+  aliases?: string[];
+  component: ComponentType<any>;
+  module: HubModule;
+  perm?: HubPermission;
+  /** Reachable while the application is under review. */
+  pending?: boolean;
+  nav?: { group: string; label: string; icon: string };
+}
+
+export const HUB_GROUP_ORDER = ["Home", "Broadband", "Field service", "Consulting", "Events", "Store", "Parts", "Customers", "Sales", "Purchases", "Money", "GST desk", "Business"];
+
+export const HUB_ENTRIES: HubEntry[] = [
+  { path: "/partner", aliases: ["/", "/operator"], component: HubHome, module: "home", pending: true, nav: { group: "Home", label: "Overview", icon: "dashboard" } },
+  { path: "/partner/onboarding", component: HubOnboarding, module: "onboarding", pending: true, nav: { group: "Business", label: "Onboarding & KYC", icon: "verified_user" } },
+
+  // Broadband — the operator portal's pages, moved inside the Hub.
+  { path: "/partner/broadband", component: OperatorOverview, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Broadband overview", icon: "router" } },
+  { path: "/partner/broadband/plans", aliases: ["/operator/plans"], component: OperatorPlans, module: "broadband", perm: "ops:manage", nav: { group: "Broadband", label: "Plans", icon: "speed" } },
+  { path: "/partner/broadband/addons", aliases: ["/operator/addons"], component: OperatorAddons, module: "broadband", perm: "ops:manage", nav: { group: "Broadband", label: "Add-ons", icon: "add_circle" } },
+  { path: "/partner/broadband/coverage", aliases: ["/operator/coverage"], component: OperatorCoverage, module: "broadband", perm: "ops:manage", nav: { group: "Broadband", label: "Coverage", icon: "map" } },
+  { path: "/partner/broadband/subscribers", aliases: ["/operator/customers"], component: OperatorCustomers, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Subscribers", icon: "people" } },
+  { path: "/partner/broadband/leads", aliases: ["/operator/leads"], component: OperatorLeads, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Leads", icon: "person_add" } },
+  { path: "/partner/broadband/settlements", aliases: ["/operator/settlements"], component: OperatorSettlements, module: "broadband", perm: "money:view", nav: { group: "Broadband", label: "Recharge settlements", icon: "account_balance" } },
+
+  { path: "/partner/team", component: HubTeam, module: "team", nav: { group: "Business", label: "Team", icon: "group" } },
+  { path: "/partner/documents", component: HubDocuments, module: "docs", pending: true, nav: { group: "Business", label: "Documents", icon: "folder" } },
+  { path: "/partner/settings", component: HubSettings, module: "home", pending: true, nav: { group: "Business", label: "Business profile", icon: "store" } },
+];

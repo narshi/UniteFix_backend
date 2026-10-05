@@ -2,12 +2,19 @@ import rateLimit from "express-rate-limit";
 import { RATE_LIMIT_CONFIG } from "../config/rate-limit-config";
 
 // Create rate limiters based on config
+/**
+ * Local smoke suites log in many times a minute. RATE_LIMIT_DISABLED=1 lifts
+ * the limits — never in production, whatever the variable says.
+ */
+const skipInLocalTests = () => process.env.RATE_LIMIT_DISABLED === '1' && process.env.NODE_ENV !== 'production';
+
 export const authLimiter = rateLimit({
     windowMs: RATE_LIMIT_CONFIG.auth.windowMs,
     max: RATE_LIMIT_CONFIG.auth.max,
     message: { success: false, message: RATE_LIMIT_CONFIG.auth.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 /**
@@ -22,6 +29,7 @@ export const identityLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.identity.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 /**
@@ -35,6 +43,7 @@ export const sessionLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.session.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 export const mobileLimiter = rateLimit({
@@ -43,6 +52,7 @@ export const mobileLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.mobileApi.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 export const partnerLimiter = rateLimit({
@@ -51,6 +61,7 @@ export const partnerLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.partnerApi.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 export const adminLimiter = rateLimit({
@@ -59,6 +70,7 @@ export const adminLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.adminApi.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 /**
@@ -71,6 +83,7 @@ export const operatorApplyLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.operatorApply.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });
 
 export const publicLimiter = rateLimit({
@@ -79,4 +92,5 @@ export const publicLimiter = rateLimit({
     message: { success: false, message: RATE_LIMIT_CONFIG.public.message },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: skipInLocalTests,
 });

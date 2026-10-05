@@ -36,7 +36,8 @@ import SparePartsPage from "@/pages/admin/spare-parts";
 import BusinessPartnersPage from "@/pages/admin/business-partners";
 import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
-import OperatorLayout from "@/layouts/OperatorLayout";
+import PartnerHubLayout from "@/layouts/PartnerHubLayout";
+import PartnerApplyPage from "@/pages/partner-apply";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
 
@@ -212,6 +213,12 @@ function Router() {
     );
   }
 
+  // The partner application form is public — a business applies before it
+  // has any login.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/apply")) {
+    return <PartnerApplyPage />;
+  }
+
   if (!isAuthenticated) {
     return <AdminLogin onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
@@ -222,8 +229,9 @@ function Router() {
   // from the signed token, not the client-writable `adminUser` blob; either way
   // the server is the real boundary, since authenticateAdmin rejects an
   // operator token on every /api/admin/* route.
-  if (getDashboardRole() === "operator") {
-    return <OperatorLayout />;
+  // Every partner — broadband operators included — gets the Partner Hub.
+  if (getDashboardRole() === "operator" || getDashboardRole() === "partner") {
+    return <PartnerHubLayout />;
   }
 
   return (

@@ -15,6 +15,9 @@ function isDashboardCall(url: string): boolean {
         // the assignment modal and the parts pickers. Without the token every
         // picker showed an empty list with no error.
         || url.includes("/api/business/")
+        // Partner Hub and the B2B parts store, signed in with a Hub login.
+        || url.includes("/api/hub/")
+        || url.includes("/api/b2b/")
         || url.includes("/api/service-partners");
 }
 

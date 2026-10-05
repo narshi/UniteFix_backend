@@ -2322,6 +2322,23 @@ export const businessPartners = pgTable("business_partners", {
   upiId: text("upi_id"),
   cashfreeBeneId: text("cashfree_bene_id"),
 
+  // ── Partner Hub: KYC, tax identity, plan (see shared/hub.ts) ──
+  stateCode: text("state_code"),                   // from the GSTIN; decides CGST+SGST vs IGST
+  stateName: text("state_name"),
+  gstinStatus: text("gstin_status").notNull().default('unchecked'),   // unchecked | format_ok | invalid | verified
+  gstinCheckedAt: timestamp("gstin_checked_at"),
+  panStatus: text("pan_status").notNull().default('unchecked'),       // unchecked | format_ok | invalid | mismatch
+  bankStatus: text("bank_status").notNull().default('unverified'),    // unverified | pending | verified | failed
+  bankVerifiedAt: timestamp("bank_verified_at"),
+  bankVerificationRef: text("bank_verification_ref"),
+  bankHolderNameAtBank: text("bank_holder_name_at_bank"),
+  hubPlan: text("hub_plan").notNull().default('starter'),            // starter | pro
+  hubPlanSince: timestamp("hub_plan_since"),
+  aatoAbove5cr: boolean("aato_above_5cr").notNull().default(false),   // e-invoicing (IRN) applies
+  appliedVia: text("applied_via"),                                     // self | admin | ftth
+  coveragePincodes: text("coverage_pincodes").array(),
+  submittedAt: timestamp("submitted_at"),                              // application complete (docs + agreement)
+
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
   rejectionReason: text("rejection_reason"),
@@ -2643,3 +2660,59 @@ export type B2bOrderItem = typeof b2bOrderItems.$inferSelect;
 export type B2bOrderEvent = typeof b2bOrderEvents.$inferSelect;
 export type BusinessPartnerLedgerEntry = typeof businessPartnerLedger.$inferSelect;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 1) — modules, team, documents, agreements
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Admin overrides on top of what the partner's verticals switch on. */
+export const partnerModules = pgTable("partner_modules", {
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  module: text("module").notNull(),
+  enabled: boolean("enabled").notNull(),
+  setByAdminId: integer("set_by_admin_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({ pk: primaryKey({ columns: [table.businessPartnerId, table.module] }) }));
+
+/** People who sign in to a partner's Hub. Each is an admin_users login with role 'partner' (or the legacy 'operator'). */
+export const partnerUsers = pgTable("partner_users", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  adminUserId: integer("admin_user_id").notNull().unique().references(() => adminUsers.id),
+  role: text("role").notNull(),                       // owner | manager | accountant | dispatcher | technician
+  status: text("status").notNull().default('active'), // active | revoked
+  displayName: text("display_name"),
+  phone: text("phone"),
+  invitedByAdminUserId: integer("invited_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({ bpIdx: index("partner_users_bp_idx").on(table.businessPartnerId) }));
+
+export const partnerDocuments = pgTable("partner_documents", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  docType: text("doc_type").notNull(),
+  fileUrl: text("file_url").notNull(),
+  fileName: text("file_name"),
+  mimeType: text("mime_type"),
+  expiresAt: text("expires_at"),                      // DATE, kept as text yyyy-mm-dd
+  status: text("status").notNull().default('uploaded'), // uploaded | verified | rejected | superseded
+  reviewNote: text("review_note"),
+  reviewedByAdminId: integer("reviewed_by_admin_id"),
+  reviewedAt: timestamp("reviewed_at"),
+  uploadedByAdminUserId: integer("uploaded_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({ bpTypeIdx: index("partner_documents_bp_type_idx").on(table.businessPartnerId, table.docType) }));
+
+export const partnerAgreements = pgTable("partner_agreements", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  agreementCode: text("agreement_code").notNull(),
+  version: text("version").notNull(),
+  acceptedByAdminUserId: integer("accepted_by_admin_user_id"),
+  acceptedAt: timestamp("accepted_at").defaultNow(),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+}, (table) => ({ uq: uniqueIndex("partner_agreements_bp_code_version_key").on(table.businessPartnerId, table.agreementCode, table.version) }));
+
+export type PartnerUser = typeof partnerUsers.$inferSelect;
+export type PartnerDocument = typeof partnerDocuments.$inferSelect;

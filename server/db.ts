@@ -2,6 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "@shared/schema";
+import { runHubMigrations } from "./lib/hub-migrations";
 
 const { Pool } = pg;
 
@@ -626,6 +627,9 @@ export async function runStartupMigrations(): Promise<void> {
   } catch (err: any) {
     console.error('[DB] Startup migration error:', err.message);
   } finally {
+    // Partner Hub DDL runs even when a core statement above failed — each of
+    // its blocks is independent and logs its own failure.
+    try { await runHubMigrations(client); } catch (e: any) { console.error('[DB] Hub migrations crashed:', e?.message); }
     client.release();
   }
 }

@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import HubAdminPanel from "@/components/admin/HubAdminPanel";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { Building2, Plus, Search, Smartphone, Globe } from "lucide-react";
@@ -204,7 +205,7 @@ export default function BusinessPartnersPage() {
                                 <DialogDescription>{bp.legalName}{bp.gstin && ` · GSTIN ${bp.gstin}`} · {bp.contactPhone}{bp.contactEmail && ` · ${bp.contactEmail}`}</DialogDescription>
                             </DialogHeader>
                             <Tabs defaultValue="account">
-                                <TabsList><TabsTrigger value="account">Account</TabsTrigger><TabsTrigger value="ledger">Transactions</TabsTrigger></TabsList>
+                                <TabsList><TabsTrigger value="account">Account</TabsTrigger><TabsTrigger value="hub">Hub &amp; KYC</TabsTrigger><TabsTrigger value="ledger">Transactions</TabsTrigger></TabsList>
 
                                 <TabsContent value="account" className="space-y-4">
                                     <div className="grid grid-cols-2 gap-3 text-sm">
@@ -247,6 +248,8 @@ export default function BusinessPartnersPage() {
                                         {(bp.status === "active" || bp.status === "paused") && <Button size="sm" variant="ghost" onClick={() => act.mutate({ path: "/status", method: "PATCH", body: { status: "disabled", reason: "Disabled by admin" } })}>Disable</Button>}
                                     </div>
                                 </TabsContent>
+
+                                <TabsContent value="hub"><HubAdminPanel partnerId={bp.id} /></TabsContent>
 
                                 <TabsContent value="ledger" className="space-y-4">
                                     <div className="grid grid-cols-2 gap-3 text-sm">
