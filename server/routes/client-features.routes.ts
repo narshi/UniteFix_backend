@@ -19,7 +19,7 @@ import { eq, and, desc, sql, avg, count, isNull, isNotNull } from "drizzle-orm";
 import {
     ratings, serviceRequests, employees, users, customers,
     partnerWallets, walletTransactionsV2, invoices,
-    supportTickets, ticketMessages, withdrawalRequests,
+    supportTickets, ticketMessages, withdrawalRequests, serviceCategories,
 } from "@shared/schema";
 import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
@@ -28,6 +28,7 @@ import { PaymentService } from "../services/payment.service";
 import logger from "../lib/logger";
 import { getUserProductOrders, getProductOrder } from "../repositories/order.repository";
 import { storage } from "../storage";
+import { BillingEngine } from "../services/billing-engine";
 import { getPendingOnboardingSteps } from "../lib/onboarding";
 // Use the shared singleton. A local `new ConfigService()` here carried its own
 // 5-minute cache, so /api/config/public and BillingEngine could disagree about
@@ -56,7 +57,10 @@ export function registerClientFeatureRoutes(app: Express) {
     app.get('/api/services/home', async (req: Request, res: Response, next: NextFunction) => {
         try {
             const services = await storage.getHomeVisibleServices();
-            res.json({ success: true, data: services });
+            // The fee the customer will pay to book, so the app quotes what
+            // the server charges. Old builds ignore the field.
+            const fees = await categoryFeeMap();
+            res.json({ success: true, data: services.map(s => ({ ...s, bookingFee: fees.feeFor(s.categoryId) })) });
         } catch (error) {
             next(error);
         }
@@ -69,7 +73,15 @@ export function registerClientFeatureRoutes(app: Express) {
     app.get('/api/services/categories', async (req: Request, res: Response, next: NextFunction) => {
         try {
             const categories = await storage.getAllServiceCategoriesWithServices();
-            res.json({ success: true, data: categories });
+            const fees = await categoryFeeMap();
+            res.json({
+                success: true,
+                data: categories.map(c => ({
+                    ...c,
+                    bookingFee: fees.feeFor(c.id),
+                    items: c.items.map(i => ({ ...i, bookingFee: fees.feeFor(i.categoryId) })),
+                })),
+            });
         } catch (error) {
             next(error);
         }
@@ -1513,4 +1525,17 @@ export function registerClientFeatureRoutes(app: Express) {
             next(error);
         }
     });
+}
+
+/** Category id → booking fee, with the platform default for categories that set none. One read per request. */
+async function categoryFeeMap() {
+    const fallback = await BillingEngine.defaultBookingFee();
+    const rows = await db.select({ id: serviceCategories.id, fee: serviceCategories.bookingFee }).from(serviceCategories);
+    const map = new Map(rows.map(r => [r.id, r.fee]));
+    return {
+        feeFor: (categoryId: number | null | undefined) => {
+            const f = categoryId ? map.get(categoryId) : null;
+            return f !== null && f !== undefined ? Math.max(0, Math.round(Number(f))) : fallback;
+        },
+    };
 }

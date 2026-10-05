@@ -346,6 +346,14 @@ export const serviceCategories = pgTable("service_categories", {
   icon: text("icon"),
   sortOrder: integer("sort_order").default(0),
   isActive: boolean("is_active").default(true),
+  /**
+   * Booking fee for every service in this category, in whole rupees — what
+   * the customer pays upfront to book. NULL = use the platform-wide
+   * BUSINESS_CONFIG.BASE_SERVICE_FEE. 0 = free booking. Frozen into each
+   * booking's snapshot at creation; changing it never touches a booking
+   * already made.
+   */
+  bookingFee: integer("booking_fee"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

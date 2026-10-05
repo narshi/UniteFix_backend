@@ -48,6 +48,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         serviceName: draftServiceName,
         serviceId: draftServiceId,
         basePrice: draftBasePrice,
+        bookingFee: draftBookingFee,
         setServiceContext
     } = useBookingDraftStore();
 
@@ -57,10 +58,15 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceName = route.params?.serviceName || draftServiceName || serviceType || 'Service';
     const serviceId = (route.params?.serviceId as number | undefined) || draftServiceId;
     const basePrice = Number(route.params?.basePrice ?? draftBasePrice ?? 0);
+    // The service's category fee travels with it (and survives the trip to the
+    // address picker through the draft store, like basePrice).
+    const paramFee = route.params?.bookingFee;
+    const categoryBookingFee: number | undefined =
+        typeof paramFee === 'number' ? paramFee : draftBookingFee;
 
     useEffect(() => {
         if (route.params?.serviceType) {
-            setServiceContext(serviceType, serviceName, serviceId, basePrice);
+            setServiceContext(serviceType, serviceName, serviceId, basePrice, typeof paramFee === 'number' ? paramFee : undefined);
         }
     }, [route.params?.serviceType]);
 
@@ -104,7 +110,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
     const { data: publicConfig } = usePublicConfig();
 
-    const bookingFee = publicConfig?.bookingFee ?? 99;
+    // Category fee first — it is what the server will charge. The app-wide
+    // fee only for a service from an older server that did not send one.
+    const bookingFee = categoryBookingFee ?? publicConfig?.bookingFee ?? 99;
     const isFixedPrice = basePrice > 0;
 
     // The server bills from the pricing snapshot, which already has the discount

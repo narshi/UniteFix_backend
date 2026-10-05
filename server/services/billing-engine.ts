@@ -11,6 +11,9 @@
  * 5. Once written, snapshot values are NEVER recalculated.
  */
 
+import { db } from '../db';
+import { eq } from 'drizzle-orm';
+import { serviceCategories, services } from '@shared/schema';
 import { configService } from './config.service';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -123,8 +126,39 @@ export class BillingEngine {
    * Reads current config values and freezes them into the snapshot.
    * Future config changes will NOT affect this booking.
    */
-  static async createBookingSnapshot(): Promise<PricingSnapshot> {
-    const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
+  /**
+   * The booking fee for a category: its own fee if the admin set one, else the
+   * platform-wide BASE_SERVICE_FEE. The ONE place this is decided — booking
+   * creation, the public catalogue and the admin guard all ask here, so the
+   * number the app quotes is the number the server charges.
+   */
+  static async resolveBookingFee(categoryId: number | null | undefined): Promise<number> {
+    if (categoryId) {
+      const [cat] = await db.select({ fee: serviceCategories.bookingFee })
+        .from(serviceCategories).where(eq(serviceCategories.id, categoryId)).limit(1);
+      if (cat && cat.fee !== null && cat.fee !== undefined && Number.isFinite(Number(cat.fee))) {
+        return Math.max(0, Math.round(Number(cat.fee)));
+      }
+    }
+    return this.defaultBookingFee();
+  }
+
+  /** The platform-wide fee, for categories that do not set their own. */
+  static async defaultBookingFee(): Promise<number> {
+    const str = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
+    return Math.max(0, Math.round(parseFloat(str || '99')));
+  }
+
+  /** The catalogue category of a catalogue service, or null. */
+  static async categoryOfService(catalogServiceId: number | null | undefined): Promise<number | null> {
+    if (!catalogServiceId) return null;
+    const [svc] = await db.select({ categoryId: services.categoryId })
+      .from(services).where(eq(services.id, catalogServiceId)).limit(1);
+    return svc?.categoryId ?? null;
+  }
+
+  static async createBookingSnapshot(opts: { bookingFee?: number } = {}): Promise<PricingSnapshot> {
+    const bookingFeeStr = opts.bookingFee !== undefined ? String(opts.bookingFee) : await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
     const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
     const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');
@@ -178,17 +212,19 @@ export class BillingEngine {
   static async createCatalogSnapshotForQuantity(
     unitPrice: number,
     quantity: number,
+    opts: { bookingFee?: number } = {},
   ): Promise<PricingSnapshot> {
     // Clamped to match the CHECK constraint on service_requests.quantity. A
     // snapshot is immutable once written, so a bad quantity reaching here is
     // frozen onto the booking permanently.
     const qty = Math.max(1, Math.min(50, Math.floor(quantity) || 1));
-    const snapshot = await this.createCatalogSnapshot(unitPrice * qty);
+    const snapshot = await this.createCatalogSnapshot(unitPrice * qty, opts);
     return { ...snapshot, unitPrice, quantity: qty };
   }
 
-  static async createCatalogSnapshot(basePrice: number): Promise<PricingSnapshot> {
-    const bookingFeeStr = await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
+  static async createCatalogSnapshot(basePrice: number, opts: { bookingFee?: number } = {}): Promise<PricingSnapshot> {
+    // The category's fee when the caller resolved one; the platform default otherwise.
+    const bookingFeeStr = opts.bookingFee !== undefined ? String(opts.bookingFee) : await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
     const gstPercentStr = await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE');
     const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');

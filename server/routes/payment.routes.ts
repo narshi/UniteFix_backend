@@ -57,7 +57,9 @@ export function registerPaymentRoutes(app: Express) {
             // See routes.ts: clamped, not trusted.
             const quantity = Math.max(1, Math.min(50, Math.floor(Number(req.body?.quantity)) || 1));
 
-            let pricingSnapshot = await BillingEngine.createBookingSnapshot();
+            // Category booking fee, as on /api/services/create.
+            const bookingFee = await BillingEngine.resolveBookingFee(await BillingEngine.categoryOfService(serviceId ? Number(serviceId) : null));
+            let pricingSnapshot = await BillingEngine.createBookingSnapshot({ bookingFee });
             let catalogTotal: number | null = null;
             let catalogCommission: number | null = null;
 
@@ -65,7 +67,7 @@ export function registerPaymentRoutes(app: Express) {
                 const [svc] = await db.select({ basePrice: services.basePrice })
                     .from(services).where(eq(services.id, Number(serviceId))).limit(1);
                 if (svc && svc.basePrice > 0) {
-                    pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity);
+                    pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity, { bookingFee });
                     catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
                     catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
                 }

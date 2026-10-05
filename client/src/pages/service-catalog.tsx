@@ -46,12 +46,25 @@ export default function ServiceCatalogPage() {
   });
   const gstPct = Number(pricingCfg?.gstRate ?? 18);
   const feePct = Number(pricingCfg?.platformFeePercent ?? 12);
-  const bookingCharge = Number(pricingCfg?.bookingFee ?? 99);
+  // Platform-wide booking fee — what a category charges when it sets none.
+  const defaultBookingFee = Number(pricingCfg?.bookingFee ?? 99);
+  const feeOfCategory = (catId: number | null | undefined) => {
+    const cat = categories.find((c: any) => c.id === catId);
+    return cat && cat.bookingFee !== null && cat.bookingFee !== undefined ? Number(cat.bookingFee) : defaultBookingFee;
+  };
+
+  // The service dialog's category, tracked so the price breakdown uses that
+  // category's booking fee — the one the booking will actually be charged.
+  const [svcCategoryId, setSvcCategoryId] = useState<number | null>(null);
+  const bookingCharge = feeOfCategory(svcCategoryId);
 
   // Seed the controlled price when the service dialog opens (Radix remounts the
   // form each open, so this keeps the breakdown in sync with the edited row).
   useEffect(() => {
-    if (isServiceModalOpen) setPriceInput(editingService?.basePrice ? String(editingService.basePrice) : '');
+    if (isServiceModalOpen) {
+      setPriceInput(editingService?.basePrice ? String(editingService.basePrice) : '');
+      setSvcCategoryId(editingService?.categoryId ?? (selectedCategoryId !== 'all' ? selectedCategoryId : categories[0]?.id ?? null));
+    }
   }, [isServiceModalOpen, editingService]);
 
   const breakdown = priceBreakdown(Number(priceInput) || 0, gstPct, feePct, bookingCharge);
@@ -154,7 +167,10 @@ export default function ServiceCatalogPage() {
       name: formData.get('name') as string,
       icon: formData.get('icon') as string,
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
-      isActive: formData.get('isActive') === 'on'
+      isActive: formData.get('isActive') === 'on',
+      // Blank = use the platform default. Sent as null so clearing the field
+      // really reverts the category to the default.
+      bookingFee: String(formData.get('bookingFee') ?? '').trim() === '' ? null : Number(formData.get('bookingFee')),
     };
 
     const isDuplicate = categories.some((cat: any) => 
@@ -256,6 +272,9 @@ export default function ServiceCatalogPage() {
                     <img src={cat.icon} alt={cat.name} className="w-5 h-5 mr-2 rounded-md object-cover shadow-sm" referrerPolicy="no-referrer" />
                   ) : null}
                   {cat.name}
+                  <span className={`ml-auto pl-2 text-[10px] tabular-nums ${cat.bookingFee !== null && cat.bookingFee !== undefined ? 'text-[hsl(38,92%,65%)]' : 'text-[hsl(215,20%,50%)]'}`} title={cat.bookingFee !== null && cat.bookingFee !== undefined ? 'Category booking fee' : 'Platform default booking fee'}>
+                    ₹{feeOfCategory(cat.id)}
+                  </span>
                 </Button>
                 <div className="flex opacity-0 group-hover:opacity-100 transition-opacity absolute right-1">
                   <Button 
@@ -398,6 +417,16 @@ export default function ServiceCatalogPage() {
                 <Label htmlFor="cat-sort" className="text-[hsl(215,20%,75%)]">Sort Order</Label>
                 <Input id="cat-sort" name="sortOrder" type="number" defaultValue={editingCategory?.sortOrder || 0} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cat-fee" className="text-[hsl(215,20%,75%)]">Booking fee (₹)</Label>
+                <Input id="cat-fee" name="bookingFee" type="number" min={0} max={5000} step={1} inputMode="numeric"
+                  defaultValue={editingCategory?.bookingFee ?? ''}
+                  placeholder={`Blank = platform default (₹${defaultBookingFee})`}
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">
+                  What customers pay upfront to book any service in this category; it is deducted from the final bill. 0 = free booking. Applies to new bookings only — existing bookings keep the fee they were made with.
+                </p>
+              </div>
               <div className="flex items-center space-x-2 pt-2">
                 <Switch id="cat-active" name="isActive" defaultChecked={editingCategory ? editingCategory.isActive : true} className="data-[state=checked]:bg-[hsl(217,91%,60%)]" />
                 <Label htmlFor="cat-active" className="text-[hsl(215,20%,75%)]">Active (Visible to users)</Label>
@@ -424,7 +453,7 @@ export default function ServiceCatalogPage() {
             <div className="grid gap-4 py-4 px-1">
               <div className="grid gap-2">
                 <Label htmlFor="svc-cat" className="text-[hsl(215,20%,75%)]">Category</Label>
-                <Select name="categoryId" defaultValue={editingService?.categoryId?.toString() || (selectedCategoryId !== 'all' ? selectedCategoryId.toString() : categories[0]?.id?.toString())}>
+                <Select name="categoryId" onValueChange={(v) => setSvcCategoryId(Number(v))} defaultValue={editingService?.categoryId?.toString() || (selectedCategoryId !== 'all' ? selectedCategoryId.toString() : categories[0]?.id?.toString())}>
                   <SelectTrigger id="svc-cat" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:ring-[hsla(217,91%,60%,0.3)]">
                     <SelectValue placeholder="Select Category" />
                   </SelectTrigger>

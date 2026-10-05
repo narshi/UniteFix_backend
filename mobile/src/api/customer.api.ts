@@ -34,6 +34,8 @@ export interface ServiceItem {
     sortOrder: number;
     isActive: boolean;
     basePrice?: number; // fixed catalog price (customer all-in). 0/undefined = not priced
+    /** Booking fee for this service's category — what the server will charge to book. Older servers omit it. */
+    bookingFee?: number;
     subCategory?: string | null; // grouping within a category (e.g. Desktop/Laptop)
 }
 

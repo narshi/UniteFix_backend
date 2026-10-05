@@ -15,7 +15,8 @@ import { storage } from "../storage";
 import { SupportTicketService } from "../services/support.service";
 import { db } from "../db";
 import { eq, and, desc, count, gte, lte, inArray, sql } from "drizzle-orm";
-import { platformConfig, auditLogs, adminUsers } from "@shared/schema";
+import { platformConfig, auditLogs, adminUsers, services } from "@shared/schema";
+import { BillingEngine } from "../services/billing-engine";
 import { configService } from "../services/config.service";
 import { recordAudit } from "../lib/audit";
 import { requireSuperAdmin } from "../middleware/auth.middleware";
@@ -354,7 +355,9 @@ export function registerAdminRoutes(app: Express) {
             if (!(req as any).user?.isAdmin) {
                 return res.status(403).json({ error: "Admin access required" });
             }
-            const category = await storage.createServiceCategory(req.body);
+            const fee = parseCategoryBookingFee(req.body?.bookingFee);
+            if (fee.error) return res.status(400).json({ error: fee.error });
+            const category = await storage.createServiceCategory({ ...req.body, bookingFee: fee.value ?? null });
             res.json({ success: true, data: category });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -371,7 +374,28 @@ export function registerAdminRoutes(app: Express) {
                 return res.status(403).json({ error: "Admin access required" });
             }
             const id = parseInt(req.params.id);
-            const updated = await storage.updateServiceCategory(id, req.body);
+            const body = { ...req.body };
+            if ('bookingFee' in body) {
+                const fee = parseCategoryBookingFee(body.bookingFee);
+                if (fee.error) return res.status(400).json({ error: fee.error });
+                // A fee is carved out of the fixed price before the technician's
+                // share. Refuse one that would leave any priced service in the
+                // category paying its technician nothing or less.
+                const effective = fee.value ?? await BillingEngine.defaultBookingFee();
+                const priced = await db.select({ name: services.name, basePrice: services.basePrice })
+                    .from(services).where(and(eq(services.categoryId, id), eq(services.isActive, true)));
+                const losing: string[] = [];
+                for (const s of priced) {
+                    if (!(s.basePrice > 0)) continue;
+                    const snap = await BillingEngine.createCatalogSnapshot(s.basePrice, { bookingFee: effective });
+                    if ((snap.technicianEarning ?? 0) <= 0) losing.push(`${s.name} (₹${s.basePrice})`);
+                }
+                if (losing.length) {
+                    return res.status(400).json({ error: `A ₹${effective} booking fee leaves no technician earning on: ${losing.join(', ')}. Lower the fee or raise those prices.` });
+                }
+                body.bookingFee = fee.value ?? null;
+            }
+            const updated = await storage.updateServiceCategory(id, body);
             if (!updated) return res.status(404).json({ error: "Category not found" });
             res.json({ success: true, data: updated });
         } catch (error: any) {
@@ -805,4 +829,15 @@ export function registerAdminRoutes(app: Express) {
             res.status(500).json({ error: error.message });
         }
     });
+}
+
+/**
+ * A category booking fee from the admin form. Blank / null = use the
+ * platform default; otherwise whole rupees, 0 (free booking) to 5000.
+ */
+function parseCategoryBookingFee(raw: unknown): { value: number | null; error?: string } {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return { value: null };
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 5000 || Math.round(n) !== n) return { value: null, error: 'Booking fee must be a whole number of rupees between 0 and 5000, or blank for the default.' };
+    return { value: n };
 }

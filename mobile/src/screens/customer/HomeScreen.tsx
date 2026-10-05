@@ -362,6 +362,7 @@ export function HomeScreen() {
                                                             serviceName: service.name,
                                                             serviceId: service.id,
                                                             basePrice: service.basePrice ?? 0,
+                                                            bookingFee: service.bookingFee,
                                                         });
                                                     }
                                                 }}

@@ -2323,7 +2323,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // immutable once frozen onto the row.
       const quantity = Math.max(1, Math.min(50, Math.floor(Number(req.body?.quantity)) || 1));
 
-      let pricingSnapshot = await BillingEngine.createBookingSnapshot();
+      // The booking fee belongs to the service's category (or the platform
+      // default when the category sets none). Resolved once, frozen below.
+      const bookingFee = await BillingEngine.resolveBookingFee(await BillingEngine.categoryOfService(catalogServiceId));
+      let pricingSnapshot = await BillingEngine.createBookingSnapshot({ bookingFee });
       let catalogTotal: number | null = null;
       let catalogCommission: number | null = null;
 
@@ -2331,7 +2334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [svc] = await db.select({ basePrice: servicesCatalog.basePrice })
           .from(servicesCatalog).where(eq(servicesCatalog.id, catalogServiceId)).limit(1);
         if (svc && svc.basePrice > 0) {
-          pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity);
+          pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity, { bookingFee });
           catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
           catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
         }

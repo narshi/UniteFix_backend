@@ -128,6 +128,7 @@ export const AllServicesScreen = () => {
             serviceName: service.name,
             serviceId: service.id,
             basePrice: service.basePrice ?? 0,
+            bookingFee: service.bookingFee,
         });
     };
 
