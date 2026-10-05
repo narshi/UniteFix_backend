@@ -375,6 +375,17 @@ export class FtthService {
         return row?.balance ?? 0;
     }
 
+    /**
+     * The same append, inside a caller's transaction — for a partner settlement
+     * that must write this ledger and the business-partner ledger atomically.
+     */
+    static async ledgerInTx(tx: typeof db, entry: {
+        operatorId: number; entryType: 'settlement_paid' | 'adjustment'; amountPaise: number;
+        description?: string; createdByAdminId?: number | null; metadata?: Record<string, unknown>;
+    }) {
+        return this.appendLedger(tx, entry);
+    }
+
     /** Public wrapper for entries raised outside a recharge (settlements, adjustments). */
     static async recordLedgerEntry(entry: {
         operatorId: number;

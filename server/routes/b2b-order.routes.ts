@@ -68,6 +68,8 @@ function orderView(d: NonNullable<Awaited<ReturnType<typeof B2bOrderService.deta
         // The tracking timeline: every event, plus a stage view derived from status.
         events: events.map(e => ({ id: e.id, type: e.eventType, from: e.fromStatus, to: e.toStatus, actor: e.actorType, payload: e.payload, at: e.createdAt })),
         tracking: B2bOrderService.stages(order),
+        // Tax invoice / credit note — open with GET /api/b2b/tax-documents/:id/pdf
+        documents: (d.documents ?? []).map(x => ({ id: x.id, kind: x.docKind, number: x.number, issuedAt: x.issuedAt, total: paiseToRupees(x.totalPaise) })),
     };
 }
 

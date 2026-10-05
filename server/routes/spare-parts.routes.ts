@@ -29,6 +29,8 @@ const partSchema = z.object({
     costPriceRupees: z.number().min(0).max(500_000).optional().nullable(),
     warrantyDays: z.number().int().min(0).max(1825).optional(),
     gstPercent: z.number().min(0).max(28).optional().nullable(),
+    // HSN: 4 digits (turnover up to ₹5 cr), 6 or 8 above.
+    hsnCode: z.string().trim().regex(/^\d{4}(\d{2}(\d{2})?)?$/, 'HSN is 4, 6 or 8 digits').optional().nullable().or(z.literal('')),
     photoUrl: z.string().trim().url().max(500).optional().nullable(),
     categoryIds: z.array(z.number().int().positive()).max(10).optional(),
     partCode: z.string().trim().max(40).optional().nullable(),
@@ -97,6 +99,7 @@ async function partView(p: typeof spareParts.$inferSelect) {
         costPrice: paiseToRupees(p.costPricePaise),
         warrantyDays: p.warrantyDays,
         gstPercent: p.gstPercent != null ? Number(p.gstPercent) : null,
+        hsnCode: p.hsnCode ?? null,
         photoUrl: p.photoUrl,
         status: p.status,
         isActive: p.isActive,
@@ -156,6 +159,7 @@ export function registerSparePartsRoutes(app: Express) {
                     id: r.id, partCode: r.partCode, name: r.name, brand: r.brand, specification: r.specification, unit: r.unit,
                     unitPrice: paiseToRupees(r.unitPricePaise), tradePrice: paiseToRupees(r.tradePricePaise), costPrice: paiseToRupees(r.costPricePaise),
                     warrantyDays: r.warrantyDays, status: r.status, isActive: r.isActive,
+                    gstPercent: r.gstPercent != null ? Number(r.gstPercent) : null, hsnCode: r.hsnCode ?? null,
                     categoryIds: r.categoryIds, warehouseQty: r.warehouseQty,
                 })),
             });
@@ -171,7 +175,7 @@ export function registerSparePartsRoutes(app: Express) {
                 unitPricePaise: rupeesToPaise(b.unitPriceRupees),
                 tradePricePaise: b.tradePriceRupees != null ? rupeesToPaise(b.tradePriceRupees) : null,
                 costPricePaise: b.costPriceRupees != null ? rupeesToPaise(b.costPriceRupees) : null,
-                warrantyDays: b.warrantyDays, gstPercent: b.gstPercent ?? null, photoUrl: b.photoUrl ?? null,
+                warrantyDays: b.warrantyDays, gstPercent: b.gstPercent ?? null, hsnCode: b.hsnCode || null, photoUrl: b.photoUrl ?? null,
                 categoryIds: b.categoryIds, createdByAdminId: admin.userId, partCode: b.partCode ?? null,
             });
             await recordAudit({ entityType: 'spare_part', entityId: part.id, action: 'spare_part_created', changedBy: admin.userId, metadata: { partCode: part.partCode } });
@@ -334,6 +338,7 @@ export function registerSparePartsRoutes(app: Express) {
                 ...(b.costPriceRupees !== undefined ? { costPricePaise: b.costPriceRupees != null ? rupeesToPaise(b.costPriceRupees) : null } : {}),
                 ...(b.warrantyDays !== undefined ? { warrantyDays: b.warrantyDays } : {}),
                 ...(b.gstPercent !== undefined ? { gstPercent: b.gstPercent != null ? String(b.gstPercent) : null } : {}),
+                ...(b.hsnCode !== undefined ? { hsnCode: b.hsnCode || null } : {}),
                 ...(b.photoUrl !== undefined ? { photoUrl: b.photoUrl } : {}),
                 ...(b.status !== undefined ? { status: b.status } : {}),
                 ...(b.isActive !== undefined ? { isActive: b.isActive } : {}),

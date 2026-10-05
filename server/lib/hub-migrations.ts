@@ -95,6 +95,123 @@ const BLOCKS: Array<[string, string]> = [
         ('BUSINESS_CONFIG.HUB_PRO_FEE_PAISE', '49900', 'number', 'BUSINESS_CONFIG', 'Partner Hub Pro plan, per month (paise, before GST)', TRUE)
       ON CONFLICT (key) DO NOTHING;
     `],
+    ['phase2: ledger types fee_charge', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'fee_charge';`],
+    ['phase2: ledger types settlement_offset', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'settlement_offset';`],
+    ['phase2: hsn + series', `
+      ALTER TABLE spare_parts ADD COLUMN IF NOT EXISTS hsn_code TEXT;
+      CREATE TABLE IF NOT EXISTS document_series (
+        series_key TEXT NOT NULL,
+        fy TEXT NOT NULL,
+        next_no INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (series_key, fy)
+      );
+    `],
+    ['phase2: tax_documents', `
+      CREATE TABLE IF NOT EXISTS tax_documents (
+        id SERIAL PRIMARY KEY,
+        doc_kind TEXT NOT NULL,
+        issuer TEXT NOT NULL,
+        issuer_partner_id INTEGER REFERENCES business_partners(id),
+        series_key TEXT NOT NULL,
+        fy TEXT NOT NULL,
+        number TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        b2b_order_id INTEGER REFERENCES b2b_orders(id),
+        recipient_partner_id INTEGER REFERENCES business_partners(id),
+        original_document_id INTEGER REFERENCES tax_documents(id),
+        supplier JSONB NOT NULL,
+        recipient JSONB NOT NULL,
+        place_of_supply_code TEXT,
+        place_of_supply_name TEXT,
+        is_interstate BOOLEAN NOT NULL DEFAULT FALSE,
+        taxable_paise INTEGER NOT NULL,
+        cgst_paise INTEGER NOT NULL DEFAULT 0,
+        sgst_paise INTEGER NOT NULL DEFAULT 0,
+        igst_paise INTEGER NOT NULL DEFAULT 0,
+        total_paise INTEGER NOT NULL,
+        period_from DATE,
+        period_to DATE,
+        status TEXT NOT NULL DEFAULT 'issued',
+        irn TEXT,
+        irn_status TEXT,
+        notes TEXT,
+        issued_at TIMESTAMP DEFAULT NOW(),
+        created_by_admin_id INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_uf_number_uq ON tax_documents (number) WHERE issuer = 'unitefix';
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_partner_number_uq ON tax_documents (issuer_partner_id, number) WHERE issuer = 'partner';
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_b2b_invoice_uq ON tax_documents (b2b_order_id) WHERE doc_kind = 'tax_invoice' AND purpose = 'b2b_order' AND status = 'issued';
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_b2b_return_uq ON tax_documents (b2b_order_id) WHERE doc_kind = 'credit_note' AND purpose = 'b2b_order' AND status = 'issued';
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_fee_period_uq ON tax_documents (recipient_partner_id, period_from) WHERE purpose = 'fee' AND status = 'issued';
+      CREATE INDEX IF NOT EXISTS tax_documents_recipient_idx ON tax_documents (recipient_partner_id, issued_at);
+      CREATE INDEX IF NOT EXISTS tax_documents_issuer_idx ON tax_documents (issuer_partner_id, issued_at);
+      CREATE TABLE IF NOT EXISTS tax_document_lines (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL REFERENCES tax_documents(id) ON DELETE CASCADE,
+        line_no INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        hsn_sac TEXT,
+        quantity NUMERIC(12,3) NOT NULL DEFAULT 1,
+        unit TEXT,
+        rate_paise INTEGER NOT NULL,
+        taxable_paise INTEGER NOT NULL,
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 0,
+        cgst_paise INTEGER NOT NULL DEFAULT 0,
+        sgst_paise INTEGER NOT NULL DEFAULT 0,
+        igst_paise INTEGER NOT NULL DEFAULT 0,
+        total_paise INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS tax_document_lines_doc_idx ON tax_document_lines (document_id);
+    `],
+    ['phase2: purchase bills', `
+      CREATE TABLE IF NOT EXISTS partner_purchase_bills (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        supplier_name TEXT NOT NULL,
+        supplier_gstin TEXT,
+        bill_number TEXT NOT NULL,
+        bill_date DATE NOT NULL,
+        taxable_paise INTEGER NOT NULL,
+        cgst_paise INTEGER NOT NULL DEFAULT 0,
+        sgst_paise INTEGER NOT NULL DEFAULT 0,
+        igst_paise INTEGER NOT NULL DEFAULT 0,
+        total_paise INTEGER NOT NULL,
+        file_url TEXT,
+        notes TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (business_partner_id, supplier_gstin, bill_number)
+      );
+    `],
+    ['phase2: settlement runs', `
+      CREATE TABLE IF NOT EXISTS settlement_runs (
+        id SERIAL PRIMARY KEY,
+        run_code TEXT NOT NULL UNIQUE,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id),
+        status TEXT NOT NULL DEFAULT 'draft',
+        ftth_owed_paise INTEGER NOT NULL DEFAULT 0,
+        b2b_balance_paise INTEGER NOT NULL DEFAULT 0,
+        offset_paise INTEGER NOT NULL DEFAULT 0,
+        payout_paise INTEGER NOT NULL DEFAULT 0,
+        method TEXT,
+        payout_reference TEXT,
+        cashfree_transfer_id TEXT,
+        failure_reason TEXT,
+        notes TEXT,
+        created_by_admin_id INTEGER,
+        paid_by_admin_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        paid_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS settlement_runs_bp_idx ON settlement_runs (business_partner_id, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS settlement_runs_one_open_uq ON settlement_runs (business_partner_id) WHERE status IN ('draft', 'processing');
+    `],
+    ['phase2: config', `
+      INSERT INTO platform_config (key, value, value_type, category, description, is_editable) VALUES
+        ('BUSINESS_CONFIG.FEE_SAC_CODE', '998599', 'string', 'BUSINESS_CONFIG', 'SAC printed on UniteFix fee invoices to partners (confirm with the CA)', TRUE),
+        ('BUSINESS_CONFIG.DEFAULT_PART_HSN', '', 'string', 'BUSINESS_CONFIG', 'HSN printed for a part that has none. Leave blank: a wrong HSN is worse than a missing one — set it on the part instead', TRUE)
+      ON CONFLICT (key) DO NOTHING;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

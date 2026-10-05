@@ -50,7 +50,7 @@ interface InvoiceData {
 }
 
 /** Issuer block on the invoice — edited from the admin Settings page. */
-interface SellerDetails {
+export interface SellerDetails {
     name: string;
     address: string;
     gstin: string;
@@ -68,7 +68,7 @@ const SELLER_DEFAULTS: SellerDetails = {
     supportPhone: "+91-9876543210",
 };
 
-async function loadSellerDetails(): Promise<SellerDetails> {
+export async function loadSellerDetails(): Promise<SellerDetails> {
     const [name, address, gstin, placeOfSupply, supportEmail, supportPhone] = await Promise.all([
         configService.get<string>('BUSINESS_CONFIG.COMPANY_NAME', SELLER_DEFAULTS.name),
         configService.get<string>('BUSINESS_CONFIG.COMPANY_ADDRESS', SELLER_DEFAULTS.address),

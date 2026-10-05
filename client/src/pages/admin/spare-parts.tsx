@@ -31,6 +31,7 @@ type Part = {
     id: number; partCode: string; name: string; brand: string | null; specification: string | null; unit: string;
     unitPrice: number | null; tradePrice: number | null; costPrice: number | null; warrantyDays: number;
     status: string; isActive: boolean; categoryIds: number[]; warehouseQty: number;
+    gstPercent: number | null; hsnCode: string | null;
 };
 type Category = { id: number; name: string };
 type Proposal = {
@@ -53,7 +54,7 @@ const MOVEMENT_LABEL: Record<string, string> = {
 
 const emptyForm = {
     name: "", brand: "", specification: "", unit: "piece", unitPriceRupees: "", tradePriceRupees: "", costPriceRupees: "",
-    warrantyDays: "0", gstPercent: "", categoryIds: [] as number[],
+    warrantyDays: "0", gstPercent: "", hsnCode: "", categoryIds: [] as number[],
 };
 
 export default function SparePartsPage() {
@@ -86,7 +87,7 @@ export default function SparePartsPage() {
         setForm({
             name: p.name, brand: p.brand ?? "", specification: p.specification ?? "", unit: p.unit,
             unitPriceRupees: String(p.unitPrice ?? ""), tradePriceRupees: p.tradePrice != null ? String(p.tradePrice) : "",
-            costPriceRupees: p.costPrice != null ? String(p.costPrice) : "", warrantyDays: String(p.warrantyDays), gstPercent: "",
+            costPriceRupees: p.costPrice != null ? String(p.costPrice) : "", warrantyDays: String(p.warrantyDays), gstPercent: p.gstPercent != null ? String(p.gstPercent) : "", hsnCode: p.hsnCode ?? "",
             categoryIds: p.categoryIds,
         });
         setEditing(p);
@@ -100,6 +101,7 @@ export default function SparePartsPage() {
                 costPriceRupees: form.costPriceRupees.trim() ? Number(form.costPriceRupees) : null,
                 warrantyDays: Number(form.warrantyDays) || 0,
                 gstPercent: form.gstPercent.trim() ? Number(form.gstPercent) : null,
+                hsnCode: form.hsnCode.trim() || null,
                 categoryIds: form.categoryIds,
             };
             return editing === "new"
@@ -381,6 +383,8 @@ export default function SparePartsPage() {
                         <div className="grid grid-cols-2 gap-3">
                             <div><Label>Warranty (days)</Label><Input inputMode="numeric" value={form.warrantyDays} onChange={e => setForm({ ...form, warrantyDays: e.target.value })} /></div>
                             <div><Label>GST % (blank = default)</Label><Input inputMode="decimal" value={form.gstPercent} onChange={e => setForm({ ...form, gstPercent: e.target.value })} placeholder="18" /></div>
+                            <div><Label>HSN code</Label><Input inputMode="numeric" maxLength={8} value={form.hsnCode} onChange={e => setForm({ ...form, hsnCode: e.target.value.replace(/\D/g, "") })} placeholder="e.g. 8532" />
+                                <p className="mt-1 text-xs text-muted-foreground">Printed on tax invoices to partners. 4 digits; 6 if turnover is above ₹5 crore.</p></div>
                         </div>
                         <div><Label className="mb-1.5 block">Categories — searched first on those jobs</Label><CategoryPicker value={form.categoryIds} onChange={ids => setForm({ ...form, categoryIds: ids })} /></div>
                     </div>

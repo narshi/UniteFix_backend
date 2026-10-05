@@ -39,6 +39,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Districts", href: "/admin/districts", icon: "map", capability: "locations:view" },
   { name: "Location Management", href: "/locations", icon: "location_on", capability: "locations:view" },
   { name: "Business Partners", href: "/admin/business-partners", icon: "business", capability: "partners:view" },
+  { name: "Partner Settlements", href: "/admin/partner-settlements", icon: "payments", capability: "partners:view" },
   { name: "FTTH Operators", href: "/admin/ftth-operators", icon: "router", capability: "ftth:view" },
   { name: "Roles & Access", href: "/admin/admins", icon: "admin_panel_settings", capability: "accounts:view" },
   { name: "Database Console", href: "/admin/developer", icon: "storage", capability: "db_console:manage" },

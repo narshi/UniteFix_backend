@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
+import { openAuthedPdf } from "@/lib/hub";
 import { format } from "date-fns";
 import { ShoppingCart, Truck, PackageCheck, CheckCircle2, XCircle, Undo2 } from "lucide-react";
 import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
@@ -32,6 +33,7 @@ type Detail = {
     items: Array<{ id: number; partCode: string; name: string; quantity: number; quantityFulfilled: number; backordered: boolean; unitPrice: number | null; lineTotal: number | null }>;
     events: Array<{ id: number; type: string; from: string | null; to: string | null; actor: string; payload: any; at: string }>;
     tracking: { terminal: boolean; terminalLabel: string | null; steps: Array<{ key: string; label: string; done: boolean; current: boolean }> };
+    documents?: Array<{ id: number; kind: string; number: string; issuedAt: string; total: number | null }>;
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -185,6 +187,18 @@ export default function B2bOrdersPage() {
                                 </div>
                             )}
                             {d.paymentMode === "prepaid" && d.paymentStatus !== "paid" && !d.tracking.terminal && <p className="text-xs text-muted-foreground">Waiting for the partner's payment before this can be confirmed.</p>}
+
+                            {/* GST documents — the invoice is issued at dispatch, a credit note on an accepted return */}
+                            {(d.documents?.length ?? 0) > 0 && (
+                                <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-sm">
+                                    <span className="text-muted-foreground">GST:</span>
+                                    {d.documents!.map(doc => (
+                                        <Button key={doc.id} size="sm" variant="outline" onClick={() => openAuthedPdf(`/api/admin/hub/tax-documents/${doc.id}/pdf`).catch(fail("Could not open"))}>
+                                            {doc.kind === "credit_note" ? "Credit note" : "Invoice"} {doc.number}
+                                        </Button>
+                                    ))}
+                                </div>
+                            )}
 
                             {/* timeline */}
                             <div className="space-y-1.5 border-t pt-3">

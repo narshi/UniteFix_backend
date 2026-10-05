@@ -94,7 +94,7 @@ export class SparePartsService {
     static async create(input: {
         name: string; brand?: string | null; specification?: string | null; unit?: string;
         unitPricePaise: number; tradePricePaise?: number | null; costPricePaise?: number | null;
-        warrantyDays?: number; gstPercent?: number | null; photoUrl?: string | null;
+        warrantyDays?: number; gstPercent?: number | null; hsnCode?: string | null; photoUrl?: string | null;
         categoryIds?: number[]; createdByAdminId: number; createdFromProposalId?: number | null;
         partCode?: string | null;
     }) {
@@ -118,6 +118,7 @@ export class SparePartsService {
                 costPricePaise: input.costPricePaise != null ? Math.round(input.costPricePaise) : null,
                 warrantyDays: Math.max(0, Math.min(1825, input.warrantyDays ?? 0)),
                 gstPercent: input.gstPercent != null ? String(input.gstPercent) : null,
+                hsnCode: input.hsnCode?.trim() || null,
                 photoUrl: input.photoUrl ?? null,
                 status: 'active',
                 createdFromProposalId: input.createdFromProposalId ?? null,

@@ -235,6 +235,25 @@ async function checkLowStockAlerts(): Promise<void> {
  * dispatched order that never got marked delivered, is a partner waiting on a
  * person. Named to admins once per run; the thresholds are hours.
  */
+/**
+ * Monthly UniteFix fee invoices to partners (broadband lead fees, Hub Pro).
+ * Runs every 6 hours and acts on the 1st–3rd of the month (IST) for the month
+ * just ended. Idempotent per partner per month, so repeated runs and a missed
+ * day are both harmless.
+ */
+async function issueMonthlyFeeInvoices(): Promise<void> {
+    try {
+        const ist = new Date(Date.now() + 5.5 * 3600_000);
+        if (ist.getUTCDate() > 3) return;
+        const prevMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - 1, 1));
+        const { TaxDocumentService } = await import('./tax-documents.service');
+        const issued = await TaxDocumentService.runMonthlyFeeInvoices(prevMonth, null);
+        if (issued.length) logger.info(`[CRON] Issued ${issued.length} partner fee invoice(s) for ${prevMonth.toISOString().slice(0, 7)}`);
+    } catch (error: any) {
+        logger.error('[CRON] Partner fee invoices failed', { error: error.message });
+    }
+}
+
 async function alertStaleB2bOrders(): Promise<void> {
     try {
         const { b2bOrders, businessPartners } = await import("@shared/schema");
@@ -594,6 +613,8 @@ export function startBackgroundJobs(): void {
 
     // B2B orders waiting on a person, every 6 hours, offset from the stock job.
     intervals.push(setInterval(alertStaleB2bOrders, SIX_HOURS));
+    intervals.push(setInterval(issueMonthlyFeeInvoices, SIX_HOURS));
+    setTimeout(issueMonthlyFeeInvoices, 80000);
     setTimeout(alertStaleB2bOrders, 70000);
 
     // Run refresh token cleanup daily

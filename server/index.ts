@@ -35,6 +35,11 @@ app.use(helmet({
         // KYC documents, and external product catalog images. They render as
         // broken images in production without this.
         'img-src': ["'self'", 'data:', 'blob:', 'https:'],
+        // Partner Hub pays for parts orders with Razorpay web checkout: its
+        // script, its payment frame, and the calls the frame makes back.
+        'script-src': ["'self'", 'https://checkout.razorpay.com'],
+        'frame-src': ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com'],
+        'connect-src': ["'self'", 'https://api.razorpay.com', 'https://lumberjack.razorpay.com'],
       },
     }
     : false,

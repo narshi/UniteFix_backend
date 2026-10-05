@@ -19,6 +19,7 @@ import {
     partnerDeposits, partnerDepositLedger, spareParts, sparePartStock, sparePartMovements,
     businessPartners, businessPartnerVerticals, businessPartnerLedger, b2bOrders, b2bOrderItems, b2bOrderEvents,
 } from '@shared/schema';
+import { taxDocuments, taxDocumentLines } from '../shared/schema';
 import { PartsAccessService, PartsAccessError } from '../server/services/parts-access.service';
 import { B2bOrderService, B2bOrderError } from '../server/services/b2b-order.service';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
@@ -294,6 +295,13 @@ async function main() {
         if (orderIds.length) {
             await db.delete(sparePartMovements).where(inArray(sparePartMovements.b2bOrderItemId,
                 (await db.select({ id: b2bOrderItems.id }).from(b2bOrderItems).where(inArray(b2bOrderItems.orderId, orderIds))).map(r => r.id).concat([-1])));
+            // GST documents reference the orders (issued at dispatch / return).
+            const docs = await db.select({ id: taxDocuments.id }).from(taxDocuments).where(inArray(taxDocuments.b2bOrderId, orderIds));
+            if (docs.length) {
+                await db.delete(taxDocumentLines).where(inArray(taxDocumentLines.documentId, docs.map(d => d.id)));
+                await db.update(taxDocuments).set({ originalDocumentId: null }).where(inArray(taxDocuments.id, docs.map(d => d.id)));
+                await db.delete(taxDocuments).where(inArray(taxDocuments.id, docs.map(d => d.id)));
+            }
             await db.delete(b2bOrders).where(inArray(b2bOrders.id, orderIds));   // items/events cascade
         }
         if (bpId) {

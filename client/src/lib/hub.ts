@@ -54,3 +54,38 @@ export function signOut() {
   localStorage.removeItem("adminUser");
   window.location.href = "/";
 }
+
+/** Open a PDF that needs the sign-in token (tax invoices, statements) in a new tab. */
+export async function openAuthedPdf(url: string) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem("adminToken") ?? ""}` } });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  window.open(href, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
+}
+
+/** Razorpay web checkout, loaded on first use. Resolves with the signed result. */
+export function razorpayCheckout(opts: { key: string; orderId: string; amountRupees: number; description: string; name?: string; email?: string; phone?: string }) {
+  return new Promise<{ razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }>((resolve, reject) => {
+    const open = () => {
+      const Rzp = (window as any).Razorpay;
+      if (!Rzp) return reject(new Error("Payment window could not load. Check your connection."));
+      const rzp = new Rzp({
+        key: opts.key, order_id: opts.orderId, amount: Math.round(opts.amountRupees * 100), currency: "INR",
+        name: "UniteFix", description: opts.description,
+        prefill: { name: opts.name ?? "", email: opts.email ?? "", contact: opts.phone ?? "" },
+        theme: { color: "#0E6B73" },
+        handler: (r: any) => resolve(r),
+        modal: { ondismiss: () => reject(new Error("Payment cancelled.")) },
+      });
+      rzp.open();
+    };
+    if ((window as any).Razorpay) return open();
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = open;
+    s.onerror = () => reject(new Error("Payment window could not load. Check your connection."));
+    document.body.appendChild(s);
+  });
+}

@@ -32,6 +32,7 @@
 import Razorpay from 'razorpay';
 import { db } from '../db';
 import { and, eq, desc, inArray, sql } from 'drizzle-orm';
+import { taxDocuments } from '@shared/schema';
 import {
     b2bOrders, b2bOrderItems, b2bOrderEvents, spareParts, sparePartStock, businessPartners,
     type B2bOrder,
@@ -41,6 +42,7 @@ import { configService } from './config.service';
 import { BusinessPartnerService } from './business-partner.service';
 import { SparePartsService } from './spare-parts.service';
 import { NotificationService } from './notification.service';
+import { TaxDocumentService } from './tax-documents.service';
 import logger from '../lib/logger';
 
 export type B2bStatus = 'draft' | 'placed' | 'paid' | 'confirmed' | 'packed' | 'dispatched' | 'delivered' | 'cancelled' | 'returned';
@@ -292,6 +294,11 @@ export class B2bOrderService {
                     });
                     if (m) await tx.update(b2bOrderItems).set({ quantityFulfilled: it.quantity }).where(eq(b2bOrderItems.id, it.id));
                 }
+                // Supply of goods: the GST tax invoice is issued with the
+                // dispatch, in the same transaction — never a dispatched order
+                // without its invoice, never an invoice for goods still here.
+                const inv = await TaxDocumentService.issueB2bInvoice(tx as any, orderId, actor.id ?? null);
+                payload = { ...(payload ?? {}), taxInvoice: inv.number };
             }
             if (to === 'returned') {
                 const items = await tx.select().from(b2bOrderItems).where(eq(b2bOrderItems.orderId, orderId));
@@ -307,6 +314,9 @@ export class B2bOrderService {
                     businessPartnerId: order.businessPartnerId, entryType: 'credit_note', amountPaise: -order.totalPaise, b2bOrderId: order.id,
                     description: `Return accepted on ${order.orderCode}`, createdByAdminId: actor.id ?? null,
                 });
+                // The invoice is reversed by a credit note, not edited.
+                const cn = await TaxDocumentService.issueB2bCreditNote(tx as any, orderId, actor.id ?? null, String(payload?.reason ?? 'Return accepted.'));
+                if (cn) payload = { ...(payload ?? {}), creditNote: cn.number };
             }
             if (to === 'cancelled') {
                 if (order.paymentMode === 'credit' && from !== 'draft') {
@@ -403,12 +413,15 @@ export class B2bOrderService {
         const where = businessPartnerId ? and(eq(b2bOrders.id, orderId), eq(b2bOrders.businessPartnerId, businessPartnerId)) : eq(b2bOrders.id, orderId);
         const [order] = await db.select().from(b2bOrders).where(where).limit(1);
         if (!order) return null;
-        const [items, events, partner] = await Promise.all([
+        const [items, events, partner, documents] = await Promise.all([
             db.select().from(b2bOrderItems).where(eq(b2bOrderItems.orderId, orderId)).orderBy(b2bOrderItems.id),
             db.select().from(b2bOrderEvents).where(eq(b2bOrderEvents.orderId, orderId)).orderBy(b2bOrderEvents.createdAt),
             db.select({ code: businessPartners.partnerCode, name: businessPartners.displayName }).from(businessPartners).where(eq(businessPartners.id, order.businessPartnerId)).limit(1),
+            // GST documents for the order: the invoice at dispatch, a credit note on return.
+            db.select({ id: taxDocuments.id, docKind: taxDocuments.docKind, number: taxDocuments.number, issuedAt: taxDocuments.issuedAt, totalPaise: taxDocuments.totalPaise })
+                .from(taxDocuments).where(and(eq(taxDocuments.b2bOrderId, orderId), eq(taxDocuments.status, 'issued'))),
         ]);
-        return { order, items, events, partner: partner[0] ?? null };
+        return { order, items, events, partner: partner[0] ?? null, documents };
     }
 
     static async list(opts: { businessPartnerId?: number; status?: string; limit?: number }) {

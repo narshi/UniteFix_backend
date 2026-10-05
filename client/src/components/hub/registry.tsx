@@ -22,6 +22,9 @@ import OperatorCustomers from "@/pages/operator/customers";
 import OperatorLeads from "@/pages/operator/leads";
 import OperatorSettlements from "@/pages/operator/settlements";
 import OperatorOverview from "@/pages/operator/overview";
+import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail } from "@/pages/hub/parts";
+import HubPurchases from "@/pages/hub/purchases";
+import HubMoney from "@/pages/hub/money";
 
 export interface HubEntry {
   path: string;
@@ -49,6 +52,13 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/broadband/subscribers", aliases: ["/operator/customers"], component: OperatorCustomers, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Subscribers", icon: "people" } },
   { path: "/partner/broadband/leads", aliases: ["/operator/leads"], component: OperatorLeads, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Leads", icon: "person_add" } },
   { path: "/partner/broadband/settlements", aliases: ["/operator/settlements"], component: OperatorSettlements, module: "broadband", perm: "money:view", nav: { group: "Broadband", label: "Recharge settlements", icon: "account_balance" } },
+
+  // Phase 2 — parts from UniteFix, purchases and money.
+  { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },
+  { path: "/partner/parts/orders", component: HubPartsOrders, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Parts orders", icon: "local_shipping" } },
+  { path: "/partner/parts/orders/:id", component: HubPartsOrderDetail, module: "parts", perm: "purchases:manage" },
+  { path: "/partner/purchases", component: HubPurchases, module: "purchases", perm: "purchases:manage", nav: { group: "Purchases", label: "Purchases & ITC", icon: "receipt_long" } },
+  { path: "/partner/money", component: HubMoney, module: "money", perm: "money:view", nav: { group: "Money", label: "Statement & settlements", icon: "account_balance_wallet" } },
 
   { path: "/partner/team", component: HubTeam, module: "team", nav: { group: "Business", label: "Team", icon: "group" } },
   { path: "/partner/documents", component: HubDocuments, module: "docs", pending: true, nav: { group: "Business", label: "Documents", icon: "folder" } },

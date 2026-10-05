@@ -64,6 +64,7 @@ import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
+import { registerHubMoneyRoutes } from "./routes/hub-money.routes";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
 import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
 import { registerB2bOrderRoutes } from "./routes/b2b-order.routes";
@@ -3571,6 +3572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)
+  registerHubMoneyRoutes(app); // Partner Hub: purchases, money, GST documents, settlements
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment

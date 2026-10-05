@@ -2387,6 +2387,8 @@ export const spareParts = pgTable("spare_parts", {
   costPricePaise: integer("cost_price_paise"),
   warrantyDays: integer("warranty_days").notNull().default(0),
   gstPercent: decimal("gst_percent", { precision: 4, scale: 2 }),
+  /** HSN for tax invoices. 4 digits up to ₹5 cr turnover, 6 above. */
+  hsnCode: text("hsn_code"),
   photoUrl: text("photo_url"),
   status: sparePartStatusEnum("status").notNull().default('active'),
   createdFromProposalId: integer("created_from_proposal_id").references((): any => sparePartProposals.id),
@@ -2616,6 +2618,9 @@ export const b2bOrderEvents = pgTable("b2b_order_events", {
 export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   'order_invoice', 'payment_received', 'credit_note', 'refund', 'adjustment',
   'settlement_paid', 'settlement_received',
+  // Partner Hub phase 2
+  'fee_charge',         // UniteFix fees billed to the partner (Hub Pro plan), +
+  'settlement_offset',  // parts dues settled out of money UniteFix owed, −
 ]);
 
 /**
@@ -2716,3 +2721,117 @@ export const partnerAgreements = pgTable("partner_agreements", {
 
 export type PartnerUser = typeof partnerUsers.$inferSelect;
 export type PartnerDocument = typeof partnerDocuments.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 2) — GST documents, purchase bills, settlement runs
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Consecutive document numbers per series per financial year. */
+export const documentSeries = pgTable("document_series", {
+  seriesKey: text("series_key").notNull(),
+  fy: text("fy").notNull(),
+  nextNo: integer("next_no").notNull().default(1),
+}, (table) => ({ pk: primaryKey({ columns: [table.seriesKey, table.fy] }) }));
+
+/**
+ * Every GST document the platform issues, whoever the issuer: UniteFix's
+ * invoices to partners (parts, fees) and — from phase 3 — partners' own
+ * invoices to their customers. One store, so the GST desk reads one place.
+ * Amounts are frozen at issue; a correction is a credit note, never an edit.
+ */
+export const taxDocuments = pgTable("tax_documents", {
+  id: serial("id").primaryKey(),
+  docKind: text("doc_kind").notNull(),                 // tax_invoice | credit_note | bill_of_supply
+  issuer: text("issuer").notNull(),                    // unitefix | partner
+  issuerPartnerId: integer("issuer_partner_id").references(() => businessPartners.id),
+  seriesKey: text("series_key").notNull(),
+  fy: text("fy").notNull(),
+  number: text("number").notNull(),
+  purpose: text("purpose").notNull(),                  // b2b_order | fee | partner_sale | ...
+  b2bOrderId: integer("b2b_order_id").references(() => b2bOrders.id),
+  recipientPartnerId: integer("recipient_partner_id").references(() => businessPartners.id),
+  originalDocumentId: integer("original_document_id"),
+  supplier: jsonb("supplier").notNull(),
+  recipient: jsonb("recipient").notNull(),
+  placeOfSupplyCode: text("place_of_supply_code"),
+  placeOfSupplyName: text("place_of_supply_name"),
+  isInterstate: boolean("is_interstate").notNull().default(false),
+  taxablePaise: integer("taxable_paise").notNull(),
+  cgstPaise: integer("cgst_paise").notNull().default(0),
+  sgstPaise: integer("sgst_paise").notNull().default(0),
+  igstPaise: integer("igst_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull(),
+  periodFrom: text("period_from"),
+  periodTo: text("period_to"),
+  status: text("status").notNull().default('issued'),  // issued | cancelled
+  irn: text("irn"),
+  irnStatus: text("irn_status"),
+  notes: text("notes"),
+  issuedAt: timestamp("issued_at").defaultNow(),
+  createdByAdminId: integer("created_by_admin_id"),
+});
+
+export const taxDocumentLines = pgTable("tax_document_lines", {
+  id: serial("id").primaryKey(),
+  documentId: integer("document_id").notNull().references(() => taxDocuments.id, { onDelete: 'cascade' }),
+  lineNo: integer("line_no").notNull(),
+  description: text("description").notNull(),
+  hsnSac: text("hsn_sac"),
+  quantity: decimal("quantity", { precision: 12, scale: 3 }).notNull().default('1'),
+  unit: text("unit"),
+  ratePaise: integer("rate_paise").notNull(),
+  taxablePaise: integer("taxable_paise").notNull(),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('0'),
+  cgstPaise: integer("cgst_paise").notNull().default(0),
+  sgstPaise: integer("sgst_paise").notNull().default(0),
+  igstPaise: integer("igst_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull(),
+});
+
+/** Bills from other suppliers that a partner records for its purchase register. */
+export const partnerPurchaseBills = pgTable("partner_purchase_bills", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  supplierName: text("supplier_name").notNull(),
+  supplierGstin: text("supplier_gstin"),
+  billNumber: text("bill_number").notNull(),
+  billDate: text("bill_date").notNull(),
+  taxablePaise: integer("taxable_paise").notNull(),
+  cgstPaise: integer("cgst_paise").notNull().default(0),
+  sgstPaise: integer("sgst_paise").notNull().default(0),
+  igstPaise: integer("igst_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull(),
+  fileUrl: text("file_url"),
+  notes: text("notes"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/**
+ * One payout to a partner: what UniteFix owed (broadband recharges, and from
+ * later phases service value and store sales), what the partner owed for
+ * parts, the explicit offset between them, and the money sent.
+ */
+export const settlementRuns = pgTable("settlement_runs", {
+  id: serial("id").primaryKey(),
+  runCode: text("run_code").notNull().unique(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id),
+  status: text("status").notNull().default('draft'),   // draft | processing | paid | failed | cancelled
+  ftthOwedPaise: integer("ftth_owed_paise").notNull().default(0),
+  b2bBalancePaise: integer("b2b_balance_paise").notNull().default(0),
+  offsetPaise: integer("offset_paise").notNull().default(0),
+  payoutPaise: integer("payout_paise").notNull().default(0),
+  method: text("method"),                              // cashfree | manual
+  payoutReference: text("payout_reference"),
+  cashfreeTransferId: text("cashfree_transfer_id"),
+  failureReason: text("failure_reason"),
+  notes: text("notes"),
+  createdByAdminId: integer("created_by_admin_id"),
+  paidByAdminId: integer("paid_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
+});
+
+export type TaxDocument = typeof taxDocuments.$inferSelect;
+export type TaxDocumentLine = typeof taxDocumentLines.$inferSelect;
+export type SettlementRun = typeof settlementRuns.$inferSelect;

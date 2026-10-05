@@ -34,6 +34,7 @@ import EmployeeDetailPage from "@/pages/admin/employee-detail";
 import WarrantyClaimsPage from "@/pages/admin/warranty-claims";
 import SparePartsPage from "@/pages/admin/spare-parts";
 import BusinessPartnersPage from "@/pages/admin/business-partners";
+import PartnerSettlementsPage from "@/pages/admin/partner-settlements";
 import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
@@ -275,6 +276,7 @@ function Router() {
           <Route path="/admin/spare-parts"><Gate capability="inventory:view" component={SparePartsPage} /></Route>
           <Route path="/admin/parts-access"><Gate capability="inventory:view" component={PartsAccessPage} /></Route>
           <Route path="/admin/business-partners"><Gate capability="partners:view" component={BusinessPartnersPage} /></Route>
+          <Route path="/admin/partner-settlements"><Gate capability="partners:view" component={PartnerSettlementsPage} /></Route>
           <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>
