@@ -279,6 +279,16 @@ async function issueMonthlySubcontractInvoices(): Promise<void> {
     }
 }
 
+/** Consulting retainers invoice themselves on their billing day. */
+async function billDueRetainers(): Promise<void> {
+    try {
+        const { PartnerConsultingService } = await import('./partner-consulting.service');
+        await PartnerConsultingService.runDueRetainers();
+    } catch (error: any) {
+        logger.error('[CRON] Retainer billing failed', { error: error.message });
+    }
+}
+
 async function alertStaleB2bOrders(): Promise<void> {
     try {
         const { b2bOrders, businessPartners } = await import("@shared/schema");
@@ -644,6 +654,8 @@ export function startBackgroundJobs(): void {
     setTimeout(issueMonthlySubcontractInvoices, 85000);
     // Partner jobs past their assign-by time, and job values past their hold.
     intervals.push(setInterval(partnerFieldTick, FIFTEEN_MINUTES));
+    intervals.push(setInterval(billDueRetainers, SIX_HOURS));
+    setTimeout(billDueRetainers, 95000);
     setTimeout(partnerFieldTick, 75000);
     setTimeout(alertStaleB2bOrders, 70000);
 

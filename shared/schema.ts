@@ -2986,3 +2986,104 @@ export type PartnerTerritory = typeof partnerTerritories.$inferSelect;
 export type PartnerServiceRate = typeof partnerServiceRates.$inferSelect;
 export type PartnerJobEarning = typeof partnerJobEarnings.$inferSelect;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 5) — consulting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** What a consultant sells: a fixed session/package, an hourly rate, or a monthly retainer. */
+export const consultServices = pgTable("consult_services", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  description: text("description"),
+  kind: text("kind").notNull().default('fixed'),            // fixed | hourly | retainer
+  pricePaise: integer("price_paise").notNull(),             // per session / per hour / per month, before GST
+  durationMinutes: integer("duration_minutes").notNull().default(60),
+  mode: text("mode").notNull().default('online'),           // online | onsite | both
+  sac: text("sac").notNull().default('998311'),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
+  sessionsIncluded: integer("sessions_included"),
+  hoursIncluded: decimal("hours_included", { precision: 6, scale: 2 }),
+  isPublic: boolean("is_public").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** Weekly working hours (IST), e.g. Mon 10:00–13:00. Several windows per day allowed. */
+export const consultAvailability = pgTable("consult_availability", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  weekday: integer("weekday").notNull(),                    // 0 = Sunday … 6 = Saturday
+  startTime: text("start_time").notNull(),                  // "10:00"
+  endTime: text("end_time").notNull(),                      // "13:00"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const consultTimeOff = pgTable("consult_time_off", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  day: text("day").notNull(),
+  reason: text("reason"),
+});
+
+export const consultAppointments = pgTable("consult_appointments", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  customerId: integer("customer_id").notNull().references(() => partnerCustomers.id),
+  serviceId: integer("service_id").notNull().references(() => consultServices.id),
+  retainerId: integer("retainer_id"),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  mode: text("mode").notNull().default('online'),
+  location: text("location"),
+  meetingLink: text("meeting_link"),
+  status: text("status").notNull().default('confirmed'),     // requested | confirmed | completed | cancelled | no_show
+  source: text("source").notNull().default('hub'),           // hub | public
+  clientMessage: text("client_message"),
+  privateNotes: text("private_notes"),
+  clientNotes: text("client_notes"),                         // shared with the client on their booking page
+  pricePaise: integer("price_paise").notNull().default(0),
+  invoiceDocumentId: integer("invoice_document_id").references(() => taxDocuments.id),
+  publicToken: text("public_token").notNull().unique(),
+  cancelledReason: text("cancelled_reason"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** A monthly retainer that invoices itself on its billing day. */
+export const consultRetainers = pgTable("consult_retainers", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  customerId: integer("customer_id").notNull().references(() => partnerCustomers.id),
+  serviceId: integer("service_id").references(() => consultServices.id),
+  title: text("title").notNull(),
+  monthlyFeePaise: integer("monthly_fee_paise").notNull(),
+  sac: text("sac").notNull().default('998311'),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
+  hoursIncluded: decimal("hours_included", { precision: 6, scale: 2 }),
+  billingDay: integer("billing_day").notNull().default(1),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  status: text("status").notNull().default('active'),       // active | paused | ended
+  lastBilledPeriod: text("last_billed_period"),             // YYYY-MM
+  lastBillError: text("last_bill_error"),
+  notes: text("notes"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** One invoice per retainer per month — the primary key makes a second impossible. */
+export const consultRetainerBills = pgTable("consult_retainer_bills", {
+  retainerId: integer("retainer_id").notNull().references(() => consultRetainers.id, { onDelete: 'cascade' }),
+  period: text("period").notNull(),
+  documentId: integer("document_id").references(() => taxDocuments.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({ pk: primaryKey({ columns: [table.retainerId, table.period] }) }));
+
+export type ConsultService = typeof consultServices.$inferSelect;
+export type ConsultAppointment = typeof consultAppointments.$inferSelect;
+export type ConsultRetainer = typeof consultRetainers.$inferSelect;
+

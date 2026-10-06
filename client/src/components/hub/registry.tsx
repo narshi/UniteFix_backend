@@ -29,6 +29,7 @@ import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
 import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings } from "@/pages/hub/field";
+import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
 
 export interface HubEntry {
   path: string;
@@ -63,6 +64,12 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/field/territory", component: HubFieldTerritory, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Territory", icon: "map" } },
   { path: "/partner/field/rates", component: HubFieldRates, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Rates", icon: "sell" } },
   { path: "/partner/field/earnings", component: HubFieldEarnings, module: "field", perm: "money:view", nav: { group: "Field service", label: "Earnings", icon: "payments" } },
+
+  // Phase 5 — consulting.
+  { path: "/partner/consulting/appointments", component: HubConsultAppointments, module: "consulting", perm: "ops:view", nav: { group: "Consulting", label: "Appointments", icon: "event" } },
+  { path: "/partner/consulting/calendar", component: HubConsultCalendar, module: "consulting", perm: "ops:view", nav: { group: "Consulting", label: "Calendar", icon: "calendar_month" } },
+  { path: "/partner/consulting/services", component: HubConsultServices, module: "consulting", perm: "ops:view", nav: { group: "Consulting", label: "Services", icon: "psychology" } },
+  { path: "/partner/consulting/retainers", component: HubConsultRetainers, module: "consulting", perm: "sales:manage", nav: { group: "Consulting", label: "Retainers", icon: "autorenew" } },
 
   // Phase 2 — parts from UniteFix, purchases and money.
   { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },

@@ -40,6 +40,7 @@ import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
 import PartnerApplyPage from "@/pages/partner-apply";
+import ConsultBookRouter from "@/pages/consult-book";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
 
@@ -219,6 +220,11 @@ function Router() {
   // has any login.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/apply")) {
     return <PartnerApplyPage />;
+  }
+
+  // A consulting partner's public booking page and a client's booking link.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/book/")) {
+    return <ConsultBookRouter />;
   }
 
   if (!isAuthenticated) {

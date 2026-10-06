@@ -67,7 +67,7 @@ const BLOCKS: Array<[string, string]> = [
         file_url TEXT NOT NULL,
         file_name TEXT,
         mime_type TEXT,
-        expires_at DATE,
+        expires_at TEXT,
         status TEXT NOT NULL DEFAULT 'uploaded',
         review_note TEXT,
         reviewed_by_admin_id INTEGER,
@@ -129,8 +129,8 @@ const BLOCKS: Array<[string, string]> = [
         sgst_paise INTEGER NOT NULL DEFAULT 0,
         igst_paise INTEGER NOT NULL DEFAULT 0,
         total_paise INTEGER NOT NULL,
-        period_from DATE,
-        period_to DATE,
+        period_from TEXT,
+        period_to TEXT,
         status TEXT NOT NULL DEFAULT 'issued',
         irn TEXT,
         irn_status TEXT,
@@ -170,7 +170,7 @@ const BLOCKS: Array<[string, string]> = [
         supplier_name TEXT NOT NULL,
         supplier_gstin TEXT,
         bill_number TEXT NOT NULL,
-        bill_date DATE NOT NULL,
+        bill_date TEXT NOT NULL,
         taxable_paise INTEGER NOT NULL,
         cgst_paise INTEGER NOT NULL DEFAULT 0,
         sgst_paise INTEGER NOT NULL DEFAULT 0,
@@ -217,7 +217,7 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS gst_filing_frequency TEXT NOT NULL DEFAULT 'monthly';
       ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS invoice_terms TEXT;
       ALTER TABLE tax_documents ADD COLUMN IF NOT EXISTS partner_customer_id INTEGER;
-      ALTER TABLE tax_documents ADD COLUMN IF NOT EXISTS due_date DATE;
+      ALTER TABLE tax_documents ADD COLUMN IF NOT EXISTS due_date TEXT;
       CREATE INDEX IF NOT EXISTS tax_documents_customer_idx ON tax_documents (partner_customer_id);
     `],
     ['phase3: partner_customers', `
@@ -253,7 +253,7 @@ const BLOCKS: Array<[string, string]> = [
         number TEXT NOT NULL,
         version INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'draft',
-        valid_until DATE,
+        valid_until TEXT,
         lines JSONB NOT NULL,
         taxable_paise INTEGER NOT NULL,
         tax_paise INTEGER NOT NULL,
@@ -278,7 +278,7 @@ const BLOCKS: Array<[string, string]> = [
         amount_paise INTEGER NOT NULL,
         method TEXT NOT NULL,
         reference TEXT,
-        received_on DATE NOT NULL,
+        received_on TEXT NOT NULL,
         notes TEXT,
         created_by_admin_user_id INTEGER,
         created_at TIMESTAMP DEFAULT NOW()
@@ -372,6 +372,132 @@ const BLOCKS: Array<[string, string]> = [
         ('BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_URGENT_HOURS', '1', 'number', 'BUSINESS_CONFIG', 'Same, for urgent bookings', TRUE),
         ('BUSINESS_CONFIG.PARTNER_SUBCONTRACT_SAC', '9987', 'string', 'BUSINESS_CONFIG', 'SAC on partners'' monthly invoices to UniteFix for field work', TRUE)
       ON CONFLICT (key) DO NOTHING;
+    `],
+
+    // ── Phase 5: consulting — services, availability, appointments, retainers
+    ['phase5: consult_services', `
+      CREATE TABLE IF NOT EXISTS consult_services (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        kind TEXT NOT NULL DEFAULT 'fixed',
+        price_paise INTEGER NOT NULL,
+        duration_minutes INTEGER NOT NULL DEFAULT 60,
+        mode TEXT NOT NULL DEFAULT 'online',
+        sac TEXT NOT NULL DEFAULT '998311',
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        sessions_included INTEGER,
+        hours_included NUMERIC(6,2),
+        is_public BOOLEAN NOT NULL DEFAULT TRUE,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS consult_services_bp_idx ON consult_services (business_partner_id);
+    `],
+    ['phase5: consult_availability', `
+      CREATE TABLE IF NOT EXISTS consult_availability (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        weekday INTEGER NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS consult_availability_bp_idx ON consult_availability (business_partner_id, weekday);
+      CREATE TABLE IF NOT EXISTS consult_time_off (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        day TEXT NOT NULL,
+        reason TEXT,
+        UNIQUE (business_partner_id, day)
+      );
+    `],
+    ['phase5: consult_appointments', `
+      CREATE TABLE IF NOT EXISTS consult_appointments (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES partner_customers(id),
+        service_id INTEGER NOT NULL REFERENCES consult_services(id),
+        retainer_id INTEGER,
+        starts_at TIMESTAMP NOT NULL,
+        ends_at TIMESTAMP NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'online',
+        location TEXT,
+        meeting_link TEXT,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        source TEXT NOT NULL DEFAULT 'hub',
+        client_message TEXT,
+        private_notes TEXT,
+        client_notes TEXT,
+        price_paise INTEGER NOT NULL DEFAULT 0,
+        invoice_document_id INTEGER REFERENCES tax_documents(id),
+        public_token TEXT NOT NULL UNIQUE,
+        cancelled_reason TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS consult_appointments_bp_time ON consult_appointments (business_partner_id, starts_at);
+    `],
+    ['phase5: consult_retainers', `
+      CREATE TABLE IF NOT EXISTS consult_retainers (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES partner_customers(id),
+        service_id INTEGER REFERENCES consult_services(id),
+        title TEXT NOT NULL,
+        monthly_fee_paise INTEGER NOT NULL,
+        sac TEXT NOT NULL DEFAULT '998311',
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        hours_included NUMERIC(6,2),
+        billing_day INTEGER NOT NULL DEFAULT 1,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        last_billed_period TEXT,
+        last_bill_error TEXT,
+        notes TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS consult_retainers_bp_idx ON consult_retainers (business_partner_id, status);
+      CREATE TABLE IF NOT EXISTS consult_retainer_bills (
+        retainer_id INTEGER NOT NULL REFERENCES consult_retainers(id) ON DELETE CASCADE,
+        period TEXT NOT NULL,
+        document_id INTEGER REFERENCES tax_documents(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (retainer_id, period)
+      );
+    `],
+    // Day values are kept as 'YYYY-MM-DD' text: the driver turns DATE into a
+    // local-midnight Date, which shifts a day across time zones.
+    ['phase5: day columns as text', `
+      DO $ BEGIN
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_documents' AND column_name = 'expires_at') = 'date' THEN
+          ALTER TABLE partner_documents ALTER COLUMN expires_at TYPE TEXT USING to_char(expires_at, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'tax_documents' AND column_name = 'period_from') = 'date' THEN
+          ALTER TABLE tax_documents ALTER COLUMN period_from TYPE TEXT USING to_char(period_from, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'tax_documents' AND column_name = 'period_to') = 'date' THEN
+          ALTER TABLE tax_documents ALTER COLUMN period_to TYPE TEXT USING to_char(period_to, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'tax_documents' AND column_name = 'due_date') = 'date' THEN
+          ALTER TABLE tax_documents ALTER COLUMN due_date TYPE TEXT USING to_char(due_date, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_purchase_bills' AND column_name = 'bill_date') = 'date' THEN
+          ALTER TABLE partner_purchase_bills ALTER COLUMN bill_date TYPE TEXT USING to_char(bill_date, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_quotations' AND column_name = 'valid_until') = 'date' THEN
+          ALTER TABLE partner_quotations ALTER COLUMN valid_until TYPE TEXT USING to_char(valid_until, 'YYYY-MM-DD');
+        END IF;
+        IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_invoice_payments' AND column_name = 'received_on') = 'date' THEN
+          ALTER TABLE partner_invoice_payments ALTER COLUMN received_on TYPE TEXT USING to_char(received_on, 'YYYY-MM-DD');
+        END IF;
+      END $;
     `],
 ];
 
