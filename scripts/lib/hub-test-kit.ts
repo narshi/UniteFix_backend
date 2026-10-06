@@ -97,3 +97,48 @@ export function tinyPdf(label: string) {
 }
 
 export { db };
+
+/**
+ * Remove every Hub fixture belonging to these partners and logins. Runs the
+ * deletes in passes so foreign-key order does not matter; tables that a
+ * later phase adds are listed here too and skipped when absent.
+ */
+export async function cleanupPartners(bpIds: number[], adminIds: number[] = [], extra: string[] = []) {
+    if (!bpIds.length && !adminIds.length) return;
+    const { sql } = await import('drizzle-orm');
+    const bp = bpIds.length ? bpIds.join(',') : '0';
+    const ad = adminIds.length ? adminIds.join(',') : '0';
+    const stmts = [
+        ...extra,
+        `UPDATE tax_documents SET original_document_id = NULL WHERE issuer_partner_id IN (${bp}) OR recipient_partner_id IN (${bp})`,
+        `UPDATE partner_quotations SET invoice_document_id = NULL WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_invoice_payments WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM tax_document_lines WHERE document_id IN (SELECT id FROM tax_documents WHERE issuer_partner_id IN (${bp}) OR recipient_partner_id IN (${bp}))`,
+        `DELETE FROM tax_documents WHERE issuer_partner_id IN (${bp}) OR recipient_partner_id IN (${bp})`,
+        `DELETE FROM document_series WHERE series_key ~ '^bp-(${bpIds.join('|') || '0'})-'`,
+        `DELETE FROM partner_quotations WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_customers WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_purchase_bills WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM settlement_runs WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM business_partner_ledger WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM ftth_operator_ledger WHERE operator_id IN (SELECT id FROM ftth_operators WHERE business_partner_id IN (${bp}))`,
+        `DELETE FROM ftth_operators WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_documents WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_agreements WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_modules WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_users WHERE business_partner_id IN (${bp}) OR admin_user_id IN (${ad})`,
+        `DELETE FROM business_partner_verticals WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM business_partners WHERE id IN (${bp})`,
+        `DELETE FROM admin_users WHERE id IN (${ad})`,
+    ];
+    let pending = stmts;
+    for (let pass = 0; pass < 5 && pending.length; pass++) {
+        const failed: string[] = [];
+        for (const s of pending) {
+            try { await db.execute(sql.raw(s)); }
+            catch (e: any) { if (e?.code !== '42P01') failed.push(s); }
+        }
+        pending = failed;
+    }
+    if (pending.length) console.error('cleanup left rows behind:', pending.map(p => p.slice(0, 80)));
+}

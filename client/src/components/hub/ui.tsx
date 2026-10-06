@@ -65,3 +65,22 @@ export function Stat({ label, value, hint }: { label: string; value: ReactNode; 
     </div>
   );
 }
+
+/** Native select in the Hub's dark style — accessible and light. */
+export function HubSelect({ value, onChange, children, className = "", ...rest }: { value: string; onChange: (v: string) => void; children: ReactNode; className?: string; id?: string; "aria-label"?: string; disabled?: boolean }) {
+  return (
+    <select {...rest} value={value} onChange={e => onChange(e.target.value)}
+      className={`h-9 rounded-md border border-[rgba(255,255,255,0.12)] bg-[hsl(222,47%,11%)] px-2 text-sm text-white ${className}`}>
+      {children}
+    </select>
+  );
+}
+
+/** Table header row in the Hub's style. */
+export function Thead({ cols }: { cols: Array<string | [string, "right" | "left"]> }) {
+  return (
+    <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[hsl(215,20%,55%)]">
+      {cols.map((c, i) => { const [label, align] = Array.isArray(c) ? c : [c, "left"]; return <th key={i} className={`py-2 pr-2 font-medium ${align === "right" ? "text-right" : ""}`}>{label}</th>; })}
+    </tr></thead>
+  );
+}

@@ -2338,6 +2338,10 @@ export const businessPartners = pgTable("business_partners", {
   appliedVia: text("applied_via"),                                     // self | admin | ftth
   coveragePincodes: text("coverage_pincodes").array(),
   submittedAt: timestamp("submitted_at"),                              // application complete (docs + agreement)
+  // Phase 3 — the partner's own invoicing
+  invoicePrefix: text("invoice_prefix"),                               // 1–4 letters/digits, e.g. "KNS"
+  gstFilingFrequency: text("gst_filing_frequency").notNull().default('monthly'), // monthly | quarterly (QRMP)
+  invoiceTerms: text("invoice_terms"),
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -2769,6 +2773,9 @@ export const taxDocuments = pgTable("tax_documents", {
   notes: text("notes"),
   issuedAt: timestamp("issued_at").defaultNow(),
   createdByAdminId: integer("created_by_admin_id"),
+  // Phase 3 — a partner's own sale
+  partnerCustomerId: integer("partner_customer_id"),
+  dueDate: text("due_date"),
 });
 
 export const taxDocumentLines = pgTable("tax_document_lines", {
@@ -2835,3 +2842,68 @@ export const settlementRuns = pgTable("settlement_runs", {
 export type TaxDocument = typeof taxDocuments.$inferSelect;
 export type TaxDocumentLine = typeof taxDocumentLines.$inferSelect;
 export type SettlementRun = typeof settlementRuns.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 3) — the partner's customers, quotations, payments
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const partnerCustomers = pgTable("partner_customers", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  email: text("email"),
+  gstin: text("gstin"),
+  stateCode: text("state_code"),
+  stateName: text("state_name"),
+  address: text("address"),
+  pincode: text("pincode"),
+  tags: text("tags").array().notNull().default([] as any),
+  notes: text("notes"),
+  linkedUserId: integer("linked_user_id").references(() => users.id),
+  ftthConnectionId: integer("ftth_connection_id").references(() => ftthConnections.id),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  archivedAt: timestamp("archived_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** A quotation is not a tax document; it becomes one when invoiced. Versions keep the history of a revised quote. */
+export const partnerQuotations = pgTable("partner_quotations", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  customerId: integer("customer_id").notNull().references(() => partnerCustomers.id),
+  number: text("number").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default('draft'),   // draft | sent | accepted | declined | expired | invoiced | superseded
+  validUntil: text("valid_until"),
+  lines: jsonb("lines").notNull(),
+  taxablePaise: integer("taxable_paise").notNull(),
+  taxPaise: integer("tax_paise").notNull(),
+  totalPaise: integer("total_paise").notNull(),
+  notes: text("notes"),
+  terms: text("terms"),
+  source: text("source"),                                // consulting | events | ... (which module raised it)
+  sourceRefId: integer("source_ref_id"),
+  invoiceDocumentId: integer("invoice_document_id").references(() => taxDocuments.id),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** Money a partner's customer paid against one of the partner's invoices (cash, UPI, bank…). */
+export const partnerInvoicePayments = pgTable("partner_invoice_payments", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  documentId: integer("document_id").notNull().references(() => taxDocuments.id),
+  amountPaise: integer("amount_paise").notNull(),
+  method: text("method").notNull(),                      // cash | upi | bank | card | cheque | other
+  reference: text("reference"),
+  receivedOn: text("received_on").notNull(),
+  notes: text("notes"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type PartnerCustomer = typeof partnerCustomers.$inferSelect;
+export type PartnerQuotation = typeof partnerQuotations.$inferSelect;

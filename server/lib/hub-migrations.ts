@@ -212,6 +212,79 @@ const BLOCKS: Array<[string, string]> = [
         ('BUSINESS_CONFIG.DEFAULT_PART_HSN', '', 'string', 'BUSINESS_CONFIG', 'HSN printed for a part that has none. Leave blank: a wrong HSN is worse than a missing one — set it on the part instead', TRUE)
       ON CONFLICT (key) DO NOTHING;
     `],
+    ['phase3: partner columns', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS invoice_prefix TEXT;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS gst_filing_frequency TEXT NOT NULL DEFAULT 'monthly';
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS invoice_terms TEXT;
+      ALTER TABLE tax_documents ADD COLUMN IF NOT EXISTS partner_customer_id INTEGER;
+      ALTER TABLE tax_documents ADD COLUMN IF NOT EXISTS due_date DATE;
+      CREATE INDEX IF NOT EXISTS tax_documents_customer_idx ON tax_documents (partner_customer_id);
+    `],
+    ['phase3: partner_customers', `
+      CREATE TABLE IF NOT EXISTS partner_customers (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        gstin TEXT,
+        state_code TEXT,
+        state_name TEXT,
+        address TEXT,
+        pincode TEXT,
+        tags TEXT[] NOT NULL DEFAULT '{}',
+        notes TEXT,
+        linked_user_id INTEGER REFERENCES users(id),
+        ftth_connection_id INTEGER REFERENCES ftth_connections(id),
+        created_by_admin_user_id INTEGER,
+        archived_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_customers_bp_idx ON partner_customers (business_partner_id, name);
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_customers_bp_phone_uq ON partner_customers (business_partner_id, phone) WHERE phone IS NOT NULL AND archived_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_customers_bp_conn_uq ON partner_customers (business_partner_id, ftth_connection_id) WHERE ftth_connection_id IS NOT NULL;
+    `],
+    ['phase3: quotations', `
+      CREATE TABLE IF NOT EXISTS partner_quotations (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES partner_customers(id),
+        number TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'draft',
+        valid_until DATE,
+        lines JSONB NOT NULL,
+        taxable_paise INTEGER NOT NULL,
+        tax_paise INTEGER NOT NULL,
+        total_paise INTEGER NOT NULL,
+        notes TEXT,
+        terms TEXT,
+        source TEXT,
+        source_ref_id INTEGER,
+        invoice_document_id INTEGER REFERENCES tax_documents(id),
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (business_partner_id, number, version)
+      );
+      CREATE INDEX IF NOT EXISTS partner_quotations_bp_idx ON partner_quotations (business_partner_id, created_at);
+    `],
+    ['phase3: invoice payments', `
+      CREATE TABLE IF NOT EXISTS partner_invoice_payments (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        document_id INTEGER NOT NULL REFERENCES tax_documents(id),
+        amount_paise INTEGER NOT NULL,
+        method TEXT NOT NULL,
+        reference TEXT,
+        received_on DATE NOT NULL,
+        notes TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_invoice_payments_doc_idx ON partner_invoice_payments (document_id);
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

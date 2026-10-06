@@ -25,6 +25,9 @@ import OperatorOverview from "@/pages/operator/overview";
 import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail } from "@/pages/hub/parts";
 import HubPurchases from "@/pages/hub/purchases";
 import HubMoney from "@/pages/hub/money";
+import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
+import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
+import HubGstDesk from "@/pages/hub/gst";
 
 export interface HubEntry {
   path: string;
@@ -59,6 +62,18 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/parts/orders/:id", component: HubPartsOrderDetail, module: "parts", perm: "purchases:manage" },
   { path: "/partner/purchases", component: HubPurchases, module: "purchases", perm: "purchases:manage", nav: { group: "Purchases", label: "Purchases & ITC", icon: "receipt_long" } },
   { path: "/partner/money", component: HubMoney, module: "money", perm: "money:view", nav: { group: "Money", label: "Statement & settlements", icon: "account_balance_wallet" } },
+
+  // Phase 3 — the business's own customers, sales and GST.
+  { path: "/partner/customers", component: HubCustomers, module: "customers", perm: "customers:manage", nav: { group: "Customers", label: "Customers", icon: "people_alt" } },
+  { path: "/partner/customers/:id", component: HubCustomerDetail, module: "customers", perm: "customers:manage" },
+  { path: "/partner/sales/invoices", component: HubInvoices, module: "sales", perm: "sales:manage", nav: { group: "Sales", label: "Invoices", icon: "receipt" } },
+  { path: "/partner/sales/invoices/new", component: HubInvoiceNew, module: "sales", perm: "sales:manage" },
+  { path: "/partner/sales/invoices/:id", component: HubInvoiceDetail, module: "sales", perm: "sales:manage" },
+  { path: "/partner/sales/quotations", component: HubQuotations, module: "sales", perm: "sales:manage", nav: { group: "Sales", label: "Quotations", icon: "request_quote" } },
+  { path: "/partner/sales/quotations/new", component: HubQuotationNew, module: "sales", perm: "sales:manage" },
+  { path: "/partner/sales/quotations/:id/edit", component: HubQuotationRevise, module: "sales", perm: "sales:manage" },
+  { path: "/partner/sales/quotations/:id", component: HubQuotationDetail, module: "sales", perm: "sales:manage" },
+  { path: "/partner/gst", component: HubGstDesk, module: "gst", perm: "gst:manage", nav: { group: "GST desk", label: "Returns & registers", icon: "gavel" } },
 
   { path: "/partner/team", component: HubTeam, module: "team", nav: { group: "Business", label: "Team", icon: "group" } },
   { path: "/partner/documents", component: HubDocuments, module: "docs", pending: true, nav: { group: "Business", label: "Documents", icon: "folder" } },

@@ -93,8 +93,8 @@ export class TaxDocumentService {
     }
 
     /** "UF/26-27/B00042" — always within GST's 16-character limit. */
-    static formatNumber(prefix: string, fy: string, letter: string, n: number): string {
-        const num = `${prefix}/${fy}/${letter}${String(n).padStart(5, '0')}`;
+    static formatNumber(prefix: string, fy: string, letter: string, n: number, width = 5): string {
+        const num = `${prefix}/${fy}/${letter}${String(n).padStart(width, '0')}`;
         if (num.length > 16) throw new Error(`Document number ${num} exceeds 16 characters — shorten the prefix.`);
         return num;
     }
@@ -114,7 +114,11 @@ export class TaxDocumentService {
         issuer: 'unitefix' | 'partner';
         issuerPartnerId?: number | null;
         seriesKey: string; prefix: string; letter: string;
+        /** Digits in the running number (5 for UniteFix, 4 for partners so a 4-letter prefix still fits 16 chars). */
+        numberWidth?: number;
         purpose: string;
+        partnerCustomerId?: number | null;
+        dueDate?: string | null;
         b2bOrderId?: number | null;
         recipientPartnerId?: number | null;
         originalDocumentId?: number | null;
@@ -129,7 +133,7 @@ export class TaxDocumentService {
         const issuedAt = input.issuedAt ?? new Date();
         const fy = financialYear(issuedAt);
         const n = await this.nextNumber(tx, input.seriesKey, fy);
-        const number = this.formatNumber(input.prefix, fy, input.letter, n);
+        const number = this.formatNumber(input.prefix, fy, input.letter, n, input.numberWidth ?? 5);
 
         // Place of supply: the recipient's state. Without one (an unregistered
         // buyer with no state on file) it is taken as the supplier's — said so
@@ -157,6 +161,7 @@ export class TaxDocumentService {
             periodFrom: input.periodFrom ?? null, periodTo: input.periodTo ?? null,
             notes: [input.notes, posAssumed ? 'Place of supply taken as the supplier\'s state: the recipient has no state on record.' : null].filter(Boolean).join(' ') || null,
             issuedAt, createdByAdminId: input.createdByAdminId ?? null,
+            partnerCustomerId: input.partnerCustomerId ?? null, dueDate: input.dueDate ?? null,
         }).returning();
 
         await tx.insert(taxDocumentLines).values(lines.map(l => ({

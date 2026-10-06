@@ -16,7 +16,7 @@ const rs = (p: number) => `Rs. ${(p / 100).toLocaleString('en-IN', { minimumFrac
 const num = (p: number) => (p / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const date = (d: Date | string | null) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
-const TITLES: Record<string, string> = { tax_invoice: 'TAX INVOICE', credit_note: 'CREDIT NOTE', bill_of_supply: 'BILL OF SUPPLY' };
+const TITLES: Record<string, string> = { tax_invoice: 'TAX INVOICE', credit_note: 'CREDIT NOTE', bill_of_supply: 'BILL OF SUPPLY', quotation: 'QUOTATION' };
 
 function toBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
     return new Promise((resolve, reject) => {
@@ -40,7 +40,7 @@ function partyBlock(doc: PDFKit.PDFDocument, p: Party, x: number, y: number, w: 
     return doc.y;
 }
 
-export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLine[], extra?: { againstNumber?: string | null }): Promise<Buffer> {
+export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLine[], extra?: { againstNumber?: string | null; validUntil?: string | null }): Promise<Buffer> {
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
     const L = 40, R = 555, W = R - L;
     const supplier = d.supplier as unknown as Party;
@@ -58,6 +58,8 @@ export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLin
         ['Reverse charge', 'No'],
     ];
     if (extra?.againstNumber) meta.push(['Against invoice', extra.againstNumber]);
+    if (extra?.validUntil) meta.push(['Valid until', date(extra.validUntil)]);
+    if (d.dueDate && d.docKind !== 'credit_note') meta.push(['Due date', date(d.dueDate)]);
     if (d.periodFrom) meta.push(['Period', `${date(d.periodFrom)} – ${date(d.periodTo)}`]);
     if (d.irn) meta.push(['IRN', d.irn]);
     let my = top + 24;
@@ -101,7 +103,7 @@ export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLin
     y += 8;
     const tot: Array<[string, number, boolean?]> = [['Taxable value', d.taxablePaise]];
     if (igst) tot.push(['IGST', d.igstPaise]); else { tot.push(['CGST', d.cgstPaise]); tot.push(['SGST', d.sgstPaise]); }
-    tot.push([d.docKind === 'credit_note' ? 'Credit total' : 'Invoice total', d.totalPaise, true]);
+    tot.push([d.docKind === 'credit_note' ? 'Credit total' : d.docKind === 'quotation' ? 'Quotation total' : d.docKind === 'bill_of_supply' ? 'Total' : 'Invoice total', d.totalPaise, true]);
     for (const [k, v, bold] of tot) {
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9);
         doc.text(k, 330, y, { width: 120, align: 'right' });

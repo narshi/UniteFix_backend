@@ -89,3 +89,12 @@ export function razorpayCheckout(opts: { key: string; orderId: string; amountRup
     document.body.appendChild(s);
   });
 }
+
+/** Download a file that needs the sign-in token (CSV registers, GSTR-1 JSON). */
+export async function downloadAuthed(url: string, filename: string) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem("adminToken") ?? ""}` } });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  const href = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a"); a.href = href; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
+}
