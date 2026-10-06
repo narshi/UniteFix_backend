@@ -110,7 +110,8 @@ export class TaxDocumentService {
     // ──────────────────────────────────────────────────────────────────────
 
     static async create(tx: Tx, input: {
-        docKind: 'tax_invoice' | 'credit_note' | 'bill_of_supply';
+        /** receipt_voucher / refund_voucher: GST on advances (Rule 50 / 51), events phase. */
+        docKind: 'tax_invoice' | 'credit_note' | 'bill_of_supply' | 'receipt_voucher' | 'refund_voucher';
         issuer: 'unitefix' | 'partner';
         issuerPartnerId?: number | null;
         seriesKey: string; prefix: string; letter: string;

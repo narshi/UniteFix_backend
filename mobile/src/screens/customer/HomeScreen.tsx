@@ -33,6 +33,7 @@ import {
     Phone,
     CalendarPlus,
     Router,
+    PartyPopper,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -304,6 +305,26 @@ export function HomeScreen() {
                                 </Text>
                                 <Text style={styles.broadbandSubtitle}>
                                     {t('home.broadband_subtitle', 'Pay your fibre bill or get a new connection')}
+                                </Text>
+                            </View>
+                            <ChevronRight size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+
+                        {/* Events — planners from the UniteFix Partner Hub. */}
+                        <TouchableOpacity
+                            style={styles.broadbandBanner}
+                            onPress={() => navigation.navigate('EventPlanner')}
+                            activeOpacity={0.85}
+                        >
+                            <View style={styles.broadbandIcon}>
+                                <PartyPopper size={20} color={colors.primary} strokeWidth={2.2} />
+                            </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                                <Text style={styles.broadbandTitle}>
+                                    {t('home.events_title', 'Plan an event')}
+                                </Text>
+                                <Text style={styles.broadbandSubtitle}>
+                                    {t('home.events_subtitle', 'Weddings, birthdays, corporate — get quotations from planners near you')}
                                 </Text>
                             </View>
                             <ChevronRight size={18} color={colors.textSecondary} />

@@ -31,7 +31,8 @@ function getApiBaseUrl(): string {
     return 'http://localhost:3000';
 }
 
-const API_BASE_URL = getApiBaseUrl();
+/** Also the web origin: public pages (quotation links) are served from the same host. */
+export const API_BASE_URL = getApiBaseUrl();
 
 
 export const apiClient = axios.create({

@@ -21,6 +21,10 @@ import { BusinessPartnerService } from './business-partner.service';
 import { TaxDocumentService } from './tax-documents.service';
 import { HubError } from './partner-hub.service';
 
+const VOUCHERS = new Set(['receipt_voucher', 'refund_voucher']);
+const NEGATIVE = new Set(['credit_note', 'refund_voucher']);
+const INVOICE_KINDS = new Set(['tax_invoice', 'bill_of_supply']);
+
 /** Interstate invoices to unregistered buyers above this go to B2CL (₹1 lakh since Aug 2024). */
 export const B2CL_THRESHOLD_PAISE = 100_000_00;
 
@@ -75,7 +79,7 @@ export class GstDeskService {
     static async salesRegister(bpId: number, per: Period) {
         const rows = await this.issued(bpId, per);
         return rows.map(({ doc: d }) => {
-            const s = d.docKind === 'credit_note' ? -1 : 1;
+            const s = NEGATIVE.has(d.docKind) ? -1 : 1;
             const rc = d.recipient as any;
             return {
                 id: d.id, date: isoDay(d.issuedAt), number: d.number, kind: d.docKind, status: d.status,
@@ -104,14 +108,17 @@ export class GstDeskService {
         const live = sales.filter(s => s.status === 'issued');
         const add = (rows: Array<{ taxable: number; cgst: number; sgst: number; igst: number }>) => rows.reduce((a, r) => ({ taxable: a.taxable + r.taxable, cgst: a.cgst + r.cgst, sgst: a.sgst + r.sgst, igst: a.igst + r.igst }), { taxable: 0, cgst: 0, sgst: 0, igst: 0 });
         const round = (o: Record<string, number>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100]));
+        const adjusted = await this.advanceAdjustments(bpId, per);
         const output = add(live), input = add(purchases);
+        for (const a of adjusted) { output.cgst -= a.camt; output.sgst -= a.samt; output.igst -= a.iamt; }
         const outTax = output.cgst + output.sgst + output.igst, inTax = input.cgst + input.sgst + input.igst;
         return {
             period: per, registered: !!bp?.gstin, gstin: bp?.gstin ?? null, frequency: bp?.gstFilingFrequency ?? 'monthly',
             output: round(output), input: round(input),
             netPayableEstimate: Math.round(Math.max(0, outTax - inTax) * 100) / 100,
             creditCarriedEstimate: Math.round(Math.max(0, inTax - outTax) * 100) / 100,
-            counts: { invoices: live.filter(s => s.kind !== 'credit_note').length, creditNotes: live.filter(s => s.kind === 'credit_note').length, purchases: purchases.length },
+            counts: { invoices: live.filter(s => INVOICE_KINDS.has(s.kind)).length, creditNotes: live.filter(s => s.kind === 'credit_note').length, receiptVouchers: live.filter(s => s.kind === 'receipt_voucher').length, purchases: purchases.length },
+            advancesAdjusted: r2(adjusted.reduce((a, x) => a + (x.camt + x.samt + x.iamt) * 100, 0)),
             irnPending: live.filter(s => s.irnStatus === 'pending_provider').length,
             dueDates: this.dueDates(per, bp?.gstFilingFrequency ?? 'monthly', bp?.stateCode ?? null),
         };
@@ -128,7 +135,7 @@ export class GstDeskService {
     }
 
     static async hsnSummary(bpId: number, per: Period) {
-        const rows = (await this.issued(bpId, per)).filter(r => r.doc.status === 'issued');
+        const rows = (await this.issued(bpId, per)).filter(r => r.doc.status === 'issued' && !VOUCHERS.has(r.doc.docKind));
         const acc = new Map<string, { hsn: string; rate: number; b2b: boolean; desc: string; uqc: string; qty: number; txval: number; iamt: number; camt: number; samt: number }>();
         for (const { doc, lines } of rows) {
             const s = doc.docKind === 'credit_note' ? -1 : 1;
@@ -179,10 +186,23 @@ export class GstDeskService {
         const cdnr = new Map<string, any[]>();
         const cdnur: any[] = [];
         const nil = { INTRB2B: 0, INTRAB2B: 0, INTRB2C: 0, INTRAB2C: 0 };
-        const docIssue: Record<number, string[]> = { 1: [], 5: [] };
+        const docIssue: Record<number, string[]> = { 1: [], 5: [], 6: [], 8: [] };
+        // Table 11A — advances received (less refunds) in the period, by place of supply and rate.
+        const at = new Map<string, { pos: string; sply_ty: string; rt: number; ad_amt: number; iamt: number; camt: number; samt: number }>();
+        const addAdv = (m: typeof at, d: TaxDocument, l: TaxDocumentLine, s: number) => {
+            const key = `${pos(d)}|${Number(l.gstRate)}`;
+            const a = m.get(key) ?? { pos: pos(d), sply_ty: d.isInterstate ? 'INTER' : 'INTRA', rt: Number(l.gstRate), ad_amt: 0, iamt: 0, camt: 0, samt: 0 };
+            a.ad_amt += s * l.taxablePaise; a.iamt += s * l.igstPaise; a.camt += s * l.cgstPaise; a.samt += s * l.sgstPaise;
+            m.set(key, a);
+        };
 
         for (const { doc: d, lines } of rows) {
             const ctin: string | null = (d.recipient as any)?.gstin ?? null;
+            if (VOUCHERS.has(d.docKind)) {
+                docIssue[d.docKind === 'receipt_voucher' ? 6 : 8].push(d.number);
+                for (const l of lines) if (Number(l.gstRate) > 0) addAdv(at, d, l, d.docKind === 'refund_voucher' ? -1 : 1);
+                continue;
+            }
             const cn = d.docKind === 'credit_note';
             docIssue[cn ? 5 : 1].push(d.number);
             // Nil-rated lines (Table 8)
@@ -238,9 +258,54 @@ export class GstDeskService {
         if (Object.values(nil).some(v => v !== 0)) out.nil = { inv: Object.entries(nil).filter(([, v]) => v !== 0).map(([sply_ty, v]) => ({ sply_ty, nil_amt: r2(v), expt_amt: 0, ngsup_amt: 0 })) };
         const hb = hsn.filter(h => h.b2b && h.rate > 0).map(hsnRow), hc = hsn.filter(h => !h.b2b && h.rate > 0).map(hsnRow);
         if (hb.length || hc.length) out.hsn = { ...(hb.length ? { hsn_b2b: hb } : {}), ...(hc.length ? { hsn_b2c: hc } : {}) };
-        const dd = [[1, docRange(docIssue[1])], [5, docRange(docIssue[5])]].filter(([, r]) => r).map(([n, r]) => ({ doc_num: n, docs: [r] }));
+        const advRows = (m: typeof at) => {
+            const byPos = new Map<string, { pos: string; sply_ty: string; itms: any[] }>();
+            for (const a of Array.from(m.values())) {
+                if (!a.ad_amt) continue;
+                const p = byPos.get(a.pos + a.sply_ty) ?? { pos: a.pos, sply_ty: a.sply_ty, itms: [] };
+                p.itms.push({ rt: a.rt, ad_amt: r2(a.ad_amt), iamt: r2(a.iamt), camt: r2(a.camt), samt: r2(a.samt), csamt: 0 });
+                byPos.set(a.pos + a.sply_ty, p);
+            }
+            return Array.from(byPos.values());
+        };
+        const atRows = advRows(at);
+        if (atRows.length) out.at = atRows;
+        // Table 11B — advance tax adjusted against invoices issued in the period.
+        const txpd = new Map<string, { pos: string; sply_ty: string; rt: number; ad_amt: number; iamt: number; camt: number; samt: number }>();
+        for (const a of await this.advanceAdjustments(bpId, per)) {
+            const key = `${a.pos}|${a.rt}`;
+            const x = txpd.get(key) ?? { pos: a.pos, sply_ty: a.sply_ty, rt: a.rt, ad_amt: 0, iamt: 0, camt: 0, samt: 0 };
+            x.ad_amt += a.ad_amt * 100; x.iamt += a.iamt * 100; x.camt += a.camt * 100; x.samt += a.samt * 100;
+            txpd.set(key, x);
+        }
+        const txRows = advRows(txpd);
+        if (txRows.length) out.txpd = txRows;
+        const dd = ([1, 5, 6, 8] as const).map(n => [n, docRange(docIssue[n])] as const).filter(([, r]) => r).map(([n, r]) => ({ doc_num: n, docs: [r] }));
         if (dd.length) out.doc_issue = { doc_det: dd };
         return out;
+    }
+
+    /**
+     * Advance tax adjusted in the period: receipt vouchers (net of refunds)
+     * whose final invoice — linked through original_document_id — was issued
+     * in this period. Amounts in rupees.
+     */
+    static async advanceAdjustments(bpId: number, per: Period) {
+        const finals = await db.select({ id: taxDocuments.id }).from(taxDocuments).where(and(
+            eq(taxDocuments.issuer, 'partner'), eq(taxDocuments.issuerPartnerId, bpId), eq(taxDocuments.status, 'issued'),
+            inArray(taxDocuments.docKind, ['tax_invoice']),
+            gte(taxDocuments.issuedAt, new Date(`${per.from}T00:00:00+05:30`)), lte(taxDocuments.issuedAt, new Date(`${per.to}T23:59:59.999+05:30`)),
+        ));
+        if (!finals.length) return [];
+        const vouchers = await db.select().from(taxDocuments).where(and(inArray(taxDocuments.originalDocumentId, finals.map(f => f.id)), inArray(taxDocuments.docKind, ['receipt_voucher', 'refund_voucher']), eq(taxDocuments.status, 'issued')));
+        if (!vouchers.length) return [];
+        const lines = await db.select().from(taxDocumentLines).where(inArray(taxDocumentLines.documentId, vouchers.map(v => v.id)));
+        const byId = new Map(vouchers.map(v => [v.id, v]));
+        return lines.filter(l => Number(l.gstRate) > 0).map(l => {
+            const v = byId.get(l.documentId)!;
+            const s = v.docKind === 'refund_voucher' ? -1 : 1;
+            return { pos: v.placeOfSupplyCode ?? '', sply_ty: v.isInterstate ? 'INTER' : 'INTRA', rt: Number(l.gstRate), ad_amt: r2(s * l.taxablePaise), iamt: r2(s * l.igstPaise), camt: r2(s * l.cgstPaise), samt: r2(s * l.sgstPaise) };
+        });
     }
 
     static csv(rows: Array<Record<string, unknown>>, columns: Array<[string, string]>) {

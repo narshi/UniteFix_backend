@@ -16,7 +16,7 @@ const rs = (p: number) => `Rs. ${(p / 100).toLocaleString('en-IN', { minimumFrac
 const num = (p: number) => (p / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const date = (d: Date | string | null) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
-const TITLES: Record<string, string> = { tax_invoice: 'TAX INVOICE', credit_note: 'CREDIT NOTE', bill_of_supply: 'BILL OF SUPPLY', quotation: 'QUOTATION' };
+const TITLES: Record<string, string> = { tax_invoice: 'TAX INVOICE', credit_note: 'CREDIT NOTE', bill_of_supply: 'BILL OF SUPPLY', quotation: 'QUOTATION', receipt_voucher: 'RECEIPT VOUCHER', refund_voucher: 'REFUND VOUCHER' };
 
 function toBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
     return new Promise((resolve, reject) => {
@@ -68,7 +68,7 @@ export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLin
     let y = Math.max(supEnd, my) + 12;
     doc.moveTo(L, y).lineTo(R, y).strokeColor('#000').lineWidth(1).stroke();
     y += 8;
-    y = partyBlock(doc, recipient, L, y, W, d.docKind === 'credit_note' ? 'Credit to' : 'Bill to') + 12;
+    y = partyBlock(doc, recipient, L, y, W, d.docKind === 'credit_note' ? 'Credit to' : d.docKind === 'receipt_voucher' ? 'Received from' : d.docKind === 'refund_voucher' ? 'Refunded to' : 'Bill to') + 12;
 
     // Table
     // Two fixed layouts, each exactly the printable width (515pt).
@@ -103,7 +103,7 @@ export async function renderTaxDocumentPdf(d: TaxDocument, lines: TaxDocumentLin
     y += 8;
     const tot: Array<[string, number, boolean?]> = [['Taxable value', d.taxablePaise]];
     if (igst) tot.push(['IGST', d.igstPaise]); else { tot.push(['CGST', d.cgstPaise]); tot.push(['SGST', d.sgstPaise]); }
-    tot.push([d.docKind === 'credit_note' ? 'Credit total' : d.docKind === 'quotation' ? 'Quotation total' : d.docKind === 'bill_of_supply' ? 'Total' : 'Invoice total', d.totalPaise, true]);
+    tot.push([d.docKind === 'credit_note' ? 'Credit total' : d.docKind === 'quotation' ? 'Quotation total' : d.docKind === 'bill_of_supply' ? 'Total' : d.docKind === 'receipt_voucher' ? 'Advance received' : d.docKind === 'refund_voucher' ? 'Advance refunded' : 'Invoice total', d.totalPaise, true]);
     for (const [k, v, bold] of tot) {
         doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 9);
         doc.text(k, 330, y, { width: 120, align: 'right' });

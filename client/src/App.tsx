@@ -41,6 +41,7 @@ import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
 import PartnerApplyPage from "@/pages/partner-apply";
 import ConsultBookRouter from "@/pages/consult-book";
+import EventsPublicRouter from "@/pages/events-public";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
 
@@ -225,6 +226,11 @@ function Router() {
   // A consulting partner's public booking page and a client's booking link.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/book/")) {
     return <ConsultBookRouter />;
+  }
+
+  // An events partner's enquiry page, a client's quotation link, an enquiry's status.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/events/")) {
+    return <EventsPublicRouter />;
   }
 
   if (!isAuthenticated) {

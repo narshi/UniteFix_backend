@@ -2907,6 +2907,10 @@ export const partnerQuotations = pgTable("partner_quotations", {
   sourceRefId: integer("source_ref_id"),
   invoiceDocumentId: integer("invoice_document_id").references(() => taxDocuments.id),
   createdByAdminUserId: integer("created_by_admin_user_id"),
+  // Phase 6 — the client opens, accepts or declines it by link
+  publicToken: text("public_token"),
+  respondedAt: timestamp("responded_at"),
+  clientResponseNote: text("client_response_note"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3086,4 +3090,115 @@ export const consultRetainerBills = pgTable("consult_retainer_bills", {
 export type ConsultService = typeof consultServices.$inferSelect;
 export type ConsultAppointment = typeof consultAppointments.$inferSelect;
 export type ConsultRetainer = typeof consultRetainers.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 6) — events
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Building blocks for event quotations: venue, décor, catering per plate, AV per day… */
+export const eventPackages = pgTable("event_packages", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  category: text("category").notNull().default('other'),   // venue | decor | catering | av | photography | staff | other
+  description: text("description"),
+  unit: text("unit").notNull().default('event'),           // event | plate | hour | day | piece
+  pricePaise: integer("price_paise").notNull(),
+  sac: text("sac").notNull().default('998596'),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const eventEnquiries = pgTable("event_enquiries", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  customerId: integer("customer_id").notNull().references(() => partnerCustomers.id),
+  userId: integer("user_id").references(() => users.id),   // a UniteFix app customer, when it came from the app
+  source: text("source").notNull().default('hub'),         // hub | public | app
+  eventType: text("event_type").notNull(),
+  eventDate: text("event_date"),
+  guests: integer("guests"),
+  venue: text("venue"),
+  budgetPaise: integer("budget_paise"),
+  message: text("message"),
+  status: text("status").notNull().default('new'),         // new | contacted | quoted | won | lost
+  lostReason: text("lost_reason"),
+  publicToken: text("public_token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const eventBookings = pgTable("event_bookings", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  enquiryId: integer("enquiry_id").references(() => eventEnquiries.id),
+  customerId: integer("customer_id").notNull().references(() => partnerCustomers.id),
+  quotationId: integer("quotation_id").notNull().references(() => partnerQuotations.id),
+  title: text("title").notNull(),
+  eventDate: text("event_date").notNull(),
+  venue: text("venue"),
+  guests: integer("guests"),
+  status: text("status").notNull().default('confirmed'),   // confirmed | completed | cancelled
+  totalPaise: integer("total_paise").notNull(),
+  checklist: jsonb("checklist").notNull().default([] as any),   // [{ text, done, owner }]
+  staff: jsonb("staff").notNull().default([] as any),           // [{ name, role, phone }]
+  notes: text("notes"),
+  finalInvoiceDocumentId: integer("final_invoice_document_id").references(() => taxDocuments.id),
+  cancelledReason: text("cancelled_reason"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** Advance and milestone payments. A paid one carries its GST receipt voucher. */
+export const eventMilestones = pgTable("event_milestones", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").notNull().references(() => eventBookings.id, { onDelete: 'cascade' }),
+  label: text("label").notNull(),
+  dueDate: text("due_date"),
+  amountPaise: integer("amount_paise").notNull(),          // GST-inclusive
+  status: text("status").notNull().default('due'),         // due | paid
+  paidOn: text("paid_on"),
+  method: text("method"),
+  reference: text("reference"),
+  receiptDocumentId: integer("receipt_document_id").references(() => taxDocuments.id),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const eventVendors = pgTable("event_vendors", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  category: text("category").notNull().default('other'),
+  phone: text("phone"),
+  gstin: text("gstin"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** What the partner owes a vendor for one event. Paid with a GST bill → it joins the purchase register. */
+export const eventVendorCosts = pgTable("event_vendor_costs", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").notNull().references(() => eventBookings.id, { onDelete: 'cascade' }),
+  vendorId: integer("vendor_id").notNull().references(() => eventVendors.id),
+  description: text("description").notNull(),
+  taxablePaise: integer("taxable_paise").notNull(),
+  gstPaise: integer("gst_paise").notNull().default(0),
+  dueDate: text("due_date"),
+  status: text("status").notNull().default('due'),         // due | paid
+  paidOn: text("paid_on"),
+  reference: text("reference"),
+  billNumber: text("bill_number"),
+  purchaseBillId: integer("purchase_bill_id").references(() => partnerPurchaseBills.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type EventPackage = typeof eventPackages.$inferSelect;
+export type EventEnquiry = typeof eventEnquiries.$inferSelect;
+export type EventBooking = typeof eventBookings.$inferSelect;
+export type EventMilestone = typeof eventMilestones.$inferSelect;
 

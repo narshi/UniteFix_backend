@@ -30,6 +30,7 @@ import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotati
 import HubGstDesk from "@/pages/hub/gst";
 import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings } from "@/pages/hub/field";
 import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
+import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
 
 export interface HubEntry {
   path: string;
@@ -70,6 +71,15 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/consulting/calendar", component: HubConsultCalendar, module: "consulting", perm: "ops:view", nav: { group: "Consulting", label: "Calendar", icon: "calendar_month" } },
   { path: "/partner/consulting/services", component: HubConsultServices, module: "consulting", perm: "ops:view", nav: { group: "Consulting", label: "Services", icon: "psychology" } },
   { path: "/partner/consulting/retainers", component: HubConsultRetainers, module: "consulting", perm: "sales:manage", nav: { group: "Consulting", label: "Retainers", icon: "autorenew" } },
+
+  // Phase 6 — events.
+  { path: "/partner/events/enquiries", component: HubEventEnquiries, module: "events", perm: "ops:view", nav: { group: "Events", label: "Enquiries", icon: "mark_email_unread" } },
+  { path: "/partner/events/quotations", component: HubEventQuotations, module: "events", perm: "sales:manage", nav: { group: "Events", label: "Quotations", icon: "request_quote" } },
+  { path: "/partner/events/bookings", component: HubEventBookings, module: "events", perm: "ops:view", nav: { group: "Events", label: "Bookings", icon: "event_available" } },
+  { path: "/partner/events/bookings/:id", component: HubEventBookingDetail, module: "events", perm: "ops:view" },
+  { path: "/partner/events/calendar", component: HubEventCalendar, module: "events", perm: "ops:view", nav: { group: "Events", label: "Calendar", icon: "calendar_month" } },
+  { path: "/partner/events/packages", component: HubEventPackages, module: "events", perm: "ops:view", nav: { group: "Events", label: "Packages", icon: "inventory" } },
+  { path: "/partner/events/vendors", component: HubEventVendors, module: "events", perm: "ops:view", nav: { group: "Events", label: "Vendors", icon: "storefront" } },
 
   // Phase 2 — parts from UniteFix, purchases and money.
   { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },

@@ -26,6 +26,7 @@ import { FTTHOnboardingScreen } from '../screens/ftth/FTTHOnboardingScreen';
 import { FTTHRechargeScreen } from '../screens/ftth/FTTHRechargeScreen';
 import { FTTHHistoryScreen } from '../screens/ftth/FTTHHistoryScreen';
 import { FTTHRechargeTrackingScreen } from '../screens/ftth/FTTHRechargeTrackingScreen';
+import { EventPlannerScreen } from '../screens/customer/EventPlannerScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -56,6 +57,8 @@ export function CustomerStack() {
             <Stack.Screen name="FTTHRecharge" component={FTTHRechargeScreen} />
             <Stack.Screen name="FTTHRechargeTracking" component={FTTHRechargeTrackingScreen} />
             <Stack.Screen name="FTTHHistory" component={FTTHHistoryScreen} />
+            {/* Events planners from the Partner Hub — enquiries and quotations. */}
+            <Stack.Screen name="EventPlanner" component={EventPlannerScreen} />
         </Stack.Navigator>
     );
 }

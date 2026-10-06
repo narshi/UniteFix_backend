@@ -47,7 +47,8 @@
     "smoke:parts-platform": "npm run smoke:warranty && npm run smoke:ftth-addons && npm run smoke:business-partners && npm run smoke:spare-parts && npm run smoke:b2b-deposit",
     "smoke:hub-p3": "tsx scripts/smoke-hub-p3.ts",
     "smoke:hub-p4": "tsx scripts/smoke-hub-p4.ts",
-    "smoke:hub-p5": "tsx scripts/smoke-hub-p5.ts"
+    "smoke:hub-p5": "tsx scripts/smoke-hub-p5.ts",
+    "smoke:hub-p6": "tsx scripts/smoke-hub-p6.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

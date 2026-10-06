@@ -499,6 +499,122 @@ const BLOCKS: Array<[string, string]> = [
         END IF;
       END $;
     `],
+
+    // ── Phase 6: events — packages, enquiries, bookings, milestones, vendors
+    ['phase6: quotation client link', `
+      ALTER TABLE partner_quotations ADD COLUMN IF NOT EXISTS public_token TEXT;
+      ALTER TABLE partner_quotations ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
+      ALTER TABLE partner_quotations ADD COLUMN IF NOT EXISTS client_response_note TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_quotations_token ON partner_quotations (public_token) WHERE public_token IS NOT NULL;
+    `],
+    ['phase6: event_packages', `
+      CREATE TABLE IF NOT EXISTS event_packages (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        description TEXT,
+        unit TEXT NOT NULL DEFAULT 'event',
+        price_paise INTEGER NOT NULL,
+        sac TEXT NOT NULL DEFAULT '998596',
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_packages_bp_idx ON event_packages (business_partner_id);
+    `],
+    ['phase6: event_enquiries', `
+      CREATE TABLE IF NOT EXISTS event_enquiries (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES partner_customers(id),
+        user_id INTEGER REFERENCES users(id),
+        source TEXT NOT NULL DEFAULT 'hub',
+        event_type TEXT NOT NULL,
+        event_date TEXT,
+        guests INTEGER,
+        venue TEXT,
+        budget_paise INTEGER,
+        message TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        lost_reason TEXT,
+        public_token TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_enquiries_bp_idx ON event_enquiries (business_partner_id, created_at);
+      CREATE INDEX IF NOT EXISTS event_enquiries_user_idx ON event_enquiries (user_id) WHERE user_id IS NOT NULL;
+    `],
+    ['phase6: event_bookings', `
+      CREATE TABLE IF NOT EXISTS event_bookings (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        enquiry_id INTEGER REFERENCES event_enquiries(id),
+        customer_id INTEGER NOT NULL REFERENCES partner_customers(id),
+        quotation_id INTEGER NOT NULL REFERENCES partner_quotations(id),
+        title TEXT NOT NULL,
+        event_date TEXT NOT NULL,
+        venue TEXT,
+        guests INTEGER,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        total_paise INTEGER NOT NULL,
+        checklist JSONB NOT NULL DEFAULT '[]',
+        staff JSONB NOT NULL DEFAULT '[]',
+        notes TEXT,
+        final_invoice_document_id INTEGER REFERENCES tax_documents(id),
+        cancelled_reason TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS event_bookings_one_per_quote ON event_bookings (quotation_id);
+      CREATE INDEX IF NOT EXISTS event_bookings_bp_date ON event_bookings (business_partner_id, event_date);
+      CREATE TABLE IF NOT EXISTS event_milestones (
+        id SERIAL PRIMARY KEY,
+        booking_id INTEGER NOT NULL REFERENCES event_bookings(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        due_date TEXT,
+        amount_paise INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'due',
+        paid_on TEXT,
+        method TEXT,
+        reference TEXT,
+        receipt_document_id INTEGER REFERENCES tax_documents(id),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_milestones_booking_idx ON event_milestones (booking_id);
+    `],
+    ['phase6: event_vendors', `
+      CREATE TABLE IF NOT EXISTS event_vendors (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'other',
+        phone TEXT,
+        gstin TEXT,
+        notes TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS event_vendor_costs (
+        id SERIAL PRIMARY KEY,
+        booking_id INTEGER NOT NULL REFERENCES event_bookings(id) ON DELETE CASCADE,
+        vendor_id INTEGER NOT NULL REFERENCES event_vendors(id),
+        description TEXT NOT NULL,
+        taxable_paise INTEGER NOT NULL,
+        gst_paise INTEGER NOT NULL DEFAULT 0,
+        due_date TEXT,
+        status TEXT NOT NULL DEFAULT 'due',
+        paid_on TEXT,
+        reference TEXT,
+        bill_number TEXT,
+        purchase_bill_id INTEGER REFERENCES partner_purchase_bills(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_vendor_costs_booking_idx ON event_vendor_costs (booking_id);
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {
