@@ -31,6 +31,7 @@ import HubGstDesk from "@/pages/hub/gst";
 import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings } from "@/pages/hub/field";
 import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
+import { HubStoreListings, HubStoreOrders, HubStoreReviews } from "@/pages/hub/store";
 
 export interface HubEntry {
   path: string;
@@ -80,6 +81,11 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/events/calendar", component: HubEventCalendar, module: "events", perm: "ops:view", nav: { group: "Events", label: "Calendar", icon: "calendar_month" } },
   { path: "/partner/events/packages", component: HubEventPackages, module: "events", perm: "ops:view", nav: { group: "Events", label: "Packages", icon: "inventory" } },
   { path: "/partner/events/vendors", component: HubEventVendors, module: "events", perm: "ops:view", nav: { group: "Events", label: "Vendors", icon: "storefront" } },
+
+  // Phase 7 — selling products in the UniteFix store.
+  { path: "/partner/store/listings", component: HubStoreListings, module: "marketplace", perm: "ops:view", nav: { group: "Store", label: "Listings", icon: "storefront" } },
+  { path: "/partner/store/orders", component: HubStoreOrders, module: "marketplace", perm: "ops:view", nav: { group: "Store", label: "Orders", icon: "local_shipping" } },
+  { path: "/partner/store/reviews", component: HubStoreReviews, module: "marketplace", perm: "ops:view", nav: { group: "Store", label: "Reviews", icon: "reviews" } },
 
   // Phase 2 — parts from UniteFix, purchases and money.
   { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },

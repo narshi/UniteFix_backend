@@ -289,6 +289,24 @@ async function billDueRetainers(): Promise<void> {
     }
 }
 
+/** Store: settle delivered seller orders past their return window; refresh seller scores. */
+async function marketplaceTick(): Promise<void> {
+    try {
+        const { MarketplaceService } = await import('./marketplace.service');
+        await MarketplaceService.settleDue();
+    } catch (error: any) {
+        logger.error('[CRON] Store settlement failed', { error: error.message });
+    }
+}
+async function marketplaceScores(): Promise<void> {
+    try {
+        const { MarketplaceService } = await import('./marketplace.service');
+        await MarketplaceService.recomputeAll();
+    } catch (error: any) {
+        logger.error('[CRON] Seller scores failed', { error: error.message });
+    }
+}
+
 async function alertStaleB2bOrders(): Promise<void> {
     try {
         const { b2bOrders, businessPartners } = await import("@shared/schema");
@@ -655,6 +673,10 @@ export function startBackgroundJobs(): void {
     // Partner jobs past their assign-by time, and job values past their hold.
     intervals.push(setInterval(partnerFieldTick, FIFTEEN_MINUTES));
     intervals.push(setInterval(billDueRetainers, SIX_HOURS));
+    intervals.push(setInterval(marketplaceTick, SIX_HOURS));
+    setTimeout(marketplaceTick, 100000);
+    intervals.push(setInterval(marketplaceScores, DAY));
+    setTimeout(marketplaceScores, 110000);
     setTimeout(billDueRetainers, 95000);
     setTimeout(partnerFieldTick, 75000);
     setTimeout(alertStaleB2bOrders, 70000);

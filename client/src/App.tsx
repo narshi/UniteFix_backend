@@ -36,6 +36,7 @@ import SparePartsPage from "@/pages/admin/spare-parts";
 import BusinessPartnersPage from "@/pages/admin/business-partners";
 import PartnerSettlementsPage from "@/pages/admin/partner-settlements";
 import PartnerTerritoriesPage from "@/pages/admin/partner-territories";
+import MarketplacePage from "@/pages/admin/marketplace";
 import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
@@ -291,6 +292,7 @@ function Router() {
           <Route path="/admin/business-partners"><Gate capability="partners:view" component={BusinessPartnersPage} /></Route>
           <Route path="/admin/partner-settlements"><Gate capability="partners:view" component={PartnerSettlementsPage} /></Route>
           <Route path="/admin/partner-territories"><Gate capability="partners:view" component={PartnerTerritoriesPage} /></Route>
+          <Route path="/admin/marketplace"><Gate capability="partners:view" component={MarketplacePage} /></Route>
           <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>

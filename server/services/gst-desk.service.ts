@@ -182,7 +182,9 @@ export class GstDeskService {
 
         const b2b = new Map<string, any[]>();
         const b2cl = new Map<string, any[]>();
-        const b2cs = new Map<string, { sply_ty: string; pos: string; typ: 'OE'; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: 0 }>();
+        const b2cs = new Map<string, { sply_ty: string; pos: string; typ: 'OE' | 'E'; etin?: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: 0 }>();
+        const ecoGstin = (await TaxDocumentService.unitefixParty()).gstin;
+        const viaEco = (d: TaxDocument) => d.purpose === 'marketplace_sale' || (d.originalDocumentId != null && originals.get(d.originalDocumentId)?.purpose === 'marketplace_sale');
         const cdnr = new Map<string, any[]>();
         const cdnur: any[] = [];
         const nil = { INTRB2B: 0, INTRAB2B: 0, INTRB2C: 0, INTRAB2C: 0 };
@@ -232,8 +234,9 @@ export class GstDeskService {
                     const rt = Number(l.gstRate);
                     if (rt === 0) continue;
                     const sply = d.isInterstate ? 'INTER' : 'INTRA';
-                    const key = `${sply}|${pos(d)}|${rt}`;
-                    const a = b2cs.get(key) ?? { sply_ty: sply, pos: pos(d), typ: 'OE' as const, rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 as const };
+                    const eco = viaEco(d) && !!ecoGstin;
+                    const key = `${sply}|${pos(d)}|${rt}|${eco ? 'E' : 'OE'}`;
+                    const a = b2cs.get(key) ?? { sply_ty: sply, pos: pos(d), typ: eco ? 'E' as const : 'OE' as const, ...(eco ? { etin: ecoGstin! } : {}), rt, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 as const };
                     a.txval += s * l.taxablePaise; a.iamt += s * l.igstPaise; a.camt += s * l.cgstPaise; a.samt += s * l.sgstPaise;
                     b2cs.set(key, a);
                 }

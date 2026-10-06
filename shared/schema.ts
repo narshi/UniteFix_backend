@@ -438,6 +438,27 @@ export const products = pgTable("products", {
   thumbnailUrl: text("thumbnail_url"), // Primary display image URL
   specifications: jsonb("specifications"), // { display: "15.6 FHD", processor: "AMD Ryzen 5" }
   isActive: boolean("is_active").default(true),
+  /**
+   * Partner Hub phase 7 — a partner's listing (null seller = UniteFix's own).
+   * A partner listing is is_active only while listing_status is 'live', so
+   * every existing customer query keeps hiding drafts, reviews and rejects.
+   */
+  sellerPartnerId: integer("seller_partner_id"),
+  listingStatus: text("listing_status").notNull().default('live'),  // draft | pending_review | live | rejected | paused
+  mrp: integer("mrp"),                                               // rupees; sale price ≤ MRP (Legal Metrology)
+  hsnCode: text("hsn_code"),
+  gstPercent: decimal("gst_percent", { precision: 5, scale: 2 }),
+  countryOfOrigin: text("country_of_origin"),
+  manufacturer: text("manufacturer"),
+  netQuantity: text("net_quantity"),
+  returnWindowDays: integer("return_window_days").notNull().default(7),
+  warrantyMonths: integer("warranty_months"),
+  warrantyBy: text("warranty_by"),                                   // seller | manufacturer | none
+  bisNumber: text("bis_number"),
+  wpcEta: text("wpc_eta"),
+  sellerSku: text("seller_sku"),
+  rejectionReason: text("rejection_reason"),
+  submittedAt: timestamp("submitted_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -2359,6 +2380,14 @@ export const businessPartners = pgTable("business_partners", {
   fieldFeePercent: decimal("field_fee_percent", { precision: 5, scale: 2 }), // null = platform default
   fieldTier: text("field_tier").notNull().default('new'),                    // new | standard | preferred | restricted
   fieldSupportPhone: text("field_support_phone"),
+  // Phase 7 — selling products
+  sellerTier: text("seller_tier").notNull().default('new'),         // new | standard | preferred | restricted
+  sellerTierLocked: boolean("seller_tier_locked").notNull().default(false), // staff override wins over the computed tier
+  sellerScore: integer("seller_score"),
+  grievanceName: text("grievance_name"),
+  grievancePhone: text("grievance_phone"),
+  grievanceEmail: text("grievance_email"),
+  returnPolicy: text("return_policy"),
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -2645,6 +2674,11 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   // Partner Hub phase 4 (field service)
   'service_value',      // a partner technician's job, released after the hold, −
   'cash_collected',     // UniteFix's share of cash a partner technician collected, +
+  // Partner Hub phase 7 (selling products)
+  'marketplace_sale',       // a delivered order past its return window, −
+  'marketplace_commission', // UniteFix commission + GST on it, +
+  'tcs',                    // GST TCS (s.52) collected by UniteFix as e-commerce operator, +
+  'tds',                    // income-tax TDS (s.194-O), +
 ]);
 
 /**
@@ -3201,4 +3235,109 @@ export type EventPackage = typeof eventPackages.$inferSelect;
 export type EventEnquiry = typeof eventEnquiries.$inferSelect;
 export type EventBooking = typeof eventBookings.$inferSelect;
 export type EventMilestone = typeof eventMilestones.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 7) — sell products through the UniteFix store
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Commission per product category; anything unlisted uses the platform default. */
+export const marketplaceCommission = pgTable("marketplace_commission", {
+  productCategoryId: integer("product_category_id").primaryKey().references(() => productCategories.id),
+  percent: decimal("percent", { precision: 5, scale: 2 }).notNull(),
+  minPaise: integer("min_paise").notNull().default(0),
+  updatedBy: integer("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** One customer payment for a cart of partner listings, priced on the server. */
+export const marketCheckouts = pgTable("market_checkouts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  productOrderId: integer("product_order_id").references(() => productOrders.id),
+  razorpayOrderId: text("razorpay_order_id").unique(),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  amountPaise: integer("amount_paise").notNull(),
+  lines: jsonb("lines").notNull(),
+  address: text("address").notNull(),
+  pincode: text("pincode"),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  status: text("status").notNull().default('pending'),     // pending | paid | failed
+  createdAt: timestamp("created_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
+});
+
+/** The split: one per seller per checkout. What the seller fulfils and what settles. */
+export const sellerOrders = pgTable("seller_orders", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  checkoutId: integer("checkout_id").notNull().references(() => marketCheckouts.id),
+  productOrderId: integer("product_order_id").references(() => productOrders.id),
+  sellerPartnerId: integer("seller_partner_id").notNull().references(() => businessPartners.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  status: text("status").notNull().default('placed'),       // placed | confirmed | packed | dispatched | delivered | cancelled | returned
+  taxablePaise: integer("taxable_paise").notNull(),
+  gstPaise: integer("gst_paise").notNull(),
+  totalPaise: integer("total_paise").notNull(),
+  commissionPaise: integer("commission_paise").notNull().default(0),
+  commissionGstPaise: integer("commission_gst_paise").notNull().default(0),
+  tcsPaise: integer("tcs_paise").notNull().default(0),
+  tdsPaise: integer("tds_paise").notNull().default(0),
+  shipName: text("ship_name"), shipPhone: text("ship_phone"), shipAddress: text("ship_address"), shipPincode: text("ship_pincode"),
+  courier: text("courier"), trackingId: text("tracking_id"),
+  confirmedAt: timestamp("confirmed_at"), dispatchedAt: timestamp("dispatched_at"), deliveredAt: timestamp("delivered_at"),
+  cancelledAt: timestamp("cancelled_at"), cancelReason: text("cancel_reason"), cancelledBy: text("cancelled_by"),
+  refundPaise: integer("refund_paise").notNull().default(0), refundStatus: text("refund_status"), refundReference: text("refund_reference"),
+  returnWindowDays: integer("return_window_days").notNull().default(7),
+  settleAfter: timestamp("settle_after"), settledAt: timestamp("settled_at"),
+  invoiceDocumentId: integer("invoice_document_id").references(() => taxDocuments.id),
+  creditNoteDocumentId: integer("credit_note_document_id").references(() => taxDocuments.id),
+  returnReason: text("return_reason"), returnRequestedAt: timestamp("return_requested_at"), returnStatus: text("return_status"),  // requested | approved | rejected | received
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const sellerOrderItems = pgTable("seller_order_items", {
+  id: serial("id").primaryKey(),
+  sellerOrderId: integer("seller_order_id").notNull().references(() => sellerOrders.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").notNull().references(() => products.id),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPricePaise: integer("unit_price_paise").notNull(),   // GST-inclusive selling price
+  mrpPaise: integer("mrp_paise"),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull(),
+  hsnCode: text("hsn_code"),
+  taxablePaise: integer("taxable_paise").notNull(),
+  taxPaise: integer("tax_paise").notNull(),
+  commissionPaise: integer("commission_paise").notNull().default(0),
+});
+
+export const sellerOrderEvents = pgTable("seller_order_events", {
+  id: serial("id").primaryKey(),
+  sellerOrderId: integer("seller_order_id").notNull().references(() => sellerOrders.id, { onDelete: 'cascade' }),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actorType: text("actor_type").notNull(),                   // seller | customer | admin | system
+  actorId: integer("actor_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Verified-purchase reviews: one per order line, after delivery. */
+export const productReviews = pgTable("product_reviews", {
+  id: serial("id").primaryKey(),
+  sellerOrderItemId: integer("seller_order_item_id").notNull().unique().references(() => sellerOrderItems.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  sellerPartnerId: integer("seller_partner_id").notNull().references(() => businessPartners.id),
+  rating: integer("rating").notNull(),
+  review: text("review"),
+  sellerReply: text("seller_reply"),
+  isVisible: boolean("is_visible").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type SellerOrder = typeof sellerOrders.$inferSelect;
+export type MarketCheckout = typeof marketCheckouts.$inferSelect;
 

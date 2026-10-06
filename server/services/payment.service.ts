@@ -539,6 +539,15 @@ export class PaymentService {
                     logger.error(`[WEBHOOK] Parts deposit apply failed: ${err.message}`, { orderId, paymentId });
                 }
             }
+            if (notes?.payment_type === 'marketplace_order') {
+                try {
+                    const { MarketplaceService } = await import('./marketplace.service');
+                    const r = await MarketplaceService.applyCapture({ razorpayOrderId: orderId, razorpayPaymentId: paymentId, checkoutId: notes?.market_checkout_id ? parseInt(notes.market_checkout_id) : null, amountPaise });
+                    logger.info('[WEBHOOK] Store order capture handled', { created: (r as any).created, soldOut: (r as any).soldOut });
+                } catch (err: any) {
+                    logger.error(`[WEBHOOK] Store order apply failed: ${err.message}`, { orderId, paymentId });
+                }
+            }
             if (notes?.payment_type === 'b2b_order') {
                 try {
                     const { B2bOrderService } = await import('./b2b-order.service');

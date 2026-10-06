@@ -48,7 +48,8 @@
     "smoke:hub-p3": "tsx scripts/smoke-hub-p3.ts",
     "smoke:hub-p4": "tsx scripts/smoke-hub-p4.ts",
     "smoke:hub-p5": "tsx scripts/smoke-hub-p5.ts",
-    "smoke:hub-p6": "tsx scripts/smoke-hub-p6.ts"
+    "smoke:hub-p6": "tsx scripts/smoke-hub-p6.ts",
+    "smoke:hub-p7": "tsx scripts/smoke-hub-p7.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

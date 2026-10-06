@@ -24,6 +24,7 @@ const ENTRY: Record<string, string> = {
   settlement_paid: "Settlement", settlement_received: "Settlement received", fee_charge: "UniteFix fee", settlement_offset: "Offset against earnings",
   recharge_collected: "Recharge collected for you", platform_fee: "Convenience fee (customer)", lead_fee: "Lead fee",
   service_value: "Field job value", cash_collected: "Cash your technician collected",
+  marketplace_sale: "Store sale", marketplace_commission: "Store commission (with GST)", tcs: "GST TCS (claim in GSTR-3B)", tds: "TDS u/s 194-O (see 26AS)",
 };
 
 export default function HubMoney() {

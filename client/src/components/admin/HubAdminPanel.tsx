@@ -14,7 +14,7 @@ import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { MODULE_LABEL, HUB_ROLE_LABEL, type HubModule, type HubRole } from "@shared/hub";
 
 type HubDetail = {
-  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean; fieldFeePercent: number | null; fieldTier: string;
+  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean; fieldFeePercent: number | null; fieldTier: string; sellerTier: string; sellerTierLocked: boolean; sellerScore: number | null;
   gstin: string | null; gstinStatus: string; stateName: string | null; pan: string | null; panStatus: string; coveragePincodes: string[]; hasHubLogin: boolean;
   modules: HubModule[]; moduleOverrides: Array<{ module: string; enabled: boolean }>; verticalModules: HubModule[];
   onboarding: {
@@ -136,6 +136,18 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
             <input type="checkbox" checked={d.aatoAbove5cr} onChange={e => act.mutate({ method: "PATCH", path: "/flags", body: { aatoAbove5cr: e.target.checked } })} />
             Turnover above ₹5 crore (B2B invoices need an IRN)
           </label>
+          {d.modules.includes("marketplace") && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <b>Store seller</b>
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">score {d.sellerScore ?? "—"}</span>
+                <select aria-label="Seller tier" className="h-8 rounded-md border bg-background px-2" value={d.sellerTier} onChange={e => act.mutate({ method: "PATCH", path: "/seller", body: { sellerTier: e.target.value, locked: true } })}>
+                  <option value="new">New (listings reviewed)</option><option value="standard">Standard</option><option value="preferred">Preferred (−2 pts commission)</option><option value="restricted">Restricted</option>
+                </select>
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={d.sellerTierLocked} onChange={e => act.mutate({ method: "PATCH", path: "/seller", body: { locked: e.target.checked } })} /> fixed by staff</label>
+              </span>
+            </div>
+          )}
           {d.modules.includes("field") && (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <b>Field service</b>

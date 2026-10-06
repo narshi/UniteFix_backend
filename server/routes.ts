@@ -69,6 +69,7 @@ import { registerHubSalesRoutes } from "./routes/hub-sales.routes";
 import { registerHubFieldRoutes } from "./routes/hub-field.routes";
 import { registerHubConsultingRoutes } from "./routes/hub-consulting.routes";
 import { registerHubEventsRoutes } from "./routes/hub-events.routes";
+import { registerHubStoreRoutes } from "./routes/hub-store.routes";
 import { PartnerFieldService, pinFrom } from "./services/partner-field.service";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
 import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
@@ -2744,6 +2745,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/orders/place", authenticateToken, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
+      // Partner listings go through the store checkout, which splits, invoices and settles them.
+      const { MarketplaceService } = await import("./services/marketplace.service");
+      if (Array.isArray(products) && await MarketplaceService.hasPartnerItems(products.map((p: any) => Number(p.productId)).filter(Boolean))) {
+        return res.status(409).json({ success: false, code: 'USE_STORE_CHECKOUT', message: 'Items from partner sellers check out through the store checkout. Please update the app.' });
+      }
 
       // Calculate total
       let totalAmount = 0;
@@ -3594,6 +3600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHubFieldRoutes(app); // Partner Hub: territories, technicians, rates, partner job queue
   registerHubConsultingRoutes(app); // Partner Hub: consulting services, availability, appointments, retainers; public booking
   registerHubEventsRoutes(app); // Partner Hub: events — enquiries, quotations, bookings, advances, vendors; public + app channel
+  registerHubStoreRoutes(app); // Partner Hub: selling products — listings, split orders, settlement, reviews (/api/store for customers)
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment

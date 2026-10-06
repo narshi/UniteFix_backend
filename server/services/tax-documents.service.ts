@@ -18,7 +18,7 @@ import { db } from '../db';
 import { and, desc, eq, inArray, or, sql, gte, lte } from 'drizzle-orm';
 import {
     taxDocuments, taxDocumentLines, documentSeries, b2bOrders, b2bOrderItems, spareParts, businessPartners,
-    ftthOperators, ftthOperatorLedger, type TaxDocument,
+    ftthOperators, ftthOperatorLedger, sellerOrders, type TaxDocument,
 } from '@shared/schema';
 import { checkGstin, financialYear, GST_STATES } from '@shared/hub';
 import { loadSellerDetails } from './invoice-generator';
@@ -293,6 +293,15 @@ export class TaxDocumentService {
                 const taxable = Math.round(lead.paise * 100 / (100 + gstRate));
                 lines.push({ description: `Broadband lead fees — ${lead.n} lead${lead.n === 1 ? '' : 's'} converted, ${monthLabel}`, hsnSac: sac, quantity: lead.n, unit: 'lead', ratePaise: Math.round(taxable / Math.max(1, lead.n)), taxablePaise: taxable, gstRate, taxPaise: lead.paise - taxable });
             }
+        }
+
+        // Store commission on orders that settled this month. Booked to the
+        // ledger at settlement, so here it is invoiced, not charged again.
+        const [mk] = await db.select({ n: sql<number>`count(*)::int`, fee: sql<number>`coalesce(sum(${sellerOrders.commissionPaise}), 0)::int`, gst: sql<number>`coalesce(sum(${sellerOrders.commissionGstPaise}), 0)::int` })
+            .from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), gte(sellerOrders.settledAt, from), sql`${sellerOrders.settledAt} < ${to}`));
+        if (mk && mk.fee > 0) {
+            const mSac = ((await configService.get<string>('BUSINESS_CONFIG.MARKETPLACE_COMMISSION_SAC')) || '998599').trim();
+            lines.push({ description: `Store commission — ${mk.n} order${mk.n === 1 ? '' : 's'} settled, ${monthLabel}`, hsnSac: mSac, quantity: mk.n, unit: 'order', ratePaise: Math.round(mk.fee / Math.max(1, mk.n)), taxablePaise: mk.fee, gstRate, taxPaise: mk.gst });
         }
 
         const proBilled = bp.hubPlan === 'pro' && (!bp.hubPlanSince || bp.hubPlanSince < to);

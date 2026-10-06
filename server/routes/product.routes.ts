@@ -161,6 +161,12 @@ export function registerProductRoutes(app: Express) {
                 return res.status(400).json({ error: "Shipping address and pincode required" });
             }
 
+            // Partner listings go through the store checkout, which splits, invoices and settles them.
+            const { MarketplaceService } = await import("../services/marketplace.service");
+            const cart = await ProductService.getCart(userId);
+            if (await MarketplaceService.hasPartnerItems(cart.map((c: any) => Number(c.productId)).filter(Boolean))) {
+                return res.status(409).json({ code: 'USE_STORE_CHECKOUT', error: 'Items from partner sellers check out through the store checkout. Please update the app.' });
+            }
             const result = await ProductService.checkout(userId, shippingAddress, pincode);
 
             res.json({

@@ -615,6 +615,147 @@ const BLOCKS: Array<[string, string]> = [
       );
       CREATE INDEX IF NOT EXISTS event_vendor_costs_booking_idx ON event_vendor_costs (booking_id);
     `],
+
+    // ── Phase 7: sell products — listings, split orders, settlement, reviews
+    ['phase7: ledger types marketplace_sale', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'marketplace_sale';`],
+    ['phase7: ledger types marketplace_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'marketplace_commission';`],
+    ['phase7: ledger types tcs', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'tcs';`],
+    ['phase7: ledger types tds', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'tds';`],
+    ['phase7: products listing columns', `
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_partner_id INTEGER REFERENCES business_partners(id);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS listing_status TEXT NOT NULL DEFAULT 'live';
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS mrp INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS hsn_code TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(5,2);
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS country_of_origin TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS manufacturer TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS net_quantity TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS return_window_days INTEGER NOT NULL DEFAULT 7;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_months INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_by TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS bis_number TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS wpc_eta TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_sku TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP;
+      CREATE INDEX IF NOT EXISTS products_seller_idx ON products (seller_partner_id) WHERE seller_partner_id IS NOT NULL;
+    `],
+    ['phase7: business_partners seller columns', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS seller_tier TEXT NOT NULL DEFAULT 'new';
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS seller_tier_locked BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS seller_score INTEGER;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS grievance_name TEXT;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS grievance_phone TEXT;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS grievance_email TEXT;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS return_policy TEXT;
+    `],
+    ['phase7: marketplace_commission', `
+      CREATE TABLE IF NOT EXISTS marketplace_commission (
+        product_category_id INTEGER PRIMARY KEY REFERENCES product_categories(id),
+        percent NUMERIC(5,2) NOT NULL,
+        min_paise INTEGER NOT NULL DEFAULT 0,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
+    ['phase7: seller_orders', `
+      CREATE TABLE IF NOT EXISTS market_checkouts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        product_order_id INTEGER REFERENCES product_orders(id),
+        razorpay_order_id TEXT UNIQUE,
+        razorpay_payment_id TEXT,
+        amount_paise INTEGER NOT NULL,
+        lines JSONB NOT NULL,
+        address TEXT NOT NULL,
+        pincode TEXT,
+        customer_name TEXT,
+        customer_phone TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW(),
+        paid_at TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS seller_orders (
+        id SERIAL PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        checkout_id INTEGER NOT NULL REFERENCES market_checkouts(id),
+        product_order_id INTEGER REFERENCES product_orders(id),
+        seller_partner_id INTEGER NOT NULL REFERENCES business_partners(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'placed',
+        taxable_paise INTEGER NOT NULL,
+        gst_paise INTEGER NOT NULL,
+        total_paise INTEGER NOT NULL,
+        commission_paise INTEGER NOT NULL DEFAULT 0,
+        commission_gst_paise INTEGER NOT NULL DEFAULT 0,
+        tcs_paise INTEGER NOT NULL DEFAULT 0,
+        tds_paise INTEGER NOT NULL DEFAULT 0,
+        ship_name TEXT, ship_phone TEXT, ship_address TEXT, ship_pincode TEXT,
+        courier TEXT, tracking_id TEXT,
+        confirmed_at TIMESTAMP, dispatched_at TIMESTAMP, delivered_at TIMESTAMP,
+        cancelled_at TIMESTAMP, cancel_reason TEXT, cancelled_by TEXT,
+        refund_paise INTEGER NOT NULL DEFAULT 0, refund_status TEXT, refund_reference TEXT,
+        return_window_days INTEGER NOT NULL DEFAULT 7,
+        settle_after TIMESTAMP, settled_at TIMESTAMP,
+        invoice_document_id INTEGER REFERENCES tax_documents(id),
+        credit_note_document_id INTEGER REFERENCES tax_documents(id),
+        return_reason TEXT, return_requested_at TIMESTAMP, return_status TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (checkout_id, seller_partner_id)
+      );
+      CREATE INDEX IF NOT EXISTS seller_orders_seller_idx ON seller_orders (seller_partner_id, status);
+      CREATE INDEX IF NOT EXISTS seller_orders_user_idx ON seller_orders (user_id);
+      CREATE INDEX IF NOT EXISTS seller_orders_settle_idx ON seller_orders (settle_after) WHERE settled_at IS NULL;
+      CREATE TABLE IF NOT EXISTS seller_order_items (
+        id SERIAL PRIMARY KEY,
+        seller_order_id INTEGER NOT NULL REFERENCES seller_orders(id) ON DELETE CASCADE,
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price_paise INTEGER NOT NULL,
+        mrp_paise INTEGER,
+        gst_rate NUMERIC(5,2) NOT NULL,
+        hsn_code TEXT,
+        taxable_paise INTEGER NOT NULL,
+        tax_paise INTEGER NOT NULL,
+        commission_paise INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS seller_order_events (
+        id SERIAL PRIMARY KEY,
+        seller_order_id INTEGER NOT NULL REFERENCES seller_orders(id) ON DELETE CASCADE,
+        from_status TEXT, to_status TEXT NOT NULL,
+        actor_type TEXT NOT NULL, actor_id INTEGER,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS seller_order_events_idx ON seller_order_events (seller_order_id, created_at);
+    `],
+    ['phase7: product_reviews', `
+      CREATE TABLE IF NOT EXISTS product_reviews (
+        id SERIAL PRIMARY KEY,
+        seller_order_item_id INTEGER NOT NULL UNIQUE REFERENCES seller_order_items(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        seller_partner_id INTEGER NOT NULL REFERENCES business_partners(id),
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        review TEXT,
+        seller_reply TEXT,
+        is_visible BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS product_reviews_product_idx ON product_reviews (product_id) WHERE is_visible;
+      CREATE INDEX IF NOT EXISTS product_reviews_seller_idx ON product_reviews (seller_partner_id);
+    `],
+    ['phase7: config', `
+      INSERT INTO platform_config (key, value, value_type, category, description, is_editable) VALUES
+        ('BUSINESS_CONFIG.MARKETPLACE_COMMISSION_PERCENT', '10', 'number', 'BUSINESS_CONFIG', 'Default marketplace commission % on the pre-tax item price (per-category rates override)', TRUE),
+        ('BUSINESS_CONFIG.MARKETPLACE_TCS_PERCENT', '0.5', 'number', 'BUSINESS_CONFIG', 'GST TCS (CGST s.52) on net taxable value of goods sold through the platform — confirm with the CA', TRUE),
+        ('BUSINESS_CONFIG.MARKETPLACE_TDS_PERCENT', '0.1', 'number', 'BUSINESS_CONFIG', 'Income-tax TDS s.194-O on gross sales through the platform — confirm with the CA', TRUE),
+        ('BUSINESS_CONFIG.MARKETPLACE_DISPATCH_SLA_HOURS', '48', 'number', 'BUSINESS_CONFIG', 'Hours a seller has to dispatch an order', TRUE)
+      ON CONFLICT (key) DO NOTHING;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {
