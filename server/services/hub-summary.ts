@@ -13,6 +13,9 @@ import { ftthPlans } from '@shared/schema';
 import type { HubContext } from './partner-hub.service';
 import logger from '../lib/logger';
 
+/** ₹ amount from paise for summary tiles: "₹5,546" or "₹5,546.50". */
+export const rupeeLabel = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
 export interface SummaryPart {
     stats?: Array<{ label: string; value: string | number; hint?: string }>;
     checklist?: Array<{ label: string; done: boolean; href: string }>;

@@ -19,7 +19,7 @@ import { HubError } from '../services/partner-hub.service';
 import { PartnerSalesService, GST_RATES } from '../services/partner-sales.service';
 import { GstDeskService } from '../services/gst-desk.service';
 import { BusinessPartnerService } from '../services/business-partner.service';
-import { registerSummaryContributor } from '../services/hub-summary';
+import { registerSummaryContributor, rupeeLabel } from '../services/hub-summary';
 import { docView } from './hub-money.routes';
 
 const rupees = (p: number | null | undefined) => p == null ? null : Math.round(p) / 100;
@@ -84,7 +84,7 @@ export function registerHubSalesRoutes(app: Express) {
         const limit = PLAN_LIMITS[ctx.plan].invoicesPerMonth;
         return {
             stats: [
-                { label: 'Customers owe you', value: `₹${due / 100}`, hint: overdue ? `${overdue} invoice(s) overdue` : undefined },
+                { label: 'Customers owe you', value: rupeeLabel(due), hint: overdue ? `${overdue} invoice${overdue === 1 ? '' : 's'} overdue` : undefined },
                 { label: 'Invoices this month', value: limit ? `${used} / ${limit}` : used },
             ],
         };

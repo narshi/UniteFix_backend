@@ -66,7 +66,7 @@ export default function HubGstDesk() {
       ) : (
         <>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-            <Stat label="GST on your sales" value={inr(s.output.cgst + s.output.sgst + s.output.igst)} hint={`${s.counts.invoices} invoices · ${s.counts.creditNotes} credit notes`} />
+            <Stat label="GST on your sales" value={inr(s.output.cgst + s.output.sgst + s.output.igst)} hint={`${s.counts.invoices} invoice${s.counts.invoices === 1 ? "" : "s"} · ${s.counts.creditNotes} credit note${s.counts.creditNotes === 1 ? "" : "s"}`} />
             <Stat label="GST on your purchases" value={inr(s.input.cgst + s.input.sgst + s.input.igst)} hint={`${s.counts.purchases} bills — claim only what shows in GSTR-2B`} />
             <Stat label="Likely to pay in cash" value={inr(s.netPayableEstimate)} hint={s.creditCarriedEstimate ? `${inr(s.creditCarriedEstimate)} credit carried forward` : "estimate before set-off rules"} />
             <Stat label="Due dates" value={<span className="text-base">GSTR-1 {fmt(s.dueDates.gstr1)}</span>} hint={`GSTR-3B ${fmt(s.dueDates.gstr3b)}`} />

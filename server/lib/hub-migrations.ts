@@ -475,7 +475,7 @@ const BLOCKS: Array<[string, string]> = [
     // Day values are kept as 'YYYY-MM-DD' text: the driver turns DATE into a
     // local-midnight Date, which shifts a day across time zones.
     ['phase5: day columns as text', `
-      DO $ BEGIN
+      DO $$ BEGIN
         IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_documents' AND column_name = 'expires_at') = 'date' THEN
           ALTER TABLE partner_documents ALTER COLUMN expires_at TYPE TEXT USING to_char(expires_at, 'YYYY-MM-DD');
         END IF;
@@ -497,7 +497,7 @@ const BLOCKS: Array<[string, string]> = [
         IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'partner_invoice_payments' AND column_name = 'received_on') = 'date' THEN
           ALTER TABLE partner_invoice_payments ALTER COLUMN received_on TYPE TEXT USING to_char(received_on, 'YYYY-MM-DD');
         END IF;
-      END $;
+      END $$;
     `],
 
     // ── Phase 6: events — packages, enquiries, bookings, milestones, vendors

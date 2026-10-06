@@ -24,7 +24,7 @@ import { SettlementService, SettlementError } from '../services/settlement.servi
 import { BusinessPartnerService } from '../services/business-partner.service';
 import { uploadDocumentBuffer } from '../services/cloudinary.service';
 import { recordAudit } from '../lib/audit';
-import { registerSummaryContributor } from '../services/hub-summary';
+import { registerSummaryContributor, rupeeLabel } from '../services/hub-summary';
 import { B2bOrderService } from '../services/b2b-order.service';
 
 const rupees = (p: number | null | undefined) => p == null ? null : Math.round(p) / 100;
@@ -92,8 +92,8 @@ export function registerHubMoneyRoutes(app: Express) {
         if (!ctx.permissions.includes('money:view')) return null;
         const p = await SettlementService.position(ctx.businessPartnerId);
         return { stats: [
-            { label: 'UniteFix owes you', value: `₹${(p.ftthOwed + Math.max(0, -p.b2bBalance)) / 100}`, hint: p.offset ? `₹${p.offset / 100} goes to parts dues` : undefined },
-            { label: 'You owe UniteFix', value: `₹${Math.max(0, p.b2bBalance) / 100}` },
+            { label: 'UniteFix owes you', value: rupeeLabel(p.ftthOwed + Math.max(0, -p.b2bBalance)), hint: p.offset ? `${rupeeLabel(p.offset)} goes to parts dues` : undefined },
+            { label: 'You owe UniteFix', value: rupeeLabel(Math.max(0, p.b2bBalance)) },
         ] };
     });
     registerSummaryContributor('parts', async (ctx) => {
