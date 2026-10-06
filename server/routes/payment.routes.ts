@@ -19,6 +19,7 @@ import { BookingState } from "../business/booking-state-machine";
 import { BookingNotifications } from "../services/booking-notifications";
 import logger from "../lib/logger";
 import { configService } from "../services/config.service";
+import { PartnerFieldService, pinFrom } from "../services/partner-field.service";
 import { 
     paymentTransactions,
     invoices,
@@ -63,11 +64,20 @@ export function registerPaymentRoutes(app: Express) {
             let catalogTotal: number | null = null;
             let catalogCommission: number | null = null;
 
+            // Partner territory routing, as on /api/services/create.
+            const routedPin = pinFrom({ pincode, address });
+            const routing = await PartnerFieldService.route({ catalogServiceId: serviceId ? Number(serviceId) : null, pincode: routedPin, urgency: req.body?.urgency, quotedUnitPrice: req.body?.quotedUnitPrice });
+
             if (serviceId) {
                 const [svc] = await db.select({ basePrice: services.basePrice })
                     .from(services).where(eq(services.id, Number(serviceId))).limit(1);
                 if (svc && svc.basePrice > 0) {
-                    pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity, { bookingFee });
+                    pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(routing.unitPrice ?? svc.basePrice, quantity, {
+                        bookingFee, ...(routing.platformFeePercent != null ? { platformFeePercent: routing.platformFeePercent } : {}),
+                    });
+                    if (routing.dispatchPartnerId) {
+                        pricingSnapshot = { ...pricingSnapshot, payeeType: 'partner', payeePartnerId: routing.dispatchPartnerId, servicedBy: routing.partnerName ?? undefined, nationalUnitPrice: svc.basePrice };
+                    }
                     catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
                     catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
                 }
@@ -89,6 +99,8 @@ export function registerPaymentRoutes(app: Express) {
             await db.update(serviceRequests)
                 .set({
                     pricingSnapshot: pricingSnapshot as any,
+                    pincode: routedPin,
+                    ...(routing.dispatchPartnerId ? { dispatchPartnerId: routing.dispatchPartnerId, dispatchMode: routing.dispatchMode, slaAssignBy: routing.slaAssignBy } : {}),
                     ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
                     ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
                 })

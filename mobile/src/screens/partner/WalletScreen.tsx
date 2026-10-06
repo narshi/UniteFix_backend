@@ -101,6 +101,26 @@ export function WalletScreen() {
         );
     }
 
+    // A UniteFix partner's technician is employed and paid by that partner:
+    // their job earnings go to the partner, not to a wallet here.
+    const employer = (partnerProfile as any)?.data?.employer ?? (partnerProfile as any)?.employer;
+    if (employer) {
+        return (
+            <View style={styles.container}>
+                <View style={[styles.header, { paddingTop: headerTop }]}>
+                    <Text style={styles.headerTitle}>Your pay</Text>
+                </View>
+                <View style={{ margin: spacing.md, padding: spacing.md, borderRadius: radii.xl, backgroundColor: colors.primarySurface, borderWidth: 1, borderColor: colors.primaryLight }}>
+                    <Text style={{ ...typography.h3, color: colors.textPrimary }}>Employed by {employer.name}</Text>
+                    <Text style={{ ...typography.body, color: colors.textSecondary, marginTop: spacing.sm }}>
+                        Your pay comes from your employer, not a UniteFix wallet. UniteFix settles your jobs with {employer.name}.
+                        {employer.phone ? `\n\nQuestions about your pay: ${employer.phone}` : ''}
+                    </Text>
+                </View>
+            </View>
+        );
+    }
+
     const available = wallet?.availableBalance || 0;
     const held = wallet?.pendingPayments || 0;
     const isNegativeBlocked = wallet?.isBlockedDueToDues || available <= -250;

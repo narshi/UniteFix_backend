@@ -28,6 +28,7 @@ import HubMoney from "@/pages/hub/money";
 import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
+import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings } from "@/pages/hub/field";
 
 export interface HubEntry {
   path: string;
@@ -55,6 +56,13 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/broadband/subscribers", aliases: ["/operator/customers"], component: OperatorCustomers, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Subscribers", icon: "people" } },
   { path: "/partner/broadband/leads", aliases: ["/operator/leads"], component: OperatorLeads, module: "broadband", perm: "ops:view", nav: { group: "Broadband", label: "Leads", icon: "person_add" } },
   { path: "/partner/broadband/settlements", aliases: ["/operator/settlements"], component: OperatorSettlements, module: "broadband", perm: "money:view", nav: { group: "Broadband", label: "Recharge settlements", icon: "account_balance" } },
+
+  // Phase 4 — field service in the partner's own territory.
+  { path: "/partner/field/jobs", component: HubFieldJobs, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Jobs", icon: "handyman" } },
+  { path: "/partner/field/technicians", component: HubFieldTechnicians, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Technicians", icon: "engineering" } },
+  { path: "/partner/field/territory", component: HubFieldTerritory, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Territory", icon: "map" } },
+  { path: "/partner/field/rates", component: HubFieldRates, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Rates", icon: "sell" } },
+  { path: "/partner/field/earnings", component: HubFieldEarnings, module: "field", perm: "money:view", nav: { group: "Field service", label: "Earnings", icon: "payments" } },
 
   // Phase 2 — parts from UniteFix, purchases and money.
   { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },

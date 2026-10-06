@@ -14,7 +14,7 @@ import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { MODULE_LABEL, HUB_ROLE_LABEL, type HubModule, type HubRole } from "@shared/hub";
 
 type HubDetail = {
-  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean;
+  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean; fieldFeePercent: number | null; fieldTier: string;
   gstin: string | null; gstinStatus: string; stateName: string | null; pan: string | null; panStatus: string; coveragePincodes: string[]; hasHubLogin: boolean;
   modules: HubModule[]; moduleOverrides: Array<{ module: string; enabled: boolean }>; verticalModules: HubModule[];
   onboarding: {
@@ -136,6 +136,19 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
             <input type="checkbox" checked={d.aatoAbove5cr} onChange={e => act.mutate({ method: "PATCH", path: "/flags", body: { aatoAbove5cr: e.target.checked } })} />
             Turnover above ₹5 crore (B2B invoices need an IRN)
           </label>
+          {d.modules.includes("field") && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <b>Field service</b>
+              <span className="flex items-center gap-2">
+                <select aria-label="Field tier" className="h-8 rounded-md border bg-background px-2" value={d.fieldTier} onChange={e => act.mutate({ method: "PATCH", path: "/field", body: { fieldTier: e.target.value } })}>
+                  <option value="new">New (rates reviewed)</option><option value="standard">Standard</option><option value="preferred">Preferred</option><option value="restricted">Restricted</option>
+                </select>
+                <input aria-label="Platform fee percent" className="h-8 w-20 rounded-md border bg-background px-2" type="number" min={5} max={40} step={0.5} placeholder="fee %"
+                  defaultValue={d.fieldFeePercent ?? ""} onBlur={e => { const v = e.target.value.trim(); act.mutate({ method: "PATCH", path: "/field", body: { fieldFeePercent: v === "" ? null : Number(v) } }); }} />
+                <span className="text-xs text-muted-foreground">fee % (blank = default)</span>
+              </span>
+            </div>
+          )}
           <div>
             <b>Team</b>
             <ul className="mt-1 space-y-1">{d.team.map(m => <li key={m.id} className="flex justify-between gap-2"><span>{m.displayName ?? m.email} · {HUB_ROLE_LABEL[m.role]}</span><span className="text-xs text-muted-foreground">{m.status}{m.lastLogin ? ` · ${new Date(m.lastLogin).toLocaleDateString("en-IN")}` : ""}</span></li>)}</ul>

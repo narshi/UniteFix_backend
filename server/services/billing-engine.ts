@@ -69,6 +69,14 @@ export interface PricingSnapshot {
    */
   platformPartsCost?: number;
   /**
+   * Partner Hub phase 4: a job routed to a partner territory. The partner is
+   * the payee for technicianEarning (booked to its ledger, not a wallet).
+   */
+  payeeType?: 'partner' | 'technician';
+  payeePartnerId?: number;
+  servicedBy?: string;
+  nationalUnitPrice?: number;
+  /**
    * GST on the parts (v2). The service price carves its GST out of P; parts
    * are added on top of P, so their tax is added on top too — a catalogue part
    * at its own rate, a local purchase at the booking's service rate. Absent on
@@ -212,7 +220,7 @@ export class BillingEngine {
   static async createCatalogSnapshotForQuantity(
     unitPrice: number,
     quantity: number,
-    opts: { bookingFee?: number } = {},
+    opts: { bookingFee?: number; platformFeePercent?: number } = {},
   ): Promise<PricingSnapshot> {
     // Clamped to match the CHECK constraint on service_requests.quantity. A
     // snapshot is immutable once written, so a bad quantity reaching here is
@@ -222,7 +230,7 @@ export class BillingEngine {
     return { ...snapshot, unitPrice, quantity: qty };
   }
 
-  static async createCatalogSnapshot(basePrice: number, opts: { bookingFee?: number } = {}): Promise<PricingSnapshot> {
+  static async createCatalogSnapshot(basePrice: number, opts: { bookingFee?: number; platformFeePercent?: number } = {}): Promise<PricingSnapshot> {
     // The category's fee when the caller resolved one; the platform default otherwise.
     const bookingFeeStr = opts.bookingFee !== undefined ? String(opts.bookingFee) : await configService.get<string>('BUSINESS_CONFIG.BASE_SERVICE_FEE');
     const feePercentStr = await configService.get<string>('BUSINESS_CONFIG.UNITEFIX_FEE_PERCENT');
@@ -230,7 +238,8 @@ export class BillingEngine {
     const discountStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_PERCENT');
 
     const bookingFee = Math.round(parseFloat(bookingFeeStr || '99'));
-    const platformFeePercent = parseFloat(feePercentStr || '12');
+    // A partner-territory job carries the partner's fee % (decided at routing).
+    const platformFeePercent = opts.platformFeePercent ?? parseFloat(feePercentStr || '12');
     const gstPercent = parseFloat(gstPercentStr || '18');
     const discountLabelStr = await configService.get<string>('BUSINESS_CONFIG.DISCOUNT_LABEL');
     const discountPercent = clampPercent(parseFloat(discountStr || '0'));

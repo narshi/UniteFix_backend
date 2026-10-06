@@ -12,7 +12,7 @@
  */
 
 import { db } from "../db";
-import { sql, eq, and, desc, gte, lte, inArray, count as sqlCount } from "drizzle-orm";
+import { sql, eq, and, desc, gte, lte, inArray, isNull, count as sqlCount } from "drizzle-orm";
 import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
 import logger from "../lib/logger";
@@ -492,6 +492,11 @@ export class AdminServiceManager {
                 categoryId: serviceCategories.id,
                 categoryName: serviceCategories.name,
                 serviceName: servicesCatalog.name,
+                bookingPincode: serviceRequests.pincode,
+                dispatchPartnerId: serviceRequests.dispatchPartnerId,
+                dispatchMode: serviceRequests.dispatchMode,
+                escalatedAt: serviceRequests.escalatedAt,
+                escalationReason: serviceRequests.escalationReason,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
@@ -500,7 +505,10 @@ export class AdminServiceManager {
             .where(
                 and(
                     eq(serviceRequests.status, 'created'),
-                    eq(serviceRequests.bookingFeeStatus, 'paid')
+                    eq(serviceRequests.bookingFeeStatus, 'paid'),
+                    // A job in a partner's territory is the partner's to assign
+                    // until it misses its assign-by time (then it escalates here).
+                    sql`(${serviceRequests.dispatchPartnerId} IS NULL OR ${serviceRequests.escalatedAt} IS NOT NULL)`,
                 )
             )
             .orderBy(desc(serviceRequests.createdAt));
@@ -515,10 +523,11 @@ export class AdminServiceManager {
         const queue = pendingRequests.map((req) => {
             const createdMs = req.createdAt ? new Date(req.createdAt).getTime() : now.getTime();
             const waitingHours = Math.round(((now.getTime() - createdMs) / (1000 * 60 * 60)) * 10) / 10;
-            const addressPin = pinFromAddress(req.address);
+            const addressPin = req.bookingPincode ?? pinFromAddress(req.address);
             return {
                 ...req,
                 waitingHours,
+                escalatedFromPartner: !!req.dispatchPartnerId,
                 // What to match experts against, and where it came from — an
                 // admin should be able to tell a pincode read off the address
                 // from one inferred from the customer's profile.
@@ -557,6 +566,8 @@ export class AdminServiceManager {
                 and(
                     eq(employees.documentVerificationStatus, 'verified'),
                     eq(employees.isActive, true),
+                    // Partners' own technicians are dispatched by their partner.
+                    isNull(employees.managedByPartnerId),
                 )
             );
 

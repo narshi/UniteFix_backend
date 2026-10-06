@@ -285,6 +285,94 @@ const BLOCKS: Array<[string, string]> = [
       );
       CREATE INDEX IF NOT EXISTS partner_invoice_payments_doc_idx ON partner_invoice_payments (document_id);
     `],
+
+    // ── Phase 4: field service — territories, partner technicians, rates, dispatch, earnings
+    ['phase4: ledger types service_value', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'service_value';`],
+    ['phase4: ledger types cash_collected', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'cash_collected';`],
+    ['phase4: partner_territories', `
+      CREATE TABLE IF NOT EXISTS partner_territories (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        pincode TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'exclusive',
+        status TEXT NOT NULL DEFAULT 'proposed',
+        proposed_area TEXT,
+        proposed_district TEXT,
+        proposed_at TIMESTAMP DEFAULT NOW(),
+        activated_at TIMESTAMP,
+        activated_by_admin_id INTEGER,
+        paused_reason TEXT,
+        review_note TEXT,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (business_partner_id, pincode)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_territories_one_exclusive ON partner_territories (pincode) WHERE status = 'active' AND mode = 'exclusive';
+      CREATE INDEX IF NOT EXISTS partner_territories_pincode_idx ON partner_territories (pincode, status);
+    `],
+    ['phase4: employees.managed_by_partner_id', `
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS managed_by_partner_id INTEGER REFERENCES business_partners(id);
+      CREATE INDEX IF NOT EXISTS employees_managed_by_partner_idx ON employees (managed_by_partner_id) WHERE managed_by_partner_id IS NOT NULL;
+    `],
+    ['phase4: partner_service_rates', `
+      CREATE TABLE IF NOT EXISTS partner_service_rates (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        catalog_service_id INTEGER NOT NULL REFERENCES services(id),
+        base_price INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending_review',
+        effective_from TIMESTAMP NOT NULL,
+        submitted_at TIMESTAMP DEFAULT NOW(),
+        submitted_by_admin_user_id INTEGER,
+        reviewed_by_admin_id INTEGER,
+        reviewed_at TIMESTAMP,
+        review_note TEXT,
+        UNIQUE (business_partner_id, catalog_service_id, effective_from)
+      );
+      CREATE INDEX IF NOT EXISTS partner_service_rates_lookup ON partner_service_rates (business_partner_id, catalog_service_id, status, effective_from);
+    `],
+    ['phase4: business_partners field settings', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_fee_percent NUMERIC(5,2);
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_tier TEXT NOT NULL DEFAULT 'new';
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_support_phone TEXT;
+    `],
+    ['phase4: service_requests dispatch', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS pincode TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS dispatch_partner_id INTEGER REFERENCES business_partners(id);
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS dispatch_mode TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS sla_assign_by TIMESTAMP;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMP;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS escalation_reason TEXT;
+      CREATE INDEX IF NOT EXISTS service_requests_dispatch_partner_idx ON service_requests (dispatch_partner_id, status) WHERE dispatch_partner_id IS NOT NULL;
+    `],
+    ['phase4: partner_job_earnings', `
+      CREATE TABLE IF NOT EXISTS partner_job_earnings (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id),
+        service_request_id INTEGER NOT NULL UNIQUE REFERENCES service_requests(id),
+        employee_id INTEGER REFERENCES employees(id),
+        amount_paise INTEGER NOT NULL,
+        release_at TIMESTAMP NOT NULL,
+        status TEXT NOT NULL DEFAULT 'held',
+        ledger_entry_id INTEGER,
+        released_at TIMESTAMP,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_job_earnings_release_idx ON partner_job_earnings (status, release_at);
+      CREATE INDEX IF NOT EXISTS partner_job_earnings_bp_idx ON partner_job_earnings (business_partner_id, created_at);
+    `],
+    ['phase4: one subcontract invoice per partner per month', `
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_one_subcontract ON tax_documents (issuer_partner_id, period_from) WHERE purpose = 'subcontract' AND doc_kind <> 'credit_note';
+    `],
+    ['phase4: config', `
+      INSERT INTO platform_config (key, value, value_type, category, description, is_editable) VALUES
+        ('BUSINESS_CONFIG.PARTNER_RATE_GUARDRAIL_PERCENT', '25', 'number', 'BUSINESS_CONFIG', 'Partner service rates may differ from the national price by at most this %', TRUE),
+        ('BUSINESS_CONFIG.PARTNER_FIELD_FEE_PERCENT', '15', 'number', 'BUSINESS_CONFIG', 'UniteFix platform fee % on partner-territory jobs (per-partner override on the partner)', TRUE),
+        ('BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_HOURS', '2', 'number', 'BUSINESS_CONFIG', 'Hours a partner has to assign a technician before UniteFix escalates', TRUE),
+        ('BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_URGENT_HOURS', '1', 'number', 'BUSINESS_CONFIG', 'Same, for urgent bookings', TRUE),
+        ('BUSINESS_CONFIG.PARTNER_SUBCONTRACT_SAC', '9987', 'string', 'BUSINESS_CONFIG', 'SAC on partners'' monthly invoices to UniteFix for field work', TRUE)
+      ON CONFLICT (key) DO NOTHING;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

@@ -254,6 +254,31 @@ async function issueMonthlyFeeInvoices(): Promise<void> {
     }
 }
 
+/** Partner field service: escalate unassigned partner jobs; release held job values. */
+async function partnerFieldTick(): Promise<void> {
+    try {
+        const { PartnerFieldService } = await import('./partner-field.service');
+        await PartnerFieldService.escalateOverdue();
+        await PartnerFieldService.releaseDue();
+    } catch (error: any) {
+        logger.error('[CRON] Partner field tick failed', { error: error.message });
+    }
+}
+
+/** Partners' monthly invoices to UniteFix for field work (subcontract), 1st–3rd IST. */
+async function issueMonthlySubcontractInvoices(): Promise<void> {
+    try {
+        const ist = new Date(Date.now() + 5.5 * 3600_000);
+        if (ist.getUTCDate() > 3) return;
+        const prevMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - 1, 1));
+        const { PartnerFieldService } = await import('./partner-field.service');
+        const issued = await PartnerFieldService.runMonthlySubcontractInvoices(prevMonth);
+        if (issued.length) logger.info(`[CRON] Generated ${issued.length} partner subcontract invoice(s) for ${prevMonth.toISOString().slice(0, 7)}`);
+    } catch (error: any) {
+        logger.error('[CRON] Partner subcontract invoices failed', { error: error.message });
+    }
+}
+
 async function alertStaleB2bOrders(): Promise<void> {
     try {
         const { b2bOrders, businessPartners } = await import("@shared/schema");
@@ -615,6 +640,11 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(alertStaleB2bOrders, SIX_HOURS));
     intervals.push(setInterval(issueMonthlyFeeInvoices, SIX_HOURS));
     setTimeout(issueMonthlyFeeInvoices, 80000);
+    intervals.push(setInterval(issueMonthlySubcontractInvoices, SIX_HOURS));
+    setTimeout(issueMonthlySubcontractInvoices, 85000);
+    // Partner jobs past their assign-by time, and job values past their hold.
+    intervals.push(setInterval(partnerFieldTick, FIFTEEN_MINUTES));
+    setTimeout(partnerFieldTick, 75000);
     setTimeout(alertStaleB2bOrders, 70000);
 
     // Run refresh token cleanup daily

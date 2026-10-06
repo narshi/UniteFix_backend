@@ -24,7 +24,7 @@ import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'l
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useBookingDraftStore } from '../../stores/bookingDraft.store';
-import { useCreateServiceRequest, usePublicConfig } from '../../hooks/useCustomerData';
+import { useCreateServiceRequest, usePublicConfig, useServiceQuote } from '../../hooks/useCustomerData';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
@@ -57,7 +57,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const serviceType = route.params?.serviceType || draftServiceType || '';
     const serviceName = route.params?.serviceName || draftServiceName || serviceType || 'Service';
     const serviceId = (route.params?.serviceId as number | undefined) || draftServiceId;
-    const basePrice = Number(route.params?.basePrice ?? draftBasePrice ?? 0);
+    const catalogBasePrice = Number(route.params?.basePrice ?? draftBasePrice ?? 0);
     // The service's category fee travels with it (and survives the trip to the
     // address picker through the draft store, like basePrice).
     const paramFee = route.params?.bookingFee;
@@ -66,7 +66,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     useEffect(() => {
         if (route.params?.serviceType) {
-            setServiceContext(serviceType, serviceName, serviceId, basePrice, typeof paramFee === 'number' ? paramFee : undefined);
+            setServiceContext(serviceType, serviceName, serviceId, catalogBasePrice, typeof paramFee === 'number' ? paramFee : undefined);
         }
     }, [route.params?.serviceType]);
 
@@ -109,6 +109,12 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
     const { data: publicConfig } = usePublicConfig();
+
+    // In a UniteFix partner's territory the price can be the partner's own,
+    // and the customer is told who will do the work. The price shown here is
+    // the one sent back as quotedUnitPrice, so the server charges what was shown.
+    const { data: quote } = useServiceQuote(catalogBasePrice > 0 ? serviceId : undefined, selectedAddress?.pinCode);
+    const basePrice = quote?.unitPrice ?? catalogBasePrice;
 
     // Category fee first — it is what the server will charge. The app-wide
     // fee only for a service from an older server that did not send one.
@@ -270,6 +276,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     customerLocation: `POINT(${selectedAddress!.long} ${selectedAddress!.lat})`,
                                     catalogServiceId: serviceId,
                                     quantity,
+                                    ...(isFixedPrice ? { quotedUnitPrice: basePrice } : {}),
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -417,6 +424,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                             <Text style={styles.priceSubValue}>₹{finalAfterBooking}</Text>
                         </View>
                         <Text style={styles.priceNote}>Inclusive of all taxes.</Text>
+                        {quote?.servicedBy && (
+                            <Text style={styles.priceNote}>{quote.servicedBy.note}</Text>
+                        )}
                     </View>
                 )}
 

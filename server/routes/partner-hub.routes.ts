@@ -279,6 +279,7 @@ export function registerPartnerHubRoutes(app: Express) {
                 data: {
                     id: bp.id, partnerCode: bp.partnerCode, displayName: bp.displayName, status: bp.status,
                     appliedVia: bp.appliedVia, submittedAt: bp.submittedAt, hubPlan: bp.hubPlan, aatoAbove5cr: bp.aatoAbove5cr,
+                    fieldFeePercent: bp.fieldFeePercent == null ? null : Number(bp.fieldFeePercent), fieldTier: bp.fieldTier,
                     gstin: bp.gstin, gstinStatus: bp.gstinStatus, stateName: bp.stateName, pan: bp.pan, panStatus: bp.panStatus,
                     coveragePincodes: bp.coveragePincodes ?? [],
                     hasHubLogin: !!bp.adminUserId,

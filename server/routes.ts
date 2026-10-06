@@ -66,6 +66,8 @@ import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes"
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
 import { registerHubMoneyRoutes } from "./routes/hub-money.routes";
 import { registerHubSalesRoutes } from "./routes/hub-sales.routes";
+import { registerHubFieldRoutes } from "./routes/hub-field.routes";
+import { PartnerFieldService, pinFrom } from "./services/partner-field.service";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
 import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
 import { registerB2bOrderRoutes } from "./routes/b2b-order.routes";
@@ -2333,11 +2335,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let catalogTotal: number | null = null;
       let catalogCommission: number | null = null;
 
+      // Partner territory: the pincode decides whose queue the job lands in
+      // (and, when the app showed it, the partner's own price).
+      const pincode = pinFrom(req.body);
+      const routing = await PartnerFieldService.route({ catalogServiceId, pincode, urgency: req.body?.urgency, quotedUnitPrice: req.body?.quotedUnitPrice });
+
       if (catalogServiceId) {
         const [svc] = await db.select({ basePrice: servicesCatalog.basePrice })
           .from(servicesCatalog).where(eq(servicesCatalog.id, catalogServiceId)).limit(1);
         if (svc && svc.basePrice > 0) {
-          pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(svc.basePrice, quantity, { bookingFee });
+          pricingSnapshot = await BillingEngine.createCatalogSnapshotForQuantity(routing.unitPrice ?? svc.basePrice, quantity, {
+            bookingFee, ...(routing.platformFeePercent != null ? { platformFeePercent: routing.platformFeePercent } : {}),
+          });
+          if (routing.dispatchPartnerId) {
+            pricingSnapshot = { ...pricingSnapshot, payeeType: 'partner', payeePartnerId: routing.dispatchPartnerId, servicedBy: routing.partnerName ?? undefined, nationalUnitPrice: svc.basePrice };
+          }
           catalogTotal = pricingSnapshot.grossTotal ?? svc.basePrice;
           catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
         }
@@ -2356,6 +2368,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .set({
           pricingSnapshot: pricingSnapshot as any,
           quantity,
+          pincode,
+          ...(routing.dispatchPartnerId ? { dispatchPartnerId: routing.dispatchPartnerId, dispatchMode: routing.dispatchMode, slaAssignBy: routing.slaAssignBy } : {}),
           ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
           ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
         })
@@ -3575,6 +3589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)
   registerHubMoneyRoutes(app); // Partner Hub: purchases, money, GST documents, settlements
   registerHubSalesRoutes(app); // Partner Hub: customers, quotations, invoices, GST desk
+  registerHubFieldRoutes(app); // Partner Hub: territories, technicians, rates, partner job queue
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment

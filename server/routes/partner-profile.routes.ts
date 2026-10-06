@@ -53,7 +53,15 @@ export function registerPartnerProfileRoutes(app: Express) {
 
       const employee = await getOrCreateEmployee(userId);
 
-      res.json({ success: true, data: employee });
+      // A partner's technician is employed and paid by that partner (Partner Hub).
+      let employer: { id: number; name: string; phone: string | null } | null = null;
+      if ((employee as any).managedByPartnerId) {
+        const { BusinessPartnerService } = await import("../services/business-partner.service");
+        const bp = await BusinessPartnerService.byId((employee as any).managedByPartnerId);
+        if (bp) employer = { id: bp.id, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone };
+      }
+
+      res.json({ success: true, data: { ...employee, employer, payNote: employer ? `Employed by ${employer.name} — your pay comes from your employer, not a UniteFix wallet.` : null } });
     } catch (error: any) {
       logger.error("Error fetching partner profile", { error: error.message });
       res.status(500).json({ success: false, message: "Failed to fetch profile" });

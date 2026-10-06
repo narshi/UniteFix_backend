@@ -1235,7 +1235,9 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(serviceRequests.status, 'created'),
-          eq(serviceRequests.bookingFeeStatus, 'paid')
+          eq(serviceRequests.bookingFeeStatus, 'paid'),
+          // Partner-territory jobs belong to the partner's queue until escalated.
+          sql`(${serviceRequests.dispatchPartnerId} IS NULL OR ${serviceRequests.escalatedAt} IS NOT NULL)`,
         )
       )
       .orderBy(desc(serviceRequests.createdAt));
@@ -1454,6 +1456,11 @@ export class DatabaseStorage implements IStorage {
         throw new Error('Service request or provider not found');
       }
       
+      // Partner technicians are paid by their employer; the job value was
+      // already held for the partner when the booking completed.
+      const [emp0] = await tx.select({ bp: employees.managedByPartnerId }).from(employees).where(eq(employees.id, service.providerId));
+      if (emp0?.bp) return { transaction: null };
+
       const snapshot = service.pricingSnapshot as any;
       if (!snapshot || !snapshot.technicianEarning) {
           // If there is no technicianEarning, we can't credit.
@@ -2555,6 +2562,16 @@ export class DatabaseStorage implements IStorage {
     tx?: any
   ): Promise<WalletTransactionV2> {
     const dbCtx = tx || db;
+
+    // A partner's technician has no UniteFix wallet: the partner employs and
+    // pays them, so the job's value is held for the partner instead
+    // (Partner Hub phase 4). Same hold window, same idempotency per job.
+    const { PartnerFieldService } = await import('./services/partner-field.service');
+    const employerId = await PartnerFieldService.employerOf(partnerId, dbCtx);
+    if (employerId) {
+      await PartnerFieldService.holdJobValue(dbCtx, employerId, { serviceRequestId, employeeId: partnerId, amountRupees: amount, releaseAt: releaseDate });
+      return null as any;
+    }
 
     // IDEMPOTENCY CHECK
     const [existing] = await dbCtx

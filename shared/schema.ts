@@ -196,6 +196,12 @@ export const employees = pgTable("employees", {
    */
   partsDepositWaived: boolean("parts_deposit_waived").notNull().default(false),
   partsDepositWaivedReason: text("parts_deposit_waived_reason"),
+  /**
+   * Partner Hub phase 4: a technician employed by a business partner. Their
+   * job earnings go to the partner's ledger, not a UniteFix wallet — the
+   * partner is the employer and pays them.
+   */
+  managedByPartnerId: integer("managed_by_partner_id"),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
@@ -287,6 +293,13 @@ export const serviceRequests = pgTable("service_requests", {
   cashCollectedAt: timestamp("cash_collected_at"),
   // Urgency — set by customer when creating request
   urgency: text("urgency").default('normal'),  // 'normal' | 'urgent'
+  // Partner Hub phase 4 — routing to a partner territory, frozen at booking
+  pincode: text("pincode"),
+  dispatchPartnerId: integer("dispatch_partner_id"),
+  dispatchMode: text("dispatch_mode"),          // exclusive | shared
+  slaAssignBy: timestamp("sla_assign_by"),
+  escalatedAt: timestamp("escalated_at"),
+  escalationReason: text("escalation_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -2342,6 +2355,10 @@ export const businessPartners = pgTable("business_partners", {
   invoicePrefix: text("invoice_prefix"),                               // 1–4 letters/digits, e.g. "KNS"
   gstFilingFrequency: text("gst_filing_frequency").notNull().default('monthly'), // monthly | quarterly (QRMP)
   invoiceTerms: text("invoice_terms"),
+  // Phase 4 — field service
+  fieldFeePercent: decimal("field_fee_percent", { precision: 5, scale: 2 }), // null = platform default
+  fieldTier: text("field_tier").notNull().default('new'),                    // new | standard | preferred | restricted
+  fieldSupportPhone: text("field_support_phone"),
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -2625,6 +2642,9 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   // Partner Hub phase 2
   'fee_charge',         // UniteFix fees billed to the partner (Hub Pro plan), +
   'settlement_offset',  // parts dues settled out of money UniteFix owed, −
+  // Partner Hub phase 4 (field service)
+  'service_value',      // a partner technician's job, released after the hold, −
+  'cash_collected',     // UniteFix's share of cash a partner technician collected, +
 ]);
 
 /**
@@ -2907,3 +2927,62 @@ export const partnerInvoicePayments = pgTable("partner_invoice_payments", {
 
 export type PartnerCustomer = typeof partnerCustomers.$inferSelect;
 export type PartnerQuotation = typeof partnerQuotations.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Hub (phase 4) — field service: territories, rates, job earnings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pincodes a partner serves. 'proposed' until UniteFix approves (which also
+ * makes the pincode serviceable); one exclusive partner per pincode.
+ */
+export const partnerTerritories = pgTable("partner_territories", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  pincode: text("pincode").notNull(),
+  mode: text("mode").notNull().default('exclusive'),        // exclusive | shared
+  status: text("status").notNull().default('proposed'),     // proposed | active | paused | withdrawn | rejected
+  proposedArea: text("proposed_area"),
+  proposedDistrict: text("proposed_district"),
+  proposedAt: timestamp("proposed_at").defaultNow(),
+  activatedAt: timestamp("activated_at"),
+  activatedByAdminId: integer("activated_by_admin_id"),
+  pausedReason: text("paused_reason"),
+  reviewNote: text("review_note"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** A partner's own all-in price for a catalogue service, within UniteFix's guardrails. */
+export const partnerServiceRates = pgTable("partner_service_rates", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  catalogServiceId: integer("catalog_service_id").notNull().references(() => services.id),
+  basePrice: integer("base_price").notNull(),                // rupees, GST-inclusive, like services.base_price
+  status: text("status").notNull().default('pending_review'), // pending_review | live | rejected | retired
+  effectiveFrom: timestamp("effective_from").notNull(),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  submittedByAdminUserId: integer("submitted_by_admin_user_id"),
+  reviewedByAdminId: integer("reviewed_by_admin_id"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNote: text("review_note"),
+});
+
+/** What a partner earned on one job; released to the partner ledger after the hold. */
+export const partnerJobEarnings = pgTable("partner_job_earnings", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id),
+  serviceRequestId: integer("service_request_id").notNull().unique().references(() => serviceRequests.id),
+  employeeId: integer("employee_id").references(() => employees.id),
+  amountPaise: integer("amount_paise").notNull(),
+  releaseAt: timestamp("release_at").notNull(),
+  status: text("status").notNull().default('held'),          // held | released | reversed
+  ledgerEntryId: integer("ledger_entry_id"),
+  releasedAt: timestamp("released_at"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type PartnerTerritory = typeof partnerTerritories.$inferSelect;
+export type PartnerServiceRate = typeof partnerServiceRates.$inferSelect;
+export type PartnerJobEarning = typeof partnerJobEarnings.$inferSelect;
+

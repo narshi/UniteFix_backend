@@ -17,6 +17,7 @@
 
 import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
+import { configService } from '../services/config.service';
 import { eq, sql } from 'drizzle-orm';
 import { serviceRequests, employees } from '@shared/schema';
 import { authenticatePartner, authenticateToken, authenticateAny, requireVerifiedPartner } from '../middleware/auth.middleware';
@@ -648,9 +649,27 @@ export function registerBillingRoutes(app: Express) {
             // Calculate UniteFix's share to debit from employee wallet
             const platformDebit = BillingEngine.calculateCashDebitAmount(snapshot);
 
-            // Debit employee wallet (allow negative — recovered from future earnings)
-            let walletTransaction = null;
+            // Debit employee wallet (allow negative — recovered from future earnings).
+            //
+            // A partner's technician has no wallet. Under the subcontract model
+            // the cash is UniteFix's (it is the provider to the customer): the
+            // partner is charged what its technician collected and credited the
+            // job's value after the hold — net, UniteFix's share, exactly what
+            // the wallet debit would have been, and the job appears on the
+            // partner's monthly invoice like every other.
+            let walletTransaction: any = null;
             try {
+                const { PartnerFieldService } = await import('../services/partner-field.service');
+                const employerId = await PartnerFieldService.employerOf(partnerId);
+                if (employerId) {
+                    const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
+                    walletTransaction = await PartnerFieldService.bookCashCollected(employerId, { serviceRequestId: bookingId, serviceId: booking.serviceId, amountRupees: value + platformDebit });
+                    const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
+                    await PartnerFieldService.holdJobValue(db, employerId, {
+                        serviceRequestId: bookingId, employeeId: partnerId, amountRupees: value,
+                        releaseAt: new Date(Date.now() + holdDays * 86_400_000),
+                    });
+                } else {
                 const { storage } = await import('../storage');
                 walletTransaction = await storage.deductProviderWallet(
                     partnerId,
@@ -658,6 +677,7 @@ export function registerBillingRoutes(app: Express) {
                     `Platform fee — cash payment booking #${booking.serviceId}`,
                     true // allowNegative: UniteFix always recovers its share
                 );
+                }
             } catch (walletErr: any) {
                 logger.error(`[CASH] Wallet debit failed for booking ${bookingId}:`, walletErr.message);
                 // Don't block the completion — log and continue

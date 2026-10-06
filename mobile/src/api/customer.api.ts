@@ -97,6 +97,20 @@ export interface CreateServiceRequest {
      * The server clamps it and does not trust this value.
      */
     quantity?: number;
+    /**
+     * The unit price this screen showed (from /api/services/quote). In a
+     * partner's territory the partner's own price applies only when the app
+     * showed it; otherwise the national price is charged.
+     */
+    quotedUnitPrice?: number;
+}
+
+/** Price and provider for a service at a pincode (partner territories). */
+export interface ServiceQuote {
+    catalogServiceId: number;
+    nationalPrice: number;
+    unitPrice: number;
+    servicedBy: { name: string; phone: string | null; note: string } | null;
 }
 
 export interface SavedAddress {
@@ -227,6 +241,9 @@ export const customerApi = {
         }>>('/api/partner/profile/upi/validate', data),
 
     // Service Requests
+    getServiceQuote: (catalogServiceId: number, pincode: string) =>
+        apiClient.get<ApiResponse<ServiceQuote>>(`/api/services/quote?catalogServiceId=${catalogServiceId}&pincode=${encodeURIComponent(pincode)}`),
+
     createServiceRequest: (data: CreateServiceRequest) =>
         apiClient.post<ApiResponse<ServiceRequest>>('/api/services/create', data),
 

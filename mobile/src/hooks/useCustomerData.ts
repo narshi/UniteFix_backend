@@ -4,6 +4,22 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { customerApi, CreateServiceRequest } from '../api/customer.api';
+
+/**
+ * Price and provider for a catalogue service at the booking address's pincode.
+ * In a partner territory the partner's price and name come back; elsewhere the
+ * national price. Disabled until both are known.
+ */
+export function useServiceQuote(catalogServiceId?: number, pincode?: string | null) {
+    const pin = pincode && /^\d{6}$/.test(pincode) ? pincode : null;
+    return useQuery({
+        queryKey: ['serviceQuote', catalogServiceId, pin],
+        queryFn: async () => (await customerApi.getServiceQuote(catalogServiceId!, pin!)).data?.data ?? null,
+        enabled: !!catalogServiceId && !!pin,
+        staleTime: 5 * 60_000,
+        retry: false,
+    });
+}
 import { Alert } from 'react-native';
 import { getApiErrorMessage } from '../api/client';
 // getState() rather than the hook: this runs inside a mutation callback, not render.

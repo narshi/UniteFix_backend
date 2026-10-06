@@ -23,6 +23,7 @@ const ENTRY: Record<string, string> = {
   order_invoice: "Parts order", payment_received: "Payment received", credit_note: "Credit note", refund: "Refund", adjustment: "Adjustment",
   settlement_paid: "Settlement", settlement_received: "Settlement received", fee_charge: "UniteFix fee", settlement_offset: "Offset against earnings",
   recharge_collected: "Recharge collected for you", platform_fee: "Convenience fee (customer)", lead_fee: "Lead fee",
+  service_value: "Field job value", cash_collected: "Cash your technician collected",
 };
 
 export default function HubMoney() {
