@@ -139,7 +139,71 @@ export interface PartsAccessStatus {
 export interface KitItem { sparePartId: number; partCode: string; name: string; brand: string | null; quantity: number; unitPrice: number }
 export interface KitMovement { id: number; type: string; quantity: number; part: { partCode: string; name: string }; notes: string | null; at: string }
 
+// ── Spare parts the customer approves ───────────────────────────────────
+
+/** What the technician sends: the server prices it. */
+export interface PartRequestItemInput {
+    sparePartId?: number | null;
+    partName: string;
+    sourceType: 'platform' | 'technician_local' | 'customer_supplied';
+    quantity: number;
+    unitPriceRupees?: number;
+    vendorName?: string | null;
+    warrantyDays?: number;
+    billPhotoUrl?: string | null;
+}
+
+export interface PartRequestLine {
+    sparePartId: number | null;
+    partName: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    source: string;
+    sourceType: string;
+    warranty: { covered: boolean; label: string };
+    billAttached?: boolean;
+}
+
+export interface EarlierWarranty { partName: string; jobRef: string; fittedAt: string | null; warrantyUntil: string | null }
+
+export interface PartRequestPreview {
+    items: PartRequestLine[];
+    parts: number; gst: number; total: number; gstPercent: number;
+    earlierWarranty: EarlierWarranty | null;
+    warnings: string[];
+    duplicates: string[];
+}
+
+export type PartRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+
+export interface PartRequest {
+    id: number;
+    status: PartRequestStatus;
+    reason: string | null;
+    items: PartRequestLine[];
+    parts: number; gst: number; total: number;
+    earlierWarranty: EarlierWarranty | null;
+    customerNote: string | null;
+    sentAt: string;
+    expiresAt: string;
+    decidedAt: string | null;
+}
+
 export const partnerApi = {
+    // ── Spare parts the customer approves ────────────────────────────────
+    previewPartRequest: (bookingId: number, items: PartRequestItemInput[]) =>
+        apiClient.post<{ success: boolean; data: PartRequestPreview }>(`/api/bookings/${bookingId}/part-requests/preview`, { items }),
+
+    sendPartRequest: (bookingId: number, data: { items: PartRequestItemInput[]; reason: string; confirmDuplicate?: boolean }) =>
+        apiClient.post<{ success: boolean; message: string; data: PartRequest }>(`/api/bookings/${bookingId}/part-requests`, data),
+
+    getPartRequests: (bookingId: number) =>
+        apiClient.get<{ success: boolean; data: PartRequest[] }>(`/api/partner/bookings/${bookingId}/part-requests`),
+
+    cancelPartRequest: (id: number) =>
+        apiClient.post<{ success: boolean; message: string; data: PartRequest }>(`/api/part-requests/${id}/cancel`),
+
     // ── Spare parts ──────────────────────────────────────────────────────
     /** Search the catalogue, the job's category first. Needs parts access. */
     searchParts: (q: string, opts?: { serviceRequestId?: number; categoryId?: number }) =>

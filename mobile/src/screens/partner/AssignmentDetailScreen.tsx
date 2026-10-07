@@ -43,7 +43,7 @@ import {
 /** Must stay in sync with close_by in PaymentService.createDynamicQRCode. */
 const QR_VALIDITY_MS = 12 * 60 * 1000;
 import { Assignment, partnerApi } from '../../api/partner.api';
-import PartsEntry, { PartDraft, newPartDraft, toPartItems, uploadPendingBills } from '../../components/partner/PartsEntry';
+import PartRequestsPanel, { usePartRequests, partRequestTotals } from '../../components/partner/PartRequestsPanel';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -71,15 +71,14 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const [serviceCharge, setServiceCharge] = useState('');
     const [materialCharge, setMaterialCharge] = useState('');
     const [showChargeForm, setShowChargeForm] = useState(false);
-    const [parts, setParts] = useState<PartDraft[]>([]);
-    const [uploadingBills, setUploadingBills] = useState(false);
-    const [showPartsForm, setShowPartsForm] = useState(false);
 
     // v2 fixed-price bookings carry the technician's earning + final amount frozen
     // in the snapshot, so there is no bill to enter.
     const snap: any = assignment?.pricingSnapshot;
     const isFixedPrice = snap?.snapshotVersion === 2;
     const technicianEarning = Number(snap?.technicianEarning ?? 0);
+    // Spare parts the customer is deciding on, or has approved, for this job.
+    const partReqs = usePartRequests(assignment?.id, assignment?.status === 'in_progress');
     const [collectingCash, setCollectingCash] = useState(false);
     const [customerCoords, setCustomerCoords] = useState<{ latitude: number; longitude: number } | null>(null);
     const [isFetchingLocation, setIsFetchingLocation] = useState(false);
@@ -281,37 +280,10 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         ]);
     };
 
-    // v2: move a fixed-price job to awaiting-payment, with an optional
-    // customer-approved parts add-on.
-    //
-    // Bill photos are uploaded first, but a failure there NEVER blocks the
-    // request: the part is simply recorded without its bill, which is what
-    // "undocumented" means. A technician with no signal must still get paid.
-    const handleRequestPayment = async () => {
-        const named = parts.filter(p => p.partName.trim());
-        let items = named.length ? toPartItems(named) : undefined;
-
-        if (named.length) {
-            setUploadingBills(true);
-            try {
-                const { parts: withUrls, failed } = await uploadPendingBills(named);
-                items = toPartItems(withUrls);
-                if (failed > 0) {
-                    Alert.alert(
-                        'Bill photo did not upload',
-                        `${failed === 1 ? 'One bill' : `${failed} bills`} could not be sent, probably signal. `
-                        + 'The parts are still recorded and you can add the photo later from the job.',
-                    );
-                }
-            } finally {
-                setUploadingBills(false);
-            }
-        }
-
-        requestPayment(
-            { bookingId: assignment.id, partItems: items },
-            { onSuccess: () => { setShowPartsForm(false); setParts([]); } }
-        );
+    // v2: move a fixed-price job to awaiting-payment. Spare parts are no longer
+    // typed in here: the server bills exactly what the customer approved.
+    const handleRequestPayment = () => {
+        requestPayment({ bookingId: assignment.id });
     };
 
     const createdDate = new Date(assignment.createdAt).toLocaleDateString('en-IN', {
@@ -482,31 +454,42 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             /* v2 fixed-price: the amount is set. Request payment, optionally
                                adding customer-approved parts. */
                             <View>
-                                <View style={styles.earnCard}>
-                                    <Text style={styles.earnLabel}>Customer pays now</Text>
-                                    <Text style={styles.earnValue}>₹{Number(snap?.finalTotal ?? 0).toFixed(2)}</Text>
-                                    {technicianEarning > 0 && (
-                                        <Text style={styles.earnSub}>You earn ₹{technicianEarning.toFixed(2)}</Text>
-                                    )}
-                                </View>
-
-                                {showPartsForm ? (
-                                    <View>
-                                        <Text style={styles.label}>Spare parts — customer approved</Text>
-                                        <PartsEntry parts={parts} onChange={setParts} serviceRequestId={assignment?.id} />
-                                    </View>
-                                ) : (
-                                    <TouchableOpacity onPress={() => { setShowPartsForm(true); setParts([newPartDraft()]); }}>
-                                        <Text style={styles.addPartsLink}>+ Add spare parts</Text>
-                                    </TouchableOpacity>
-                                )}
-
-                                <Button
-                                    title={uploadingBills ? 'Saving bill photos…' : 'Request Payment'}
-                                    onPress={handleRequestPayment}
-                                    loading={requestingPayment || uploadingBills}
-                                    style={styles.chargeBtn}
+                                <PartRequestsPanel
+                                    bookingId={assignment.id}
+                                    requests={partReqs.data}
+                                    loading={partReqs.isLoading}
+                                    error={partReqs.isError}
                                 />
+
+                                {(() => {
+                                    const { approvedTotal, pending } = partRequestTotals(partReqs.data);
+                                    const ownParts = (partReqs.data ?? []).filter(r => r.status === 'approved')
+                                        .flatMap(r => r.items).filter(i => i.sourceType === 'technician_local')
+                                        .reduce((a, i) => a + i.lineTotal, 0);
+                                    const due = Number(snap?.finalTotal ?? 0) + approvedTotal;
+                                    return (
+                                        <>
+                                            <View style={styles.earnCard}>
+                                                <Text style={styles.earnLabel}>Customer pays when you finish</Text>
+                                                <Text style={styles.earnValue}>₹{due.toFixed(2)}</Text>
+                                                {approvedTotal > 0 && <Text style={styles.earnSub}>Includes ₹{approvedTotal.toFixed(2)} of approved parts</Text>}
+                                                {technicianEarning > 0 && (
+                                                    <Text style={styles.earnSub}>You earn ₹{(technicianEarning + ownParts).toFixed(2)}{ownParts > 0 ? ` (₹${ownParts.toFixed(2)} back for parts you bought)` : ''}</Text>
+                                                )}
+                                            </View>
+                                            {pending > 0 && (
+                                                <Text style={styles.waitHint}>Waiting for the customer to approve or reject a spare part. You can request payment once they decide.</Text>
+                                            )}
+                                            <Button
+                                                title="Request Payment"
+                                                onPress={handleRequestPayment}
+                                                loading={requestingPayment}
+                                                disabled={pending > 0}
+                                                style={styles.chargeBtn}
+                                            />
+                                        </>
+                                    );
+                                })()}
                             </View>
                         ) : assignment.pricingSnapshot?.billedAt ? (
                             <View style={styles.cashWarningCard}>
@@ -783,7 +766,7 @@ const styles = StyleSheet.create({
     earnLabel: { ...typography.caption, color: colors.textSecondary },
     earnValue: { ...typography.h3, color: colors.success, marginTop: 2 },
     earnSub: { ...typography.small, color: colors.textSecondary, marginTop: 2 },
-    addPartsLink: { ...typography.bodyMedium, color: colors.primary, marginBottom: spacing.md },
+    waitHint: { ...typography.caption, color: colors.warningDark, textAlign: 'center', marginBottom: spacing.sm, lineHeight: 18 },
     label: { ...typography.label, color: colors.textPrimary, marginBottom: spacing.xs, marginTop: spacing.sm },
     input: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 15, color: colors.textPrimary, marginBottom: spacing.sm },
     completeBtn: { marginTop: spacing.lg },

@@ -61,6 +61,7 @@ import { registerCatalogRoutes } from "./routes/catalog.routes";
 import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
 import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
+import { registerPartRequestRoutes } from "./routes/part-requests.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
@@ -3632,6 +3633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // request walked a duplicate set of handlers that could never match.
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
+  registerPartRequestRoutes(app); // Spare parts the customer approves before they are billed
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)

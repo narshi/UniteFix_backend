@@ -248,6 +248,14 @@ export class NotificationService {
                 // straight to the screen that shows it.
                 return { stack: 'CustomerMain', screen: 'OtpDisplay', params: { serviceId } };
 
+            // The technician asked for a spare part; the customer decides on the booking screen.
+            case 'part_approval_requested':
+                return { stack: 'CustomerMain', screen: 'RequestDetail', params: { id: serviceId } };
+
+            // The customer decided; the technician sees it on the job.
+            case 'part_approval_decided':
+                return { stack: 'EmployeeMain', screen: 'AssignmentDetail', params: { id: serviceId } };
+
             case 'service_bill_ready':
                 return { stack: 'CustomerMain', screen: 'FinalPayment', params: { serviceId } };
 

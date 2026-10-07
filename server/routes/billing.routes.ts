@@ -247,10 +247,27 @@ export function registerBillingRoutes(app: Express) {
             const submittedItems: PartItemInput[] = Array.isArray(req.body?.partItems) ? req.body.partItems.slice(0, 40) : [];
             const partsNote = typeof req.body?.partsNote === 'string' ? req.body.partsNote.trim().slice(0, 500) : '';
 
+            // Parts the customer approved in the app are what gets billed, at the
+            // price they approved. A request still waiting on them holds the bill.
+            const { PartRequestService } = await import('../services/part-requests.service');
+            const approval = await PartRequestService.forBilling(bookingId);
+            if (approval.pending.length) {
+                return res.status(409).json({ success: false, code: 'PARTS_AWAITING_CUSTOMER', message: 'The customer has not decided on a spare part yet. Wait for their answer, or withdraw the request.' });
+            }
+            // Parts typed straight into the bill skip the customer. Older app builds
+            // still do this; once every technician has the new app, switch
+            // PARTS_REQUIRE_CUSTOMER_APPROVAL on and the bill accepts only approved parts.
+            const requireApproval = String(await configService.get('BUSINESS_CONFIG.PARTS_REQUIRE_CUSTOMER_APPROVAL', 'false')) === 'true';
+            if (!approval.items.length && (submittedItems.length || Number(req.body?.extraPartsCost) > 0) && requireApproval) {
+                return res.status(400).json({ success: false, code: 'PARTS_NEED_APPROVAL', message: 'Spare parts need the customer’s approval first. Update the app and send the part for approval.' });
+            }
+
             // Catalogue first: platform lines are re-priced from the catalogue or
             // downgraded, and parts access is checked. See SparePartsService.
-            const { items: rawItems, warnings: partsWarnings } =
-                await SparePartsService.enrichPlatformItems(submittedItems, partnerId ?? null);
+            // Approved parts were priced when they were sent and are not re-priced.
+            const { items: rawItems, warnings: partsWarnings } = approval.items.length
+                ? { items: approval.items, warnings: [] as string[] }
+                : await SparePartsService.enrichPlatformItems(submittedItems, partnerId ?? null);
 
             // Line items win when given. Otherwise fall back to the lump sum, and
             // synthesise a line from it so a charged job never has an empty parts

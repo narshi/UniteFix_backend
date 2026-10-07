@@ -189,7 +189,31 @@ export interface WarrantySummary {
     canClaim: boolean;
 }
 
+/** A spare part the technician asked to fit, as the customer sees it. */
+export interface PartApprovalRequest {
+    id: number;
+    status: 'pending' | 'approved' | 'rejected' | 'expired';
+    reason: string | null;
+    items: Array<{ partName: string; quantity: number; unitPrice: number; lineTotal: number; source: string; sourceType: string; warranty: { covered: boolean; label: string } }>;
+    parts: number;
+    gst: number;
+    total: number;
+    earlierWarranty: { partName: string; jobRef: string; fittedAt: string | null; warrantyUntil: string | null } | null;
+    customerNote: string | null;
+    sentAt: string;
+    expiresAt: string;
+    decidedAt: string | null;
+}
+
 export const customerApi = {
+    // Spare parts the technician needs — only the customer approves them.
+    getPartRequests: (bookingId: number) =>
+        apiClient.get<ApiResponse<PartApprovalRequest[]>>(`/api/bookings/${bookingId}/part-requests`),
+    approvePartRequest: (id: number) =>
+        apiClient.post<ApiResponse<PartApprovalRequest>>(`/api/part-requests/${id}/approve`),
+    rejectPartRequest: (id: number, note?: string) =>
+        apiClient.post<ApiResponse<PartApprovalRequest>>(`/api/part-requests/${id}/reject`, { note }),
+
     // Profile
     getProfile: () =>
         apiClient.get<ApiResponse<UserProfile>>('/api/client/profile'),

@@ -61,6 +61,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import WarrantyCard from '../../components/customer/WarrantyCard';
+import PartApproval from '../../components/customer/PartApproval';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
@@ -454,6 +455,11 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         />
                     )}
                 </View>
+
+                {/* A spare part the technician needs: the customer's decision comes first. */}
+                {(request.status === 'in_progress' || request.status === 'pending_payment') && (
+                    <PartApproval bookingId={request.id} live={request.status === 'in_progress'} />
+                )}
 
                 {/* Service Code Card — shown when status is accepted or reached */}
                 {showServiceCode && (

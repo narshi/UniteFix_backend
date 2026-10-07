@@ -3470,3 +3470,31 @@ export const consignmentDraws = pgTable("consignment_draws", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({ lotMove: uniqueIndex("consignment_draws_lot_move_idx").on(t.lotId, t.movementId), bpIdx: index("consignment_draws_bp_idx").on(t.businessPartnerId, t.createdAt) }));
 export type ConsignmentLot = typeof consignmentLots.$inferSelect;
+
+/**
+ * A spare part the technician wants to fit, waiting on the customer.
+ *
+ * The technician asks; only the customer (the booking's owner, never the
+ * technician's own login) can approve or reject. Approved requests are what
+ * request-payment bills. Items are stored already priced by the server.
+ */
+export const partRequests = pgTable("part_requests", {
+  id: serial("id").primaryKey(),
+  serviceRequestId: integer("service_request_id").notNull().references(() => serviceRequests.id),
+  employeeId: integer("employee_id").notNull(),
+  customerUserId: integer("customer_user_id").notNull(),
+  status: text("status").notNull().default('pending'),   // pending | approved | rejected | cancelled | expired
+  items: jsonb("items").notNull(),                        // priced PartItemInput[] (paise, gst, warranty)
+  reason: text("reason"),                                 // why it is needed, in the technician's words
+  partsPaise: integer("parts_paise").notNull().default(0),
+  gstPaise: integer("gst_paise").notNull().default(0),
+  totalPaise: integer("total_paise").notNull().default(0),
+  earlierWarranty: jsonb("earlier_warranty"),             // the same part still under warranty from an earlier job, if any
+  customerNote: text("customer_note"),                    // why the customer rejected / their question
+  sentAt: timestamp("sent_at").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  decidedAt: timestamp("decided_at"),
+  decidedByUserId: integer("decided_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ srIdx: index("part_requests_sr_idx").on(t.serviceRequestId, t.status) }));
+export type PartRequest = typeof partRequests.$inferSelect;

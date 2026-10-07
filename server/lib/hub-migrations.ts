@@ -856,6 +856,28 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS consignment_draws_bp_idx ON consignment_draws (business_partner_id, created_at);
       CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_one_consignment ON tax_documents (issuer_partner_id, period_from) WHERE purpose = 'consignment' AND doc_kind <> 'credit_note';
     `],
+    ['parts: customer approval requests', `
+      CREATE TABLE IF NOT EXISTS part_requests (
+        id SERIAL PRIMARY KEY,
+        service_request_id INTEGER NOT NULL REFERENCES service_requests(id),
+        employee_id INTEGER NOT NULL,
+        customer_user_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        items JSONB NOT NULL,
+        reason TEXT,
+        parts_paise INTEGER NOT NULL DEFAULT 0,
+        gst_paise INTEGER NOT NULL DEFAULT 0,
+        total_paise INTEGER NOT NULL DEFAULT 0,
+        earlier_warranty JSONB,
+        customer_note TEXT,
+        sent_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        decided_at TIMESTAMP,
+        decided_by_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS part_requests_sr_idx ON part_requests (service_request_id, status);
+    `],
     ['pay links: partner_pay_links', `
       CREATE TABLE IF NOT EXISTS partner_pay_links (
         id SERIAL PRIMARY KEY,
