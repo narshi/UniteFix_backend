@@ -72,7 +72,7 @@ async function main() {
         '/partner/customers', `/partner/customers/${cid}`, '/partner/sales/invoices', `/partner/sales/invoices/${inv.body?.data?.id}`, '/partner/sales/invoices/new',
         '/partner/sales/quotations', '/partner/sales/quotations/new', '/partner/gst', '/partner/purchases', '/partner/money',
         '/partner/parts', '/partner/parts/orders',
-        '/partner/field/jobs', '/partner/field/technicians', '/partner/field/territory', '/partner/field/rates', '/partner/field/earnings',
+        '/partner/field/jobs', '/partner/field/technicians', '/partner/field/territory', '/partner/field/rates', '/partner/field/warranty', '/partner/field/earnings',
         '/partner/consulting/appointments', '/partner/consulting/calendar', '/partner/consulting/services', '/partner/consulting/retainers',
         '/partner/events/enquiries', '/partner/events/quotations', '/partner/events/bookings', `/partner/events/bookings/${bk.body?.data?.id}`, '/partner/events/calendar', '/partner/events/packages', '/partner/events/vendors',
         '/partner/store/listings', '/partner/store/orders', '/partner/store/reviews',

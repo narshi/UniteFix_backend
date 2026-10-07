@@ -44,6 +44,10 @@ type Claim = {
         verdict: string | null;
         verdictNotes: string | null;
         costBearer: string | null;
+        partnerId: number | null;
+        partnerRespondBy: string | null;
+        partnerTakenAt: string | null;
+        partnerChargePaise: number | null;
         createdAt: string;
         resolvedAt: string | null;
     };
@@ -390,6 +394,15 @@ export default function WarrantyClaimsPage() {
 
                                         <TableCell className="align-top">
                                             <StatusBadge status={c.claim.status} />
+                                            {c.claim.partnerId && (
+                                                <div className="mt-1 text-xs">
+                                                    {c.claim.partnerTakenAt ? <span className="text-sky-700">Partner job — partner is handling it</span>
+                                                        : c.claim.status === "open" && c.claim.partnerRespondBy && new Date(c.claim.partnerRespondBy) < new Date() ? <span className="font-medium text-rose-700">Partner job — partner missed 48 h; send our expert</span>
+                                                            : c.claim.status === "open" ? <span className="text-amber-700">Partner job — partner has until {format(new Date(c.claim.partnerRespondBy!), "d MMM, HH:mm")}</span>
+                                                                : <span className="text-muted-foreground">Partner job</span>}
+                                                    {c.claim.partnerChargePaise != null && <div className="text-muted-foreground">Charged to partner ₹{(c.claim.partnerChargePaise / 100).toLocaleString("en-IN")}</div>}
+                                                </div>
+                                            )}
                                             {c.claim.verdict && (
                                                 <div className="mt-1.5 text-xs">
                                                     <div className="font-medium">{c.claim.verdict.replace(/_/g, " ")}</div>
@@ -403,7 +416,14 @@ export default function WarrantyClaimsPage() {
                                         </TableCell>
 
                                         <TableCell className="text-right align-top">
-                                            {c.claim.status === "resolved" || c.claim.status === "rejected" ? (
+                                            {c.claim.status === "resolved" && c.claim.partnerId && c.claim.costBearer === "technician" && c.claim.partnerChargePaise == null ? (
+                                                <Button size="sm" variant="outline" onClick={async () => {
+                                                    const amt = window.prompt("Cost of the fix to charge the partner (₹) — the fault was theirs");
+                                                    if (!amt) return;
+                                                    try { await apiRequest("POST", `/api/admin/hub/warranty/${c.claim.id}/charge-partner`, { amountRupees: Number(amt) }); queryClient.invalidateQueries({ queryKey: ["/api/admin/warranty-claims"] }); toast({ title: "Charged to the partner" }); }
+                                                    catch (e) { toast({ title: "Not charged", description: apiErrorMessage(e), variant: "destructive" }); }
+                                                }}>Charge partner</Button>
+                                            ) : c.claim.status === "resolved" || c.claim.status === "rejected" ? (
                                                 <span className="text-xs text-muted-foreground">Settled</span>
                                             ) : (
                                                 <Button size="sm" variant="outline" onClick={() => { setActive(c); setVerdict(""); setNotes(""); }}>

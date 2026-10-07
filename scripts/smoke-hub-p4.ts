@@ -219,6 +219,29 @@ async function main() {
         const earnApi = await api.get('/api/hub/field/earnings', t1);
         check('the partner sees its job values and the invoice', earnApi.status === 200 && earnApi.body?.data?.jobs?.length === 2 && earnApi.body?.data?.invoices?.length === 1);
 
+        // ── warranty: partner first ───────────────────────────────────────
+        const { createClaim } = await import('../server/services/warranty.service');
+        const wc = await createClaim({ serviceRequestId: sr1.id, raisedByUserId: cust.id, description: 'Laptop not booting again' });
+        check('a warranty claim on a partner\'s job goes to the partner first, with 48 hours to respond', wc.partnerId === fs.id && !!wc.partnerRespondBy && new Date(wc.partnerRespondBy).getTime() - Date.now() > 47 * 3_600_000);
+        const wl = await api.get('/api/hub/field/warranty', t1);
+        check('the partner sees it in the Hub', wl.status === 200 && wl.body?.data?.some((c: any) => c.id === wc.id && !c.missed));
+        check('another partner does not', !((await api.get('/api/hub/field/warranty', t2)).body?.data ?? []).some((c: any) => c.id === wc.id));
+        const take = await api.post(`/api/hub/field/warranty/${wc.id}/take`, { employeeId: techId, note: 'Visiting tomorrow 10am' }, t1);
+        check('the partner takes it and sends its technician', take.status === 200);
+        check('…once', (await api.post(`/api/hub/field/warranty/${wc.id}/take`, { employeeId: techId }, t1)).status === 409);
+        const verdict = await api.post(`/api/admin/warranty-claims/${wc.id}/verdict`, { verdict: 'workmanship_fault', notes: 'Loose connector' }, staff);
+        check('staff record the verdict — workmanship is the technician\'s side', verdict.status === 200 && verdict.body?.data?.costBearer === 'technician');
+        const balW = await BusinessPartnerService.balancePaise(fs.id);
+        const charge = await api.post(`/api/admin/hub/warranty/${wc.id}/charge-partner`, { amountRupees: 500 }, staff);
+        check('the cost of the fix is charged to the partner', charge.status === 200 && (await BusinessPartnerService.balancePaise(fs.id)) - balW === 500_00);
+        check('…once', (await api.post(`/api/admin/hub/warranty/${wc.id}/charge-partner`, { amountRupees: 500 }, staff)).status === 409);
+        const wc2 = await createClaim({ serviceRequestId: sr2.id, raisedByUserId: cust.id, description: 'Screen flickers' });
+        await db.execute(sql`UPDATE warranty_claims SET partner_respond_by = partner_respond_by - interval '3 days' WHERE id = ${wc2.id}`);
+        const late = await api.post(`/api/hub/field/warranty/${wc2.id}/take`, { employeeId: techId }, t1);
+        check('after 48 hours the partner can no longer take it (UniteFix handles it)', late.status === 409 && late.body?.code === 'MISSED');
+        const wc3 = await createClaim({ serviceRequestId: sr3.id, raisedByUserId: cust.id, description: 'UniteFix job' });
+        check('a UniteFix job\'s claim is not routed to any partner', wc3.partnerId === null);
+
         // ── technician app, roles, home ───────────────────────────────────
         const prof = await api.get('/api/partner/profile', techTok);
         check('the technician app knows who employs them', prof.status === 200 && prof.body?.data?.employer?.name === 'Sirsi Electronics', JSON.stringify(prof.body).slice(0, 200));
@@ -246,6 +269,7 @@ async function cleanup() {
         const uids = userIds.join(',') || '0';
         await cleanupPartners(bpIds, adminIds, [
             `DELETE FROM partner_job_earnings WHERE service_request_id IN (${ids})`,
+            `DELETE FROM warranty_claims WHERE service_request_id IN (${ids})`,
             `DELETE FROM audit_logs WHERE entity_type = 'service_request' AND entity_id IN (${ids})`,
             `DELETE FROM invoices WHERE service_request_id IN (${ids})`,
             `DELETE FROM payment_transactions WHERE service_request_id IN (${ids})`,

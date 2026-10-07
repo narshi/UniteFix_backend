@@ -617,6 +617,70 @@ export class PartnerFieldService {
         return out;
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // Partner-first warranty
+    // ══════════════════════════════════════════════════════════════════════
+
+    /** The partner answerable for a job: its territory partner, or the employer of whoever did it. */
+    static async partnerOfJob(serviceRequestId: number): Promise<number | null> {
+        const [sr] = await db.select({ d: serviceRequests.dispatchPartnerId, p: serviceRequests.providerId }).from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+        if (!sr) return null;
+        return (await this.employerOf(sr.p)) ?? sr.d ?? null;
+    }
+
+    static async warrantyClaims(bpId: number) {
+        const rows = await db.select({ c: warrantyClaims, serviceId: serviceRequests.serviceId, serviceType: serviceRequests.serviceType, address: serviceRequests.address, customerName: users.username, customerPhone: users.phone, techName: employees.fullName })
+            .from(warrantyClaims)
+            .innerJoin(serviceRequests, eq(serviceRequests.id, warrantyClaims.serviceRequestId))
+            .leftJoin(users, eq(users.id, serviceRequests.userId))
+            .leftJoin(employees, eq(employees.id, warrantyClaims.partnerTechnicianId))
+            .where(eq(warrantyClaims.partnerId, bpId)).orderBy(desc(warrantyClaims.createdAt)).limit(200);
+        const now = Date.now();
+        return rows.map(r => ({
+            id: r.c.id, claimId: r.c.claimId, status: r.c.status, description: r.c.description, createdAt: r.c.createdAt,
+            serviceId: r.serviceId, serviceType: r.serviceType, address: r.address, customerName: r.customerName, customerPhone: r.customerPhone,
+            respondBy: r.c.partnerRespondBy, takenAt: r.c.partnerTakenAt, technician: r.techName, note: r.c.partnerNote,
+            missed: !r.c.partnerTakenAt && r.c.status === 'open' && !!r.c.partnerRespondBy && new Date(r.c.partnerRespondBy).getTime() < now,
+            verdict: r.c.verdict, chargedRupees: r.c.partnerChargePaise != null ? r.c.partnerChargePaise / 100 : null,
+        }));
+    }
+
+    /** The partner takes the claim and sends one of its technicians to inspect and fix it. */
+    static async takeWarranty(ctx: HubContext, claimId: number, input: { employeeId: number; note?: string | null }) {
+        const [c] = await db.select().from(warrantyClaims).where(and(eq(warrantyClaims.id, claimId), eq(warrantyClaims.partnerId, ctx.businessPartnerId))).limit(1);
+        if (!c) throw new HubError('Claim not found', 'NOT_FOUND', 404);
+        if (c.status !== 'open' || c.partnerTakenAt) throw new HubError('This claim is already being handled.', 'BAD_STATE', 409);
+        if (c.partnerRespondBy && new Date(c.partnerRespondBy).getTime() < Date.now()) throw new HubError('The 48-hour window has passed; UniteFix is handling this claim.', 'MISSED', 409);
+        const e = await this.technician(ctx.businessPartnerId, input.employeeId);
+        if (e.documentVerificationStatus !== 'verified' || !e.isActive) throw new HubError(`${e.fullName ?? 'This technician'} is not verified and active.`, 'NOT_READY', 409);
+        const [u] = await db.update(warrantyClaims).set({ status: 'inspecting' as any, partnerTakenAt: new Date(), partnerTechnicianId: e.id, partnerNote: input.note?.trim() || null })
+            .where(and(eq(warrantyClaims.id, c.id), eq(warrantyClaims.status, 'open' as any))).returning();
+        if (!u) throw new HubError('This claim changed meanwhile. Refresh.', 'STALE', 409);
+        return u;
+    }
+
+    /**
+     * Staff settled a claim on a partner's job. If the fault was the partner's
+     * (cost bearer 'technician': workmanship, or a part bought without proof)
+     * the cost of the fix is charged to the partner, once.
+     */
+    static async chargeWarranty(claimId: number, amountPaise: number, adminId: number) {
+        const [c] = await db.select().from(warrantyClaims).where(eq(warrantyClaims.id, claimId)).limit(1);
+        if (!c?.partnerId) throw new HubError('This claim is not on a partner job.', 'NOT_PARTNER', 409);
+        if (c.costBearer !== 'technician') throw new HubError('Only a fault that was the partner\'s (workmanship or an undocumented part) is charged to them.', 'NOT_THEIRS', 409);
+        if (c.partnerChargePaise != null) throw new HubError('Already charged.', 'CHARGED', 409);
+        if (!(amountPaise > 0)) throw new HubError('Enter the cost of the fix.', 'BAD_AMOUNT');
+        return withTransaction(async (tx) => {
+            const [u] = await tx.update(warrantyClaims).set({ partnerChargePaise: amountPaise }).where(and(eq(warrantyClaims.id, c.id), isNull(warrantyClaims.partnerChargePaise))).returning();
+            if (!u) throw new HubError('Already charged.', 'CHARGED', 409);
+            await BusinessPartnerService.appendLedger(tx as any, {
+                businessPartnerId: c.partnerId!, entryType: 'warranty_draw' as any, amountPaise,
+                description: `Warranty claim ${c.claimId} — ${String(c.verdict ?? '').replace(/_/g, ' ')}`, metadata: { warrantyClaimId: c.id }, createdByAdminId: adminId,
+            });
+            return u;
+        });
+    }
+
     /** Booking view for the technician app and the customer: who the provider is. */
     static async servicedBy(sr: Pick<ServiceRequest, 'dispatchPartnerId'>) {
         if (!sr.dispatchPartnerId) return null;

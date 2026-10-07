@@ -533,7 +533,11 @@ export async function createClaim(input: {
     loggedByAdminId?: number | null;
 }) {
     const claimId = `WC-${input.serviceRequestId}-${Date.now().toString(36).toUpperCase()}`;
+    // A job done by a partner's technician goes to that partner first (48 h).
+    const { PartnerFieldService } = await import('./partner-field.service');
+    const partnerId = await PartnerFieldService.partnerOfJob(input.serviceRequestId);
     const [claim] = await db.insert(warrantyClaims).values({
+        ...(partnerId ? { partnerId, partnerRespondBy: new Date(Date.now() + 48 * 3_600_000) } : {}),
         claimId,
         serviceRequestId: input.serviceRequestId,
         partItemId: input.partItemId ?? null,

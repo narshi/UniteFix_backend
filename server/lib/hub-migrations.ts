@@ -616,6 +616,18 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS event_vendor_costs_booking_idx ON event_vendor_costs (booking_id);
     `],
 
+    // ── Phase 4 follow-up: partner-first warranty
+    ['phase4: ledger types warranty_draw', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'warranty_draw';`],
+    ['phase4: warranty partner fields', `
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_id INTEGER REFERENCES business_partners(id);
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_respond_by TIMESTAMP;
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_taken_at TIMESTAMP;
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_technician_id INTEGER REFERENCES employees(id);
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_note TEXT;
+      ALTER TABLE warranty_claims ADD COLUMN IF NOT EXISTS partner_charge_paise INTEGER;
+      CREATE INDEX IF NOT EXISTS warranty_claims_partner_idx ON warranty_claims (partner_id, status) WHERE partner_id IS NOT NULL;
+    `],
+
     // ── Phase 7: sell products — listings, split orders, settlement, reviews
     ['phase7: ledger types marketplace_sale', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'marketplace_sale';`],
     ['phase7: ledger types marketplace_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'marketplace_commission';`],

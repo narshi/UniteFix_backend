@@ -43,11 +43,13 @@ export function registerHubFieldRoutes(app: Express) {
 
     registerSummaryContributor('field', async (ctx) => {
         if (!ctx.modules.includes('field') || !ctx.permissions.includes('ops:view')) return null;
-        const [queue, techs, terr] = await Promise.all([
+        const [queue, techs, terr, claims] = await Promise.all([
             PartnerFieldService.jobs(ctx.businessPartnerId, 'queue'),
             PartnerFieldService.technicians(ctx.businessPartnerId),
             PartnerFieldService.territories(ctx.businessPartnerId),
+            PartnerFieldService.warrantyClaims(ctx.businessPartnerId),
         ]);
+        const claimsWaiting = claims.filter(c => c.status === 'open' && !c.takenAt && !c.missed).length;
         const overdue = queue.filter(j => j.overdue).length;
         const checklist = [
             { label: 'Propose the pincodes you serve', done: terr.some(x => x.status === 'active'), href: '/partner/field/territory' },
@@ -56,6 +58,7 @@ export function registerHubFieldRoutes(app: Express) {
         return {
             stats: [
                 { label: 'Jobs to assign', value: queue.length, hint: overdue ? `${overdue} past the assign-by time` : undefined },
+                ...(claimsWaiting ? [{ label: 'Warranty claims waiting', value: claimsWaiting, hint: 'take them within 48 hours' }] : []),
                 { label: 'Technicians ready', value: techs.filter(t => t.isActive && t.verification === 'verified').length, hint: `${techs.filter(t => t.verification !== 'verified').length} awaiting UniteFix verification` },
             ],
             checklist,
@@ -178,6 +181,28 @@ export function registerHubFieldRoutes(app: Express) {
             if (!(e instanceof HubError) && e?.message) return res.status(409).json({ success: false, message: e.message });
             hubError(e, res, next);
         }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Warranty — partner first
+    // ═══════════════════════════════════════════════════════════════════════
+
+    app.get('/api/hub/field/warranty', active, field, hubCan('ops:view'), async (req, res, next) => {
+        try { res.json({ success: true, data: await PartnerFieldService.warrantyClaims(ctxOf(req).businessPartnerId) }); } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/field/warranty/:id/take', active, field, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            const b = parse(z.object({ employeeId: z.number().int(), note: z.string().max(500).optional().nullable() }), req.body);
+            await PartnerFieldService.takeWarranty(ctxOf(req), Number(req.params.id), b);
+            res.json({ success: true, message: 'Taken. Your technician inspects and fixes it; UniteFix records the verdict.' });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/hub/warranty/:id/charge-partner', authenticateAdmin, requireSuperAdmin, async (req, res, next) => {
+        try {
+            const b = parse(z.object({ amountRupees: z.coerce.number().positive().max(1_000_000) }), req.body);
+            await PartnerFieldService.chargeWarranty(Number(req.params.id), Math.round(b.amountRupees * 100), (req as any).admin.userId);
+            res.json({ success: true, message: 'Charged to the partner.' });
+        } catch (e) { hubError(e, res, next); }
     });
 
     // ═══════════════════════════════════════════════════════════════════════

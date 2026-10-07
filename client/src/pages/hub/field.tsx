@@ -329,6 +329,53 @@ export function HubFieldRates() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Warranty — partner first
+// ═══════════════════════════════════════════════════════════════════════════
+
+type Claim = { id: number; claimId: string; status: string; description: string; createdAt: string; serviceId: string; serviceType: string; address: string | null; customerName: string | null; customerPhone: string | null; respondBy: string | null; takenAt: string | null; technician: string | null; note: string | null; missed: boolean; verdict: string | null; chargedRupees: number | null };
+
+export function HubFieldWarranty() {
+  const { me } = useHubMe();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<Claim[]>({ queryKey: ["/api/hub/field/warranty"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/warranty")).data });
+  const techs = useQuery<Tech[]>({ queryKey: ["/api/hub/field/technicians"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/technicians")).data });
+  const ready = (techs.data ?? []).filter(t => t.isActive && t.verification === "verified");
+  const [pick, setPick] = useState<Record<number, string>>({});
+  const take = async (c: Claim) => {
+    try { const r: any = await apiRequest("POST", `/api/hub/field/warranty/${c.id}/take`, { employeeId: Number(pick[c.id]) }); qc.invalidateQueries({ queryKey: ["/api/hub/field/warranty"] }); toast({ title: "Taken", description: r.message }); }
+    catch (e) { fail(toast, "Not taken")(e); }
+  };
+  const waiting = (data ?? []).filter(c => c.status === "open" && !c.takenAt && !c.missed);
+  return (
+    <HubPage title="Warranty" subtitle="Claims on jobs your technicians did come to you first. Take one within 48 hours and send a technician; otherwise UniteFix sends its own. If the fault was workmanship or a part bought without a bill, the cost of the fix is charged to you.">
+      {waiting.length > 0 && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{waiting.length} claim(s) waiting for you.</div>}
+      <Panel>
+        {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !data?.length ? <Empty icon="verified" title="No warranty claims" /> : (
+          <ul className="divide-y divide-[rgba(255,255,255,0.06)]">{data.map(c => (
+            <li key={c.id} className="grid gap-2 py-3 lg:grid-cols-[1fr_auto]">
+              <div className="text-sm">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{c.claimId}</span><span className="text-[hsl(215,20%,70%)]">job {c.serviceId} · {c.serviceType}</span>
+                  <Chip tone={c.status === "resolved" ? "good" : c.missed ? "bad" : c.takenAt ? "info" : "warn"}>{c.status === "resolved" ? `resolved — ${(c.verdict ?? "").replace(/_/g, " ")}` : c.missed ? "missed — UniteFix handling" : c.takenAt ? `taken · ${c.technician ?? ""}` : `respond by ${when(c.respondBy)}`}</Chip>
+                  {c.chargedRupees != null && <Chip tone="bad">charged {inr(c.chargedRupees)}</Chip>}</div>
+                <p className="mt-1 text-white">{c.description}</p>
+                <p className="mt-0.5 text-xs text-[hsl(215,20%,60%)]">{c.customerName}{c.customerPhone ? ` · ${c.customerPhone}` : ""}{c.address ? ` · ${c.address}` : ""}</p>
+              </div>
+              {hubCan(me, "ops:manage") && c.status === "open" && !c.takenAt && !c.missed && (
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <HubSelect aria-label={`Technician for ${c.claimId}`} value={pick[c.id] ?? ""} onChange={v => setPick({ ...pick, [c.id]: v })}><option value="">Send technician…</option>{ready.map(t => <option key={t.id} value={t.id}>{t.fullName}</option>)}</HubSelect>
+                  <Button size="sm" disabled={!pick[c.id]} onClick={() => take(c)}>Take it</Button>
+                </div>
+              )}
+            </li>
+          ))}</ul>
+        )}
+      </Panel>
+    </HubPage>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Earnings
 // ═══════════════════════════════════════════════════════════════════════════
 

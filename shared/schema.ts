@@ -2282,6 +2282,15 @@ export const warrantyClaims = pgTable("warranty_claims", {
   // The revisit booking created to actually fix it, if one was needed.
   resolutionServiceRequestId: integer("resolution_service_request_id"),
 
+  // Partner Hub — partner-first warranty on a partner's job: the partner has
+  // until partner_respond_by to take it; a fault that was theirs is charged to them.
+  partnerId: integer("partner_id"),
+  partnerRespondBy: timestamp("partner_respond_by"),
+  partnerTakenAt: timestamp("partner_taken_at"),
+  partnerTechnicianId: integer("partner_technician_id"),
+  partnerNote: text("partner_note"),
+  partnerChargePaise: integer("partner_charge_paise"),
+
   createdAt: timestamp("created_at").defaultNow(),
   resolvedAt: timestamp("resolved_at"),
 }, (table) => ({
@@ -2674,6 +2683,7 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   // Partner Hub phase 4 (field service)
   'service_value',      // a partner technician's job, released after the hold, −
   'cash_collected',     // UniteFix's share of cash a partner technician collected, +
+  'warranty_draw',      // a warranty fix that was the partner's fault (workmanship / undocumented part), +
   // Partner Hub phase 7 (selling products)
   'marketplace_sale',       // a delivered order past its return window, −
   'marketplace_commission', // UniteFix commission + GST on it, +
