@@ -2406,7 +2406,8 @@ export const businessPartners = pgTable("business_partners", {
   fieldHours: jsonb("field_hours"),                                     // [{ weekday 0-6, startTime 'HH:MM', endTime 'HH:MM' }] IST; null = round the clock
   fieldAutoAssign: boolean("field_auto_assign").notNull().default(false),
   fieldAutoAssignMinutes: integer("field_auto_assign_minutes").notNull().default(15),                   // the seller's pickup point as registered with Delhivery
-  alertPrefs: jsonb("alert_prefs"),                                     // { email, push, sms } for Hub alerts
+  alertPrefs: jsonb("alert_prefs"),
+  eventsProfile: jsonb("events_profile"),                               // public events page: { tagline, about, coverPhoto, instagram }                                     // { email, push, sms } for Hub alerts
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -3159,10 +3160,17 @@ export const eventPackages = pgTable("event_packages", {
   id: serial("id").primaryKey(),
   businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
   name: text("name").notNull(),
-  category: text("category").notNull().default('other'),   // venue | decor | catering | av | photography | staff | other
+  category: text("category").notNull().default('other'),   // venue | decor | catering | cake | av | photography | staff | other
   description: text("description"),
   unit: text("unit").notNull().default('event'),           // event | plate | hour | day | piece
   pricePaise: integer("price_paise").notNull(),
+  // The public page: venues are listed with photos and capacity; everything
+  // else marked showOnPage is an add-on the client can tick while building
+  // their event (per plate items scale with guests; pieces/hours take a count).
+  photos: jsonb("photos").$type<string[]>(),
+  capacity: integer("capacity"),
+  showOnPage: boolean("show_on_page").notNull().default(true),
+  maxQty: integer("max_qty"),
   sac: text("sac").notNull().default('998596'),
   gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
   isActive: boolean("is_active").notNull().default(true),
@@ -3182,6 +3190,8 @@ export const eventEnquiries = pgTable("event_enquiries", {
   venue: text("venue"),
   budgetPaise: integer("budget_paise"),
   message: text("message"),
+  // What the client built on the public page: venue, theme, add-ons, their notes, the estimate.
+  selection: jsonb("selection"),
   status: text("status").notNull().default('new'),         // new | contacted | quoted | won | lost
   lostReason: text("lost_reason"),
   publicToken: text("public_token").notNull().unique(),
@@ -3498,3 +3508,34 @@ export const partRequests = pgTable("part_requests", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({ srIdx: index("part_requests_sr_idx").on(t.serviceRequestId, t.status) }));
 export type PartRequest = typeof partRequests.$inferSelect;
+
+/** An events partner's decoration themes, shown on their public page for clients to pick. */
+export const eventThemes = pgTable("event_themes", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  description: text("description"),
+  suitableFor: text("suitable_for"),            // "Birthdays, baby showers"
+  photos: jsonb("photos").$type<string[]>(),
+  pricePaise: integer("price_paise").notNull().default(0),   // decoration for this theme, before GST; 0 = included
+  sac: text("sac").notNull().default('998596'),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/** Photos of past events and Instagram posts — the partner's portfolio on their public page. */
+export const eventGallery = pgTable("event_gallery", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  kind: text("kind").notNull(),                 // photo | instagram
+  url: text("url").notNull(),                   // image URL, or the canonical Instagram post URL
+  caption: text("caption"),
+  themeId: integer("theme_id"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type EventTheme = typeof eventThemes.$inferSelect;
+export type EventGalleryItem = typeof eventGallery.$inferSelect;

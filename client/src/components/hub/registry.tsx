@@ -33,6 +33,7 @@ import HubGstDesk from "@/pages/hub/gst";
 import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings, HubFieldWarranty, HubFieldSettings } from "@/pages/hub/field";
 import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
+import { HubEventShowcase } from "@/pages/hub/events-showcase";
 import { HubStoreListings, HubStoreOrders, HubStoreReviews } from "@/pages/hub/store";
 
 export interface HubEntry {
@@ -84,6 +85,7 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/events/bookings", component: HubEventBookings, module: "events", perm: "ops:view", nav: { group: "Events", label: "Bookings", icon: "event_available" } },
   { path: "/partner/events/bookings/:id", component: HubEventBookingDetail, module: "events", perm: "ops:view" },
   { path: "/partner/events/calendar", component: HubEventCalendar, module: "events", perm: "ops:view", nav: { group: "Events", label: "Calendar", icon: "calendar_month" } },
+  { path: "/partner/events/showcase", component: HubEventShowcase, module: "events", perm: "ops:view", nav: { group: "Events", label: "Your page", icon: "photo_library" } },
   { path: "/partner/events/packages", component: HubEventPackages, module: "events", perm: "ops:view", nav: { group: "Events", label: "Packages", icon: "inventory" } },
   { path: "/partner/events/vendors", component: HubEventVendors, module: "events", perm: "ops:view", nav: { group: "Events", label: "Vendors", icon: "storefront" } },
 

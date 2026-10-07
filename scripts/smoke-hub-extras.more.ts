@@ -22,6 +22,7 @@ export async function runExtras(ctx: Record<string, any>, track: Track) {
     await fieldHours(ctx, track);
     await consignment(ctx, track);
     await goLive(ctx);
+    await eventsShowcase(ctx);
 }
 
 async function payLinks(ctx: Record<string, any>, track: Track) {
@@ -224,4 +225,77 @@ async function goLive(ctx: Record<string, any>) {
     const raw = JSON.stringify(g.body);
     check('go-live: no secret value is ever returned', !!process.env.JWT_SECRET && !raw.includes(process.env.JWT_SECRET) && (!process.env.DATABASE_URL || !raw.includes(process.env.DATABASE_URL)));
     check('go-live: partners cannot see it', [401, 403].includes((await api.get('/api/admin/hub/go-live', t)).status));
+}
+
+// A 1×1 PNG — the test server has no Cloudinary, so uploads come back as data URIs.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+const photoForm = (extra: Record<string, string> = {}) => { const fd = new FormData(); fd.append('file', new Blob([PNG], { type: 'image/png' }), 'work.png'); Object.entries(extra).forEach(([k, v]) => fd.append(k, v)); return fd; };
+
+async function eventsShowcase(ctx: Record<string, any>) {
+    const { api, t, t2, bp } = ctx;
+    // ── the page profile ──
+    const pr = await api.put('/api/hub/events/showcase', { tagline: 'Birthdays and weddings across the coast', about: 'Ten years of happy events.', instagram: '@coastal.events' }, t);
+    check('events page: tagline, about and Instagram handle (the @ is dropped)', pr.status === 200 && pr.body.data.instagram === 'coastal.events');
+    check('events page: a made-up handle is refused', (await api.put('/api/hub/events/showcase', { instagram: 'not a handle!' }, t)).status === 400);
+    const cover = await api.upload('/api/hub/events/showcase/cover', photoForm(), t);
+    check('events page: a cover photo uploads', cover.status === 200 && /^data:image\//.test(cover.body.data.coverPhoto ?? ''));
+
+    // ── the gallery: Instagram posts and photos ──
+    const ig = await api.post('/api/hub/events/gallery', { kind: 'instagram', url: 'https://www.instagram.com/reel/Cx1Y2z3AbC/?igsh=abc123' }, t);
+    check('gallery: an Instagram reel link is stored in its clean form with an embed', ig.status === 201 && ig.body.data.url === 'https://www.instagram.com/reel/Cx1Y2z3AbC/' && ig.body.data.embed === 'https://www.instagram.com/reel/Cx1Y2z3AbC/embed/captioned/');
+    check('gallery: the same post twice is refused', (await api.post('/api/hub/events/gallery', { kind: 'instagram', url: 'https://instagram.com/reel/Cx1Y2z3AbC' }, t)).status === 409);
+    check('gallery: a link that is not an Instagram post is refused', (await api.post('/api/hub/events/gallery', { kind: 'instagram', url: 'https://example.com/p/ABC123/' }, t)).status === 400);
+    const ph = await api.upload('/api/hub/events/gallery/upload', photoForm({ caption: 'Ananya turns 5' }), t);
+    check('gallery: a photo of past work uploads', ph.status === 201 && ph.body.data.kind === 'photo' && ph.body.data.caption === 'Ananya turns 5');
+
+    // ── themes ──
+    const th = await api.post('/api/hub/events/themes', { name: 'Jungle safari', suitableFor: "Kids' birthdays", description: 'Balloon arch, animal cut-outs, name board', priceRupees: 4000 }, t);
+    const thp = await api.upload(`/api/hub/events/themes/${th.body.data.id}/photos`, photoForm(), t);
+    check('themes: a theme with a price and photos', th.status === 201 && thp.status === 200 && thp.body.data.photos.length === 1);
+    check('themes: another partner cannot edit it', (await api.patch(`/api/hub/events/themes/${th.body.data.id}`, { priceRupees: 1 }, t2)).status === 404);
+    await api.patch(`/api/hub/events/gallery/${ph.body.data.id}`, { themeId: th.body.data.id }, t);
+
+    // ── venues and add-ons (packages) ──
+    const mk = async (b: any) => (await api.post('/api/hub/events/packages', b, t)).body.data;
+    const lawn = await mk({ name: 'Garden lawn', category: 'venue', unit: 'event', priceRupees: 25000, capacity: 150, sac: '998596', gstRate: 18 });
+    const photo = await mk({ name: 'Photography', category: 'photography', unit: 'event', priceRupees: 8000, description: 'Candid + 200 edited photos', sac: '998596', gstRate: 18 });
+    const cake = await mk({ name: 'Designer cake (2 kg)', category: 'cake', unit: 'piece', priceRupees: 1200, maxQty: 3, sac: '998596', gstRate: 18 });
+    const food = await mk({ name: 'Veg buffet', category: 'catering', unit: 'plate', priceRupees: 350, sac: '996337', gstRate: 5 });
+    const hidden = await mk({ name: 'Bouncy castle (on request)', category: 'other', unit: 'event', priceRupees: 3000, showOnPage: false, sac: '998596', gstRate: 18 });
+    const lp = await api.upload(`/api/hub/events/packages/${lawn.id}/photos`, photoForm(), t);
+    check('venues: capacity and photos', lawn.capacity === 150 && lp.status === 200 && lp.body.data.photos.length === 1);
+
+    // ── what the public sees ──
+    const pub = await api.get(`/api/public/events/${bp.partnerCode}/showcase`);
+    const d = pub.body?.data;
+    check('public page: profile, gallery with the Instagram embed, venues, themes, add-ons',
+        pub.status === 200 && d.profile.instagram === 'coastal.events' && d.gallery.some((g: any) => g.embed?.includes('/embed/')) && d.venues.some((v: any) => v.id === lawn.id && v.capacity === 150 && v.photos.length === 1)
+        && d.themes.some((x: any) => x.name === 'Jungle safari') && d.addons.some((a: any) => a.id === cake.id && a.maxQty === 3) && d.addons.some((a: any) => a.id === photo.id));
+    check('public page: an add-on hidden from the page is not shown, and not orderable', !d.addons.some((a: any) => a.id === hidden.id)
+        && (await api.post(`/api/public/events/${bp.partnerCode}/estimate`, { addons: [{ packageId: hidden.id }] })).body?.code === 'NO_ADDON');
+    check('public page: an unknown partner code is not found', (await api.get('/api/public/events/NOPE-0000/showcase')).status === 404);
+
+    // ── building the event ──
+    const sel = { guests: 100, venueId: lawn.id, themeId: th.body.data.id, addons: [{ packageId: photo.id }, { packageId: cake.id, quantity: 2 }, { packageId: food.id }] };
+    const est = await api.post(`/api/public/events/${bp.partnerCode}/estimate`, sel);
+    // 25,000 + 4,000 + 8,000 + 2 × 1,200 at 18%, and 100 × 350 catering at 5%
+    check('estimate: venue + theme + photography + 2 cakes + catering for 100 guests, each at its GST rate', est.status === 200 && est.body.data.taxable === 74400 && est.body.data.gst === 8842 && est.body.data.total === 83242, JSON.stringify(est.body?.data && { t: est.body.data.taxable, g: est.body.data.gst }));
+    check('estimate: more guests than the venue holds is refused', (await api.post(`/api/public/events/${bp.partnerCode}/estimate`, { ...sel, guests: 200 })).body?.code === 'TOO_MANY_GUESTS');
+    check('estimate: more cakes than offered is refused', (await api.post(`/api/public/events/${bp.partnerCode}/estimate`, { ...sel, addons: [{ packageId: cake.id, quantity: 4 }] })).body?.code === 'BAD_QTY');
+    check('estimate: catering needs the guest count', (await api.post(`/api/public/events/${bp.partnerCode}/estimate`, { addons: [{ packageId: food.id }] })).body?.code === 'NO_GUESTS');
+
+    const day = new Date(Date.now() + 330 * 60_000 + 40 * 86_400_000).toISOString().slice(0, 10);
+    const req = await api.post(`/api/public/events/${bp.partnerCode}/request`, { ...sel, name: 'QA Kavya', phone: '9876500123', eventType: '5th birthday', eventDate: day, customization: 'Name board: Ananya. Green and gold.' });
+    check('request: sent — the client gets a link and their estimate', req.status === 201 && /^\/events\/e\//.test(req.body.data.link) && req.body.data.estimate.total === 83242, JSON.stringify(req.body));
+    const enq = (await api.get('/api/hub/events/enquiries', t)).body.data.find((e: any) => e.eventType === '5th birthday');
+    check('the partner sees what was built: items, their touches and the estimate', !!enq?.selection && enq.selection.items.length === 5 && enq.selection.customization?.includes('Ananya') && enq.selection.estimate.total === 83242 && enq.venue === 'Garden lawn');
+    const qs = (await api.get('/api/hub/quotations?source=events', t)).body.data ?? [];
+    const draft = qs.find((q: any) => q.customerName === 'QA Kavya' && q.status === 'draft');
+    check('a quotation of exactly that is drafted (not yet sent)', !!draft && draft.status === 'draft' && Math.round(Number(draft.total)) === 83242, JSON.stringify(draft && { s: draft.status, t: draft.total }));
+    const status = await api.get(`/api/public${req.body.data.link}`);
+    check('the client\'s status page shows what they asked for; the quotation appears once sent', status.body?.data?.selection?.estimate?.total === 83242 && status.body.data.quotation === null);
+    if (draft) await api.post(`/api/hub/events/quotations/${draft.id}/share`, {}, t);
+    const status2 = await api.get(`/api/public${req.body.data.link}`);
+    check('…and once the partner sends it, the client can open it', /^\/events\/q\//.test(status2.body?.data?.quotation ?? ''));
+    check('requests need a date', (await api.post(`/api/public/events/${bp.partnerCode}/request`, { ...sel, name: 'QA X', phone: '9876500124', eventType: 'Party' })).body?.code === 'NO_DATE');
 }

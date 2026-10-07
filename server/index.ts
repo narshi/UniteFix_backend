@@ -38,7 +38,8 @@ app.use(helmet({
         // Partner Hub pays for parts orders with Razorpay web checkout: its
         // script, its payment frame, and the calls the frame makes back.
         'script-src': ["'self'", 'https://checkout.razorpay.com'],
-        'frame-src': ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com'],
+        // Events partners show Instagram posts of their work on their public page.
+        'frame-src': ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com', 'https://www.instagram.com'],
         'connect-src': ["'self'", 'https://api.razorpay.com', 'https://lumberjack.razorpay.com'],
       },
     }

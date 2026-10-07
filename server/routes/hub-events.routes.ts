@@ -65,8 +65,11 @@ export function registerHubEventsRoutes(app: Express) {
     });
 
     // ── packages ──────────────────────────────────────────────────────────
-    const pkgView = (p: any) => ({ id: p.id, name: p.name, category: p.category, description: p.description, unit: p.unit, price: rupees(p.pricePaise), sac: p.sac, gstRate: Number(p.gstRate), isActive: p.isActive });
-    const pkgSchema = z.object({ name: z.string().max(120).optional(), category: z.string().optional(), description: z.string().max(500).optional().nullable(), unit: z.string().max(20).optional(), priceRupees: z.coerce.number().min(0).max(1e8).optional(), sac: z.string().max(8).optional(), gstRate: z.coerce.number().optional(), isActive: z.boolean().optional() });
+    const pkgView = (p: any) => ({ id: p.id, name: p.name, category: p.category, description: p.description, unit: p.unit, price: rupees(p.pricePaise), sac: p.sac, gstRate: Number(p.gstRate), isActive: p.isActive, photos: p.photos ?? [], capacity: p.capacity ?? null, showOnPage: p.showOnPage !== false, maxQty: p.maxQty ?? null });
+    const pkgSchema = z.object({
+        name: z.string().max(120).optional(), category: z.string().optional(), description: z.string().max(500).optional().nullable(), unit: z.string().max(20).optional(), priceRupees: z.coerce.number().min(0).max(1e8).optional(), sac: z.string().max(8).optional(), gstRate: z.coerce.number().optional(), isActive: z.boolean().optional(),
+        photos: z.array(z.string().max(2_600_000)).max(8).optional(), capacity: z.number().int().optional().nullable(), showOnPage: z.boolean().optional(), maxQty: z.number().int().optional().nullable(),
+    });
     app.get('/api/hub/events/packages', active, mod, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: (await PartnerEventsService.packages(ctxOf(req).businessPartnerId)).map(pkgView) }); } catch (e) { hubError(e, res, next); }
     });

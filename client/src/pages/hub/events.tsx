@@ -3,7 +3,7 @@
  * with advances → vendors → final invoice. Plus packages and a calendar.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useRoute } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -16,14 +16,16 @@ import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
 import { PayLinkButton } from "@/components/hub/PayLink";
+import { uploadPhoto } from "@/pages/hub/events-showcase";
 
-type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; sac: string; gstRate: number; isActive: boolean };
-type Enquiry = { id: number; source: string; eventType: string; eventDate: string | null; guests: number | null; venue: string | null; budget: number | null; message: string | null; status: string; lostReason: string | null; customerId: number; customerName: string; customerPhone: string | null; createdAt: string; statusLink: string };
+type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; sac: string; gstRate: number; isActive: boolean; photos: string[]; capacity: number | null; showOnPage: boolean; maxQty: number | null };
+type Selection = { ownVenue: string | null; theme: string | null; customization: string | null; items: Array<{ kind: string; name: string; quantity: number; unit: string; amount: number }>; estimate: { taxable: number; gst: number; total: number } };
+type Enquiry = { selection?: Selection | null; id: number; source: string; eventType: string; eventDate: string | null; guests: number | null; venue: string | null; budget: number | null; message: string | null; status: string; lostReason: string | null; customerId: number; customerName: string; customerPhone: string | null; createdAt: string; statusLink: string };
 type BookingRow = { id: number; title: string; eventDate: string; venue: string | null; guests: number | null; status: string; total: number; paid: number; vendorCost: number; customerName: string; customerPhone: string | null; invoiced: boolean };
 type Vendor = { id: number; name: string; category: string; phone: string | null; gstin: string | null; notes: string | null; isActive: boolean };
 
-const CATS = ["venue", "decor", "catering", "av", "photography", "staff", "other"];
-const CAT_LABEL: Record<string, string> = { venue: "Venue", decor: "Décor", catering: "Catering", av: "Sound & light", photography: "Photography", staff: "Staff", other: "Other" };
+const CATS = ["venue", "decor", "catering", "cake", "av", "photography", "staff", "other"];
+const CAT_LABEL: Record<string, string> = { venue: "Venue", decor: "Décor", catering: "Catering", cake: "Cakes & desserts", av: "Sound & light", photography: "Photography", staff: "Staff", other: "Other" };
 const E_TONE: Record<string, string> = { new: "warn", contacted: "info", quoted: "info", won: "good", lost: "muted" };
 const SRC: Record<string, string> = { app: "UniteFix app", public: "your page", hub: "added by you" };
 const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
@@ -96,14 +98,24 @@ export function HubEventEnquiries() {
               <div className="text-sm">
                 <div className="flex flex-wrap items-center gap-2"><span className="font-medium text-white">{e.eventType}</span><Chip tone={E_TONE[e.status]}>{e.status}</Chip><Chip>{SRC[e.source]}</Chip></div>
                 <p className="mt-0.5 text-[hsl(215,20%,70%)]">{e.customerName}{e.customerPhone ? ` · ${e.customerPhone}` : ""} · {nice(e.eventDate)}{e.guests ? ` · ${e.guests} guests` : ""}{e.venue ? ` · ${e.venue}` : ""}{e.budget ? ` · budget ${inr(e.budget)}` : ""}</p>
-                {e.message && <p className="mt-0.5 text-xs text-[hsl(215,20%,60%)]">“{e.message}”</p>}
+                {e.selection ? (
+                  <div className="mt-2 rounded-lg bg-white/[0.03] p-3 text-xs">
+                    <p className="mb-1 font-medium text-white">Built on your page · estimate {inr(e.selection.estimate.total)}</p>
+                    <ul className="space-y-0.5 text-[hsl(215,20%,72%)]">
+                      {e.selection.ownVenue && <li>At their venue: {e.selection.ownVenue}</li>}
+                      {e.selection.items.map((i, n) => <li key={n}>{i.name}{i.quantity > 1 ? ` × ${i.quantity} ${i.unit}` : ""} — {inr(i.amount)}</li>)}
+                    </ul>
+                    {e.selection.customization && <p className="mt-1 text-[hsl(215,20%,62%)]">Their touches: “{e.selection.customization}”</p>}
+                    {e.status === "new" && <p className="mt-1 text-[hsl(174,72%,62%)]">A quotation of exactly this is drafted — check the date, then send it from Quotations.</p>}
+                  </div>
+                ) : e.message && <p className="mt-0.5 text-xs text-[hsl(215,20%,60%)]">“{e.message}”</p>}
                 {e.lostReason && <p className="mt-0.5 text-xs text-rose-300">{e.lostReason}</p>}
               </div>
               <div className="flex flex-wrap items-center gap-1 lg:justify-end">
                 {e.status === "new" && <Button size="sm" variant="ghost" onClick={() => setSt(e, "contacted")}>Contacted</Button>}
                 {["new", "contacted", "quoted"].includes(e.status) && <Button size="sm" onClick={() => openQuote(e)}>{e.status === "quoted" ? "New quotation" : "Quote"}</Button>}
                 {["new", "contacted", "quoted"].includes(e.status) && <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => setSt(e, "lost")}>Lost</Button>}
-                {e.status === "quoted" && <Link href="/partner/events/quotations" className="text-sm text-[hsl(174,72%,60%)] hover:text-white">Quotations →</Link>}
+                {(e.status === "quoted" || e.selection) && <Link href="/partner/events/quotations" className="text-sm text-[hsl(174,72%,60%)] hover:text-white">Quotations →</Link>}
               </div>
             </li>
           ))}</ul>
@@ -396,26 +408,41 @@ export function HubEventPackages() {
   const qc = useQueryClient();
   const fail = useFail();
   const { data, isLoading } = usePackages();
-  const blank = { name: "", category: "venue", unit: "event", priceRupees: "", sac: "998596", gstRate: "18", description: "" };
+  const blank = { name: "", category: "venue", unit: "event", priceRupees: "", sac: "998596", gstRate: "18", description: "", capacity: "", maxQty: "", showOnPage: true };
   const [f, setF] = useState(blank);
   const [editing, setEditing] = useState<Pkg | null>(null);
   const [open, setOpen] = useState(false);
   const manage = hubCan(me, "settings:manage");
   const save = async () => {
-    const body = { name: f.name, category: f.category, unit: f.unit, priceRupees: Number(f.priceRupees), sac: f.sac, gstRate: Number(f.gstRate), description: f.description || null };
+    const body = { name: f.name, category: f.category, unit: f.unit, priceRupees: Number(f.priceRupees), sac: f.sac, gstRate: Number(f.gstRate), description: f.description || null,
+      showOnPage: f.showOnPage, capacity: f.category === "venue" && f.capacity ? Number(f.capacity) : null, maxQty: !["event", "plate"].includes(f.unit) && f.maxQty ? Number(f.maxQty) : null };
     try { await apiRequest(editing ? "PATCH" : "POST", editing ? `/api/hub/events/packages/${editing.id}` : "/api/hub/events/packages", body); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); setOpen(false); } catch (e) { fail("Not saved")(e); }
   };
   const grouped = useMemo(() => CATS.map(c => [c, (data ?? []).filter(p => p.category === c)] as const).filter(([, l]) => l.length), [data]);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const live = editing ? (data ?? []).find(p => p.id === editing.id) ?? editing : null;
+  const addPhoto = async (file: File) => {
+    if (!editing) return; setUploading(true);
+    try { await uploadPhoto(`/api/hub/events/packages/${editing.id}/photos`, file); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); } catch (e) { fail("Upload failed")(e); } finally { setUploading(false); }
+  };
+  const removePhoto = async (url: string) => {
+    if (!live) return;
+    try { await apiRequest("PATCH", `/api/hub/events/packages/${live.id}`, { photos: live.photos.filter(x => x !== url) }); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); } catch (e) { fail("Not removed")(e); }
+  };
   return (
-    <HubPage title="Packages" subtitle="The building blocks of your quotations. Catering is usually priced per plate (SAC 996337, 5% GST); event management per event (SAC 998596, 18%). Confirm rates with your CA."
+    <HubPage title="Packages" subtitle="The building blocks of your quotations and of your public page: venues are listed with photos and capacity, and everything else you mark as shown is an add-on clients can include — photography, cakes, catering. Catering is usually per plate (SAC 996337, 5% GST); event management per event (SAC 998596, 18%). Confirm rates with your CA."
       actions={manage ? <Button onClick={() => { setEditing(null); setF(blank); setOpen(true); }}>Add package</Button> : undefined}>
       {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !grouped.length ? <Panel><Empty icon="inventory" title="No packages yet" /></Panel> : grouped.map(([c, list]) => (
         <Panel key={c} title={CAT_LABEL[c]}>
           <ul className="divide-y divide-[rgba(255,255,255,0.06)] text-sm">{list.map(p => (
             <li key={p.id} className={`flex flex-wrap items-center gap-3 py-2 ${p.isActive ? "" : "opacity-60"}`}>
+              {p.photos?.[0] ? <img src={p.photos[0]} alt="" className="h-9 w-9 rounded object-cover" /> : null}
               <span className="text-white">{p.name}</span><span className="text-[hsl(215,20%,60%)]">{p.description}</span>
+              {p.capacity ? <Chip>up to {p.capacity} guests</Chip> : null}
+              {!p.showOnPage && <Chip>not on your page</Chip>}
               <span className="ml-auto tabular-nums">{inr(p.price)} / {p.unit}</span><span className="text-xs text-[hsl(215,20%,55%)]">SAC {p.sac} · {p.gstRate}%</span>
-              {manage && <><Button size="sm" variant="ghost" onClick={() => { setEditing(p); setF({ name: p.name, category: p.category, unit: p.unit, priceRupees: String(p.price), sac: p.sac, gstRate: String(p.gstRate), description: p.description ?? "" }); setOpen(true); }}>Edit</Button>
+              {manage && <><Button size="sm" variant="ghost" onClick={() => { setEditing(p); setF({ name: p.name, category: p.category, unit: p.unit, priceRupees: String(p.price), sac: p.sac, gstRate: String(p.gstRate), description: p.description ?? "", capacity: p.capacity ? String(p.capacity) : "", maxQty: p.maxQty ? String(p.maxQty) : "", showOnPage: p.showOnPage !== false }); setOpen(true); }}>Edit</Button>
                 <Button size="sm" variant="ghost" onClick={async () => { try { await apiRequest("PATCH", `/api/hub/events/packages/${p.id}`, { isActive: !p.isActive }); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); } catch (e) { fail("Not changed")(e); } }}>{p.isActive ? "Hide" : "Show"}</Button></>}
             </li>
           ))}</ul>
@@ -432,7 +459,28 @@ export function HubEventPackages() {
             <div><Label htmlFor="pk-s">SAC</Label><Input id="pk-s" maxLength={6} value={f.sac} onChange={e => setF({ ...f, sac: e.target.value.replace(/\D/g, "") })} /></div>
             {me?.business?.gstin && <div><Label htmlFor="pk-g">GST %</Label><HubSelect id="pk-g" className="w-full" value={f.gstRate} onChange={v => setF({ ...f, gstRate: v })}>{[0, 5, 18].map(r => <option key={r} value={r}>{r}%</option>)}</HubSelect></div>}
             <div className="sm:col-span-2"><Label htmlFor="pk-d">Description</Label><Input id="pk-d" value={f.description} onChange={e => setF({ ...f, description: e.target.value })} /></div>
+            {f.category === "venue" && <div><Label htmlFor="pk-cap">Holds up to (guests)</Label><Input id="pk-cap" inputMode="numeric" value={f.capacity} onChange={e => setF({ ...f, capacity: e.target.value.replace(/\D/g, "") })} /></div>}
+            {!["event", "plate"].includes(f.unit) && <div><Label htmlFor="pk-max">Most a client can order</Label><Input id="pk-max" inputMode="numeric" placeholder="e.g. 5 cakes" value={f.maxQty} onChange={e => setF({ ...f, maxQty: e.target.value.replace(/\D/g, "") })} /></div>}
+            <label className="sm:col-span-2 flex items-start gap-2 text-sm text-white">
+              <input type="checkbox" className="mt-1" checked={f.showOnPage} onChange={e => setF({ ...f, showOnPage: e.target.checked })} />
+              <span>Show on your public page<span className="block text-xs text-[hsl(215,20%,60%)]">{f.category === "venue" ? "Listed as a venue clients can choose." : f.unit === "plate" ? "An add-on priced for every guest." : f.unit === "event" ? "An add-on clients can tick, at this price." : `An add-on clients can order by the ${f.unit}.`}</span></span>
+            </label>
           </div>
+          {live && (
+            <div>
+              <Label>Photos</Label>
+              <div className="mt-1 grid grid-cols-4 gap-2">
+                {live.photos.map(u => (
+                  <div key={u} className="relative aspect-square overflow-hidden rounded bg-white/5">
+                    <img src={u} alt="" className="h-full w-full object-cover" />
+                    <button aria-label="Remove photo" className="absolute right-1 top-1 rounded bg-black/60 px-1.5 text-xs text-white" onClick={() => removePhoto(u)}>✕</button>
+                  </div>
+                ))}
+                {live.photos.length < 8 && <button className="grid aspect-square place-items-center rounded border border-dashed border-[rgba(255,255,255,0.25)] text-xs text-[hsl(215,20%,70%)] hover:text-white" disabled={uploading} onClick={() => photoRef.current?.click()}>{uploading ? "…" : "+ Photo"}</button>}
+              </div>
+              <input ref={photoRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { const x = e.target.files?.[0]; if (x) addPhoto(x); e.target.value = ""; }} />
+            </div>
+          )}
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={save} disabled={!f.name.trim() || !f.priceRupees}>Save</Button></DialogFooter>
         </DialogContent>
       </Dialog>

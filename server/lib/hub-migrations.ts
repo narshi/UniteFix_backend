@@ -878,6 +878,41 @@ const BLOCKS: Array<[string, string]> = [
       );
       CREATE INDEX IF NOT EXISTS part_requests_sr_idx ON part_requests (service_request_id, status);
     `],
+    ['events: showcase (themes, gallery, page fields)', `
+      ALTER TABLE event_packages ADD COLUMN IF NOT EXISTS photos JSONB;
+      ALTER TABLE event_packages ADD COLUMN IF NOT EXISTS capacity INTEGER;
+      ALTER TABLE event_packages ADD COLUMN IF NOT EXISTS show_on_page BOOLEAN NOT NULL DEFAULT TRUE;
+      ALTER TABLE event_packages ADD COLUMN IF NOT EXISTS max_qty INTEGER;
+      ALTER TABLE event_enquiries ADD COLUMN IF NOT EXISTS selection JSONB;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS events_profile JSONB;
+      CREATE TABLE IF NOT EXISTS event_themes (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT,
+        suitable_for TEXT,
+        photos JSONB,
+        price_paise INTEGER NOT NULL DEFAULT 0,
+        sac TEXT NOT NULL DEFAULT '998596',
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_themes_bp_idx ON event_themes (business_partner_id);
+      CREATE TABLE IF NOT EXISTS event_gallery (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        url TEXT NOT NULL,
+        caption TEXT,
+        theme_id INTEGER,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS event_gallery_bp_idx ON event_gallery (business_partner_id, sort_order);
+    `],
     ['pay links: partner_pay_links', `
       CREATE TABLE IF NOT EXISTS partner_pay_links (
         id SERIAL PRIMARY KEY,

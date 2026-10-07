@@ -78,7 +78,7 @@ async function main() {
         '/partner/parts', '/partner/parts/orders', '/partner/parts/consignment',
         '/partner/field/jobs', '/partner/field/technicians', '/partner/field/territory', '/partner/field/rates', '/partner/field/warranty', '/partner/field/earnings', '/partner/field/settings',
         '/partner/consulting/appointments', '/partner/consulting/calendar', '/partner/consulting/services', '/partner/consulting/retainers',
-        '/partner/events/enquiries', '/partner/events/quotations', '/partner/events/bookings', `/partner/events/bookings/${bk.body?.data?.id}`, '/partner/events/calendar', '/partner/events/packages', '/partner/events/vendors',
+        '/partner/events/enquiries', '/partner/events/quotations', '/partner/events/bookings', `/partner/events/bookings/${bk.body?.data?.id}`, '/partner/events/calendar', '/partner/events/packages', '/partner/events/vendors', '/partner/events/showcase',
         '/partner/store/listings', '/partner/store/orders', '/partner/store/reviews',
     ];
     const publicPages = [`/book/${bp.partnerCode}`, `/events/${bp.partnerCode}`, share.body.data.link, '/apply', ...(payLink.body?.data?.url ? [payLink.body.data.url] : [])];

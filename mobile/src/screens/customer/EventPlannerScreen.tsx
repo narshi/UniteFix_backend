@@ -22,7 +22,7 @@ import { Button } from '../../components/ui';
 type Planner = { id: number; code: string; name: string; city: string | null; categories: string[]; startingFrom: number | null };
 type MyEnquiry = { id: number; partner: string; partnerPhone: string | null; eventType: string; eventDate: string | null; guests: number | null; status: string; quotation: { number: string; version: number; status: string; total: number; link: string } | null };
 
-const CAT: Record<string, string> = { venue: 'Venue', decor: 'Décor', catering: 'Catering', av: 'Sound & light', photography: 'Photography', staff: 'Staff', other: 'Other' };
+const CAT: Record<string, string> = { venue: 'Venue', decor: 'Décor', catering: 'Catering', cake: 'Cakes & desserts', av: 'Sound & light', photography: 'Photography', staff: 'Staff', other: 'Other' };
 const STATUS: Record<string, string> = { new: 'Sent', contacted: 'In discussion', quoted: 'Quotation ready', won: 'Booked', lost: 'Closed' };
 
 type Props = NativeStackScreenProps<any, 'EventPlanner'>;

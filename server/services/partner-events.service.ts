@@ -35,7 +35,7 @@ import { withTransaction } from '../lib/transaction';
 const token = () => crypto.randomBytes(18).toString('base64url');
 const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-const CATEGORIES = ['venue', 'decor', 'catering', 'av', 'photography', 'staff', 'other'];
+const CATEGORIES = ['venue', 'decor', 'catering', 'cake', 'av', 'photography', 'staff', 'other'];
 
 type Ctx = HubContext | { businessPartnerId: number; adminUserId: number | null; plan?: any };
 
@@ -50,7 +50,7 @@ export class PartnerEventsService {
             .orderBy(asc(eventPackages.category), asc(eventPackages.name));
     }
 
-    static async savePackage(ctx: HubContext, id: number | null, input: { name?: string; category?: string; description?: string | null; unit?: string; priceRupees?: number; sac?: string; gstRate?: number; isActive?: boolean }) {
+    static async savePackage(ctx: HubContext, id: number | null, input: { name?: string; category?: string; description?: string | null; unit?: string; priceRupees?: number; sac?: string; gstRate?: number; isActive?: boolean; photos?: string[]; capacity?: number | null; showOnPage?: boolean; maxQty?: number | null }) {
         const bp = await BusinessPartnerService.byId(ctx.businessPartnerId);
         if (input.name !== undefined && !input.name.trim()) throw new HubError('Name the package.', 'NO_NAME');
         if (input.category !== undefined && !CATEGORIES.includes(input.category)) throw new HubError(`Category is one of ${CATEGORIES.join(', ')}.`, 'BAD_CATEGORY');
@@ -66,6 +66,11 @@ export class PartnerEventsService {
         if (input.sac !== undefined) v.sac = input.sac;
         if (input.gstRate !== undefined) v.gstRate = String(bp?.gstin ? input.gstRate : 0);
         if (input.isActive !== undefined) v.isActive = input.isActive;
+        // Shown on the public page: venue photos and capacity, whether it is offered as an add-on, and a count limit.
+        if (input.photos !== undefined) v.photos = (input.photos ?? []).filter(u => typeof u === 'string' && (/^https:\/\/\S+$/i.test(u) || /^data:image\//i.test(u))).slice(0, 8);
+        if (input.capacity !== undefined) { if (input.capacity != null && !(Number.isInteger(input.capacity) && input.capacity > 0 && input.capacity <= 100000)) throw new HubError('Capacity is a number of guests.', 'BAD_CAPACITY'); v.capacity = input.capacity; }
+        if (input.showOnPage !== undefined) v.showOnPage = input.showOnPage;
+        if (input.maxQty !== undefined) { if (input.maxQty != null && !(Number.isInteger(input.maxQty) && input.maxQty >= 1 && input.maxQty <= 500)) throw new HubError('Most a client can order: 1–500.', 'BAD_MAX'); v.maxQty = input.maxQty; }
         if (id) {
             const [u] = await db.update(eventPackages).set({ ...v, updatedAt: new Date() }).where(and(eq(eventPackages.id, id), eq(eventPackages.businessPartnerId, ctx.businessPartnerId))).returning();
             if (!u) throw new HubError('Not found', 'NOT_FOUND', 404);
@@ -561,6 +566,6 @@ export class PartnerEventsService {
         const [r] = await db.select({ e: eventEnquiries, partner: businessPartners.displayName }).from(eventEnquiries).innerJoin(businessPartners, eq(businessPartners.id, eventEnquiries.businessPartnerId)).where(eq(eventEnquiries.publicToken, t)).limit(1);
         if (!r) return null;
         const [q] = await db.select().from(partnerQuotations).where(and(eq(partnerQuotations.source, 'events'), eq(partnerQuotations.sourceRefId, r.e.id))).orderBy(desc(partnerQuotations.version)).limit(1);
-        return { partner: r.partner, eventType: r.e.eventType, eventDate: r.e.eventDate, status: r.e.status, quotation: q?.publicToken ? `/events/q/${q.publicToken}` : null };
+        return { partner: r.partner, eventType: r.e.eventType, eventDate: r.e.eventDate, guests: r.e.guests, status: r.e.status, selection: r.e.selection ?? null, quotation: q?.publicToken ? `/events/q/${q.publicToken}` : null };
     }
 }
