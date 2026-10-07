@@ -971,6 +971,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Business overview: money by stream (UniteFix / partners / experts / GST),
+  // live operations, and what is waiting on staff. ?range=7d|30d|90d|12m
+  app.get("/api/admin/reports/overview", async (req, res, next) => {
+    try {
+      const { BusinessOverviewService } = await import("./services/business-overview.service");
+      const range = (["7d", "30d", "90d", "12m"] as const).includes(req.query.range as any) ? (req.query.range as "7d" | "30d" | "90d" | "12m") : "30d";
+      const [money, operations, attention] = await Promise.all([
+        BusinessOverviewService.money(range), BusinessOverviewService.operations(range), BusinessOverviewService.attention(),
+      ]);
+      res.json({ success: true, data: { ...money, operations, attention } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Revenue chart data
   app.get("/api/admin/revenue/chart", async (req, res, next) => {
     try {

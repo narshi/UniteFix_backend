@@ -33,7 +33,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
     return (
       <div className="glass-card stagger-enter">
         <div className="p-6 border-b border-[rgba(255,255,255,0.06)]">
-          <h3 className="text-lg font-semibold text-white tracking-tight">Pending Employee Assignments</h3>
+          <h3 className="text-lg font-semibold text-white tracking-tight">Jobs waiting for an expert</h3>
         </div>
         <div className="p-6">
           <div className="space-y-4">
@@ -50,7 +50,7 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
     <div className="glass-card stagger-enter">
       <div className="p-6 border-b border-[rgba(255,255,255,0.06)]">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-white tracking-tight">Pending Employee Assignments</h3>
+          <h3 className="text-lg font-semibold text-white tracking-tight">Jobs waiting for an expert</h3>
           <span className="px-3 py-1 bg-[hsla(347,77%,50%,0.15)] text-[hsl(347,77%,65%)] border border-[hsla(347,77%,50%,0.3)] shadow-[0_0_10px_hsla(347,77%,50%,0.2)] text-xs font-medium rounded-full">
             {pendingServices?.length || 0} Pending
           </span>
