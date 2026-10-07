@@ -142,7 +142,7 @@ export function registerHubConsultingRoutes(app: Express) {
     });
     app.post('/api/hub/consulting/appointments/:id/bill', active, mod, hubCan('sales:manage'), async (req, res, next) => {
         try {
-            const b = parse(z.object({ dueDate: date.optional().nullable() }), req.body ?? {});
+            const b = parse(z.object({ dueDate: date.optional().nullable(), upfront: z.boolean().optional() }), req.body ?? {});
             const doc = await PartnerConsultingService.bill(ctxOf(req), Number(req.params.id), b);
             res.status(201).json({ success: true, message: `Invoice ${doc.number} issued.`, data: docView(doc) });
         } catch (e) { hubError(e, res, next); }

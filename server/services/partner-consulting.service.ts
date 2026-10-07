@@ -252,11 +252,12 @@ export class PartnerConsultingService {
     }
 
     /** Bill a completed appointment as a normal invoice in the partner's series. */
-    static async bill(ctx: HubContext, id: number, input: { dueDate?: string | null } = {}) {
+    static async bill(ctx: HubContext, id: number, input: { dueDate?: string | null; upfront?: boolean } = {}) {
         const a = await this.appointment(ctx.businessPartnerId, id);
         if (a.invoiceDocumentId) throw new HubError('Already billed.', 'BILLED', 409);
         if (a.retainerId) throw new HubError('This session is covered by a retainer, which bills monthly.', 'RETAINER', 409);
-        if (!['completed', 'no_show'].includes(a.status)) throw new HubError('Bill after the session is completed.', 'BAD_STATE', 409);
+        // Upfront: the client pays before the session (a pay link), so the invoice is issued now — within the 30 days GST allows for services.
+        if (!(['completed', 'no_show'].includes(a.status) || (input.upfront && a.status === 'confirmed'))) throw new HubError(input.upfront ? 'Confirm the appointment before asking for payment.' : 'Bill after the session is completed.', 'BAD_STATE', 409);
         if (a.pricePaise <= 0) throw new HubError('This appointment has no price.', 'NO_PRICE', 409);
         const svc = await this.service(ctx.businessPartnerId, a.serviceId);
         const hours = (new Date(a.endsAt).getTime() - new Date(a.startsAt).getTime()) / 3_600_000;
@@ -430,6 +431,7 @@ export class PartnerConsultingService {
             service: row.serviceName, consultant: row.partnerName, consultantPhone: row.partnerPhone, startsAt: a.startsAt, endsAt: a.endsAt, mode: a.mode,
             status: a.status, location: a.status === 'confirmed' ? a.location : null, meetingLink: a.status === 'confirmed' ? a.meetingLink : null,
             notes: a.clientNotes, price: a.pricePaise / 100,
+            payLink: a.invoiceDocumentId ? await (await import('./partner-pay-links.service')).PartnerPayLinkService.openForAppointment(a.id) : null,
         };
     }
 

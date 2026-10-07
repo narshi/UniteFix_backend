@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
+import { PayLinkButton } from "@/components/hub/PayLink";
 
 type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; sac: string; gstRate: number; isActive: boolean };
 type Enquiry = { id: number; source: string; eventType: string; eventDate: string | null; guests: number | null; venue: string | null; budget: number | null; message: string | null; status: string; lostReason: string | null; customerId: number; customerName: string; customerPhone: string | null; createdAt: string; statusLink: string };
@@ -326,7 +327,7 @@ export function HubEventBookingDetail() {
             <span className="text-white">{m.label}</span><span className="tabular-nums">{inr(m.amount)}</span>
             {m.status === "paid" ? <Chip tone="good">paid {m.paidOn}</Chip> : <Chip tone={m.dueDate && m.dueDate < today() ? "bad" : "warn"}>due {m.dueDate ?? "—"}</Chip>}
             {m.receiptNumber && <button className="font-mono text-xs text-[hsl(174,72%,60%)] underline" onClick={() => openAuthedPdf(`/api/hub/tax-documents/${m.receiptDocumentId}/pdf`).catch(fail("Could not open"))}>{m.receiptNumber}</button>}
-            {canSell && live && m.status === "due" && <Button size="sm" className="ml-auto" onClick={() => setPay({ id: m.id, method: "upi", reference: "", paidOn: today() })}>Record payment</Button>}
+            {canSell && live && m.status === "due" && <span className="ml-auto flex gap-1"><PayLinkButton kind="milestone" refId={m.id} /><Button size="sm" onClick={() => setPay({ id: m.id, method: "upi", reference: "", paidOn: today() })}>Record payment</Button></span>}
           </li>
         ))}</ul>
         <p className="mt-2 text-xs text-[hsl(215,20%,55%)]">Before the final invoice, each payment is an advance and gets a GST receipt voucher (tax is due when an advance is received). The final invoice adjusts them.</p>

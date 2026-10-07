@@ -25,6 +25,7 @@ const ENTRY: Record<string, string> = {
   recharge_collected: "Recharge collected for you", platform_fee: "Convenience fee (customer)", lead_fee: "Lead fee",
   service_value: "Field job value", cash_collected: "Cash your technician collected",
   marketplace_sale: "Store sale", marketplace_commission: "Store commission (with GST)", tcs: "GST TCS (claim in GSTR-3B)", tds: "TDS u/s 194-O (see 26AS)",
+  online_collection: "Paid online by your customer", gateway_fee: "Online collection fee (with GST)", store_penalty: "Store penalty",
 };
 
 export default function HubMoney() {

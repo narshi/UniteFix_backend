@@ -16,6 +16,7 @@ import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { useHubMe, hubCan, inr } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
 import { useCustomers } from "@/pages/hub/customers";
+import { PayLinkButton } from "@/components/hub/PayLink";
 
 type Svc = { id: number; name: string; description: string | null; kind: "fixed" | "hourly" | "retainer"; price: number; durationMinutes: number; mode: string; sac: string; gstRate: number; sessionsIncluded: number | null; hoursIncluded: number | null; isPublic: boolean; isActive: boolean };
 type Appt = {
@@ -255,6 +256,9 @@ export function HubConsultAppointments() {
                 {manage && a.status === "requested" && <Button size="sm" onClick={() => patch(a, { status: "confirmed" }, "Confirmed")}>Confirm</Button>}
                 {manage && a.status === "confirmed" && <Button size="sm" variant="outline" onClick={() => patch(a, { status: "completed" }, "Completed")}>Done</Button>}
                 {canBill && ["completed", "no_show"].includes(a.status) && !a.invoiceDocumentId && !a.retainerId && a.price > 0 && <Button size="sm" onClick={() => bill(a)}>Bill {inr(a.price)}</Button>}
+                {canBill && a.status === "confirmed" && !a.invoiceDocumentId && !a.retainerId && a.price > 0 && <PayLinkButton kind="invoice" label={`Ask to pay ${inr(a.price)}`}
+                  prepare={async () => { const r: any = await apiRequest("POST", `/api/hub/consulting/appointments/${a.id}/bill`, { upfront: true }); refresh(); return r.data.id; }} />}
+                {canBill && a.invoiceDocumentId && <PayLinkButton kind="invoice" refId={a.invoiceDocumentId} />}
                 {a.invoiceDocumentId && <Link href={`/partner/sales/invoices/${a.invoiceDocumentId}`} className="text-sm text-[hsl(174,72%,60%)] hover:text-white">Invoice →</Link>}
                 <Button size="sm" variant="ghost" onClick={() => openAppt(a)}>Details</Button>
               </div>

@@ -555,6 +555,15 @@ export class PaymentService {
                     logger.error(`[WEBHOOK] Store order apply failed: ${err.message}`, { orderId, paymentId });
                 }
             }
+            if (notes?.payment_type === 'partner_collection') {
+                try {
+                    const { PartnerPayLinkService } = await import('./partner-pay-links.service');
+                    const r = await PartnerPayLinkService.applyCapture({ linkId: notes?.pay_link_id ? parseInt(notes.pay_link_id) : null, razorpayOrderId: orderId, razorpayPaymentId: paymentId, amountPaise, method: payload.payment?.entity?.method });
+                    logger.info('[WEBHOOK] Partner pay link capture handled', { applied: r.applied });
+                } catch (err: any) {
+                    logger.error(`[WEBHOOK] Partner pay link apply failed: ${err.message}`, { orderId, paymentId });
+                }
+            }
             if (notes?.payment_type === 'b2b_order') {
                 try {
                     const { B2bOrderService } = await import('./b2b-order.service');

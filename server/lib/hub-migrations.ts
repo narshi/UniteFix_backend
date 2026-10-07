@@ -786,6 +786,34 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS hub_alerts_bp_idx ON hub_alerts (business_partner_id, created_at DESC);
       ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS alert_prefs JSONB;
     `],
+    ['pay links: ledger types online_collection', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'online_collection';`],
+    ['pay links: ledger types gateway_fee', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'gateway_fee';`],
+    ['store: ledger types store_penalty', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'store_penalty';`],
+    ['pay links: partner_pay_links', `
+      CREATE TABLE IF NOT EXISTS partner_pay_links (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        token TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        ref_id INTEGER NOT NULL,
+        customer_id INTEGER,
+        description TEXT NOT NULL,
+        amount_paise INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        razorpay_order_id TEXT,
+        razorpay_payment_id TEXT,
+        method TEXT,
+        paid_at TIMESTAMP,
+        fee_paise INTEGER NOT NULL DEFAULT 0,
+        fee_gst_paise INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        created_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_pay_links_ref_idx ON partner_pay_links (kind, ref_id);
+      CREATE INDEX IF NOT EXISTS partner_pay_links_bp_idx ON partner_pay_links (business_partner_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_pay_links_order_idx ON partner_pay_links (razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

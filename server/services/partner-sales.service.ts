@@ -300,7 +300,7 @@ export class PartnerSalesService {
         const amount = toPaise(input.amountRupees);
         if (!(amount > 0)) throw new HubError('Amount must be more than zero.', 'BAD_AMOUNT');
         if (amount > inv.outstandingPaise) throw new HubError(`Only ₹${(inv.outstandingPaise / 100).toFixed(2)} is outstanding on this invoice.`, 'OVERPAY');
-        if (!['cash', 'upi', 'bank', 'card', 'cheque', 'other'].includes(input.method)) throw new HubError('Unknown payment method.', 'BAD_METHOD');
+        if (!['cash', 'upi', 'bank', 'card', 'cheque', 'online', 'other'].includes(input.method)) throw new HubError('Unknown payment method.', 'BAD_METHOD');
         const [row] = await db.insert(partnerInvoicePayments).values({
             businessPartnerId: ctx.businessPartnerId, documentId: invoiceId, amountPaise: amount, method: input.method,
             reference: input.reference?.trim() || null, receivedOn: input.receivedOn, notes: input.notes?.trim() || null, createdByAdminUserId: ctx.adminUserId,

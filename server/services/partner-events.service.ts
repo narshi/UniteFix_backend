@@ -341,7 +341,7 @@ export class PartnerEventsService {
         const b = await this.booking(ctx.businessPartnerId, m.bookingId);
         if (b.status === 'cancelled') throw new HubError('This booking is cancelled.', 'CANCELLED', 409);
         if (m.status === 'paid') throw new HubError('Already recorded as paid.', 'PAID', 409);
-        if (!['cash', 'upi', 'bank', 'card', 'cheque', 'other'].includes(input.method)) throw new HubError('Unknown payment method.', 'BAD_METHOD');
+        if (!['cash', 'upi', 'bank', 'card', 'cheque', 'online', 'other'].includes(input.method)) throw new HubError('Unknown payment method.', 'BAD_METHOD');
         const paidOn = input.paidOn ?? today();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || paidOn > today()) throw new HubError('Paid on must be a date, not in the future.', 'BAD_DATE');
         if (b.finalInvoiceDocumentId) {

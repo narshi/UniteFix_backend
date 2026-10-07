@@ -2690,6 +2690,10 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   'marketplace_commission', // UniteFix commission + GST on it, +
   'tcs',                    // GST TCS (s.52) collected by UniteFix as e-commerce operator, +
   'tds',                    // income-tax TDS (s.194-O), +
+  // Partner Hub: online collections and store fees
+  'online_collection',      // a customer paid the partner through a UniteFix pay link, −
+  'gateway_fee',            // UniteFix's collection fee + GST on it, +
+  'store_penalty',          // a store order dispatched late or cancelled by the seller, +
 ]);
 
 /**
@@ -3366,3 +3370,30 @@ export const hubAlerts = pgTable("hub_alerts", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+
+/**
+ * A link a partner sends a customer to pay online — an invoice's balance or
+ * an event milestone. UniteFix collects through its gateway and owes the
+ * partner the amount less the collection fee (both on the partner ledger).
+ */
+export const partnerPayLinks = pgTable("partner_pay_links", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  token: text("token").notNull().unique(),
+  kind: text("kind").notNull(),                 // invoice | milestone
+  refId: integer("ref_id").notNull(),           // tax_documents.id | event_milestones.id
+  customerId: integer("customer_id"),
+  description: text("description").notNull(),
+  amountPaise: integer("amount_paise").notNull(),
+  status: text("status").notNull().default('open'), // open | paid | cancelled
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  method: text("method"),
+  paidAt: timestamp("paid_at"),
+  feePaise: integer("fee_paise").notNull().default(0),
+  feeGstPaise: integer("fee_gst_paise").notNull().default(0),
+  note: text("note"),                           // what happened when it was applied, if not routine
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type PartnerPayLink = typeof partnerPayLinks.$inferSelect;

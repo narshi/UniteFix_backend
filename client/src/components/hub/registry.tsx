@@ -26,6 +26,7 @@ import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail } from "@/pages/
 import HubPurchases from "@/pages/hub/purchases";
 import HubMoney from "@/pages/hub/money";
 import { HubAlertsPage } from "@/components/hub/AlertBell";
+import { HubPayLinksPage } from "@/components/hub/PayLink";
 import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
@@ -104,6 +105,7 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/sales/invoices/new", component: HubInvoiceNew, module: "sales", perm: "sales:manage" },
   { path: "/partner/sales/invoices/:id", component: HubInvoiceDetail, module: "sales", perm: "sales:manage" },
   { path: "/partner/sales/quotations", component: HubQuotations, module: "sales", perm: "sales:manage", nav: { group: "Sales", label: "Quotations", icon: "request_quote" } },
+  { path: "/partner/sales/payments", component: HubPayLinksPage, module: "sales", perm: "sales:manage", nav: { group: "Sales", label: "Online payments", icon: "link" } },
   { path: "/partner/sales/quotations/new", component: HubQuotationNew, module: "sales", perm: "sales:manage" },
   { path: "/partner/sales/quotations/:id/edit", component: HubQuotationRevise, module: "sales", perm: "sales:manage" },
   { path: "/partner/sales/quotations/:id", component: HubQuotationDetail, module: "sales", perm: "sales:manage" },

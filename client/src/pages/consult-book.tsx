@@ -107,7 +107,7 @@ export function ConsultBookingPage({ code }: { code: string }) {
 }
 
 export function ConsultAppointmentPage({ token }: { token: string }) {
-  const q = useQuery<{ service: string; consultant: string; consultantPhone: string | null; startsAt: string; endsAt: string; mode: string; status: string; location: string | null; meetingLink: string | null; notes: string | null; price: number }>({
+  const q = useQuery<{ service: string; consultant: string; consultantPhone: string | null; startsAt: string; endsAt: string; mode: string; status: string; location: string | null; meetingLink: string | null; notes: string | null; price: number; payLink: { url: string; amount: number; status: string } | null }>({
     queryKey: ["/api/public/consult/a", token], queryFn: async () => (await apiRequest("GET", `/api/public/consult/a/${encodeURIComponent(token)}`)).data, retry: false,
   });
   const cancel = useMutation({ mutationFn: async () => apiRequest("POST", `/api/public/consult/a/${encodeURIComponent(token)}/cancel`), onSuccess: () => q.refetch() });
@@ -121,6 +121,9 @@ export function ConsultAppointmentPage({ token }: { token: string }) {
       <h1 className="mt-2 text-3xl font-semibold text-white">{a.service}</h1>
       <p className="mt-1 text-[hsl(215,20%,70%)]">with {a.consultant} · {when(a.startsAt)} · {a.mode === "online" ? "online" : "in person"}</p>
       {a.meetingLink && <a href={a.meetingLink} target="_blank" rel="noreferrer" className="mt-6 inline-block rounded-lg bg-[hsl(174,72%,38%)] px-5 py-2.5 font-medium text-white hover:bg-[hsl(174,72%,33%)]">Join the meeting</a>}
+      {a.payLink && (a.payLink.status === "paid"
+        ? <p className="mt-4 text-sm text-emerald-300">Paid {rs(a.payLink.amount)} — thank you.</p>
+        : <a href={a.payLink.url} className="mt-6 ml-2 inline-block rounded-lg border border-[hsl(174,72%,45%)] px-5 py-2.5 font-medium text-white hover:bg-white/5">Pay {rs(a.payLink.amount)}</a>)}
       {a.location && <p className="mt-4 text-white">Where: {a.location}</p>}
       {a.notes && <div className="mt-6 rounded-xl border border-[rgba(255,255,255,0.1)] p-4"><p className="text-xs uppercase tracking-wider text-[hsl(215,20%,55%)]">Notes from {a.consultant}</p><p className="mt-2 whitespace-pre-wrap text-white">{a.notes}</p></div>}
       {a.consultantPhone && <p className="mt-6 text-sm text-[hsl(215,20%,65%)]">Questions? Call {a.consultantPhone}.</p>}

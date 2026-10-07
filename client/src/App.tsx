@@ -43,6 +43,7 @@ import PartnerHubLayout from "@/layouts/PartnerHubLayout";
 import PartnerApplyPage from "@/pages/partner-apply";
 import ConsultBookRouter from "@/pages/consult-book";
 import EventsPublicRouter from "@/pages/events-public";
+import PayLinkPage from "@/pages/pay-link";
 import { WeakPasswordBanner } from "@/components/admin/WeakPasswordBanner";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -228,6 +229,11 @@ function Router() {
   // A consulting partner's public booking page and a client's booking link.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/book/")) {
     return <ConsultBookRouter />;
+  }
+
+  // A partner's payment link — a customer pays an invoice or an event advance.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/pay/")) {
+    return <PayLinkPage />;
   }
 
   // An events partner's enquiry page, a client's quotation link, an enquiry's status.

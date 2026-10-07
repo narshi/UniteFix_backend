@@ -1,5 +1,6 @@
 /**
- * Partner Hub — follow-up features end to end: partner alerts, online pay
+ * Partner Hub — follow-up features end to end: partner alerts,
+            , online pay
  * links for partners' customers, store gateway fee and penalties, field
  * auto-assign and working hours, bundles, consignment, go-live checklist.
  *
@@ -58,8 +59,10 @@ async function main() {
         const q = await api.post(`/api/hub/events/enquiries/${enq.id}/quote`, { packages: [{ packageId: pk.id, quantity: 1 }] }, t);
         const sh = await api.post(`/api/hub/events/quotations/${q.body.data.id}/share`, {}, t);
         await api.post(`/api/public${sh.body.data.link}/respond`, { decision: 'accept' });
+        ctx.quotationId = q.body.data.id;
         const svc = await api.post('/api/hub/consulting/services', { name: 'IT audit', kind: 'fixed', priceRupees: 2000, durationMinutes: 60, mode: 'online' }, t);
         await api.put('/api/hub/consulting/availability', { windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ weekday: d, startTime: '09:00', endTime: '18:00' })) }, t);
+        ctx.consultServiceId = svc.body.data.id;
         const slots = await api.get(`/api/public/consult/${bp.partnerCode}/slots?serviceId=${svc.body.data.id}`);
         await api.post(`/api/public/consult/${bp.partnerCode}/book`, { serviceId: svc.body.data.id, startsAt: slots.body.data[3].startsAt, name: 'QA Ravi', phone: '9876500088' });
         const al2 = await api.get('/api/hub/alerts', t);
@@ -112,6 +115,7 @@ async function main() {
         await cleanupPartners(bpIds, adminIds, [
             ...extraCleanup,
             `DELETE FROM hub_alerts WHERE business_partner_id IN (${bpl})`,
+            `DELETE FROM partner_pay_links WHERE business_partner_id IN (${bpl})`,
             `DELETE FROM consult_retainer_bills WHERE retainer_id IN (SELECT id FROM consult_retainers WHERE business_partner_id IN (${bpl}))`,
             ...['consult_appointments', 'consult_retainers', 'consult_services', 'consult_availability', 'consult_time_off'].map(x => `DELETE FROM ${x} WHERE business_partner_id IN (${bpl})`),
             `DELETE FROM event_vendor_costs WHERE booking_id IN (SELECT id FROM event_bookings WHERE business_partner_id IN (${bpl}))`,

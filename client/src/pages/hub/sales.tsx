@@ -19,6 +19,7 @@ import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
 import { LineEditor, blankLine, linesToPayload, type LineDraft } from "@/components/hub/LineEditor";
 import { CustomerDialog, useCustomers, type Customer } from "@/pages/hub/customers";
+import { PayLinkButton } from "@/components/hub/PayLink";
 
 type Settings = {
   invoicePrefix: string | null; prefixLocked: boolean; invoiceTerms: string | null; gstFilingFrequency: "monthly" | "quarterly";
@@ -287,6 +288,7 @@ export function HubInvoiceDetail() {
         <Link href="/partner/sales/invoices" className="self-center text-sm text-[hsl(174,72%,60%)] hover:text-white">← Invoices</Link>
         <Button variant="outline" onClick={() => openAuthedPdf(`/api/hub/tax-documents/${d.id}/pdf`).catch(fail("Could not open"))}>PDF</Button>
         {!isCn && d.outstanding > 0 && <Button variant="outline" onClick={() => { setPay({ ...pay, amountRupees: String(d.outstanding) }); setPayOpen(true); }}>Record payment</Button>}
+        {!isCn && d.outstanding >= 1 && <PayLinkButton kind="invoice" refId={d.id} size="default" />}
         {!isCn && d.total - d.credited > 0 && <Button variant="ghost" onClick={() => setCnOpen(true)}>Credit note</Button>}
       </>}>
       {!isCn && (

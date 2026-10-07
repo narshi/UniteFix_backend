@@ -304,6 +304,14 @@ export class TaxDocumentService {
             lines.push({ description: `Store commission — ${mk.n} order${mk.n === 1 ? '' : 's'} settled, ${monthLabel}`, hsnSac: mSac, quantity: mk.n, unit: 'order', ratePaise: Math.round(mk.fee / Math.max(1, mk.n)), taxablePaise: mk.fee, gstRate, taxPaise: mk.gst });
         }
 
+        // Online collection fees on pay links paid this month — charged on the
+        // ledger when each was paid, so here they are invoiced, not charged again.
+        const { PartnerPayLinkService } = await import('./partner-pay-links.service');
+        const pl = await PartnerPayLinkService.feesPaid(bpId, from, to);
+        if (pl.feePaise > 0) {
+            lines.push({ description: `Online payment collection — ${pl.n} payment${pl.n === 1 ? '' : 's'}, ${monthLabel}`, hsnSac: sac, quantity: pl.n, unit: 'payment', ratePaise: Math.round(pl.feePaise / Math.max(1, pl.n)), taxablePaise: pl.feePaise, gstRate, taxPaise: pl.gstPaise });
+        }
+
         const proBilled = bp.hubPlan === 'pro' && (!bp.hubPlanSince || bp.hubPlanSince < to);
         let proTotal = 0;
         if (proBilled) {
