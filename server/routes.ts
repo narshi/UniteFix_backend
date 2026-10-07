@@ -190,6 +190,9 @@ function paginate<T>(data: T[], page: number = 1, limit: number = 20): { data: T
   };
 }
 
+/** Passwords anyone could guess — the old seed default among them. */
+const WEAK_ADMIN_PASSWORDS = ['admin123', 'admin', 'password', 'password123', '12345678', 'admin@123', 'unitefix', 'unitefix123'];
+
 export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== API VERSIONING REWRITE ====================
@@ -664,6 +667,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.updateAdminUser(admin.id, { lastLogin: new Date() });
+      // A well-known password (the old seed default and its cousins) gets a
+      // prompt to change it straight after sign-in.
+      const passwordIsWeak = WEAK_ADMIN_PASSWORDS.includes(password.toLowerCase());
 
       const token = jwt.sign(
         { userId: admin.id, role: admin.role },
@@ -675,8 +681,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         message: "Admin login successful",
         admin: { ...admin, password: undefined },
-        token
+        token,
+        passwordIsWeak,
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * POST /api/admin/me/password — change your own password. Needs the
+   * current one; refuses well-known passwords.
+   */
+  app.post("/api/admin/me/password", async (req, res, next) => {
+    try {
+      const me = (req as any).admin as { userId: number; username: string } | undefined;
+      if (!me) return res.status(401).json({ success: false, message: "Admin authentication required" });
+      const current = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+      const next_ = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+      if (next_.length < 10 || next_.length > 128) return res.status(400).json({ success: false, message: "Use at least 10 characters." });
+      if (WEAK_ADMIN_PASSWORDS.includes(next_.toLowerCase())) return res.status(400).json({ success: false, message: "That password is too well known. Choose another." });
+      const record = await storage.getAdminById(me.userId);
+      if (!record || !(await bcrypt.compare(current, record.password))) return res.status(400).json({ success: false, message: "Your current password is not right." });
+      if (current === next_) return res.status(400).json({ success: false, message: "Choose a password different from the current one." });
+      await storage.updateAdminUser(me.userId, { password: await bcrypt.hash(next_, 10) } as any);
+      logger.warn(`[ACCESS] ${me.username} changed their own password`);
+      res.json({ success: true, message: "Password changed." });
     } catch (error) {
       next(error);
     }
@@ -2357,12 +2387,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
         }
       }
+      // Booking fee 0 on a priced service: the customer pays it all now.
+      pricingSnapshot = BillingEngine.applyPrepay(pricingSnapshot);
+      const dueNow = BillingEngine.amountDueAtBooking(pricingSnapshot);
 
       const service = await storage.createServiceRequest({
         ...serviceData,
         catalogServiceId: catalogServiceId ?? undefined,
         bookingFee: pricingSnapshot.bookingFee,
-        bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
+        bookingFeeStatus: dueNow === 0 ? 'paid' : 'pending',
       });
 
       // Write the frozen snapshot to the service_requests row. For a catalog
@@ -2380,7 +2413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Attempt to create Razorpay booking charge order using frozen fee
       let paymentInfo = null;
-      if (pricingSnapshot.bookingFee > 0) {
+      if (dueNow > 0) {
         try {
           const keyId = process.env.RAZORPAY_KEY_ID;
           const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -2389,7 +2422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const Razorpay = (await import('razorpay')).default;
             const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
 
-            const amountInPaise = pricingSnapshot.bookingFee * 100;
+            const amountInPaise = Math.round(dueNow * 100);
 
             const order = await razorpay.orders.create({
               amount: amountInPaise,
@@ -2399,13 +2432,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 service_request_id: service.id.toString(),
                 customer_id: req.user!.userId.toString(),
                 payment_type: 'booking_charge',
+                ...(pricingSnapshot.prepaid ? { prepaid: 'full_amount' } : {}),
               },
             });
 
             paymentInfo = {
               razorpayOrderId: order.id,
               razorpayKeyId: keyId,
-              amount: pricingSnapshot.bookingFee,
+              amount: dueNow,
+              prepaid: !!pricingSnapshot.prepaid,
               currency: 'INR',
             };
 
@@ -2420,7 +2455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               metadata: { paymentType: 'booking_charge', customerId: req.user!.userId },
             });
 
-            logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${pricingSnapshot.bookingFee}`);
+            logger.info(`[BOOKING] Razorpay order ${order.id} created for service ${service.id}, amount: ₹${dueNow}${pricingSnapshot.prepaid ? ' (full price, prepaid)' : ''}`);
           } else if (!IS_PRODUCTION) {
             logger.warn(`[BOOKING] Razorpay keys missing. Marking paid (development only).`);
             await db.update(serviceRequests)
@@ -2476,7 +2511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
        * paid booking the announcement now happens in the payment-verification
        * path, once the fee is confirmed.
        */
-      if (pricingSnapshot.bookingFee === 0) {
+      if (dueNow === 0) {
         void BookingNotifications.bookingCreated(service.id);
       }
 

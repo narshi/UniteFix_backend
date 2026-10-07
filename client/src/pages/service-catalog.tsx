@@ -424,7 +424,7 @@ export default function ServiceCatalogPage() {
                   placeholder={`Blank = platform default (₹${defaultBookingFee})`}
                   className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
                 <p className="text-xs text-[hsl(215,20%,55%)]">
-                  What customers pay upfront to book any service in this category; it is deducted from the final bill. 0 = free booking. Applies to new bookings only — existing bookings keep the fee they were made with.
+                  What customers pay upfront to book any service in this category; it is deducted from the final bill. Set 0 to make it optional: customers then pay the full price of a priced service when booking, and nothing after (only parts, if any are added). Unpriced services stay free to book. Applies to new bookings only.
                 </p>
               </div>
               <div className="flex items-center space-x-2 pt-2">

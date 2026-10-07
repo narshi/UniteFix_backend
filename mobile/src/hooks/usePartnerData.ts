@@ -139,9 +139,16 @@ export function useRequestPayment() {
             bookingId: number; extraPartsCost?: number; partsNote?: string; partItems?: PartItemPayload[];
         }) =>
             partnerApi.requestPayment(bookingId, { extraPartsCost, partsNote, partItems }),
-        onSuccess: () => {
+        onSuccess: (res: any) => {
             qc.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
-            Alert.alert('Payment Requested', 'The customer can now pay the balance.');
+            qc.invalidateQueries({ queryKey: partnerQueryKeys.wallet });
+            // A job paid in full when it was booked completes straight away.
+            const body = res?.data ?? res;
+            if (body?.data?.status === 'completed' || body?.data?.prepaid) {
+                Alert.alert('Job complete', body?.message ?? 'The customer paid in full when booking. Nothing to collect.');
+            } else {
+                Alert.alert('Payment Requested', 'The customer can now pay the balance.');
+            }
         },
         onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
     });

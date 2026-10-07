@@ -341,6 +341,26 @@ export function registerBillingRoutes(app: Express) {
                 }
             }
 
+            // Paid in full when booking and no parts added: nothing to collect,
+            // so the job completes now, exactly as an online payment would.
+            if (updatedSnapshot.prepaid && (updatedSnapshot.finalTotal ?? 0) <= 0) {
+                const { storage } = await import('../storage');
+                await storage.updateServiceRequestStatus(bookingId, BookingState.COMPLETED);
+                await storage.updateServiceRequest(bookingId, { paymentMethod: 'online' as any });
+                try { await storage.creditProviderWalletForOnlinePayment(bookingId); }
+                catch (walletErr: any) { logger.error(`[BILLING] Prepaid completion wallet credit failed for ${bookingId}: ${walletErr.message}`); }
+                try { await PaymentService.generateInvoice(bookingId, booking.userId, partnerId); }
+                catch (invErr: any) { logger.warn(`[BILLING] Invoice generation failed for prepaid booking ${bookingId}: ${invErr.message}`); }
+                void BookingNotifications.serviceCompleted(bookingId, updatedSnapshot.technicianEarning);
+                logger.info(`[BILLING] v2 booking ${bookingId} was paid in full when booked — completed without a final payment`);
+                return res.json({
+                    success: true,
+                    message: 'The customer paid in full when booking. The job is complete.',
+                    partsWarnings,
+                    data: { bookingId, status: BookingState.COMPLETED, amountDue: 0, technicianEarning: updatedSnapshot.technicianEarning, prepaid: true },
+                });
+            }
+
             logger.info(`[BILLING] v2 request-payment booking ${bookingId}: finalDue=₹${updatedSnapshot.finalTotal}` +
                 (allPartsCost > 0 ? ` (incl. ₹${extraPartsCost} technician parts + ₹${platformPartsCost} UniteFix parts + ₹${tax.partsGst} GST, ${resolvedItems.length} line(s))` : ''));
 

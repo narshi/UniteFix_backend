@@ -14,7 +14,10 @@ async function seed() {
 
   try {
     // Create admin user
-    const hashedAdminPassword = await bcrypt.hash("admin123", 10);
+    // No well-known default: use SEED_ADMIN_PASSWORD, or a random one printed once.
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || (await import("crypto")).randomBytes(12).toString("base64url");
+    if (!process.env.SEED_ADMIN_PASSWORD) console.log(`Admin password (shown once): ${adminPassword}`);
+    const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
     await db.insert(adminUsers).values({
       username: "admin",
       email: "admin@unitefix.com",

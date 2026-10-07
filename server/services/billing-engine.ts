@@ -72,6 +72,13 @@ export interface PricingSnapshot {
    * Partner Hub phase 4: a job routed to a partner territory. The partner is
    * the payee for technicianEarning (booked to its ledger, not a wallet).
    */
+  /**
+   * The category's booking fee is 0, so the customer pays the whole price when
+   * booking (prepaidAmount) and nothing after the service unless parts are added.
+   * bookingFee stays 0: no booking charge is carved out of the technician's share.
+   */
+  prepaid?: boolean;
+  prepaidAmount?: number;
   payeeType?: 'partner' | 'technician';
   payeePartnerId?: number;
   servicedBy?: string;
@@ -163,6 +170,24 @@ export class BillingEngine {
     const [svc] = await db.select({ categoryId: services.categoryId })
       .from(services).where(eq(services.id, catalogServiceId)).limit(1);
     return svc?.categoryId ?? null;
+  }
+
+  /**
+   * A fixed-price booking in a category with a 0 booking fee is paid in full
+   * when booking. Only a priced (v2) booking can be: an unpriced one has no
+   * amount to charge, so it stays a free booking paid after the service.
+   */
+  static applyPrepay(s: PricingSnapshot): PricingSnapshot {
+    if (s.snapshotVersion !== 2 || s.bookingFee !== 0) return s;
+    const amount = Math.round((s.grossTotal ?? 0) * 100) / 100;
+    if (!(amount > 0)) return s;
+    return { ...s, prepaid: true, prepaidAmount: amount, bookingFeeCredit: amount, finalTotal: 0 };
+  }
+
+  /** What the customer pays when booking, in rupees: the full price if prepaid, else the booking fee. */
+  static amountDueAtBooking(s: PricingSnapshot | null | undefined, fallbackFee = 0): number {
+    if (s?.prepaid) return Number(s.prepaidAmount ?? 0);
+    return Number(s?.bookingFee ?? fallbackFee);
   }
 
   static async createBookingSnapshot(opts: { bookingFee?: number } = {}): Promise<PricingSnapshot> {

@@ -15,7 +15,8 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import { db } from "../db";
 import { sql, eq, and, desc } from "drizzle-orm";
-import { paymentTransactions, invoices } from "@shared/schema";
+import { paymentTransactions, invoices, serviceRequests } from "@shared/schema";
+import { BillingEngine } from "./billing-engine";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
 import { BookingState } from "../business/booking-state-machine";
@@ -82,9 +83,15 @@ export class PaymentService {
         serviceRequestId: number,
         customerId: number
     ): Promise<{ orderId: string; amount: number; currency: string }> {
-        // Get booking charge from config (₹99 default — matches schema and BillingEngine)
-        const bookingCharge = await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE");
-        const parsedAmount = parseFloat(bookingCharge || "99");
+        // What this booking owes now, frozen on it at creation: the category's
+        // booking fee, or the full price when that fee is 0 (prepaid). The
+        // platform default is only the fallback for a booking with no snapshot.
+        const [sr] = await db.select({ snapshot: serviceRequests.pricingSnapshot, fee: serviceRequests.bookingFee })
+            .from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+        const fallback = parseFloat((await configService.get<string>("BUSINESS_CONFIG.BASE_SERVICE_FEE")) || "99");
+        const parsedAmount = sr?.snapshot
+            ? BillingEngine.amountDueAtBooking(sr.snapshot as any, sr.fee ?? fallback)
+            : (sr?.fee ?? fallback);
 
         if (parsedAmount <= 0) {
             // Free booking — no Razorpay order required

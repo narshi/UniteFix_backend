@@ -28,6 +28,7 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
       // Store admin token
       localStorage.setItem("adminToken", data.token);
       localStorage.setItem("adminUser", JSON.stringify(data.admin));
+      try { if (data.passwordIsWeak) localStorage.setItem("adminPasswordWeak", "1"); else localStorage.removeItem("adminPasswordWeak"); } catch { /* storage blocked */ }
 
       toast({
         title: "Login successful",
@@ -126,15 +127,6 @@ export default function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
             </Button>
           </form>
 
-          <div className="mt-8 p-4 bg-[hsla(217,91%,60%,0.05)] border border-[hsla(217,91%,60%,0.15)] rounded-xl backdrop-blur-sm">
-            <p className="text-sm text-[hsl(217,91%,70%)] font-medium mb-1">
-              Demo Credentials:
-            </p>
-            <p className="text-sm text-[hsl(215,20%,65%)] font-mono">
-              Username: <span className="text-white">admin</span><br />
-              Password: <span className="text-white">admin123</span>
-            </p>
-          </div>
           <p className="mt-5 text-center text-sm text-[hsl(215,20%,60%)]">
             Run a business and want to work with UniteFix?{" "}
             <a href="/apply" className="text-[hsl(217,91%,70%)] underline underline-offset-4 hover:text-white">Apply to become a partner</a>

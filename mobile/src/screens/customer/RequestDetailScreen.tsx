@@ -80,8 +80,8 @@ const SERVICE_ICONS: Record<string, { icon: any; color: string }> = {
 };
 
 // Full state machine timeline matching AI_CONTEXT.md §3.B
-const getTimelineSteps = (bookingFee: number) => [
-    { key: 'created', label: 'Booking Created', sublabel: `Paid ₹${bookingFee} booking fee`, icon: CreditCard },
+const getTimelineSteps = (bookingFee: number, prepaid = false) => [
+    { key: 'created', label: 'Booking Created', sublabel: prepaid ? `Paid ₹${bookingFee} in full` : `Paid ₹${bookingFee} booking fee`, icon: CreditCard },
     { key: 'assigned', label: 'Service Expert Assigned', sublabel: 'On the way to your location', icon: User },
     { key: 'accepted', label: 'Service Expert Accepted', sublabel: 'OTP generated for verification', icon: Shield },
     { key: 'reached', label: 'Service Expert Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
@@ -202,9 +202,13 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const { mutate: rateService, isPending: submittingRating } = useRateService();
     const { data: publicConfig } = usePublicConfig();
     
-    const bookingFee = request?.bookingFee ?? publicConfig?.bookingFee ?? 99;
+    // A booking in a category with no booking fee was paid in full when made.
+    const prepaid = !!(request as any)?.pricingSnapshot?.prepaid;
+    const bookingFee = prepaid
+        ? Number((request as any).pricingSnapshot.prepaidAmount ?? 0)
+        : (request?.bookingFee ?? publicConfig?.bookingFee ?? 99);
     const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
-    const timelineSteps = getTimelineSteps(bookingFee);
+    const timelineSteps = getTimelineSteps(bookingFee, prepaid);
 
     // Animations
     const headerAnim = useRef(new Animated.Value(0)).current;
@@ -353,12 +357,12 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     razorpayOrderId: data.razorpayOrder.orderId,
                     razorpayKeyId: process.env.RAZORPAY_KEY_ID || data.razorpayOrder.razorpayKeyId,
                     amount: data.razorpayOrder.amount,
-                    description: `₹${bookingFee} Booking Fee — Booking #${request.id}`,
+                    description: prepaid ? `₹${bookingFee} (full amount) — Booking #${request.id}` : `₹${bookingFee} Booking Fee — Booking #${request.id}`,
                 });
                 
                 // Verify payment
                 await customerApi.verifyPayment(paymentResponse);
-                Alert.alert('Success', 'Booking fee paid successfully. We will assign a service expert soon.', [
+                Alert.alert('Success', prepaid ? 'Paid in full. We will assign a service expert soon.' : 'Booking fee paid successfully. We will assign a service expert soon.', [
                     { text: 'OK', onPress: () => navigation.goBack() }
                 ]);
             }
@@ -435,7 +439,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                             styles.bookingFeeText,
                             request.bookingFeeStatus === 'pending' ? { color: colors.errorDark } : {}
                         ]}>
-                            ₹{bookingFee} Booking Fee {request.bookingFeeStatus === 'pending' ? 'Pending' : 'Paid'}
+                            ₹{bookingFee} {prepaid ? 'Full payment' : 'Booking Fee'} {request.bookingFeeStatus === 'pending' ? 'Pending' : 'Paid'}
                         </Text>
                         {request.bookingFeeStatus === 'paid' && <CheckCircle size={14} color={colors.accent} />}
                     </View>

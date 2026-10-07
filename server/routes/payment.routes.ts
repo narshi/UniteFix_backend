@@ -82,6 +82,8 @@ export function registerPaymentRoutes(app: Express) {
                     catalogCommission = Math.round(pricingSnapshot.platformFee ?? 0);
                 }
             }
+            pricingSnapshot = BillingEngine.applyPrepay(pricingSnapshot);
+            const dueNow = BillingEngine.amountDueAtBooking(pricingSnapshot);
 
             // Create service request via storage layer with frozen booking fee
             const serviceRequest = await storage.createServiceRequest({
@@ -91,7 +93,7 @@ export function registerPaymentRoutes(app: Express) {
                 address,
                 status: 'created',
                 bookingFee: pricingSnapshot.bookingFee,
-                bookingFeeStatus: pricingSnapshot.bookingFee === 0 ? 'paid' : 'pending',
+                bookingFeeStatus: dueNow === 0 ? 'paid' : 'pending',
             });
 
             // Write the frozen snapshot to the service_requests row. For a catalog

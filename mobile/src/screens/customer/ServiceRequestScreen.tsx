@@ -137,6 +137,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     // It must not scale with quantity here, or the app would quote a number the
     // server never charges.
     const finalAfterBooking = Math.max(0, payable - bookingFee);
+    // A category with a 0 booking fee: a priced service is paid in full now,
+    // nothing after (parts aside). The server decides; this only explains it.
+    const prepaidInFull = isFixedPrice && bookingFee === 0;
+    const payNow = prepaidInFull ? payable : bookingFee;
 
     // Get device GPS location on mount for geofence support
     useEffect(() => {
@@ -239,7 +243,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         const savingLine = discount.active
             ? `\n\nYou save ₹${discount.saving}${discount.label ? ` — ${discount.label}` : ''}.`
             : '';
-        const confirmMessage = isFixedPrice
+        const confirmMessage = prepaidInFull
+            ? `Total for ${serviceName}: ₹${payable}.${savingLine}\n\nPay the full ₹${payable} now to book. Nothing more is due after the service, unless parts are needed.`
+            : isFixedPrice
             ? `Total for ${serviceName}: ₹${payable}.${savingLine}\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
             : `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`;
         Alert.alert(
@@ -248,7 +254,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                    text: `Pay ₹${bookingFee} & Book`,
+                    text: `Pay ₹${payNow} & Book`,
                     onPress: async () => {
                         try {
                             // Upload photos to Cloudinary first (if any)
@@ -298,7 +304,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
                                                 Alert.alert(
                                                     'Booking Confirmed! ✅',
-                                                    `Your ₹${bookingFee} booking fee has been paid. We will assign a service expert soon.`,
+                                                    prepaidInFull
+                                                        ? `Your ₹${paymentData.amount ?? payNow} payment is received — the service is fully paid. We will assign a service expert soon.`
+                                                        : `Your ₹${bookingFee} booking fee has been paid. We will assign a service expert soon.`,
                                                     [{ text: 'OK', onPress: () => navigation.reset({
                                                         index: 0,
                                                         routes: [{
@@ -416,13 +424,15 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                         </View>
                         <View style={styles.priceDivider} />
                         <View style={styles.priceRow}>
-                            <Text style={styles.priceSubLabel}>Pay now to book</Text>
-                            <Text style={styles.priceSubValue}>₹{bookingFee}</Text>
+                            <Text style={styles.priceSubLabel}>{prepaidInFull ? 'Pay now (full amount)' : 'Pay now to book'}</Text>
+                            <Text style={styles.priceSubValue}>₹{payNow}</Text>
                         </View>
-                        <View style={styles.priceRow}>
-                            <Text style={styles.priceSubLabel}>Pay after service</Text>
-                            <Text style={styles.priceSubValue}>₹{finalAfterBooking}</Text>
-                        </View>
+                        {!prepaidInFull && (
+                            <View style={styles.priceRow}>
+                                <Text style={styles.priceSubLabel}>Pay after service</Text>
+                                <Text style={styles.priceSubValue}>₹{finalAfterBooking}</Text>
+                            </View>
+                        )}
                         <Text style={styles.priceNote}>Inclusive of all taxes.</Text>
                         {quote?.servicedBy && (
                             <Text style={styles.priceNote}>{quote.servicedBy.note}</Text>

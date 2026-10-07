@@ -40,6 +40,8 @@ interface Rule {
 const ALWAYS_ALLOWED: RegExp[] = [
     /^\/auth(\/|$)/,
     /^\/me$/,
+    // Changing your own password needs no grant: everyone has a password.
+    /^\/me\/password$/,
 ];
 
 const RULES: Rule[] = [

@@ -43,6 +43,7 @@ import PartnerHubLayout from "@/layouts/PartnerHubLayout";
 import PartnerApplyPage from "@/pages/partner-apply";
 import ConsultBookRouter from "@/pages/consult-book";
 import EventsPublicRouter from "@/pages/events-public";
+import { WeakPasswordBanner } from "@/components/admin/WeakPasswordBanner";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
 
@@ -254,6 +255,7 @@ function Router() {
       <Sidebar open={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       <div className="flex-1 min-w-0 overflow-y-auto h-screen">
+        <WeakPasswordBanner />
         {/* Mobile/tablet top bar — the sidebar is a drawer below `lg` */}
         <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 border-b border-[rgba(255,255,255,0.06)] bg-[hsla(222,47%,6%,0.85)] backdrop-blur-md">
           <button
