@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
-import { useHubMe, hubCan, inr } from "@/lib/hub";
+import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
 
 type Listing = {
@@ -29,6 +29,7 @@ type Order = {
   id: number; code: string; status: string; total: number; net: number; commission: number; tcs: number; tds: number; shipName: string | null; shipPhone: string | null; shipAddress: string | null; shipPincode: string | null;
   courier: string | null; trackingId: string | null; createdAt: string; dispatchBy: string | null; late: boolean; returnStatus: string | null; returnReason: string | null; settleAfter: string | null; settledAt: string | null;
   items: Array<{ id: number; name: string; quantity: number; price: number }>;
+  gatewayFee: number; penalty: number; penaltyReason: string | null; penaltyWaived: boolean; lateCharge: number; shipmentRef: string | null;
 };
 
 const S_TONE: Record<string, string> = { live: "good", pending_review: "warn", draft: "muted", rejected: "bad", paused: "muted" };
@@ -163,16 +164,23 @@ export function HubStoreOrders() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [view, setView] = useState<"open" | "returns" | "done">("open");
-  const { data, isLoading } = useQuery<Order[]>({ queryKey: ["/api/hub/store/orders"], queryFn: async () => (await apiRequest("GET", "/api/hub/store/orders")).data, refetchInterval: 60_000 });
+  const q = useQuery<{ data: Order[]; shipping: { mode: "mock" | "live"; ratePer500g: number; gstPercent: number } }>({ queryKey: ["/api/hub/store/orders"], queryFn: async () => (await apiRequest("GET", "/api/hub/store/orders")) as any, refetchInterval: 60_000 });
+  const data = q.data?.data, shipping = q.data?.shipping, isLoading = q.isLoading;
   const rows = useMemo(() => (data ?? []).filter(o => view === "open" ? ["placed", "confirmed", "packed", "dispatched"].includes(o.status) : view === "returns" ? ["requested", "approved"].includes(o.returnStatus ?? "") : ["delivered", "cancelled", "returned"].includes(o.status) && !["requested", "approved"].includes(o.returnStatus ?? "")), [data, view]);
   const [ship, setShip] = useState<{ o: Order; courier: string; trackingId: string } | null>(null);
+  const [book, setBook] = useState<{ o: Order; weightGrams: string; lengthCm: string; widthCm: string; heightCm: string } | null>(null);
+  const bookCourier = async () => {
+    if (!book) return;
+    try { const r: any = await apiRequest("POST", `/api/hub/store/orders/${book.o.id}/courier`, { weightGrams: Number(book.weightGrams), lengthCm: Number(book.lengthCm), widthCm: Number(book.widthCm), heightCm: Number(book.heightCm) }); setBook(null); refresh(); toast({ title: "Courier booked", description: r.message }); }
+    catch (e) { fail(toast, "Not booked")(e); }
+  };
   const manage = hubCan(me, "ops:manage");
   const refresh = () => qc.invalidateQueries({ queryKey: ["/api/hub/store/orders"] });
   const move = async (o: Order, to: string, extra: Record<string, unknown> = {}) => {
-    if (to === "dispatched" && !extra.courier) { setShip({ o, courier: "", trackingId: "" }); return; }
+    if (to === "dispatched" && !extra.courier && !o.trackingId) { setShip({ o, courier: "", trackingId: "" }); return; }
     try { const r: any = await apiRequest("POST", `/api/hub/store/orders/${o.id}/transition`, { to, ...extra }); refresh(); setShip(null); toast({ title: r.message }); } catch (e) { fail(toast, "Not changed")(e); }
   };
-  const cancel = async (o: Order) => { const reason = window.prompt("Why cancel? The customer is refunded; cancellations lower your score."); if (reason) move(o, "cancelled", { reason }); };
+  const cancel = async (o: Order) => { const reason = window.prompt("Why cancel? The customer is refunded, a cancellation charge is taken from your settlement, and cancellations lower your score."); if (reason) move(o, "cancelled", { reason }); };
   const ret = async (o: Order, decision: "approve" | "reject" | "received") => {
     const note = decision === "reject" ? window.prompt("Why reject the return? The customer sees this.") : null;
     if (decision === "reject" && !note) return;
@@ -193,14 +201,17 @@ export function HubStoreOrders() {
           <ul className="divide-y divide-[rgba(255,255,255,0.06)]">{rows.map(o => (
             <li key={o.id} className="grid gap-2 py-3 lg:grid-cols-[1fr_auto]">
               <div className="text-sm">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{o.code}</span><Chip tone={O_TONE[o.status]}>{o.status}</Chip>{o.late && <Chip tone="bad">past dispatch deadline</Chip>}{o.returnStatus && <Chip tone="warn">return {o.returnStatus}</Chip>}{o.settledAt && <Chip tone="good">settled</Chip>}</div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{o.code}</span><Chip tone={O_TONE[o.status]}>{o.status}</Chip>{o.late && <Chip tone="bad">past dispatch deadline{o.lateCharge ? ` — ₹${o.lateCharge} charge when dispatched` : ""}</Chip>}{o.penalty > 0 && <Chip tone="bad">charge {inr(o.penalty)}</Chip>}{o.penaltyWaived && <Chip>charge waived</Chip>}{o.returnStatus && <Chip tone="warn">return {o.returnStatus}</Chip>}{o.settledAt && <Chip tone="good">settled</Chip>}</div>
                 <p className="mt-0.5 text-white">{o.items.map(i => `${i.quantity} × ${i.name}`).join(", ")}</p>
                 <p className="mt-0.5 text-[hsl(215,20%,70%)]">{o.shipName ? `${o.shipName}${o.shipPhone ? ` · ${o.shipPhone}` : ""} · ${o.shipAddress ?? ""} ${o.shipPincode ?? ""}` : "Customer details hidden after settlement"}</p>
-                <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{inr(o.total)} · commission {inr(o.commission)} · TCS {inr(o.tcs)} · TDS {inr(o.tds)} · <span className="text-white">you get {inr(o.net)}</span>{o.courier ? ` · ${o.courier} ${o.trackingId}` : ""}{["placed", "confirmed", "packed"].includes(o.status) ? ` · ship by ${when(o.dispatchBy)}` : ""}</p>
+                <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{inr(o.total)} · commission {inr(o.commission)}{o.gatewayFee ? ` · payment collection ${inr(o.gatewayFee)}` : ""} · TCS {inr(o.tcs)} · TDS {inr(o.tds)} · <span className="text-white">you get {inr(o.net)}</span>{o.courier ? ` · ${o.courier} ${o.trackingId}` : ""}{["placed", "confirmed", "packed"].includes(o.status) ? ` · ship by ${when(o.dispatchBy)}` : ""}</p>
                 {o.returnReason && <p className="mt-0.5 text-xs text-amber-200">Return: “{o.returnReason}”</p>}
+                {o.penaltyReason && o.penalty > 0 && <p className="mt-0.5 text-xs text-rose-200">{o.penaltyReason}</p>}
               </div>
               {manage && <div className="flex flex-wrap items-center gap-1 lg:justify-end">
                 {(NEXT[o.status] ?? []).map(([to, label]) => <Button key={to} size="sm" variant={to === "dispatched" ? "default" : "outline"} onClick={() => move(o, to)}>{label}</Button>)}
+                {["confirmed", "packed"].includes(o.status) && !o.shipmentRef && <Button size="sm" variant="outline" onClick={() => setBook({ o, weightGrams: "500", lengthCm: "20", widthCm: "15", heightCm: "10" })}>Book courier</Button>}
+                {["confirmed", "packed", "dispatched"].includes(o.status) && <Button size="sm" variant="ghost" onClick={() => openAuthedPdf(`/api/hub/store/orders/${o.id}/label.pdf`).catch(fail(toast, "No label"))}>Label</Button>}
                 {["placed", "confirmed", "packed"].includes(o.status) && <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => cancel(o)}>Cancel</Button>}
                 {o.returnStatus === "requested" && <><Button size="sm" onClick={() => ret(o, "approve")}>Approve return</Button><Button size="sm" variant="ghost" onClick={() => ret(o, "reject")}>Reject</Button></>}
                 {o.returnStatus === "approved" && <Button size="sm" onClick={() => ret(o, "received")}>Received back</Button>}
@@ -209,6 +220,20 @@ export function HubStoreOrders() {
           ))}</ul>
         )}
       </Panel>
+      <Dialog open={!!book} onOpenChange={o => !o && setBook(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Book a courier for {book?.o.code}</DialogTitle><DialogDescription>Delhivery collects from your pickup address. Pack it, print the label, stick it on, then dispatch.{" "}
+            {shipping?.ratePer500g ? `Courier charge: ₹${shipping.ratePer500g} per 500 g + ${shipping.gstPercent}% GST, taken from your settlement (returned if the order is cancelled).` : "No courier charge is set."}
+            {shipping?.mode === "mock" && " The courier account is not live yet — this makes a test booking."}</DialogDescription></DialogHeader>
+          {book && <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><Label htmlFor="b-w">Packed weight (grams)</Label><Input id="b-w" inputMode="numeric" value={book.weightGrams} onChange={e => setBook({ ...book, weightGrams: e.target.value })} /></div>
+            <div><Label htmlFor="b-l">Length cm</Label><Input id="b-l" inputMode="numeric" value={book.lengthCm} onChange={e => setBook({ ...book, lengthCm: e.target.value })} /></div>
+            <div><Label htmlFor="b-wd">Width cm</Label><Input id="b-wd" inputMode="numeric" value={book.widthCm} onChange={e => setBook({ ...book, widthCm: e.target.value })} /></div>
+            <div><Label htmlFor="b-h">Height cm</Label><Input id="b-h" inputMode="numeric" value={book.heightCm} onChange={e => setBook({ ...book, heightCm: e.target.value })} /></div>
+          </div>}
+          <DialogFooter><Button variant="outline" onClick={() => setBook(null)}>Cancel</Button><Button onClick={bookCourier}>Book</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!ship} onOpenChange={o => !o && setShip(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Dispatch {ship?.o.code}</DialogTitle><DialogDescription>Your GST invoice to the customer is issued now.</DialogDescription></DialogHeader>

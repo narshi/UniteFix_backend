@@ -254,10 +254,11 @@ async function issueMonthlyFeeInvoices(): Promise<void> {
     }
 }
 
-/** Partner field service: escalate unassigned partner jobs; release held job values. */
+/** Partner field service: auto-assign where the partner asked for it, escalate unassigned jobs, release held job values. */
 async function partnerFieldTick(): Promise<void> {
     try {
         const { PartnerFieldService } = await import('./partner-field.service');
+        await PartnerFieldService.autoAssignDue();
         await PartnerFieldService.escalateOverdue();
         await PartnerFieldService.releaseDue();
     } catch (error: any) {

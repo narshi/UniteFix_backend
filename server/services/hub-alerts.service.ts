@@ -15,15 +15,16 @@ import { ROLE_PERMISSIONS, type HubPermission, type HubRole } from '@shared/hub'
 import logger from '../lib/logger';
 
 export type AlertKind =
-    | 'job_new' | 'job_overdue' | 'warranty_claim'
+    | 'job_new' | 'job_overdue' | 'job_assigned' | 'warranty_claim'
     | 'enquiry_new' | 'quote_accepted' | 'quote_declined' | 'booking_request'
-    | 'store_order' | 'store_return' | 'listing_reviewed'
+    | 'store_order' | 'store_return' | 'listing_reviewed' | 'store_penalty'
     | 'payment_received' | 'settlement_paid' | 'territory_reviewed' | 'rate_reviewed' | 'application_approved';
 
 /** Who on the team needs each kind, and whether it is worth a text message. */
 const KIND: Record<AlertKind, { perm: HubPermission | null; urgent?: boolean }> = {
     job_new: { perm: 'ops:view', urgent: true },
     job_overdue: { perm: 'ops:view', urgent: true },
+    job_assigned: { perm: 'ops:view' },
     warranty_claim: { perm: 'ops:view', urgent: true },
     enquiry_new: { perm: 'ops:view' },
     quote_accepted: { perm: 'sales:manage' },
@@ -32,6 +33,7 @@ const KIND: Record<AlertKind, { perm: HubPermission | null; urgent?: boolean }> 
     store_order: { perm: 'ops:view', urgent: true },
     store_return: { perm: 'ops:view' },
     listing_reviewed: { perm: 'sales:manage' },
+    store_penalty: { perm: 'money:view' },
     payment_received: { perm: 'money:view' },
     settlement_paid: { perm: 'money:view' },
     territory_reviewed: { perm: 'settings:manage' },

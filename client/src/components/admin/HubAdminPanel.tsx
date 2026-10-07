@@ -14,7 +14,7 @@ import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { MODULE_LABEL, HUB_ROLE_LABEL, type HubModule, type HubRole } from "@shared/hub";
 
 type HubDetail = {
-  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean; fieldFeePercent: number | null; fieldTier: string; sellerTier: string; sellerTierLocked: boolean; sellerScore: number | null;
+  id: number; partnerCode: string; status: string; appliedVia: string | null; submittedAt: string | null; hubPlan: "starter" | "pro"; aatoAbove5cr: boolean; fieldFeePercent: number | null; fieldTier: string; sellerTier: string; sellerTierLocked: boolean; sellerScore: number | null; delhiveryPickupName: string | null;
   gstin: string | null; gstinStatus: string; stateName: string | null; pan: string | null; panStatus: string; coveragePincodes: string[]; hasHubLogin: boolean;
   modules: HubModule[]; moduleOverrides: Array<{ module: string; enabled: boolean }>; verticalModules: HubModule[];
   onboarding: {
@@ -146,6 +146,11 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
                 </select>
                 <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={d.sellerTierLocked} onChange={e => act.mutate({ method: "PATCH", path: "/seller", body: { locked: e.target.checked } })} /> fixed by staff</label>
               </span>
+              <label className="flex w-full flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                Courier pickup point (the name registered in the Delhivery panel for this seller's address)
+                <input key={d.delhiveryPickupName ?? ""} aria-label="Delhivery pickup point" className="h-8 w-56 rounded-md border bg-background px-2 text-sm text-foreground" placeholder="not registered"
+                  defaultValue={d.delhiveryPickupName ?? ""} onBlur={e => { if ((e.target.value.trim() || null) !== (d.delhiveryPickupName ?? null)) act.mutate({ method: "PATCH", path: "/seller", body: { delhiveryPickupName: e.target.value.trim() || null } }); }} />
+              </label>
             </div>
           )}
           {d.modules.includes("field") && (

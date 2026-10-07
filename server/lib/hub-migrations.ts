@@ -789,6 +789,31 @@ const BLOCKS: Array<[string, string]> = [
     ['pay links: ledger types online_collection', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'online_collection';`],
     ['pay links: ledger types gateway_fee', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'gateway_fee';`],
     ['store: ledger types store_penalty', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'store_penalty';`],
+    ['store: fees, penalties, courier', `
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS gateway_fee_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS gateway_fee_gst_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS penalty_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS penalty_reason TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS penalty_waived_at TIMESTAMP;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS shipment_ref TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS parcel JSONB;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS courier_charge_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS courier_charge_gst_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS delhivery_pickup_name TEXT;
+    `],
+    ['field: hours, holidays, auto-assign', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_hours JSONB;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_auto_assign BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_auto_assign_minutes INTEGER NOT NULL DEFAULT 15;
+      CREATE TABLE IF NOT EXISTS partner_holidays (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        day TEXT NOT NULL,
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_holidays_bp_day_idx ON partner_holidays (business_partner_id, day);
+    `],
     ['pay links: partner_pay_links', `
       CREATE TABLE IF NOT EXISTS partner_pay_links (
         id SERIAL PRIMARY KEY,

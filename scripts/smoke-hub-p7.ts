@@ -8,9 +8,10 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { bootServer, client, check, summary, makeSuperAdmin, gstinFor, cleanupPartners, db } from './lib/hub-test-kit';
-import { adminUsers, businessPartners, businessPartnerLedger, users, products, productCategories, sellerOrders, marketCheckouts, taxDocuments } from '../shared/schema';
+import { adminUsers, businessPartners, businessPartnerLedger, users, products, productCategories, sellerOrders, marketCheckouts, taxDocuments, hubAlerts } from '../shared/schema';
+import { configService } from '../server/services/config.service';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { PartnerHubService } from '../server/services/partner-hub.service';
 import { MarketplaceService } from '../server/services/marketplace.service';
@@ -110,7 +111,7 @@ async function main() {
         // ── fulfilment ────────────────────────────────────────────────────
         const o1 = await api.get('/api/hub/store/orders', t1);
         check('the seller sees only their order, with the customer\'s address', o1.body?.data?.length === 1 && o1.body.data[0].code === so1.code && o1.body.data[0].shipAddress === 'Main road, Karwar' && o1.body.data[0].items.length === 1);
-        check('…and its net after commission, TCS and TDS', Math.abs(o1.body.data[0].net - (so1.totalPaise - so1.commissionPaise - so1.commissionGstPaise - so1.tcsPaise - so1.tdsPaise) / 100) < 0.01);
+        check('…and its net after commission, TCS and TDS', Math.abs(o1.body.data[0].net - (so1.totalPaise - so1.commissionPaise - so1.commissionGstPaise - so1.tcsPaise - so1.tdsPaise - so1.gatewayFeePaise - so1.gatewayFeeGstPaise) / 100) < 0.01);
         check('another seller cannot touch it', (await api.post(`/api/hub/store/orders/${so1.id}/transition`, { to: 'confirmed' }, t2)).status === 404);
         await api.post(`/api/hub/store/orders/${so1.id}/transition`, { to: 'confirmed' }, t1);
         const noTrack = await api.post(`/api/hub/store/orders/${so1.id}/transition`, { to: 'dispatched' }, t1);
@@ -166,7 +167,7 @@ async function main() {
         await db.update(sellerOrders).set({ settleAfter: new Date(Date.now() - 1000) }).where(eq(sellerOrders.id, so3.id));
         const settled = await MarketplaceService.settleDue();
         const [s3] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so3.id));
-        const net = s3.totalPaise - s3.commissionPaise - s3.commissionGstPaise - s3.tcsPaise - s3.tdsPaise;
+        const net = s3.totalPaise - s3.commissionPaise - s3.commissionGstPaise - s3.tcsPaise - s3.tdsPaise - s3.gatewayFeePaise - s3.gatewayFeeGstPaise;
         const after = await BusinessPartnerService.balancePaise(s1.id);
         check('after the window: sale, commission + GST, TCS and TDS on the ledger — UniteFix owes the net', settled >= 1 && after - before === -net, `${after - before} vs ${-net}`);
         const lines = await db.select().from(businessPartnerLedger).where(eq(businessPartnerLedger.businessPartnerId, s1.id));
@@ -197,6 +198,62 @@ async function main() {
         check('staff have a late-dispatch board', late.status === 200 && Array.isArray(late.body?.data));
         const home = await api.get('/api/hub/summary', t1);
         check('home shows store orders', JSON.stringify(home.body?.data ?? {}).includes('Store orders to ship'));
+
+        // ── payment collection fee ────────────────────────────────────────
+        const gw1 = Math.round(499800 * 0.02);
+        check('the payment collection fee (2% + GST) is fixed on the order at payment', so1.gatewayFeePaise === gw1 && so1.gatewayFeeGstPaise === Math.round(gw1 * 0.18));
+        check('…charged at settlement as its own ledger line', lines.some(l => l.entryType === 'gateway_fee' && l.amountPaise === s3.gatewayFeePaise + s3.gatewayFeeGstPaise));
+        check('…and invoiced on UniteFix\'s monthly invoice', feeLines.some(l => /Store payment collection — 1 order/.test(l.description) && l.taxablePaise === s3.gatewayFeePaise), JSON.stringify(feeLines.map(l => l.description)));
+
+        // ── courier booking, label, late-dispatch charge, waiver (seller 2) ─
+        // Test settings live only in this process's config cache — the config table is not touched.
+        const cfg = (k: string, v: unknown) => { (configService as any).cache.set(k, v); (configService as any).cacheExpiry.set(k, Date.now() + 3_600_000); };
+        cfg('BUSINESS_CONFIG.MARKETPLACE_COURIER_RATE_PER_500G_RUPEES', 40);
+        const buy = async (tag: string) => {
+            const c = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+            await MarketplaceService.applyCapture({ checkoutId: c.body.data.checkoutId, razorpayPaymentId: `pay_qa${tag}_${stamp}` });
+            const [so] = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, c.body.data.checkoutId));
+            await api.post(`/api/hub/store/orders/${so.id}/transition`, { to: 'confirmed' }, t2);
+            return so;
+        };
+        const so4 = await buy('4');
+        const bal4 = await BusinessPartnerService.balancePaise(s2.id);
+        const bk = await api.post(`/api/hub/store/orders/${so4.id}/courier`, { weightGrams: 700, lengthCm: 20, widthCm: 15, heightCm: 10 }, t2);
+        const [so4b] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so4.id));
+        check('courier booked through UniteFix (test mode): waybill becomes the tracking id', bk.status === 200 && /^MOCK/.test(bk.body?.data?.waybill) && so4b.courier === 'Delhivery' && so4b.trackingId === bk.body.data.waybill, JSON.stringify(bk.body));
+        check('courier charge: 2 × 500 g slabs at ₹40 + GST, from the settlement', so4b.courierChargePaise === 8000 && so4b.courierChargeGstPaise === 1440 && (await BusinessPartnerService.balancePaise(s2.id)) - bal4 === 9440);
+        check('a second booking is refused', (await api.post(`/api/hub/store/orders/${so4.id}/courier`, { weightGrams: 700, lengthCm: 20, widthCm: 15, heightCm: 10 }, t2)).status === 409);
+        check('parcel limits are checked', (await api.post(`/api/hub/store/orders/${so4.id}/courier`, { weightGrams: 10, lengthCm: 20, widthCm: 15, heightCm: 10 }, t2)).status >= 400);
+        const lbl = await fetch(`${base}/api/hub/store/orders/${so4.id}/label.pdf`, { headers: { Authorization: `Bearer ${t2}` } });
+        check('a 4×6 shipping label with the waybill barcode', lbl.status === 200 && Buffer.from(await lbl.arrayBuffer()).subarray(0, 4).toString() === '%PDF');
+        check('another seller cannot print it', (await fetch(`${base}/api/hub/store/orders/${so4.id}/label.pdf`, { headers: { Authorization: `Bearer ${t1}` } })).status === 404);
+        await db.update(sellerOrders).set({ createdAt: new Date(Date.now() - 49 * 3_600_000) }).where(eq(sellerOrders.id, so4.id));
+        const lateList = await api.get('/api/hub/store/orders', t2);
+        check('the seller is warned before dispatching late', lateList.body?.data?.find((o: any) => o.id === so4.id)?.lateCharge === 50);
+        const d4 = await api.post(`/api/hub/store/orders/${so4.id}/transition`, { to: 'dispatched' }, t2);
+        const [so4c] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so4.id));
+        check('dispatch uses the booked courier; dispatching after 48 h takes the ₹50 late charge', d4.status === 200 && so4c.status === 'dispatched' && so4c.trackingId === bk.body.data.waybill && so4c.penaltyPaise === 5000, JSON.stringify([d4.body, so4c.penaltyPaise]));
+        const pl = await db.select().from(businessPartnerLedger).where(eq(businessPartnerLedger.businessPartnerId, s2.id));
+        check('…on the seller\'s ledger, and the seller is alerted', pl.some(l => l.entryType === 'store_penalty' && l.amountPaise === 5000) && (await db.select().from(hubAlerts).where(and(eq(hubAlerts.businessPartnerId, s2.id), eq(hubAlerts.kind, 'store_penalty')))).length === 1);
+        const pens = await api.get('/api/admin/hub/store/penalties', staff);
+        check('staff see the charge', pens.body?.data?.some((p: any) => p.id === so4.id && p.penalty === 50 && !p.waived));
+        check('a waiver needs a reason', (await api.post(`/api/admin/hub/store/orders/${so4.id}/waive`, {}, staff)).status === 400);
+        const wv = await api.post(`/api/admin/hub/store/orders/${so4.id}/waive`, { note: 'Courier pickup was late' }, staff);
+        const pl2 = await db.select().from(businessPartnerLedger).where(eq(businessPartnerLedger.businessPartnerId, s2.id));
+        check('staff waive it: credited back, once', wv.status === 200 && pl2.some(l => l.entryType === 'adjustment' && l.amountPaise === -5000) && (await api.post(`/api/admin/hub/store/orders/${so4.id}/waive`, { note: 'again' }, staff)).status === 409);
+
+        // ── seller cancels a paid order ───────────────────────────────────
+        const so5 = await buy('5');
+        await api.post(`/api/hub/store/orders/${so5.id}/courier`, { weightGrams: 400, lengthCm: 20, widthCm: 15, heightCm: 10 }, t2);
+        const bal5 = await BusinessPartnerService.balancePaise(s2.id);
+        const c5 = await api.post(`/api/hub/store/orders/${so5.id}/transition`, { to: 'cancelled', reason: 'Out of stock in the shop' }, t2);
+        await new Promise(r => setTimeout(r, 300));
+        const [so5b] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so5.id));
+        check('seller cancels a paid order: 5% charge (at least ₹25), courier charge returned', c5.status === 200 && so5b.status === 'cancelled' && so5b.penaltyPaise === 7500 && so5b.courierChargePaise === 0 && (await BusinessPartnerService.balancePaise(s2.id)) - bal5 === 7500 - 4720, JSON.stringify([so5b.penaltyPaise, so5b.courierChargePaise, (await BusinessPartnerService.balancePaise(s2.id)) - bal5]));
+        const fee2 = await TaxDocumentService.issueFeeInvoice(s2.id, new Date(`${month}-01T00:00:00Z`), sa.id);
+        const fee2Lines = fee2 ? await db.select().from((await import('../shared/schema')).taxDocumentLines).where(eq((await import('../shared/schema')).taxDocumentLines.documentId, fee2.id)) : [];
+        check('courier charges on dispatched parcels are invoiced monthly (the cancelled one is not)', fee2Lines.some(l => /Courier bookings — 1 parcel/.test(l.description) && l.taxablePaise === 8000), JSON.stringify(fee2Lines.map(l => [l.description, l.taxablePaise])));
+        configService.invalidate('BUSINESS_CONFIG.MARKETPLACE_COURIER_RATE_PER_500G_RUPEES');
     } finally {
         await cleanup();
         await close();

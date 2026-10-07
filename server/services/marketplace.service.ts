@@ -40,6 +40,7 @@ import { BusinessPartnerService } from './business-partner.service';
 import { configService } from './config.service';
 import { withTransaction } from '../lib/transaction';
 import logger from '../lib/logger';
+import { nowFilledMs } from '../lib/db-time';
 
 const FLOW: Record<string, string[]> = {
     placed: ['confirmed', 'cancelled'], confirmed: ['packed', 'dispatched', 'cancelled'], packed: ['dispatched', 'cancelled'],
@@ -199,6 +200,55 @@ export class MarketplaceService {
     // Commission, tax deductions
     // ══════════════════════════════════════════════════════════════════════
 
+    /** Store fee settings, read once per use. */
+    static async feeRates() {
+        const n = async (k: string, d: number) => Number(await configService.get<number>(`BUSINESS_CONFIG.${k}`, d));
+        return {
+            gatewayPercent: await n('MARKETPLACE_GATEWAY_FEE_PERCENT', 2),
+            gstPercent: parseFloat((await configService.get<string>('BUSINESS_CONFIG.GST_PERCENTAGE')) || '18'),
+            lateDispatchRupees: await n('MARKETPLACE_LATE_DISPATCH_PENALTY_RUPEES', 50),
+            cancelPercent: await n('MARKETPLACE_SELLER_CANCEL_PENALTY_PERCENT', 5),
+            cancelMinRupees: await n('MARKETPLACE_SELLER_CANCEL_PENALTY_MIN_RUPEES', 25),
+            slaHours: await n('MARKETPLACE_DISPATCH_SLA_HOURS', 48),
+            courierPer500gRupees: await n('MARKETPLACE_COURIER_RATE_PER_500G_RUPEES', 0),
+        };
+    }
+
+    /** Payment collection fee on what the customer paid, GST on top — charged with the commission at settlement. */
+    static gatewayFee(totalPaise: number, r: { gatewayPercent: number; gstPercent: number }) {
+        const fee = Math.round(totalPaise * Math.max(0, r.gatewayPercent) / 100);
+        return { gatewayFeePaise: fee, gatewayFeeGstPaise: Math.round(fee * r.gstPercent / 100) };
+    }
+
+    /**
+     * A charge for letting a customer down: dispatched after the deadline, or
+     * cancelled by the seller (or by UniteFix because the seller did not ship).
+     * Booked to the partner ledger at once; staff can waive it.
+     */
+    private static async chargePenalty(tx: any, so: SellerOrder, kind: 'late' | 'cancel') {
+        const r = await this.feeRates();
+        const paise = kind === 'late' ? Math.round(r.lateDispatchRupees * 100) : Math.max(Math.round(r.cancelMinRupees * 100), Math.round(so.totalPaise * r.cancelPercent / 100));
+        if (!(paise > 0)) return 0;
+        const reason = kind === 'late' ? `Dispatched after the ${r.slaHours}-hour deadline` : `Cancelled after the customer paid (${r.cancelPercent}% of the order, at least ₹${r.cancelMinRupees})`;
+        await BusinessPartnerService.appendLedger(tx, { businessPartnerId: so.sellerPartnerId, entryType: 'store_penalty', amountPaise: paise, description: `Store order ${so.code} — ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`, metadata: { sellerOrderId: so.id, kind } });
+        await tx.update(sellerOrders).set({ penaltyPaise: paise, penaltyReason: reason }).where(eq(sellerOrders.id, so.id));
+        const { HubAlerts } = await import('./hub-alerts.service');
+        void HubAlerts.send(so.sellerPartnerId, 'store_penalty', { title: `₹${r2(paise)} charge on store order ${so.code}`, body: `${reason}. It comes off your next settlement. Ask UniteFix if you think it is wrong.`, link: '/partner/store/orders', refType: 'seller_order', refId: so.id });
+        return paise;
+    }
+
+    /** Staff: take a penalty back (a courier delay, a stock error that was UniteFix's). */
+    static async waivePenalty(id: number, adminId: number, note: string) {
+        return withTransaction(async (tx) => {
+            const [so] = await tx.select().from(sellerOrders).where(eq(sellerOrders.id, id)).for('update');
+            if (!so) throw new HubError('Not found', 'NOT_FOUND', 404);
+            if (!so.penaltyPaise || so.penaltyWaivedAt) throw new HubError('There is no charge to waive on this order.', 'NO_PENALTY', 409);
+            await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'adjustment', amountPaise: -so.penaltyPaise, description: `Store order ${so.code} — charge waived: ${note}`, metadata: { sellerOrderId: so.id }, createdByAdminId: adminId });
+            const [u] = await tx.update(sellerOrders).set({ penaltyWaivedAt: new Date(), updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
+            return u;
+        });
+    }
+
     static async commissionRate(categoryId: number | null, tier: string) {
         const [c] = categoryId ? await db.select().from(marketplaceCommission).where(eq(marketplaceCommission.productCategoryId, categoryId)).limit(1) : [];
         const base = c ? Number(c.percent) : Number(await configService.get<number>('BUSINESS_CONFIG.MARKETPLACE_COMMISSION_PERCENT', 10));
@@ -289,6 +339,7 @@ export class MarketplaceService {
             }).returning();
             const tcsPct = Number(await configService.get<number>('BUSINESS_CONFIG.MARKETPLACE_TCS_PERCENT', 0.5));
             const tdsPct = Number(await configService.get<number>('BUSINESS_CONFIG.MARKETPLACE_TDS_PERCENT', 0.1));
+            const fees = await this.feeRates();
             const sellerIds = Array.from(new Set(lines.map(l => l.sellerPartnerId as number)));
             const created: SellerOrder[] = [];
             for (const sid of sellerIds) {
@@ -308,6 +359,7 @@ export class MarketplaceService {
                     taxablePaise: taxable, gstPaise: gst, totalPaise: taxable + gst,
                     commissionPaise: commission, commissionGstPaise: Math.round(commission * 0.18),
                     tcsPaise: Math.round(taxable * tcsPct / 100), tdsPaise: Math.round(taxable * tdsPct / 100),
+                    ...this.gatewayFee(taxable + gst, fees),
                     shipName: c.customerName, shipPhone: c.customerPhone, shipAddress: c.address, shipPincode: c.pincode,
                     returnWindowDays: Math.max(...mine.map(l => Number(l.returnWindowDays ?? 7))),
                 }).returning();
@@ -354,10 +406,12 @@ export class MarketplaceService {
     }
 
     static async ordersForSeller(bpId: number, status?: string) {
-        const rows = await db.select().from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), ...(status ? [eq(sellerOrders.status, status)] : []))).orderBy(desc(sellerOrders.createdAt)).limit(500);
+        const raw = await db.select({ o: sellerOrders, placedMs: nowFilledMs(sellerOrders.createdAt) }).from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), ...(status ? [eq(sellerOrders.status, status)] : []))).orderBy(desc(sellerOrders.createdAt)).limit(500);
+        const rows = raw.map(r => r.o);
+        const placed = new Map(raw.map(r => [r.o.id, Number(r.placedMs)]));
         const ids = rows.map(r => r.id);
         const items = ids.length ? await db.select().from(sellerOrderItems).where(inArray(sellerOrderItems.sellerOrderId, ids)) : [];
-        const slaH = Number(await configService.get<number>('BUSINESS_CONFIG.MARKETPLACE_DISPATCH_SLA_HOURS', 48));
+        const slaH = (await this.feeRates()).slaHours;
         const now = Date.now();
         return rows.map(o => {
             // The customer's details only while the seller needs them (DPDP): until settled.
@@ -365,8 +419,8 @@ export class MarketplaceService {
             return {
                 ...o, shipName: masked ? null : o.shipName, shipPhone: masked ? null : o.shipPhone, shipAddress: masked ? null : o.shipAddress,
                 items: items.filter(i => i.sellerOrderId === o.id),
-                dispatchBy: o.createdAt ? new Date(new Date(o.createdAt).getTime() + slaH * 3_600_000) : null,
-                late: ['placed', 'confirmed', 'packed'].includes(o.status) && !!o.createdAt && now - new Date(o.createdAt).getTime() > slaH * 3_600_000,
+                dispatchBy: placed.get(o.id) ? new Date(placed.get(o.id)! + slaH * 3_600_000) : null,
+                late: ['placed', 'confirmed', 'packed'].includes(o.status) && !!placed.get(o.id) && now - placed.get(o.id)! > slaH * 3_600_000,
             };
         });
     }
@@ -407,7 +461,10 @@ export class MarketplaceService {
         const so = await this.sellerOrder(id, { bpId: ctx.businessPartnerId });
         if (!(FLOW[so.status] ?? []).includes(to)) throw new HubError(`A ${so.status} order cannot become ${to}.`, 'BAD_TRANSITION', 409);
         if (to === 'cancelled') return this.cancel(so, 'seller', ctx.adminUserId, input.reason);
+        if (to === 'dispatched') input = { ...input, courier: input.courier?.trim() || so.courier, trackingId: input.trackingId?.trim() || so.trackingId };
         if (to === 'dispatched' && (!input.courier?.trim() || !input.trackingId?.trim())) throw new HubError('Courier and tracking id are needed to dispatch.', 'NO_TRACKING');
+        const slaH = (await this.feeRates()).slaHours;
+        const [{ placedMs }] = await db.select({ placedMs: nowFilledMs(sellerOrders.createdAt) }).from(sellerOrders).where(eq(sellerOrders.id, so.id));
         return withTransaction(async (tx) => {
             const now = new Date();
             const set: Record<string, unknown> = { status: to, updatedAt: now };
@@ -417,6 +474,7 @@ export class MarketplaceService {
             const [u] = await tx.update(sellerOrders).set(set).where(and(eq(sellerOrders.id, so.id), eq(sellerOrders.status, so.status))).returning();
             if (!u) throw new HubError('The order changed meanwhile. Refresh.', 'STALE', 409);
             await this.event(tx, so, to, 'seller', ctx.adminUserId, to === 'dispatched' ? `${input.courier} ${input.trackingId}` : null);
+            if (to === 'dispatched' && placedMs && now.getTime() - Number(placedMs) > slaH * 3_600_000) await this.chargePenalty(tx, so, 'late');
             return u;
         });
     }
@@ -434,6 +492,8 @@ export class MarketplaceService {
             const items = await tx.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
             for (const i of items) await tx.update(products).set({ stock: sql`${products.stock} + ${i.quantity}` }).where(eq(products.id, i.productId));
             await this.event(tx, so, 'cancelled', by, actorId, reason.trim());
+            if (by === 'seller' || by === 'admin') await this.chargePenalty(tx, so, 'cancel');
+            if (so.shipmentRef) void import('./store-shipping.service').then(m => m.StoreShippingService.cancelBooking(so)).catch(() => null);
             return u;
         });
     }
@@ -531,6 +591,7 @@ export class MarketplaceService {
                 const meta = { sellerOrderId: so.id, code: so.code };
                 await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'marketplace_sale' as any, amountPaise: -so.totalPaise, description: `Store order ${so.code} — sale`, metadata: meta });
                 if (so.commissionPaise) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'marketplace_commission' as any, amountPaise: so.commissionPaise + so.commissionGstPaise, description: `Store order ${so.code} — commission ₹${r2(so.commissionPaise)} + GST`, metadata: meta });
+                if (so.gatewayFeePaise) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'gateway_fee', amountPaise: so.gatewayFeePaise + so.gatewayFeeGstPaise, description: `Store order ${so.code} — payment collection fee ₹${r2(so.gatewayFeePaise)} + GST`, metadata: meta });
                 if (so.tcsPaise) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'tcs' as any, amountPaise: so.tcsPaise, description: `Store order ${so.code} — GST TCS (claim it in your GSTR-3B)`, metadata: meta });
                 if (so.tdsPaise) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'tds' as any, amountPaise: so.tdsPaise, description: `Store order ${so.code} — TDS u/s 194-O (credit in your Form 26AS)`, metadata: meta });
                 await tx.update(sellerOrders).set({ settledAt: new Date(), updatedAt: new Date() }).where(eq(sellerOrders.id, so.id));
@@ -648,7 +709,7 @@ export class MarketplaceService {
         const slaH = Number(await configService.get<number>('BUSINESS_CONFIG.MARKETPLACE_DISPATCH_SLA_HOURS', 48));
         const before = new Date(Date.now() - slaH * 3_600_000);
         return db.select({ o: sellerOrders, seller: businessPartners.displayName }).from(sellerOrders).innerJoin(businessPartners, eq(businessPartners.id, sellerOrders.sellerPartnerId))
-            .where(and(inArray(sellerOrders.status, ['placed', 'confirmed', 'packed']), lt(sellerOrders.createdAt, before))).orderBy(asc(sellerOrders.createdAt));
+            .where(and(inArray(sellerOrders.status, ['placed', 'confirmed', 'packed']), sql`${nowFilledMs(sellerOrders.createdAt)} < ${before.getTime()}`)).orderBy(asc(sellerOrders.createdAt));
     }
 
     /** Does a cart contain partner listings? The legacy checkouts refuse them. */

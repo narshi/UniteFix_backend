@@ -69,6 +69,30 @@ export function registerHubFieldRoutes(app: Express) {
     // Territory
     // ═══════════════════════════════════════════════════════════════════════
 
+    // Working hours, holidays and auto-assign
+    app.get('/api/hub/field/settings', active, field, hubCan('ops:view'), async (req, res, next) => {
+        try { res.json({ success: true, data: await PartnerFieldService.settings(ctxOf(req).businessPartnerId) }); } catch (e) { hubError(e, res, next); }
+    });
+    app.put('/api/hub/field/settings', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try {
+            const time = z.string().regex(/^\d{2}:\d{2}$/);
+            const b = parse(z.object({
+                hours: z.array(z.object({ weekday: z.number().int().min(0).max(6), startTime: time, endTime: time })).max(28).nullable().optional(),
+                autoAssign: z.boolean().optional(), autoAssignMinutes: z.number().int().optional(),
+            }), req.body ?? {});
+            res.json({ success: true, message: 'Saved.', data: await PartnerFieldService.saveSettings(ctxOf(req), b) });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/field/holidays', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try {
+            const b = parse(z.object({ day: z.string(), reason: z.string().max(120).optional().nullable() }), req.body ?? {});
+            res.status(201).json({ success: true, message: 'Holiday added.', data: await PartnerFieldService.addHoliday(ctxOf(req), b.day, b.reason) });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.delete('/api/hub/field/holidays/:id', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try { res.json({ success: true, message: 'Removed.', data: await PartnerFieldService.removeHoliday(ctxOf(req), Number(req.params.id)) }); } catch (e) { hubError(e, res, next); }
+    });
+
     app.get('/api/hub/field/territories', active, field, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: await PartnerFieldService.territories(ctxOf(req).businessPartnerId) }); } catch (e) { hubError(e, res, next); }
     });

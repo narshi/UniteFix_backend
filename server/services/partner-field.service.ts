@@ -27,7 +27,7 @@ import { db } from '../db';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import {
     partnerTerritories, partnerServiceRates, partnerJobEarnings, serviceablePincodes, districts, employees, users,
-    serviceRequests, services, serviceCategories, businessPartners, businessPartnerLedger, warrantyClaims, taxDocuments,
+    serviceRequests, services, serviceCategories, businessPartners, businessPartnerLedger, warrantyClaims, taxDocuments, partnerHolidays,
     type PartnerTerritory, type ServiceRequest,
 } from '@shared/schema';
 import { configService } from './config.service';
@@ -36,9 +36,46 @@ import { TaxDocumentService, type Party } from './tax-documents.service';
 import { HubError, type HubContext } from './partner-hub.service';
 import { withTransaction } from '../lib/transaction';
 import logger from '../lib/logger';
+import { nowFilledMs } from '../lib/db-time';
 
 const OPEN_JOB = ['created', 'assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'];
 const ACTIVE_JOB = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'];
+const IST_MS = 330 * 60_000;
+const DAY_MS = 86_400_000;
+
+export type WorkWindow = { weekday: number; startTime: string; endTime: string };
+type Calendar = { hours: WorkWindow[] | null; holidays: Set<string> };
+const hm = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+/**
+ * Add working time to a moment. Outside the partner's hours and on its
+ * holidays the clock stands still. No hours set means round the clock.
+ * Pure, so it is tested directly.
+ */
+export function addWorkingTime(start: Date, minutes: number, cal: Calendar): Date {
+    if (!cal.hours?.length && !cal.holidays.size) return new Date(start.getTime() + minutes * 60_000);
+    const windows = cal.hours?.length ? cal.hours : [0, 1, 2, 3, 4, 5, 6].map(weekday => ({ weekday, startTime: '00:00', endTime: '24:00' }));
+    let left = minutes * 60_000;
+    let cursor = start.getTime();
+    for (let i = 0; i < 60; i++) {
+        const local = new Date(cursor + IST_MS);
+        const dayStartUtc = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - IST_MS;
+        const day = new Date(dayStartUtc + IST_MS).toISOString().slice(0, 10);
+        if (!cal.holidays.has(day)) {
+            const todays = windows.filter(w => w.weekday === local.getUTCDay()).map(w => [dayStartUtc + hm(w.startTime) * 60_000, dayStartUtc + hm(w.endTime) * 60_000]).sort((a, b) => a[0] - b[0]);
+            for (const [ws, we] of todays) {
+                const from = Math.max(ws, cursor);
+                if (from >= we) continue;
+                if (we - from >= left) return new Date(from + left);
+                left -= we - from;
+                cursor = we;
+            }
+        }
+        cursor = dayStartUtc + DAY_MS;
+    }
+    // A calendar with (almost) no working time: fall back to plain time rather than never.
+    return new Date(start.getTime() + minutes * 60_000);
+}
 
 export const pinFrom = (body: any): string | null => {
     for (const v of [body?.pinCode, body?.pincode]) { const s = String(v ?? '').trim(); if (/^\d{6}$/.test(s)) return s; }
@@ -241,6 +278,109 @@ export class PartnerFieldService {
      * the app quoted that exact price to the customer (`quotedUnitPrice`);
      * otherwise the customer pays the national price they were shown.
      */
+    // ══════════════════════════════════════════════════════════════════════
+    // Working hours, holidays, auto-assign
+    // ══════════════════════════════════════════════════════════════════════
+
+    static async calendar(bpId: number, bp?: { fieldHours: unknown }): Promise<Calendar> {
+        const row = bp ?? (await db.select({ fieldHours: businessPartners.fieldHours }).from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1))[0];
+        const today = new Date(Date.now() + IST_MS).toISOString().slice(0, 10);
+        const hol = await db.select({ day: partnerHolidays.day }).from(partnerHolidays).where(and(eq(partnerHolidays.businessPartnerId, bpId), gte(partnerHolidays.day, today)));
+        const hours = Array.isArray(row?.fieldHours) && (row!.fieldHours as WorkWindow[]).length ? row!.fieldHours as WorkWindow[] : null;
+        return { hours, holidays: new Set(hol.map(h => h.day)) };
+    }
+
+    static async settings(bpId: number) {
+        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1);
+        const today = new Date(Date.now() + IST_MS).toISOString().slice(0, 10);
+        const holidays = await db.select().from(partnerHolidays).where(and(eq(partnerHolidays.businessPartnerId, bpId), gte(partnerHolidays.day, today))).orderBy(asc(partnerHolidays.day));
+        const sla = Number(await configService.get<number>('BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_HOURS', 2));
+        const slaUrgent = Number(await configService.get<number>('BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_URGENT_HOURS', 1));
+        return {
+            hours: (bp?.fieldHours as WorkWindow[] | null) ?? null, autoAssign: !!bp?.fieldAutoAssign, autoAssignMinutes: bp?.fieldAutoAssignMinutes ?? 15,
+            holidays: holidays.map(h => ({ id: h.id, day: h.day, reason: h.reason })), assignWithinHours: sla, assignWithinHoursUrgent: slaUrgent,
+        };
+    }
+
+    static async saveSettings(ctx: HubContext, input: { hours?: WorkWindow[] | null; autoAssign?: boolean; autoAssignMinutes?: number }) {
+        const set: Record<string, unknown> = { updatedAt: new Date() };
+        if (input.hours !== undefined) {
+            if (input.hours && input.hours.length) {
+                for (const w of input.hours) {
+                    if (!(Number.isInteger(w.weekday) && w.weekday >= 0 && w.weekday <= 6) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(w.startTime) || !/^([01]\d|2[0-3]):[0-5]\d$|^24:00$/.test(w.endTime) || hm(w.endTime) <= hm(w.startTime))
+                        throw new HubError('Each window is a weekday with a start before its end (HH:MM).', 'BAD_HOURS');
+                }
+                const total = input.hours.reduce((a, w) => a + hm(w.endTime) - hm(w.startTime), 0);
+                if (total < 8 * 60) throw new HubError('Open at least 8 hours a week, or leave hours empty for round the clock.', 'TOO_FEW_HOURS');
+                set.fieldHours = input.hours.map(w => ({ weekday: w.weekday, startTime: w.startTime, endTime: w.endTime }));
+            } else set.fieldHours = null;
+        }
+        if (input.autoAssign !== undefined) set.fieldAutoAssign = input.autoAssign;
+        if (input.autoAssignMinutes !== undefined) {
+            if (!(Number.isInteger(input.autoAssignMinutes) && input.autoAssignMinutes >= 0 && input.autoAssignMinutes <= 90)) throw new HubError('Auto-assign after 0–90 minutes.', 'BAD_MINUTES');
+            set.fieldAutoAssignMinutes = input.autoAssignMinutes;
+        }
+        await db.update(businessPartners).set(set).where(eq(businessPartners.id, ctx.businessPartnerId));
+        return this.settings(ctx.businessPartnerId);
+    }
+
+    static async addHoliday(ctx: HubContext, day: string, reason?: string | null) {
+        const today = new Date(Date.now() + IST_MS).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < today) throw new HubError('A date from today on.', 'BAD_DATE');
+        await db.insert(partnerHolidays).values({ businessPartnerId: ctx.businessPartnerId, day, reason: reason?.trim() || null }).onConflictDoNothing();
+        return this.settings(ctx.businessPartnerId);
+    }
+
+    static async removeHoliday(ctx: HubContext, id: number) {
+        await db.delete(partnerHolidays).where(and(eq(partnerHolidays.id, id), eq(partnerHolidays.businessPartnerId, ctx.businessPartnerId)));
+        return this.settings(ctx.businessPartnerId);
+    }
+
+    /** The technician auto-assign would pick: active and verified, the right trade, online first, least busy. */
+    static async pickTechnician(bpId: number, jobText: string) {
+        const techs = (await this.technicians(bpId)).filter(t => t.isActive && t.verification === 'verified');
+        const text = jobText.toLowerCase();
+        const fit = techs.filter(t => !t.services.length || t.services.some(x => x.trim() && (text.includes(x.trim().toLowerCase()) || x.trim().toLowerCase().includes(text))));
+        fit.sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.activeJobs - b.activeJobs || a.id - b.id);
+        return fit[0] ?? null;
+    }
+
+    /**
+     * Partners who turned auto-assign on: a paid job nobody picked within the
+     * window (working minutes) goes to the best-fitting technician. Runs with
+     * the escalation tick, before it.
+     */
+    static async autoAssignDue(now = new Date()) {
+        const bps = await db.select().from(businessPartners).where(and(eq(businessPartners.fieldAutoAssign, true), eq(businessPartners.status, 'active')));
+        const done: Array<{ serviceRequestId: number; employeeId: number }> = [];
+        for (const bp of bps) {
+            const jobs = await db.select({ sr: serviceRequests, createdMs: nowFilledMs(serviceRequests.createdAt), serviceName: services.name, categoryName: serviceCategories.name }).from(serviceRequests)
+                .leftJoin(services, eq(services.id, serviceRequests.catalogServiceId)).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
+                .where(and(eq(serviceRequests.dispatchPartnerId, bp.id), isNull(serviceRequests.providerId), eq(serviceRequests.status, 'created' as any), eq(serviceRequests.bookingFeeStatus, 'paid')));
+            if (!jobs.length) continue;
+            const cal = await this.calendar(bp.id, bp);
+            for (const j of jobs) {
+                if (!j.createdMs || addWorkingTime(new Date(Number(j.createdMs)), bp.fieldAutoAssignMinutes, cal) > now) continue;
+                const tech = await this.pickTechnician(bp.id, `${j.categoryName ?? ''} ${j.serviceName ?? j.sr.serviceType ?? ''}`.trim());
+                if (!tech) continue;
+                // Someone may have assigned it by hand a moment ago.
+                const [fresh] = await db.select({ p: serviceRequests.providerId, st: serviceRequests.status }).from(serviceRequests).where(eq(serviceRequests.id, j.sr.id)).limit(1);
+                if (fresh?.p || fresh?.st !== 'created') continue;
+                try {
+                    const { AdminServiceManager } = await import('./admin-service.manager');
+                    await AdminServiceManager.assignTechnician(j.sr.id, tech.id, null as any);
+                    done.push({ serviceRequestId: j.sr.id, employeeId: tech.id });
+                    const { HubAlerts } = await import('./hub-alerts.service');
+                    void HubAlerts.send(bp.id, 'job_assigned', { title: `Job #${j.sr.id} auto-assigned to ${tech.fullName}`, body: `${j.serviceName ?? 'A job'} in ${j.sr.pincode ?? 'your area'} — nobody picked it in ${bp.fieldAutoAssignMinutes} minutes. Reassign it from Jobs if needed.`, link: '/partner/field/jobs', refType: 'service_request', refId: j.sr.id });
+                } catch (e: any) {
+                    logger.warn(`[FIELD] Auto-assign of job #${j.sr.id} failed: ${e?.message}`);
+                }
+            }
+        }
+        if (done.length) logger.info(`[FIELD] Auto-assigned ${done.length} partner job(s)`);
+        return done;
+    }
+
     static async route(input: { catalogServiceId: number | null; pincode: string | null; urgency?: string | null; quotedUnitPrice?: number | null }): Promise<Routing> {
         const none: Routing = { dispatchPartnerId: null, dispatchMode: null, partnerName: null, partnerPhone: null, unitPrice: null, platformFeePercent: null, slaAssignBy: null };
         try {
@@ -254,7 +394,8 @@ export class PartnerFieldService {
                 dispatchPartnerId: p.bp.id, dispatchMode: p.mode, partnerName: p.bp.displayName, partnerPhone: p.bp.fieldSupportPhone ?? p.bp.contactPhone,
                 unitPrice: rate && quoted === rate.basePrice ? rate.basePrice : null,
                 platformFeePercent: Number.isFinite(fee) ? fee : 15,
-                slaAssignBy: new Date(Date.now() + hours * 3_600_000),
+                // The clock runs in the partner's working hours only.
+                slaAssignBy: addWorkingTime(new Date(), hours * 60, await this.calendar(p.bp.id, p.bp)),
             };
         } catch (e: any) {
             // Routing is an enhancement to booking; it must never stop one.

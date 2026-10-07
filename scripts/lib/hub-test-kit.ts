@@ -34,6 +34,8 @@ export async function bootServer() {
     delete process.env.CLOUDINARY_CLOUD_NAME; delete process.env.CLOUDINARY_API_KEY; delete process.env.CLOUDINARY_API_SECRET;
     // Never send real email or SMS from a test run.
     for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'ADMIN_ALERT_EMAIL', 'MSG91_API_KEY', 'TWILIO_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE']) delete process.env[k];
+    // Couriers: never book a real parcel from a test.
+    process.env.DELHIVERY_MODE = 'mock'; delete process.env.DELHIVERY_API_KEY;
     await runStartupMigrations();
     const app = express();
     app.use(express.json({ limit: '5mb' }));

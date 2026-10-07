@@ -17,6 +17,7 @@ import { downloadAuthed } from "@/lib/hub";
 
 type Pending = { id: number; name: string; sellerName: string; sellerCode: string; categoryName: string | null; price: number; mrp: number | null; hsnCode: string | null; gstPercent: number | null; countryOfOrigin: string | null; manufacturer: string | null; bisNumber: string | null; wpcEta: string | null; images: string[]; description: string | null; submittedAt: string | null };
 type Late = { id: number; code: string; seller: string; status: string; total: number; createdAt: string };
+type Penalty = { id: number; code: string; seller: string; penalty: number; reason: string | null; waived: boolean; status: string; at: string };
 type Rate = { categoryId: number; name: string; percent: number | null; minRupees: number | null };
 
 export default function MarketplacePage() {
@@ -24,10 +25,11 @@ export default function MarketplacePage() {
   const qc = useQueryClient();
   const pending = useQuery<Pending[]>({ queryKey: ["/api/admin/hub/store/listings/pending"], queryFn: async () => (await apiRequest("GET", "/api/admin/hub/store/listings/pending")).data });
   const late = useQuery<Late[]>({ queryKey: ["/api/admin/hub/store/late"], queryFn: async () => (await apiRequest("GET", "/api/admin/hub/store/late")).data });
+  const penalties = useQuery<Penalty[]>({ queryKey: ["/api/admin/hub/store/penalties"], queryFn: async () => (await apiRequest("GET", "/api/admin/hub/store/penalties")).data });
   const rates = useQuery<Rate[]>({ queryKey: ["/api/admin/hub/store/commission"], queryFn: async () => (await apiRequest("GET", "/api/admin/hub/store/commission")).data });
   const act = useMutation({
     mutationFn: async (v: { method?: string; path: string; body?: unknown }) => apiRequest(v.method ?? "POST", v.path, v.body),
-    onSuccess: (r: any) => { qc.invalidateQueries({ queryKey: ["/api/admin/hub/store"] }); ["listings/pending", "late", "commission"].forEach(k => qc.invalidateQueries({ queryKey: [`/api/admin/hub/store/${k}`] })); toast({ title: "Done", description: r?.message }); },
+    onSuccess: (r: any) => { qc.invalidateQueries({ queryKey: ["/api/admin/hub/store"] }); ["listings/pending", "late", "commission", "penalties"].forEach(k => qc.invalidateQueries({ queryKey: [`/api/admin/hub/store/${k}`] })); toast({ title: "Done", description: r?.message }); },
     onError: (e) => toast({ title: "Not done", description: apiErrorMessage(e), variant: "destructive" }),
   });
   const [sel, setSel] = useState<Record<number, boolean>>({});
@@ -84,6 +86,23 @@ export default function MarketplacePage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-base font-medium">Seller charges ({(penalties.data ?? []).filter(p => !p.waived).length})</CardTitle></CardHeader>
+        <CardContent className="space-y-2 p-0">
+          <p className="px-6 text-sm text-muted-foreground">Taken automatically: late dispatch (BUSINESS_CONFIG.MARKETPLACE_LATE_DISPATCH_PENALTY_RUPEES) and cancelling a paid order (MARKETPLACE_SELLER_CANCEL_PENALTY_PERCENT, at least MARKETPLACE_SELLER_CANCEL_PENALTY_MIN_RUPEES). Waive one when it was not the seller's fault.</p>
+          <div className="overflow-x-auto"><Table>
+            <TableHeader><TableRow><TableHead>Order</TableHead><TableHead>Seller</TableHead><TableHead>Why</TableHead><TableHead className="text-right">Charge</TableHead><TableHead /></TableRow></TableHeader>
+            <TableBody>
+              {!(penalties.data ?? []).length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">No charges.</TableCell></TableRow>}
+              {(penalties.data ?? []).map(p => (
+                <TableRow key={p.id}><TableCell className="font-mono text-xs">{p.code}</TableCell><TableCell>{p.seller}</TableCell><TableCell className="text-xs">{p.reason}</TableCell><TableCell className="text-right tabular-nums">₹{p.penalty}</TableCell>
+                  <TableCell className="text-right">{p.waived ? <Badge variant="secondary">waived</Badge> : <Button size="sm" variant="outline" onClick={() => { const note = window.prompt("Why waive it? Recorded in the audit log."); if (note && note.trim().length >= 3) act.mutate({ path: `/api/admin/hub/store/orders/${p.id}/waive`, body: { note } }); }}>Waive</Button>}</TableCell></TableRow>
+              ))}
+            </TableBody>
+          </Table></div>
         </CardContent>
       </Card>
 

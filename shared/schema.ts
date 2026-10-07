@@ -2397,6 +2397,11 @@ export const businessPartners = pgTable("business_partners", {
   grievancePhone: text("grievance_phone"),
   grievanceEmail: text("grievance_email"),
   returnPolicy: text("return_policy"),
+  delhiveryPickupName: text("delhivery_pickup_name"),
+  // Field service: working hours pause the assign-by clock; auto-assign after a window the partner can use to pick by hand
+  fieldHours: jsonb("field_hours"),                                     // [{ weekday 0-6, startTime 'HH:MM', endTime 'HH:MM' }] IST; null = round the clock
+  fieldAutoAssign: boolean("field_auto_assign").notNull().default(false),
+  fieldAutoAssignMinutes: integer("field_auto_assign_minutes").notNull().default(15),                   // the seller's pickup point as registered with Delhivery
   alertPrefs: jsonb("alert_prefs"),                                     // { email, push, sms } for Hub alerts
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
@@ -3308,6 +3313,18 @@ export const sellerOrders = pgTable("seller_orders", {
   invoiceDocumentId: integer("invoice_document_id").references(() => taxDocuments.id),
   creditNoteDocumentId: integer("credit_note_document_id").references(() => taxDocuments.id),
   returnReason: text("return_reason"), returnRequestedAt: timestamp("return_requested_at"), returnStatus: text("return_status"),  // requested | approved | rejected | received
+  // Payment collection fee, charged with the commission at settlement
+  gatewayFeePaise: integer("gateway_fee_paise").notNull().default(0),
+  gatewayFeeGstPaise: integer("gateway_fee_gst_paise").notNull().default(0),
+  // Late dispatch / seller cancellation, charged to the ledger when it happens; staff can waive
+  penaltyPaise: integer("penalty_paise").notNull().default(0),
+  penaltyReason: text("penalty_reason"),
+  penaltyWaivedAt: timestamp("penalty_waived_at"),
+  // Courier booked through UniteFix (Delhivery): the parcel and the courier's reference
+  shipmentRef: text("shipment_ref"),
+  parcel: jsonb("parcel"),                                  // { weightGrams, lengthCm, widthCm, heightCm }
+  courierChargePaise: integer("courier_charge_paise").notNull().default(0),   // charged to the seller at booking, + GST
+  courierChargeGstPaise: integer("courier_charge_gst_paise").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3397,3 +3414,13 @@ export const partnerPayLinks = pgTable("partner_pay_links", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 export type PartnerPayLink = typeof partnerPayLinks.$inferSelect;
+
+/** Days a field partner is closed: the assign-by clock and auto-assign wait for the next working day. */
+export const partnerHolidays = pgTable("partner_holidays", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  day: text("day").notNull(),                   // YYYY-MM-DD (IST)
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ bpDay: uniqueIndex("partner_holidays_bp_day_idx").on(t.businessPartnerId, t.day) }));
+export type PartnerHoliday = typeof partnerHolidays.$inferSelect;

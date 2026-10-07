@@ -15,7 +15,7 @@
  */
 
 import { db } from '../db';
-import { and, desc, eq, inArray, or, sql, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql, gt, gte, lt, lte } from 'drizzle-orm';
 import {
     taxDocuments, taxDocumentLines, documentSeries, b2bOrders, b2bOrderItems, spareParts, businessPartners,
     ftthOperators, ftthOperatorLedger, sellerOrders, type TaxDocument,
@@ -288,7 +288,7 @@ export class TaxDocumentService {
             const [lead] = await db.select({ n: sql<number>`count(*)::int`, paise: sql<number>`coalesce(sum(-${ftthOperatorLedger.amountPaise}), 0)::int` })
                 .from(ftthOperatorLedger)
                 .where(and(eq(ftthOperatorLedger.operatorId, op.id), eq(ftthOperatorLedger.entryType, 'lead_fee'),
-                    gte(ftthOperatorLedger.createdAt, from), sql`${ftthOperatorLedger.createdAt} < ${to}`));
+                    gte(ftthOperatorLedger.createdAt, from), lt(ftthOperatorLedger.createdAt, to)));
             if (lead && lead.paise > 0) {
                 const taxable = Math.round(lead.paise * 100 / (100 + gstRate));
                 lines.push({ description: `Broadband lead fees — ${lead.n} lead${lead.n === 1 ? '' : 's'} converted, ${monthLabel}`, hsnSac: sac, quantity: lead.n, unit: 'lead', ratePaise: Math.round(taxable / Math.max(1, lead.n)), taxablePaise: taxable, gstRate, taxPaise: lead.paise - taxable });
@@ -297,11 +297,21 @@ export class TaxDocumentService {
 
         // Store commission on orders that settled this month. Booked to the
         // ledger at settlement, so here it is invoiced, not charged again.
-        const [mk] = await db.select({ n: sql<number>`count(*)::int`, fee: sql<number>`coalesce(sum(${sellerOrders.commissionPaise}), 0)::int`, gst: sql<number>`coalesce(sum(${sellerOrders.commissionGstPaise}), 0)::int` })
-            .from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), gte(sellerOrders.settledAt, from), sql`${sellerOrders.settledAt} < ${to}`));
+        const [mk] = await db.select({ n: sql<number>`count(*)::int`, fee: sql<number>`coalesce(sum(${sellerOrders.commissionPaise}), 0)::int`, gst: sql<number>`coalesce(sum(${sellerOrders.commissionGstPaise}), 0)::int`,
+            gw: sql<number>`coalesce(sum(${sellerOrders.gatewayFeePaise}), 0)::int`, gwGst: sql<number>`coalesce(sum(${sellerOrders.gatewayFeeGstPaise}), 0)::int`, gwN: sql<number>`count(*) filter (where ${sellerOrders.gatewayFeePaise} > 0)::int` })
+            .from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), gte(sellerOrders.settledAt, from), lt(sellerOrders.settledAt, to)));
         if (mk && mk.fee > 0) {
             const mSac = ((await configService.get<string>('BUSINESS_CONFIG.MARKETPLACE_COMMISSION_SAC')) || '998599').trim();
             lines.push({ description: `Store commission — ${mk.n} order${mk.n === 1 ? '' : 's'} settled, ${monthLabel}`, hsnSac: mSac, quantity: mk.n, unit: 'order', ratePaise: Math.round(mk.fee / Math.max(1, mk.n)), taxablePaise: mk.fee, gstRate, taxPaise: mk.gst });
+        }
+        const [cr] = await db.select({ n: sql<number>`count(*)::int`, p: sql<number>`coalesce(sum(${sellerOrders.courierChargePaise}), 0)::int`, g: sql<number>`coalesce(sum(${sellerOrders.courierChargeGstPaise}), 0)::int` })
+            .from(sellerOrders).where(and(eq(sellerOrders.sellerPartnerId, bpId), gte(sellerOrders.dispatchedAt, from), lt(sellerOrders.dispatchedAt, to), gt(sellerOrders.courierChargePaise, 0)));
+        if (cr && cr.p > 0) {
+            const cSac = ((await configService.get<string>('BUSINESS_CONFIG.COURIER_SAC_CODE')) || '996812').trim();
+            lines.push({ description: `Courier bookings — ${cr.n} parcel${cr.n === 1 ? '' : 's'} dispatched, ${monthLabel}`, hsnSac: cSac, quantity: cr.n, unit: 'parcel', ratePaise: Math.round(cr.p / Math.max(1, cr.n)), taxablePaise: cr.p, gstRate, taxPaise: cr.g });
+        }
+        if (mk && mk.gw > 0) {
+            lines.push({ description: `Store payment collection — ${mk.gwN} order${mk.gwN === 1 ? '' : 's'} settled, ${monthLabel}`, hsnSac: sac, quantity: mk.gwN, unit: 'order', ratePaise: Math.round(mk.gw / Math.max(1, mk.gwN)), taxablePaise: mk.gw, gstRate, taxPaise: mk.gwGst });
         }
 
         // Online collection fees on pay links paid this month — charged on the

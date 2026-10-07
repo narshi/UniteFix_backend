@@ -280,7 +280,7 @@ export function registerPartnerHubRoutes(app: Express) {
                     id: bp.id, partnerCode: bp.partnerCode, displayName: bp.displayName, status: bp.status,
                     appliedVia: bp.appliedVia, submittedAt: bp.submittedAt, hubPlan: bp.hubPlan, aatoAbove5cr: bp.aatoAbove5cr,
                     fieldFeePercent: bp.fieldFeePercent == null ? null : Number(bp.fieldFeePercent), fieldTier: bp.fieldTier,
-                    sellerTier: bp.sellerTier, sellerTierLocked: bp.sellerTierLocked, sellerScore: bp.sellerScore,
+                    sellerTier: bp.sellerTier, sellerTierLocked: bp.sellerTierLocked, sellerScore: bp.sellerScore, delhiveryPickupName: bp.delhiveryPickupName,
                     gstin: bp.gstin, gstinStatus: bp.gstinStatus, stateName: bp.stateName, pan: bp.pan, panStatus: bp.panStatus,
                     coveragePincodes: bp.coveragePincodes ?? [],
                     hasHubLogin: !!bp.adminUserId,

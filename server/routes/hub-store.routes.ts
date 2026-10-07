@@ -14,13 +14,14 @@
 import type { Express } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { asc, eq } from 'drizzle-orm';
+import { asc, desc, eq, gt } from 'drizzle-orm';
 import { db } from '../db';
-import { productCategories, marketplaceCommission, businessPartners } from '@shared/schema';
+import { productCategories, marketplaceCommission, businessPartners, sellerOrders } from '@shared/schema';
 import { authenticateAdmin, requireSuperAdmin, authenticateToken } from '../middleware/auth.middleware';
 import { authenticateHub, hubCan, hubModule, hubError, HubRequest } from '../middleware/hub-auth';
 import { HubError } from '../services/partner-hub.service';
 import { MarketplaceService } from '../services/marketplace.service';
+import { StoreShippingService } from '../services/store-shipping.service';
 import { TaxDocumentService } from '../services/tax-documents.service';
 import { renderTaxDocumentPdf } from '../services/tax-document-pdf';
 import { uploadDocumentBuffer } from '../services/cloudinary.service';
@@ -135,7 +136,15 @@ export function registerHubStoreRoutes(app: Express) {
     app.get('/api/hub/store/orders', active, mod, hubCan('ops:view'), async (req, res, next) => {
         try {
             const rows = await MarketplaceService.ordersForSeller(ctxOf(req).businessPartnerId, typeof req.query.status === 'string' ? req.query.status : undefined);
-            res.json({ success: true, data: rows.map(o => ({ ...o, taxable: r2(o.taxablePaise), gst: r2(o.gstPaise), total: r2(o.totalPaise), commission: r2(o.commissionPaise + o.commissionGstPaise), tcs: r2(o.tcsPaise), tds: r2(o.tdsPaise), net: r2(o.totalPaise - o.commissionPaise - o.commissionGstPaise - o.tcsPaise - o.tdsPaise), items: o.items.map(i => ({ ...i, price: r2(i.unitPricePaise) })) })) });
+            const fees = await MarketplaceService.feeRates();
+            res.json({ success: true, data: rows.map(o => ({
+                ...o, taxable: r2(o.taxablePaise), gst: r2(o.gstPaise), total: r2(o.totalPaise), commission: r2(o.commissionPaise + o.commissionGstPaise), tcs: r2(o.tcsPaise), tds: r2(o.tdsPaise),
+                gatewayFee: r2(o.gatewayFeePaise + o.gatewayFeeGstPaise),
+                penalty: o.penaltyPaise && !o.penaltyWaivedAt ? r2(o.penaltyPaise) : 0, penaltyReason: o.penaltyReason, penaltyWaived: !!o.penaltyWaivedAt,
+                net: r2(o.totalPaise - o.commissionPaise - o.commissionGstPaise - o.tcsPaise - o.tdsPaise - o.gatewayFeePaise - o.gatewayFeeGstPaise),
+                lateCharge: o.late ? fees.lateDispatchRupees : 0,
+                items: o.items.map(i => ({ ...i, price: r2(i.unitPricePaise) })),
+            })), shipping: { mode: StoreShippingService.mode(), ratePer500g: fees.courierPer500gRupees, gstPercent: fees.gstPercent } });
         } catch (e) { hubError(e, res, next); }
     });
     app.post('/api/hub/store/orders/:id/transition', active, mod, hubCan('ops:manage'), async (req, res, next) => {
@@ -143,6 +152,21 @@ export function registerHubStoreRoutes(app: Express) {
             const b = parse(z.object({ to: z.enum(['confirmed', 'packed', 'dispatched', 'delivered', 'cancelled']), courier: z.string().max(60).optional().nullable(), trackingId: z.string().max(80).optional().nullable(), reason: z.string().max(300).optional().nullable() }), req.body);
             const o = await MarketplaceService.transition(ctxOf(req), Number(req.params.id), b.to, b);
             res.json({ success: true, message: o.status === 'dispatched' ? 'Dispatched. Your GST invoice to the customer has been issued.' : o.status === 'cancelled' ? 'Cancelled; the customer is refunded.' : `Marked ${o.status}.`, data: { status: o.status } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/store/orders/:id/courier', active, mod, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            const b = parse(z.object({ weightGrams: z.coerce.number().int(), lengthCm: z.coerce.number(), widthCm: z.coerce.number(), heightCm: z.coerce.number() }), req.body);
+            const r = await StoreShippingService.book(ctxOf(req), Number(req.params.id), b);
+            res.json({ success: true, message: `Courier booked: Delhivery ${r.waybill}${r.mode === 'mock' ? ' (test booking — the courier account is not live yet)' : ''}.${r.charge ? ` ₹${r.charge} comes off your settlement.` : ''} Print the label and dispatch.`, data: { waybill: r.waybill, mode: r.mode, trackingUrl: r.trackingUrl, charge: r.charge } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.get('/api/hub/store/orders/:id/label.pdf', active, mod, hubCan('ops:view'), async (req, res, next) => {
+        try {
+            const pdf = await StoreShippingService.label(ctxOf(req).businessPartnerId, Number(req.params.id));
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="label-${req.params.id}.pdf"`);
+            res.send(pdf);
         } catch (e) { hubError(e, res, next); }
     });
     app.post('/api/hub/store/orders/:id/return', active, mod, hubCan('ops:manage'), async (req, res, next) => {
@@ -240,6 +264,21 @@ export function registerHubStoreRoutes(app: Express) {
             res.json({ success: true, message: 'Cancelled and refunded. It counts against the seller.' });
         } catch (e) { hubError(e, res, next); }
     });
+    app.post('/api/admin/hub/store/orders/:id/waive', authenticateAdmin, requireSuperAdmin, async (req, res, next) => {
+        try {
+            const b = parse(z.object({ note: z.string().min(3).max(300) }), req.body);
+            const so = await MarketplaceService.waivePenalty(Number(req.params.id), (req as any).admin.userId, b.note);
+            await recordAudit({ entityType: 'business_partner', entityId: so.sellerPartnerId, action: 'store_penalty_waived', changedBy: (req as any).admin.userId, metadata: { sellerOrderId: so.id, code: so.code, note: b.note, penaltyPaise: so.penaltyPaise } });
+            res.json({ success: true, message: `Charge of ₹${r2(so.penaltyPaise)} waived; credited back to the seller.` });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.get('/api/admin/hub/store/penalties', authenticateAdmin, async (_req, res, next) => {
+        try {
+            const rows = await db.select({ o: sellerOrders, seller: businessPartners.displayName }).from(sellerOrders).innerJoin(businessPartners, eq(businessPartners.id, sellerOrders.sellerPartnerId))
+                .where(gt(sellerOrders.penaltyPaise, 0)).orderBy(desc(sellerOrders.updatedAt)).limit(200);
+            res.json({ success: true, data: rows.map(r => ({ id: r.o.id, code: r.o.code, seller: r.seller, penalty: r2(r.o.penaltyPaise), reason: r.o.penaltyReason, waived: !!r.o.penaltyWaivedAt, status: r.o.status, at: r.o.updatedAt })) });
+        } catch (e) { next(e); }
+    });
     app.get('/api/admin/hub/store/commission', authenticateAdmin, async (_req, res, next) => {
         try {
             const cats = await db.select().from(productCategories).orderBy(asc(productCategories.name));
@@ -259,9 +298,9 @@ export function registerHubStoreRoutes(app: Express) {
     });
     app.patch('/api/admin/hub/partners/:id/seller', authenticateAdmin, requireSuperAdmin, async (req, res, next) => {
         try {
-            const b = parse(z.object({ sellerTier: z.enum(['new', 'standard', 'preferred', 'restricted']).optional(), locked: z.boolean().optional() }), req.body);
+            const b = parse(z.object({ sellerTier: z.enum(['new', 'standard', 'preferred', 'restricted']).optional(), locked: z.boolean().optional(), delhiveryPickupName: z.string().max(120).optional().nullable() }), req.body);
             const id = Number(req.params.id);
-            await db.update(businessPartners).set({ ...(b.sellerTier ? { sellerTier: b.sellerTier } : {}), ...(b.locked !== undefined ? { sellerTierLocked: b.locked } : {}), updatedAt: new Date() }).where(eq(businessPartners.id, id));
+            await db.update(businessPartners).set({ ...(b.sellerTier ? { sellerTier: b.sellerTier } : {}), ...(b.locked !== undefined ? { sellerTierLocked: b.locked } : {}), ...(b.delhiveryPickupName !== undefined ? { delhiveryPickupName: b.delhiveryPickupName?.trim() || null } : {}), updatedAt: new Date() }).where(eq(businessPartners.id, id));
             if (b.locked === false) await MarketplaceService.metrics(id);
             await recordAudit({ entityType: 'business_partner', entityId: id, action: 'hub_seller_tier', changedBy: (req as any).admin.userId, metadata: b });
             res.json({ success: true, message: 'Saved.' });

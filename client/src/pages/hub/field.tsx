@@ -421,3 +421,75 @@ export function HubFieldEarnings() {
     </HubPage>
   );
 }
+
+type FieldSettings = { hours: Array<{ weekday: number; startTime: string; endTime: string }> | null; autoAssign: boolean; autoAssignMinutes: number; holidays: Array<{ id: number; day: string; reason: string | null }>; assignWithinHours: number; assignWithinHoursUrgent: number };
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** Working hours and holidays (they pause the assign-by clock) and auto-assign. */
+export function HubFieldSettings() {
+  const { me } = useHubMe();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const canSet = hubCan(me, "settings:manage");
+  const { data } = useQuery<FieldSettings>({ queryKey: ["/api/hub/field/settings"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/settings")).data });
+  const [draft, setDraft] = useState<{ allDay: boolean; days: Array<{ open: boolean; start: string; end: string }>; auto: boolean; minutes: string } | null>(null);
+  const [hol, setHol] = useState({ day: "", reason: "" });
+  const d = draft ?? (data ? {
+    allDay: !data.hours?.length,
+    days: WEEKDAYS.map((_, i) => { const w = data.hours?.find(x => x.weekday === i); return { open: data.hours?.length ? !!w : i !== 0, start: w?.startTime ?? "09:00", end: w?.endTime ?? "19:00" }; }),
+    auto: data.autoAssign, minutes: String(data.autoAssignMinutes),
+  } : null);
+  const done = (r: any) => { qc.setQueryData(["/api/hub/field/settings"], r.data); setDraft(null); toast({ title: r.message ?? "Saved" }); };
+  const failed = (e: unknown) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" });
+  const save = async () => {
+    if (!d) return;
+    try {
+      done(await apiRequest("PUT", "/api/hub/field/settings", {
+        hours: d.allDay ? null : d.days.map((x, i) => ({ weekday: i, startTime: x.start, endTime: x.end, open: x.open })).filter(x => x.open).map(({ open, ...w }) => w),
+        autoAssign: d.auto, autoAssignMinutes: Number(d.minutes),
+      }));
+    } catch (e) { failed(e); }
+  };
+  const addHoliday = async () => { try { done(await apiRequest("POST", "/api/hub/field/holidays", { day: hol.day, reason: hol.reason || null })); setHol({ day: "", reason: "" }); } catch (e) { failed(e); } };
+  const removeHoliday = async (id: number) => { try { done(await apiRequest("DELETE", `/api/hub/field/holidays/${id}`)); } catch (e) { failed(e); } };
+  if (!d || !data) return <HubPage title="Hours & auto-assign"><p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p></HubPage>;
+  const set = (patch: Partial<typeof d>) => setDraft({ ...d, ...patch });
+  return (
+    <HubPage title="Hours & auto-assign" subtitle={`Assign each job within ${data.assignWithinHours} working hour${data.assignWithinHours === 1 ? "" : "s"} (${data.assignWithinHoursUrgent} for urgent ones). The clock only runs in your working hours and stops on your holidays.`}
+      actions={canSet ? <Button disabled={!draft} onClick={save}>Save</Button> : undefined}>
+      <Panel title="Working hours">
+        <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" disabled={!canSet} checked={d.allDay} onChange={e => set({ allDay: e.target.checked })} /> Round the clock, every day</label>
+        {!d.allDay && <ul className="mt-3 grid gap-2">{d.days.map((x, i) => (
+          <li key={i} className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex w-32 items-center gap-2 text-white"><input type="checkbox" disabled={!canSet} checked={x.open} onChange={e => set({ days: d.days.map((y, j) => j === i ? { ...y, open: e.target.checked } : y) })} />{WEEKDAYS[i]}</label>
+            {x.open ? <>
+              <Input aria-label={`${WEEKDAYS[i]} opens`} type="time" className="h-9 w-32" disabled={!canSet} value={x.start} onChange={e => set({ days: d.days.map((y, j) => j === i ? { ...y, start: e.target.value } : y) })} />
+              <span className="text-[hsl(215,20%,60%)]">to</span>
+              <Input aria-label={`${WEEKDAYS[i]} closes`} type="time" className="h-9 w-32" disabled={!canSet} value={x.end} onChange={e => set({ days: d.days.map((y, j) => j === i ? { ...y, end: e.target.value } : y) })} />
+            </> : <span className="text-[hsl(215,20%,55%)]">closed</span>}
+          </li>
+        ))}</ul>}
+        <p className="mt-3 text-xs text-[hsl(215,20%,55%)]">Times in IST. A job booked at night is due the next working morning.</p>
+      </Panel>
+      <Panel title="Auto-assign">
+        <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" disabled={!canSet} checked={d.auto} onChange={e => set({ auto: e.target.checked })} /> Assign jobs automatically if nobody picks one</label>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[hsl(215,20%,75%)]">
+          After <Input aria-label="Minutes before auto-assign" inputMode="numeric" className="h-9 w-20" disabled={!canSet || !d.auto} value={d.minutes} onChange={e => set({ minutes: e.target.value })} /> working minutes
+        </div>
+        <p className="mt-2 text-xs text-[hsl(215,20%,55%)]">Picks an active, verified technician whose trades match the job — online ones first, then whoever has the fewest open jobs. You are alerted and can reassign from Jobs. Use 0 to assign the moment a job arrives (checked every 15 minutes).</p>
+      </Panel>
+      <Panel title="Holidays">
+        {!data.holidays.length ? <p className="text-sm text-[hsl(215,20%,65%)]">None coming up.</p> : (
+          <ul className="divide-y divide-[rgba(255,255,255,0.06)] text-sm">{data.holidays.map(h => (
+            <li key={h.id} className="flex items-center gap-3 py-2"><span className="tabular-nums text-white">{new Date(`${h.day}T00:00:00+05:30`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}</span><span className="flex-1 text-[hsl(215,20%,70%)]">{h.reason}</span>{canSet && <Button size="sm" variant="ghost" onClick={() => removeHoliday(h.id)}>Remove</Button>}</li>
+          ))}</ul>
+        )}
+        {canSet && <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div><Label htmlFor="h-d">Date</Label><Input id="h-d" type="date" className="h-9 w-44" value={hol.day} onChange={e => setHol({ ...hol, day: e.target.value })} /></div>
+          <div className="min-w-0 flex-1"><Label htmlFor="h-r">Reason (optional)</Label><Input id="h-r" className="h-9" placeholder="Diwali" value={hol.reason} onChange={e => setHol({ ...hol, reason: e.target.value })} /></div>
+          <Button variant="outline" disabled={!hol.day} onClick={addHoliday}>Add holiday</Button>
+        </div>}
+      </Panel>
+    </HubPage>
+  );
+}

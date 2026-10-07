@@ -2,9 +2,10 @@
  * Later sections of smoke-hub-extras, added as each feature lands.
  */
 import crypto from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { check, db } from './lib/hub-test-kit';
-import { partnerPayLinks, partnerInvoicePayments, businessPartnerLedger, eventMilestones, hubAlerts, taxDocumentLines, consultAppointments } from '../shared/schema';
+import { partnerPayLinks, partnerInvoicePayments, businessPartnerLedger, eventMilestones, hubAlerts, taxDocumentLines, consultAppointments, employees, serviceRequests } from '../shared/schema';
+import { PartnerFieldService, addWorkingTime } from '../server/services/partner-field.service';
 import { PaymentService } from '../server/services/payment.service';
 import { TaxDocumentService } from '../server/services/tax-documents.service';
 
@@ -15,6 +16,7 @@ const sign = (orderId: string, paymentId: string) => crypto.createHmac('sha256',
 
 export async function runExtras(ctx: Record<string, any>, track: Track) {
     await payLinks(ctx, track);
+    await fieldHours(ctx, track);
 }
 
 async function payLinks(ctx: Record<string, any>, track: Track) {
@@ -101,4 +103,60 @@ async function payLinks(ctx: Record<string, any>, track: Track) {
     const want = Math.round(590000 * 0.02) + Math.round(m1.amountPaise * 0.02);
     check('UniteFix\'s monthly invoice lists the online collection fee', lines.some(l => /Online payment collection — 2 payments/.test(l.description) && l.taxablePaise === want), JSON.stringify(lines.map(l => [l.description, l.taxablePaise])));
     delete process.env.RAZORPAY_KEY_SECRET;
+}
+
+/** IST wall time → Date. */
+const ist = (d: string, t: string) => new Date(`${d}T${t}:00+05:30`);
+
+async function fieldHours(ctx: Record<string, any>, track: Track) {
+    const { api, t, disp, bp } = ctx;
+
+    // ── the clock itself ──────────────────────────────────────────────
+    const monSat = [1, 2, 3, 4, 5, 6].map(weekday => ({ weekday, startTime: '09:00', endTime: '19:00' }));
+    const none = { hours: null, holidays: new Set<string>() };
+    check('working time: no hours set → plain time', addWorkingTime(ist('2026-10-05', '18:30'), 120, none).getTime() === ist('2026-10-05', '20:30').getTime());
+    check('working time: Monday 18:30 + 2 h → Tuesday 10:30 (closed overnight)', addWorkingTime(ist('2026-10-05', '18:30'), 120, { hours: monSat, holidays: new Set() }).getTime() === ist('2026-10-06', '10:30').getTime());
+    check('working time: a holiday on Tuesday pushes it to Wednesday 10:30', addWorkingTime(ist('2026-10-05', '18:30'), 120, { hours: monSat, holidays: new Set(['2026-10-06']) }).getTime() === ist('2026-10-07', '10:30').getTime());
+    check('working time: booked on Sunday (closed) → Monday 11:00', addWorkingTime(ist('2026-10-04', '12:00'), 120, { hours: monSat, holidays: new Set() }).getTime() === ist('2026-10-05', '11:00').getTime());
+    check('working time: round the clock but closed on a holiday', addWorkingTime(ist('2026-10-05', '23:00'), 120, { hours: null, holidays: new Set(['2026-10-06']) }).getTime() === ist('2026-10-07', '01:00').getTime());
+
+    // ── settings ──────────────────────────────────────────────────────
+    const st = await api.get('/api/hub/field/settings', t);
+    check('field settings: round the clock, auto-assign off by default', st.status === 200 && st.body.data.hours === null && st.body.data.autoAssign === false && st.body.data.autoAssignMinutes === 15);
+    check('hours must end after they start', (await api.put('/api/hub/field/settings', { hours: [{ weekday: 1, startTime: '19:00', endTime: '09:00' }] }, t)).status === 400);
+    check('a dispatcher cannot change hours', (await api.put('/api/hub/field/settings', { hours: null }, disp)).status === 403);
+    check('a holiday cannot be in the past', (await api.post('/api/hub/field/holidays', { day: '2020-01-01' }, t)).status === 400);
+    const today = new Date(Date.now() + 330 * 60_000);
+    const dayIn = (n: number) => new Date(today.getTime() + n * 86_400_000).toISOString().slice(0, 10);
+    const h = await api.post('/api/hub/field/holidays', { day: dayIn(1), reason: 'QA festival' }, t);
+    check('a holiday is added', h.status === 201 && h.body.data.holidays.some((x: any) => x.day === dayIn(1)));
+
+    // Open only three days from now: a booking now is due that day, not in 2 hours.
+    const far = (today.getUTCDay() + 3) % 7;
+    const sv = await api.put('/api/hub/field/settings', { hours: [{ weekday: far, startTime: '09:00', endTime: '19:00' }] }, t);
+    check('hours saved', sv.status === 200 && sv.body.data.hours.length === 1);
+    const bk = await api.post('/api/services/create', { serviceType: 'QA', description: 'QA hours', address: `Road ${ctx.pin}`, pinCode: ctx.pin, catalogServiceId: ctx.svc2.id }, ctx.ct);
+    const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, bk.body.data.id));
+    const due = sr.slaAssignBy ? new Date(sr.slaAssignBy) : null;
+    check('a job booked outside working hours is due 2 working hours after opening', !!due && due.getTime() === ist(dayIn(3), '11:00').getTime(), `${due?.toISOString()} vs ${ist(dayIn(3), '11:00').toISOString()}`);
+    await api.put('/api/hub/field/settings', { hours: null }, t);
+
+    // ── auto-assign ───────────────────────────────────────────────────
+    const tech = await api.post('/api/hub/field/technicians', { fullName: 'QA Auto Tech', phone: `9${String(Date.now()).slice(-9)}`, services: ['CCTV'] }, t);
+    const [emp] = await db.select().from(employees).where(eq(employees.id, tech.body.data.id));
+    track.userIds.push(emp.userId!);
+    await db.update(employees).set({ documentVerificationStatus: 'verified' as any, isActive: true }).where(eq(employees.id, emp.id));
+    const jobs = [ctx.job.id, sr.id];
+    check('auto-assign is off: nothing happens', (await PartnerFieldService.autoAssignDue()).every(d => !jobs.includes(d.serviceRequestId)));
+    await api.put('/api/hub/field/settings', { autoAssign: true, autoAssignMinutes: 60 }, t);
+    check('inside the window the partner can still pick by hand', (await PartnerFieldService.autoAssignDue()).every(d => !jobs.includes(d.serviceRequestId)));
+    await api.put('/api/hub/field/settings', { autoAssignMinutes: 0 }, t);
+    check('only a technician with the right trade is chosen (CCTV ≠ laptop)', (await PartnerFieldService.autoAssignDue()).every(d => !jobs.includes(d.serviceRequestId)));
+    await db.update(employees).set({ services: ['Laptop'] }).where(eq(employees.id, emp.id));
+    const aa = await PartnerFieldService.autoAssignDue();
+    const after = await db.select().from(serviceRequests).where(inArray(serviceRequests.id, jobs));
+    check('past the window: assigned to the matching technician', jobs.every(id => aa.some(d => d.serviceRequestId === id)) && after.every(r => r.providerId === emp.id && r.status === 'assigned'), JSON.stringify(after.map(r => [r.id, r.providerId, r.status])));
+    const al = await db.select().from(hubAlerts).where(and(eq(hubAlerts.businessPartnerId, bp.id), eq(hubAlerts.kind, 'job_assigned')));
+    check('the partner is told, and it never runs twice', al.length === 2 && (await PartnerFieldService.autoAssignDue()).length === 0);
+    await api.put('/api/hub/field/settings', { autoAssign: false }, t);
 }
