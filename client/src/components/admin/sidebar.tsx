@@ -42,6 +42,8 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Partner Settlements", href: "/admin/partner-settlements", icon: "payments", capability: "partners:view" },
   { name: "Partner Territories", href: "/admin/partner-territories", icon: "share_location", capability: "partners:view" },
   { name: "Marketplace", href: "/admin/marketplace", icon: "storefront", capability: "partners:view" },
+  { name: "Consignment", href: "/admin/consignment", icon: "warehouse", capability: "partners:view" },
+  { name: "Go-live checklist", href: "/admin/go-live", icon: "checklist", capability: "partners:view" },
   { name: "FTTH Operators", href: "/admin/ftth-operators", icon: "router", capability: "ftth:view" },
   { name: "Roles & Access", href: "/admin/admins", icon: "admin_panel_settings", capability: "accounts:view" },
   { name: "Database Console", href: "/admin/developer", icon: "storage", capability: "db_console:manage" },

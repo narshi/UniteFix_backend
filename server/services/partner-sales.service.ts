@@ -9,7 +9,7 @@
  */
 
 import { db } from '../db';
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, ne, or, sql, notInArray } from 'drizzle-orm';
 import {
     partnerCustomers, partnerQuotations, partnerInvoicePayments, taxDocuments, taxDocumentLines, businessPartners,
     ftthConnections, type PartnerCustomer,
@@ -253,7 +253,7 @@ export class PartnerSalesService {
         const conds: any[] = [eq(taxDocuments.issuer, 'partner'), eq(taxDocuments.issuerPartnerId, bpId)];
         if (opts.customerId) conds.push(eq(taxDocuments.partnerCustomerId, opts.customerId));
         if (opts.kind) conds.push(eq(taxDocuments.docKind, opts.kind));
-        else conds.push(inArray(taxDocuments.docKind, ['tax_invoice', 'bill_of_supply', 'credit_note']), ne(taxDocuments.purpose, 'subcontract'));
+        else conds.push(inArray(taxDocuments.docKind, ['tax_invoice', 'bill_of_supply', 'credit_note']), notInArray(taxDocuments.purpose, ['subcontract', 'consignment']));
         const docs = await db.select().from(taxDocuments).where(and(...conds)).orderBy(desc(taxDocuments.issuedAt), desc(taxDocuments.id)).limit(1000);
         const ids = docs.map(d => d.id);
         const pays = ids.length ? await db.select({ doc: partnerInvoicePayments.documentId, s: sql<number>`sum(${partnerInvoicePayments.amountPaise})::int` })

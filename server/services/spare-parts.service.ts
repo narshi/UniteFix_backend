@@ -431,6 +431,11 @@ export class SparePartsService {
         }).onConflictDoNothing().returning();
         if (!movement) return null;   // idempotent repeat (same fitted line / order line)
         await tx.update(sparePartStock).set({ quantity: after, updatedAt: new Date() }).where(eq(sparePartStock.id, row.id));
+        // Units leaving the warehouse come from partners' consignment first; they are paid for them.
+        if (input.location === 'warehouse' && input.delta < 0 && before > after && ['sold_to_partner', 'transfer_to_technician', 'consumed', 'write_off'].includes(input.movementType)) {
+            const { ConsignmentService } = await import('./consignment.service');
+            await ConsignmentService.draw(tx, { sparePartId: input.sparePartId, quantity: before - after, movementId: movement.id, reason: input.notes ?? input.movementType });
+        }
         return movement;
     }
 

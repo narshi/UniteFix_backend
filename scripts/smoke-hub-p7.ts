@@ -254,6 +254,36 @@ async function main() {
         const fee2Lines = fee2 ? await db.select().from((await import('../shared/schema')).taxDocumentLines).where(eq((await import('../shared/schema')).taxDocumentLines.documentId, fee2.id)) : [];
         check('courier charges on dispatched parcels are invoiced monthly (the cancelled one is not)', fee2Lines.some(l => /Courier bookings — 1 parcel/.test(l.description) && l.taxablePaise === 8000), JSON.stringify(fee2Lines.map(l => [l.description, l.taxablePaise])));
         configService.invalidate('BUSINESS_CONFIG.MARKETPLACE_COURIER_RATE_PER_500G_RUPEES');
+
+        // ── bundle: product + the seller's installation ───────────────────
+        await db.update(products).set({ stock: 5 }).where(eq(products.id, pid2));
+        check('installation must carry a service SAC', (await api.patch(`/api/hub/store/listings/${pid2}`, { installationPriceRupees: 500, installationSac: '85176290' }, t2)).status === 400);
+        const inst = await api.patch(`/api/hub/store/listings/${pid2}`, { installationPriceRupees: 500, installationSac: '998734', installationNote: 'Ceiling mount, cabling up to 10 m' }, t2);
+        check('a seller offers installation with a listing', inst.status === 200 && (await api.get('/api/hub/store/listings', t2)).body.data.find((l: any) => l.id === pid2)?.installationPrice === 500);
+        const bq = await api.post('/api/store/quote', { items: [{ productId: pid2, quantity: 1, withInstallation: true }] }, ct);
+        check('the customer adds installation: two lines, ₹2,000', bq.status === 200 && bq.body?.data?.total === 2000 && bq.body.data.lines?.length === 2, JSON.stringify(bq.body?.data?.lines?.map((l: any) => [l.kind, l.totalPaise])));
+        check('a product without installation cannot be bought with it', (await api.post('/api/store/quote', { items: [{ productId: pid1, quantity: 1, withInstallation: true }] }, ct)).body?.code === 'NO_INSTALL');
+        const bco = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1, withInstallation: true }], address: 'Karwar', pincode: '581301' }, ct);
+        await MarketplaceService.applyCapture({ checkoutId: bco.body.data.checkoutId, razorpayPaymentId: `pay_qa6_${stamp}` });
+        const [so6] = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, bco.body.data.checkoutId));
+        const items6 = await db.select().from((await import('../shared/schema')).sellerOrderItems).where(eq((await import('../shared/schema')).sellerOrderItems.sellerOrderId, so6.id));
+        check('one seller order with goods and an installation line; stock taken only for the goods', so6.totalPaise === 200000 && so6.installationStatus === 'pending' && items6.map(i => i.kind).sort().join() === 'goods,installation' && (await db.select().from(products).where(eq(products.id, pid2)))[0].stock === 4);
+        await api.post(`/api/hub/store/orders/${so6.id}/transition`, { to: 'confirmed' }, t2);
+        await api.post(`/api/hub/store/orders/${so6.id}/transition`, { to: 'dispatched', courier: 'DTDC', trackingId: 'D600' }, t2);
+        const [so6b] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so6.id));
+        const invLines6 = await db.select().from((await import('../shared/schema')).taxDocumentLines).where(eq((await import('../shared/schema')).taxDocumentLines.documentId, so6b.invoiceDocumentId ?? 0));
+        check('the seller\'s invoice carries installation as a service (SAC, 18%, per job)', invLines6.some(l => l.hsnSac === '998734' && Number(l.gstRate) === 18 && l.unit === 'job') && invLines6.some(l => l.hsnSac === '85176290'), JSON.stringify(invLines6.map(l => [l.hsnSac, l.gstRate, l.unit])));
+        check('installed only after delivery', (await api.post(`/api/hub/store/orders/${so6.id}/installed`, {}, t2)).status === 409);
+        await api.post(`/api/hub/store/orders/${so6.id}/transition`, { to: 'delivered' }, t2);
+        await db.update(sellerOrders).set({ settleAfter: new Date(Date.now() - 1000) }).where(eq(sellerOrders.id, so6.id));
+        await MarketplaceService.settleDue();
+        check('an order with installation to do does not settle', !(await db.select().from(sellerOrders).where(eq(sellerOrders.id, so6.id)))[0].settledAt);
+        const mi = await api.post(`/api/hub/store/orders/${so6.id}/installed`, { note: 'Done, customer signed' }, t2);
+        await MarketplaceService.settleDue();
+        const [so6c] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so6.id));
+        check('marked installed → it settles', mi.status === 200 && so6c.installationStatus === 'done' && !!so6c.settledAt);
+        const my6 = (await api.get('/api/store/orders', ct)).body?.data?.find((o: any) => o.id === so6.id);
+        check('the customer sees the installation done', my6?.installationStatus === 'done' && my6.items.some((i: any) => i.kind === 'installation'));
     } finally {
         await cleanup();
         await close();

@@ -443,6 +443,10 @@ export const products = pgTable("products", {
    * A partner listing is is_active only while listing_status is 'live', so
    * every existing customer query keeps hiding drafts, reviews and rejects.
    */
+  // Bundle: the seller's installation, offered as an add-on at checkout (a separate service line, 18% GST)
+  installationPricePaise: integer("installation_price_paise"),
+  installationSac: text("installation_sac"),
+  installationNote: text("installation_note"),
   sellerPartnerId: integer("seller_partner_id"),
   listingStatus: text("listing_status").notNull().default('live'),  // draft | pending_review | live | rejected | paused
   mrp: integer("mrp"),                                               // rupees; sale price ≤ MRP (Legal Metrology)
@@ -2699,6 +2703,7 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   'online_collection',      // a customer paid the partner through a UniteFix pay link, −
   'gateway_fee',            // UniteFix's collection fee + GST on it, +
   'store_penalty',          // a store order dispatched late or cancelled by the seller, +
+  'consignment_sale',       // the partner's consigned parts UniteFix drew from its warehouse (payout, GST on the monthly invoice), −
 ]);
 
 /**
@@ -3325,6 +3330,8 @@ export const sellerOrders = pgTable("seller_orders", {
   parcel: jsonb("parcel"),                                  // { weightGrams, lengthCm, widthCm, heightCm }
   courierChargePaise: integer("courier_charge_paise").notNull().default(0),   // charged to the seller at booking, + GST
   courierChargeGstPaise: integer("courier_charge_gst_paise").notNull().default(0),
+  installationStatus: text("installation_status"),          // null (none bought) | pending | done — settles only when done
+  installedAt: timestamp("installed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3342,6 +3349,7 @@ export const sellerOrderItems = pgTable("seller_order_items", {
   taxablePaise: integer("taxable_paise").notNull(),
   taxPaise: integer("tax_paise").notNull(),
   commissionPaise: integer("commission_paise").notNull().default(0),
+  kind: text("kind").notNull().default('goods'),           // goods | installation
 });
 
 export const sellerOrderEvents = pgTable("seller_order_events", {
@@ -3424,3 +3432,41 @@ export const partnerHolidays = pgTable("partner_holidays", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({ bpDay: uniqueIndex("partner_holidays_bp_day_idx").on(t.businessPartnerId, t.day) }));
 export type PartnerHoliday = typeof partnerHolidays.$inferSelect;
+
+/**
+ * Parts a partner puts in UniteFix's warehouse on sale-or-return. UniteFix
+ * sells them through the B2B catalogue and its jobs; the partner is paid the
+ * agreed payout for each unit drawn from the warehouse, and invoices UniteFix
+ * monthly for what was drawn. Unsold units can go back.
+ */
+export const consignmentLots = pgTable("consignment_lots", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  sparePartId: integer("spare_part_id").notNull().references(() => spareParts.id),
+  quantityOffered: integer("quantity_offered").notNull(),
+  quantityReceived: integer("quantity_received").notNull().default(0),
+  quantitySold: integer("quantity_sold").notNull().default(0),
+  quantityReturned: integer("quantity_returned").notNull().default(0),
+  unitPayoutPaise: integer("unit_payout_paise").notNull(),          // before GST
+  status: text("status").notNull().default('proposed'),             // proposed | received | rejected | closed | withdrawn
+  notes: text("notes"),
+  reviewNote: text("review_note"),
+  receivedAt: timestamp("received_at"),
+  receivedByAdminId: integer("received_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({ bpIdx: index("consignment_lots_bp_idx").on(t.businessPartnerId), partIdx: index("consignment_lots_part_idx").on(t.sparePartId, t.status) }));
+
+/** Units drawn from a lot: one row per lot per stock movement. */
+export const consignmentDraws = pgTable("consignment_draws", {
+  id: serial("id").primaryKey(),
+  lotId: integer("lot_id").notNull().references(() => consignmentLots.id, { onDelete: 'cascade' }),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  sparePartId: integer("spare_part_id").notNull(),
+  movementId: integer("movement_id").notNull(),                    // spare_part_movements.id
+  quantity: integer("quantity").notNull(),
+  unitPayoutPaise: integer("unit_payout_paise").notNull(),
+  amountPaise: integer("amount_paise").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ lotMove: uniqueIndex("consignment_draws_lot_move_idx").on(t.lotId, t.movementId), bpIdx: index("consignment_draws_bp_idx").on(t.businessPartnerId, t.createdAt) }));
+export type ConsignmentLot = typeof consignmentLots.$inferSelect;

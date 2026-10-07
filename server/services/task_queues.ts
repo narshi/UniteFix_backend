@@ -275,6 +275,9 @@ async function issueMonthlySubcontractInvoices(): Promise<void> {
         const { PartnerFieldService } = await import('./partner-field.service');
         const issued = await PartnerFieldService.runMonthlySubcontractInvoices(prevMonth);
         if (issued.length) logger.info(`[CRON] Generated ${issued.length} partner subcontract invoice(s) for ${prevMonth.toISOString().slice(0, 7)}`);
+        const { ConsignmentService } = await import('./consignment.service');
+        const cons = await ConsignmentService.runMonthlyInvoices(prevMonth);
+        if (cons.length) logger.info(`[CRON] Generated ${cons.length} partner consignment invoice(s) for ${prevMonth.toISOString().slice(0, 7)}`);
     } catch (error: any) {
         logger.error('[CRON] Partner subcontract invoices failed', { error: error.message });
     }

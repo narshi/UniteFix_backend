@@ -4,10 +4,13 @@
 import crypto from 'crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { check, db } from './lib/hub-test-kit';
-import { partnerPayLinks, partnerInvoicePayments, businessPartnerLedger, eventMilestones, hubAlerts, taxDocumentLines, consultAppointments, employees, serviceRequests } from '../shared/schema';
+import { partnerPayLinks, partnerInvoicePayments, businessPartnerLedger, eventMilestones, hubAlerts, taxDocumentLines, consultAppointments, employees, serviceRequests, spareParts, sparePartStock, consignmentLots, taxDocuments } from '../shared/schema';
+import { SparePartsService } from '../server/services/spare-parts.service';
+import { ConsignmentService } from '../server/services/consignment.service';
 import { PartnerFieldService, addWorkingTime } from '../server/services/partner-field.service';
 import { PaymentService } from '../server/services/payment.service';
 import { TaxDocumentService } from '../server/services/tax-documents.service';
+import { BusinessPartnerService } from '../server/services/business-partner.service';
 
 type Track = { userIds: number[]; catIds: number[]; svcIds: number[]; extraCleanup: string[]; adminIds: number[] };
 const inDays = (n: number) => new Date(Date.now() + 330 * 60_000 + n * 86_400_000).toISOString().slice(0, 10);
@@ -17,6 +20,8 @@ const sign = (orderId: string, paymentId: string) => crypto.createHmac('sha256',
 export async function runExtras(ctx: Record<string, any>, track: Track) {
     await payLinks(ctx, track);
     await fieldHours(ctx, track);
+    await consignment(ctx, track);
+    await goLive(ctx);
 }
 
 async function payLinks(ctx: Record<string, any>, track: Track) {
@@ -145,6 +150,7 @@ async function fieldHours(ctx: Record<string, any>, track: Track) {
     const tech = await api.post('/api/hub/field/technicians', { fullName: 'QA Auto Tech', phone: `9${String(Date.now()).slice(-9)}`, services: ['CCTV'] }, t);
     const [emp] = await db.select().from(employees).where(eq(employees.id, tech.body.data.id));
     track.userIds.push(emp.userId!);
+    ctx.tech = emp;
     await db.update(employees).set({ documentVerificationStatus: 'verified' as any, isActive: true }).where(eq(employees.id, emp.id));
     const jobs = [ctx.job.id, sr.id];
     check('auto-assign is off: nothing happens', (await PartnerFieldService.autoAssignDue()).every(d => !jobs.includes(d.serviceRequestId)));
@@ -159,4 +165,63 @@ async function fieldHours(ctx: Record<string, any>, track: Track) {
     const al = await db.select().from(hubAlerts).where(and(eq(hubAlerts.businessPartnerId, bp.id), eq(hubAlerts.kind, 'job_assigned')));
     check('the partner is told, and it never runs twice', al.length === 2 && (await PartnerFieldService.autoAssignDue()).length === 0);
     await api.put('/api/hub/field/settings', { autoAssign: false }, t);
+}
+
+async function consignment(ctx: Record<string, any>, track: Track) {
+    const { api, t, disp, bp, staff, sa } = ctx;
+    const stamp = Date.now().toString(36).toUpperCase();
+    const [part] = await db.insert(spareParts).values({ partCode: `QA-CONS-${stamp}`, name: `QA Capacitor ${stamp}`, unit: 'piece', unitPricePaise: 15000, tradePricePaise: 10000, gstPercent: '18', hsnCode: '8532', status: 'active' as any, isActive: true }).returning();
+    track.extraCleanup.push(
+        `DELETE FROM consignment_draws WHERE spare_part_id = ${part.id}`,
+        `DELETE FROM consignment_lots WHERE spare_part_id = ${part.id}`,
+        `DELETE FROM spare_part_movements WHERE spare_part_id = ${part.id}`,
+        `DELETE FROM spare_part_stock WHERE spare_part_id = ${part.id}`,
+        `DELETE FROM audit_logs WHERE entity_type = 'spare_part' AND entity_id = ${part.id}`,
+        `DELETE FROM spare_parts WHERE id = ${part.id}`,
+    );
+    check('consignment: a price at or above UniteFix\'s trade price is refused', (await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 10, unitPayoutRupees: 100 }, t)).body?.code === 'PRICE_TOO_HIGH');
+    check('consignment: a dispatcher cannot offer stock', (await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 10, unitPayoutRupees: 60 }, disp)).status === 403);
+    const o1 = await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 10, unitPayoutRupees: 60, notes: 'Box of 10' }, t);
+    check('consignment: the partner offers 10 at ₹60', o1.status === 201 && o1.body.data.status === 'proposed');
+    // UniteFix also holds 5 of its own.
+    await SparePartsService.receivePurchase({ sparePartId: part.id, quantity: 5, unitCostPaise: 7000, adminId: sa.id, notes: 'QA own stock' });
+    const rc = await api.post(`/api/admin/hub/consignment/${o1.body.data.id}/receive`, { quantity: 8 }, staff);
+    const wh = async () => (await db.select().from(sparePartStock).where(and(eq(sparePartStock.sparePartId, part.id), eq(sparePartStock.location, 'warehouse' as any))))[0]?.quantity;
+    check('staff receive 8 of the 10 into the warehouse', rc.status === 200 && rc.body.data.received === 8 && (await wh()) === 13);
+    const bal0 = await BusinessPartnerService.balancePaise(bp.id);
+    await SparePartsService.issueToTechnician({ sparePartId: part.id, quantity: 3, employeeId: ctx.tech.id, adminId: sa.id });
+    check('3 issued to a technician come from consignment: the partner is credited 3 × ₹60', (await BusinessPartnerService.balancePaise(bp.id)) - bal0 === -18000);
+    await SparePartsService.issueToTechnician({ sparePartId: part.id, quantity: 7, employeeId: ctx.tech.id, adminId: sa.id });
+    const [lot] = await db.select().from(consignmentLots).where(eq(consignmentLots.id, o1.body.data.id));
+    check('7 more: the 5 consigned left go first, then UniteFix\'s own — the partner is paid for 8 in all', lot.quantitySold === 8 && (await BusinessPartnerService.balancePaise(bp.id)) - bal0 === -48000 && (await wh()) === 3, JSON.stringify([lot.quantitySold, (await BusinessPartnerService.balancePaise(bp.id)) - bal0]));
+    const mine = await api.get('/api/hub/consignment', t);
+    check('the partner sees the lot sold out and 30-day sales', mine.body?.data?.lots?.[0]?.sold === 8 && mine.body.data.lots[0].inStock === 0 && mine.body.data.last30.units === 8 && mine.body.data.last30.payout === 480);
+    const month = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 7);
+    const doc = await ConsignmentService.issueMonthlyInvoice(bp.id, new Date(`${month}-01T00:00:00Z`));
+    const lines = doc ? await db.select().from(taxDocumentLines).where(eq(taxDocumentLines.documentId, doc.id)) : [];
+    check('month end: the partner\'s invoice to UniteFix for 8 units, with its HSN and GST', !!doc && doc.purpose === 'consignment' && doc.issuerPartnerId === bp.id && lines.length === 1 && Number(lines[0].quantity) === 8 && lines[0].hsnSac === '8532' && Number(lines[0].gstRate) === 18, JSON.stringify(lines.map(l => [l.quantity, l.hsnSac, l.gstRate])));
+    check('…its GST is credited to the partner, and it is issued once', (await BusinessPartnerService.balancePaise(bp.id)) - bal0 === -48000 - 8640 && (await ConsignmentService.issueMonthlyInvoice(bp.id, new Date(`${month}-01T00:00:00Z`))) === null);
+    const sales = await api.get('/api/hub/invoices', t);
+    check('it is not mixed into the partner\'s own sales invoices', !(sales.body?.data ?? []).some((r: any) => r.number === doc?.number));
+    // A second lot goes back unsold; a third is rejected; a fourth withdrawn.
+    const o2 = await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 4, unitPayoutRupees: 55 }, t);
+    await api.post(`/api/admin/hub/consignment/${o2.body.data.id}/receive`, { quantity: 4 }, staff);
+    const bal1 = await BusinessPartnerService.balancePaise(bp.id);
+    const rt = await api.post(`/api/admin/hub/consignment/${o2.body.data.id}/return`, {}, staff);
+    check('unsold stock goes back: lot closed, warehouse down 4, partner not paid for it', rt.status === 200 && rt.body.data.status === 'closed' && rt.body.data.returned === 4 && (await wh()) === 3 && (await BusinessPartnerService.balancePaise(bp.id)) === bal1);
+    const o3 = await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 2, unitPayoutRupees: 50 }, t);
+    check('staff reject an offer with a reason', (await api.post(`/api/admin/hub/consignment/${o3.body.data.id}/reject`, { note: 'Not needed now' }, staff)).body?.data?.status === 'rejected');
+    const o4 = await api.post('/api/hub/consignment', { sparePartId: part.id, quantity: 2, unitPayoutRupees: 50 }, t);
+    check('the partner withdraws an offer not yet received', (await api.post(`/api/hub/consignment/${o4.body.data.id}/withdraw`, {}, t)).body?.data?.status === 'withdrawn' && (await api.post(`/api/hub/consignment/${o1.body.data.id}/withdraw`, {}, t)).status === 409);
+}
+
+async function goLive(ctx: Record<string, any>) {
+    const { api, staff, t } = ctx;
+    const g = await api.get('/api/admin/hub/go-live', staff);
+    const keys = (g.body?.data?.checks ?? []).map((c: any) => c.key);
+    check('go-live: staff see every check', g.status === 200 && ['gstin', 'razorpay', 'razorpay_webhook', 'cashfree_payouts', 'smtp', 'sms', 'courier', 'weak_passwords', 'parts_hsn'].every(k => keys.includes(k)), keys.join(','));
+    check('go-live: missing keys are flagged (the test server has no Razorpay or SMTP)', g.body.data.checks.find((c: any) => c.key === 'razorpay')?.status === 'action' && g.body.data.checks.find((c: any) => c.key === 'smtp')?.status === 'action');
+    const raw = JSON.stringify(g.body);
+    check('go-live: no secret value is ever returned', !!process.env.JWT_SECRET && !raw.includes(process.env.JWT_SECRET) && (!process.env.DATABASE_URL || !raw.includes(process.env.DATABASE_URL)));
+    check('go-live: partners cannot see it', [401, 403].includes((await api.get('/api/admin/hub/go-live', t)).status));
 }

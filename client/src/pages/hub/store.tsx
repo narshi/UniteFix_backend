@@ -20,6 +20,7 @@ type Listing = {
   id: number; name: string; description: string | null; categoryId: number | null; categoryName: string | null; price: number; mrp: number | null; stock: number;
   hsnCode: string | null; gstPercent: number | null; countryOfOrigin: string | null; manufacturer: string | null; netQuantity: string | null; returnWindowDays: number;
   warrantyMonths: number | null; warrantyBy: string | null; bisNumber: string | null; wpcEta: string | null; images: string[]; sellerSku: string | null; status: string; rejectionReason: string | null;
+  installationPrice: number | null; installationSac: string | null; installationNote: string | null;
 };
 type Overview = {
   gaps: string[]; metrics: { score: number; tier: string; ratingAvg: number | null; ratingCount: number; onTimeDispatch: number; sellerCancelRate: number; returnRate: number; deliveredOrders: number };
@@ -29,7 +30,7 @@ type Order = {
   id: number; code: string; status: string; total: number; net: number; commission: number; tcs: number; tds: number; shipName: string | null; shipPhone: string | null; shipAddress: string | null; shipPincode: string | null;
   courier: string | null; trackingId: string | null; createdAt: string; dispatchBy: string | null; late: boolean; returnStatus: string | null; returnReason: string | null; settleAfter: string | null; settledAt: string | null;
   items: Array<{ id: number; name: string; quantity: number; price: number }>;
-  gatewayFee: number; penalty: number; penaltyReason: string | null; penaltyWaived: boolean; lateCharge: number; shipmentRef: string | null;
+  gatewayFee: number; penalty: number; penaltyReason: string | null; penaltyWaived: boolean; lateCharge: number; shipmentRef: string | null; installationStatus: string | null;
 };
 
 const S_TONE: Record<string, string> = { live: "good", pending_review: "warn", draft: "muted", rejected: "bad", paused: "muted" };
@@ -37,7 +38,7 @@ const O_TONE: Record<string, string> = { placed: "warn", confirmed: "info", pack
 const NEXT: Record<string, [string, string][]> = { placed: [["confirmed", "Confirm"]], confirmed: [["packed", "Packed"], ["dispatched", "Dispatch"]], packed: [["dispatched", "Dispatch"]], dispatched: [["delivered", "Delivered"]] };
 const fail = (toast: any, t: string) => (e: unknown) => toast({ title: t, description: apiErrorMessage(e), variant: "destructive" });
 const when = (d: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—";
-const blank = { name: "", description: "", categoryId: "", priceRupees: "", mrpRupees: "", stock: "0", hsnCode: "", gstPercent: "18", countryOfOrigin: "India", manufacturer: "", netQuantity: "1 unit", returnWindowDays: "7", warrantyMonths: "", warrantyBy: "manufacturer", bisNumber: "", wpcEta: "", sellerSku: "" };
+const blank = { name: "", description: "", categoryId: "", priceRupees: "", mrpRupees: "", stock: "0", hsnCode: "", gstPercent: "18", countryOfOrigin: "India", manufacturer: "", netQuantity: "1 unit", returnWindowDays: "7", warrantyMonths: "", warrantyBy: "manufacturer", bisNumber: "", wpcEta: "", sellerSku: "", installationPriceRupees: "", installationSac: "9987", installationNote: "" };
 
 export function HubStoreListings() {
   const { me } = useHubMe();
@@ -58,7 +59,7 @@ export function HubStoreListings() {
 
   const edit = (l: Listing | null) => {
     setEditing(l);
-    setF(l ? { name: l.name, description: l.description ?? "", categoryId: String(l.categoryId ?? ""), priceRupees: String(l.price), mrpRupees: String(l.mrp ?? ""), stock: String(l.stock ?? 0), hsnCode: l.hsnCode ?? "", gstPercent: String(l.gstPercent ?? 18), countryOfOrigin: l.countryOfOrigin ?? "", manufacturer: l.manufacturer ?? "", netQuantity: l.netQuantity ?? "", returnWindowDays: String(l.returnWindowDays), warrantyMonths: l.warrantyMonths == null ? "" : String(l.warrantyMonths), warrantyBy: l.warrantyBy ?? "manufacturer", bisNumber: l.bisNumber ?? "", wpcEta: l.wpcEta ?? "", sellerSku: l.sellerSku ?? "" } : blank);
+    setF(l ? { name: l.name, description: l.description ?? "", categoryId: String(l.categoryId ?? ""), priceRupees: String(l.price), mrpRupees: String(l.mrp ?? ""), stock: String(l.stock ?? 0), hsnCode: l.hsnCode ?? "", gstPercent: String(l.gstPercent ?? 18), countryOfOrigin: l.countryOfOrigin ?? "", manufacturer: l.manufacturer ?? "", netQuantity: l.netQuantity ?? "", returnWindowDays: String(l.returnWindowDays), warrantyMonths: l.warrantyMonths == null ? "" : String(l.warrantyMonths), warrantyBy: l.warrantyBy ?? "manufacturer", bisNumber: l.bisNumber ?? "", wpcEta: l.wpcEta ?? "", sellerSku: l.sellerSku ?? "", installationPriceRupees: l.installationPrice == null ? "" : String(l.installationPrice), installationSac: l.installationSac ?? "9987", installationNote: l.installationNote ?? "" } : blank);
     setOpen(true);
   };
   const save = async () => {
@@ -67,6 +68,7 @@ export function HubStoreListings() {
       hsnCode: f.hsnCode, gstPercent: Number(f.gstPercent), countryOfOrigin: f.countryOfOrigin, manufacturer: f.manufacturer, netQuantity: f.netQuantity || null,
       returnWindowDays: Number(f.returnWindowDays), warrantyMonths: f.warrantyMonths ? Number(f.warrantyMonths) : null, warrantyBy: f.warrantyBy || null,
       bisNumber: f.bisNumber || null, wpcEta: f.wpcEta || null, sellerSku: f.sellerSku || null,
+      installationPriceRupees: f.installationPriceRupees ? Number(f.installationPriceRupees) : null, installationSac: f.installationPriceRupees ? (f.installationSac || "9987") : null, installationNote: f.installationNote || null,
     };
     try { const r: any = await apiRequest(editing ? "PATCH" : "POST", editing ? `/api/hub/store/listings/${editing.id}` : "/api/hub/store/listings", body); refresh(); setOpen(false); toast({ title: "Saved", description: r.message }); }
     catch (e) { fail(toast, "Not saved")(e); }
@@ -151,6 +153,13 @@ export function HubStoreListings() {
             <div><Label htmlFor="l-wp">WPC ETA (wireless)</Label><Input id="l-wp" value={f.wpcEta} onChange={e => setF({ ...f, wpcEta: e.target.value })} /></div>
             <div><Label htmlFor="l-sku">Your SKU</Label><Input id="l-sku" value={f.sellerSku} onChange={e => setF({ ...f, sellerSku: e.target.value })} /></div>
           </div>
+          <fieldset className="grid gap-3 rounded-lg border border-[rgba(255,255,255,0.08)] p-3 sm:grid-cols-3">
+            <legend className="px-1 text-sm text-white">Installation by you (optional)</legend>
+            <p className="sm:col-span-3 text-xs text-[hsl(215,20%,60%)]">Offer it as an add-on at checkout. It is a separate service on your invoice (SAC, 18% GST); the order settles once you mark it installed.</p>
+            <div><Label htmlFor="l-ip">Price ₹ incl. GST</Label><Input id="l-ip" inputMode="numeric" placeholder="not offered" value={f.installationPriceRupees} onChange={e => setF({ ...f, installationPriceRupees: e.target.value.replace(/\D/g, "") })} /></div>
+            <div><Label htmlFor="l-is">SAC</Label><Input id="l-is" inputMode="numeric" value={f.installationSac} onChange={e => setF({ ...f, installationSac: e.target.value.replace(/\D/g, "").slice(0, 6) })} /></div>
+            <div><Label htmlFor="l-in">What it covers</Label><Input id="l-in" placeholder="Wall mount, wiring up to 10 m" value={f.installationNote} onChange={e => setF({ ...f, installationNote: e.target.value })} /></div>
+          </fieldset>
           {f.priceRupees && f.mrpRupees && Number(f.priceRupees) > Number(f.mrpRupees) && <p role="alert" className="text-sm text-rose-300">The price is above the MRP — that is not allowed.</p>}
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={save} disabled={!f.name.trim() || !f.categoryId || !f.priceRupees || !f.mrpRupees || !f.hsnCode || !f.manufacturer.trim() || !f.countryOfOrigin.trim()}>Save</Button></DialogFooter>
         </DialogContent>
@@ -201,7 +210,7 @@ export function HubStoreOrders() {
           <ul className="divide-y divide-[rgba(255,255,255,0.06)]">{rows.map(o => (
             <li key={o.id} className="grid gap-2 py-3 lg:grid-cols-[1fr_auto]">
               <div className="text-sm">
-                <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{o.code}</span><Chip tone={O_TONE[o.status]}>{o.status}</Chip>{o.late && <Chip tone="bad">past dispatch deadline{o.lateCharge ? ` — ₹${o.lateCharge} charge when dispatched` : ""}</Chip>}{o.penalty > 0 && <Chip tone="bad">charge {inr(o.penalty)}</Chip>}{o.penaltyWaived && <Chip>charge waived</Chip>}{o.returnStatus && <Chip tone="warn">return {o.returnStatus}</Chip>}{o.settledAt && <Chip tone="good">settled</Chip>}</div>
+                <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{o.code}</span><Chip tone={O_TONE[o.status]}>{o.status}</Chip>{o.late && <Chip tone="bad">past dispatch deadline{o.lateCharge ? ` — ₹${o.lateCharge} charge when dispatched` : ""}</Chip>}{o.penalty > 0 && <Chip tone="bad">charge {inr(o.penalty)}</Chip>}{o.penaltyWaived && <Chip>charge waived</Chip>}{o.installationStatus === "pending" && <Chip tone="warn">installation to do</Chip>}{o.installationStatus === "done" && <Chip tone="good">installed</Chip>}{o.returnStatus && <Chip tone="warn">return {o.returnStatus}</Chip>}{o.settledAt && <Chip tone="good">settled</Chip>}</div>
                 <p className="mt-0.5 text-white">{o.items.map(i => `${i.quantity} × ${i.name}`).join(", ")}</p>
                 <p className="mt-0.5 text-[hsl(215,20%,70%)]">{o.shipName ? `${o.shipName}${o.shipPhone ? ` · ${o.shipPhone}` : ""} · ${o.shipAddress ?? ""} ${o.shipPincode ?? ""}` : "Customer details hidden after settlement"}</p>
                 <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{inr(o.total)} · commission {inr(o.commission)}{o.gatewayFee ? ` · payment collection ${inr(o.gatewayFee)}` : ""} · TCS {inr(o.tcs)} · TDS {inr(o.tds)} · <span className="text-white">you get {inr(o.net)}</span>{o.courier ? ` · ${o.courier} ${o.trackingId}` : ""}{["placed", "confirmed", "packed"].includes(o.status) ? ` · ship by ${when(o.dispatchBy)}` : ""}</p>
@@ -215,6 +224,7 @@ export function HubStoreOrders() {
                 {["placed", "confirmed", "packed"].includes(o.status) && <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => cancel(o)}>Cancel</Button>}
                 {o.returnStatus === "requested" && <><Button size="sm" onClick={() => ret(o, "approve")}>Approve return</Button><Button size="sm" variant="ghost" onClick={() => ret(o, "reject")}>Reject</Button></>}
                 {o.returnStatus === "approved" && <Button size="sm" onClick={() => ret(o, "received")}>Received back</Button>}
+                {o.status === "delivered" && o.installationStatus === "pending" && <Button size="sm" onClick={async () => { try { const r: any = await apiRequest("POST", `/api/hub/store/orders/${o.id}/installed`, {}); refresh(); toast({ title: r.message }); } catch (e) { fail(toast, "Not saved")(e); } }}>Mark installed</Button>}
               </div>}
             </li>
           ))}</ul>

@@ -22,7 +22,7 @@ import OperatorCustomers from "@/pages/operator/customers";
 import OperatorLeads from "@/pages/operator/leads";
 import OperatorSettlements from "@/pages/operator/settlements";
 import OperatorOverview from "@/pages/operator/overview";
-import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail } from "@/pages/hub/parts";
+import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail, HubPartsConsignment } from "@/pages/hub/parts";
 import HubPurchases from "@/pages/hub/purchases";
 import HubMoney from "@/pages/hub/money";
 import { HubAlertsPage } from "@/components/hub/AlertBell";
@@ -95,6 +95,7 @@ export const HUB_ENTRIES: HubEntry[] = [
   // Phase 2 — parts from UniteFix, purchases and money.
   { path: "/partner/parts", component: HubPartsCatalogue, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Order parts", icon: "inventory_2" } },
   { path: "/partner/parts/orders", component: HubPartsOrders, module: "parts", perm: "purchases:manage", nav: { group: "Parts", label: "Parts orders", icon: "local_shipping" } },
+  { path: "/partner/parts/consignment", component: HubPartsConsignment, module: "parts", perm: "sales:manage", nav: { group: "Parts", label: "Consignment stock", icon: "warehouse" } },
   { path: "/partner/parts/orders/:id", component: HubPartsOrderDetail, module: "parts", perm: "purchases:manage" },
   { path: "/partner/purchases", component: HubPurchases, module: "purchases", perm: "purchases:manage", nav: { group: "Purchases", label: "Purchases & ITC", icon: "receipt_long" } },
   { path: "/partner/money", component: HubMoney, module: "money", perm: "money:view", nav: { group: "Money", label: "Statement & settlements", icon: "account_balance_wallet" } },

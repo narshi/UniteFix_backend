@@ -110,6 +110,7 @@ export class MarketplaceService {
         hsnCode?: string; gstPercent?: number; countryOfOrigin?: string; manufacturer?: string; netQuantity?: string | null;
         returnWindowDays?: number; warrantyMonths?: number | null; warrantyBy?: string | null; bisNumber?: string | null; wpcEta?: string | null;
         images?: string[]; sellerSku?: string | null;
+        installationPriceRupees?: number | null; installationSac?: string | null; installationNote?: string | null;
     }) {
         const existing = id ? await this.listing(ctx.businessPartnerId, id) : null;
         const merged = {
@@ -138,6 +139,12 @@ export class MarketplaceService {
         if (input.bisNumber !== undefined) v.bisNumber = input.bisNumber?.trim() || null;
         if (input.wpcEta !== undefined) v.wpcEta = input.wpcEta?.trim() || null;
         if (input.sellerSku !== undefined) v.sellerSku = input.sellerSku?.trim() || null;
+        if (input.installationPriceRupees !== undefined) {
+            if (input.installationPriceRupees != null && !(Number.isInteger(input.installationPriceRupees) && input.installationPriceRupees >= 1 && input.installationPriceRupees <= 100000)) throw new HubError('Installation price is a whole number of rupees, 1–1,00,000 (or leave it empty).', 'BAD_INSTALL');
+            v.installationPricePaise = input.installationPriceRupees == null ? null : input.installationPriceRupees * 100;
+        }
+        if (input.installationSac !== undefined) { if (input.installationSac && !/^99\d{2}(\d{2})?$/.test(input.installationSac)) throw new HubError('Installation is a service: its SAC starts with 99 (4 or 6 digits).', 'BAD_SAC'); v.installationSac = input.installationSac || null; }
+        if (input.installationNote !== undefined) v.installationNote = input.installationNote?.trim().slice(0, 300) || null;
         if (input.images !== undefined) { const im = input.images.filter(u => /^https?:\/\/|^data:image\//.test(u)).slice(0, 8); v.images = im; v.thumbnailUrl = im[0] ?? null; }
 
         if (existing) {
@@ -259,13 +266,13 @@ export class MarketplaceService {
     // Checkout — priced on the server
     // ══════════════════════════════════════════════════════════════════════
 
-    static async quote(items: Array<{ productId: number; quantity: number }>) {
+    static async quote(items: Array<{ productId: number; quantity: number; withInstallation?: boolean }>) {
         if (!items.length) throw new HubError('Your cart is empty.', 'EMPTY');
         const ids = items.map(i => i.productId);
         const rows = await db.select({ p: products, bp: businessPartners }).from(products)
             .leftJoin(businessPartners, eq(businessPartners.id, products.sellerPartnerId)).where(inArray(products.id, ids));
         const by = new Map(rows.map(r => [r.p.id, r]));
-        const lines = items.map(i => {
+        const lines = items.flatMap(i => {
             const r = by.get(i.productId);
             if (!r) throw new HubError(`Product #${i.productId} is not available.`, 'GONE', 409);
             if (!r.p.sellerPartnerId) throw new HubError(`${r.p.name} is sold by UniteFix and checks out separately.`, 'NOT_MARKETPLACE', 409);
@@ -275,7 +282,12 @@ export class MarketplaceService {
             if ((r.p.stock ?? 0) < q) throw new HubError(`Only ${r.p.stock ?? 0} of ${r.p.name} left.`, 'STOCK', 409);
             const unit = r.p.price * 100, gst = Number(r.p.gstPercent ?? 0);
             const gross = unit * q, taxable = Math.round(gross * 100 / (100 + gst));
-            return { productId: r.p.id, sellerPartnerId: r.p.sellerPartnerId, sellerName: r.bp!.displayName, name: r.p.name, quantity: q, unitPricePaise: unit, mrpPaise: r.p.mrp != null ? r.p.mrp * 100 : null, gstRate: gst, hsnCode: r.p.hsnCode, taxablePaise: taxable, taxPaise: gross - taxable, totalPaise: gross, returnWindowDays: r.p.returnWindowDays, categoryId: r.p.categoryId };
+            const goods = { kind: 'goods' as string, productId: r.p.id, sellerPartnerId: r.p.sellerPartnerId, sellerName: r.bp!.displayName, name: r.p.name, quantity: q, unitPricePaise: unit, mrpPaise: r.p.mrp != null ? r.p.mrp * 100 : null, gstRate: gst, hsnCode: r.p.hsnCode, taxablePaise: taxable, taxPaise: gross - taxable, totalPaise: gross, returnWindowDays: r.p.returnWindowDays, categoryId: r.p.categoryId };
+            if (!i.withInstallation) return [goods];
+            if (!r.p.installationPricePaise) throw new HubError(`${r.p.name} is not offered with installation.`, 'NO_INSTALL', 409);
+            // A separate service at its own price: SAC and 18% GST, never the goods' rate.
+            const ig = r.p.installationPricePaise * q, it = Math.round(ig * 100 / 118);
+            return [goods, { ...goods, kind: 'installation', name: `Installation — ${r.p.name}`, unitPricePaise: r.p.installationPricePaise, mrpPaise: null, gstRate: 18, hsnCode: r.p.installationSac || '9987', taxablePaise: it, taxPaise: ig - it, totalPaise: ig }];
         });
         const sellers = Array.from(new Set(lines.map(l => l.sellerPartnerId))).map(id => ({ sellerPartnerId: id, sellerName: lines.find(l => l.sellerPartnerId === id)!.sellerName, totalPaise: lines.filter(l => l.sellerPartnerId === id).reduce((a, l) => a + l.totalPaise, 0) }));
         return { lines, sellers, totalPaise: lines.reduce((a, l) => a + l.totalPaise, 0) };
@@ -323,6 +335,7 @@ export class MarketplaceService {
             const lines = c.lines as any[];
             // Take stock, all or nothing.
             for (const l of lines) {
+                if (l.kind === 'installation') continue;
                 const r = await tx.update(products).set({ stock: sql`${products.stock} - ${l.quantity}`, updatedAt: new Date() })
                     .where(and(eq(products.id, l.productId), gte(products.stock, l.quantity))).returning({ id: products.id });
                 if (!r.length) {
@@ -362,10 +375,11 @@ export class MarketplaceService {
                     ...this.gatewayFee(taxable + gst, fees),
                     shipName: c.customerName, shipPhone: c.customerPhone, shipAddress: c.address, shipPincode: c.pincode,
                     returnWindowDays: Math.max(...mine.map(l => Number(l.returnWindowDays ?? 7))),
+                    installationStatus: mine.some(l => l.kind === 'installation') ? 'pending' : null,
                 }).returning();
                 await tx.insert(sellerOrderItems).values(items.map(l => ({
                     sellerOrderId: so.id, productId: l.productId, name: l.name, quantity: l.quantity, unitPricePaise: l.unitPricePaise, mrpPaise: l.mrpPaise,
-                    gstRate: String(l.gstRate), hsnCode: l.hsnCode, taxablePaise: l.taxablePaise, taxPaise: l.taxPaise, commissionPaise: l.commissionPaise,
+                    gstRate: String(l.gstRate), hsnCode: l.hsnCode, taxablePaise: l.taxablePaise, taxPaise: l.taxPaise, commissionPaise: l.commissionPaise, kind: l.kind ?? 'goods',
                 })));
                 await tx.insert(sellerOrderEvents).values({ sellerOrderId: so.id, toStatus: 'placed', actorType: 'customer', actorId: c.userId, note: `Paid ${params.razorpayPaymentId}` });
                 created.push(so);
@@ -450,7 +464,7 @@ export class MarketplaceService {
         const doc = await TaxDocumentService.create(tx, {
             docKind: 'tax_invoice', issuer: 'partner', issuerPartnerId: so.sellerPartnerId, seriesKey: `bp-${so.sellerPartnerId}-inv`, prefix, letter: '', numberWidth: 4,
             purpose: 'marketplace_sale', supplier: TaxDocumentService.partnerParty(bp!), recipient: await this.customerParty(so),
-            lines: items.map((i: any) => ({ description: i.name, hsnSac: i.hsnCode, quantity: i.quantity, unit: 'pcs', ratePaise: Math.round(i.taxablePaise / i.quantity), taxablePaise: i.taxablePaise, gstRate: Number(i.gstRate), taxPaise: i.taxPaise })),
+            lines: items.map((i: any) => ({ description: i.name, hsnSac: i.hsnCode, quantity: i.quantity, unit: i.kind === 'installation' ? 'job' : 'pcs', ratePaise: Math.round(i.taxablePaise / i.quantity), taxablePaise: i.taxablePaise, gstRate: Number(i.gstRate), taxPaise: i.taxPaise })),
             notes: `Order ${so.code}. Sold by ${bp!.legalName} through UniteFix (e-commerce operator${uf.gstin ? `, GSTIN ${uf.gstin}` : ''}). Grievances: ${bp!.grievanceName ?? ''} ${bp!.grievancePhone ?? ''} ${bp!.grievanceEmail ?? ''}`.trim(),
         });
         return doc.id;
@@ -479,6 +493,19 @@ export class MarketplaceService {
         });
     }
 
+    /** The seller installed what the customer bought with installation. Settlement waits for this. */
+    static async markInstalled(ctx: HubContext, id: number, note?: string | null) {
+        const so = await this.sellerOrder(id, { bpId: ctx.businessPartnerId });
+        if (so.installationStatus !== 'pending') throw new HubError('This order has no installation waiting.', 'NO_INSTALL', 409);
+        if (so.status !== 'delivered') throw new HubError('Mark it installed after the delivery.', 'BAD_STATE', 409);
+        return withTransaction(async (tx) => {
+            const [u] = await tx.update(sellerOrders).set({ installationStatus: 'done', installedAt: new Date(), updatedAt: new Date() }).where(and(eq(sellerOrders.id, so.id), eq(sellerOrders.installationStatus, 'pending'))).returning();
+            if (!u) throw new HubError('The order changed meanwhile. Refresh.', 'STALE', 409);
+            await tx.insert(sellerOrderEvents).values({ sellerOrderId: so.id, fromStatus: so.status, toStatus: so.status, actorType: 'seller', actorId: ctx.adminUserId, note: `Installed${note ? ` — ${note.trim()}` : ''}` });
+            return u;
+        });
+    }
+
     /** Cancel before dispatch: stock back, the customer refunded for this seller's part. */
     static async cancel(so: SellerOrder, by: 'seller' | 'customer' | 'admin', actorId: number | null, reason?: string | null) {
         if (!['placed', 'confirmed', 'packed'].includes(so.status)) throw new HubError('Only an order not yet dispatched can be cancelled.', 'BAD_STATE', 409);
@@ -490,7 +517,7 @@ export class MarketplaceService {
                 .where(and(eq(sellerOrders.id, so.id), eq(sellerOrders.status, so.status))).returning();
             if (!u) throw new HubError('The order changed meanwhile. Refresh.', 'STALE', 409);
             const items = await tx.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
-            for (const i of items) await tx.update(products).set({ stock: sql`${products.stock} + ${i.quantity}` }).where(eq(products.id, i.productId));
+            for (const i of items) if (i.kind !== 'installation') await tx.update(products).set({ stock: sql`${products.stock} + ${i.quantity}` }).where(eq(products.id, i.productId));
             await this.event(tx, so, 'cancelled', by, actorId, reason.trim());
             if (by === 'seller' || by === 'admin') await this.chargePenalty(tx, so, 'cancel');
             if (so.shipmentRef) void import('./store-shipping.service').then(m => m.StoreShippingService.cancelBooking(so)).catch(() => null);
@@ -514,8 +541,8 @@ export class MarketplaceService {
             seller: { name: r.seller, legalName: r.legalName, gstin: r.gstin, grievancePhone: r.grievancePhone, grievanceEmail: r.grievanceEmail },
             canCancel: ['placed', 'confirmed', 'packed'].includes(r.o.status),
             canReturn: r.o.status === 'delivered' && !r.o.returnStatus && !!r.o.settleAfter && new Date(r.o.settleAfter).getTime() > now,
-            returnStatus: r.o.returnStatus, hasInvoice: !!r.o.invoiceDocumentId,
-            items: items.filter(i => i.sellerOrderId === r.o.id).map(i => ({ id: i.id, productId: i.productId, name: i.name, quantity: i.quantity, price: r2(i.unitPricePaise), review: reviews.find(v => v.sellerOrderItemId === i.id)?.rating ?? null })),
+            returnStatus: r.o.returnStatus, hasInvoice: !!r.o.invoiceDocumentId, installationStatus: r.o.installationStatus,
+            items: items.filter(i => i.sellerOrderId === r.o.id).map(i => ({ id: i.id, productId: i.productId, kind: i.kind, name: i.name, quantity: i.quantity, price: r2(i.unitPricePaise), review: reviews.find(v => v.sellerOrderItemId === i.id)?.rating ?? null })),
         }));
     }
 
@@ -562,13 +589,13 @@ export class MarketplaceService {
                 const doc = await TaxDocumentService.create(tx as any, {
                     docKind: 'credit_note', issuer: 'partner', issuerPartnerId: so.sellerPartnerId, seriesKey: `bp-${so.sellerPartnerId}-cn`, prefix, letter: 'C', numberWidth: 4,
                     purpose: 'marketplace_sale', originalDocumentId: so.invoiceDocumentId, supplier: inv.supplier as Party, recipient: inv.recipient as Party,
-                    lines: items.map((i: any) => ({ description: i.name, hsnSac: i.hsnCode, quantity: i.quantity, unit: 'pcs', ratePaise: Math.round(i.taxablePaise / i.quantity), taxablePaise: i.taxablePaise, gstRate: Number(i.gstRate), taxPaise: i.taxPaise })),
+                    lines: items.map((i: any) => ({ description: i.name, hsnSac: i.hsnCode, quantity: i.quantity, unit: i.kind === 'installation' ? 'job' : 'pcs', ratePaise: Math.round(i.taxablePaise / i.quantity), taxablePaise: i.taxablePaise, gstRate: Number(i.gstRate), taxPaise: i.taxPaise })),
                     notes: `Return of order ${so.code}. ${so.returnReason ?? ''}`.trim(),
                 });
                 cn = doc.id;
             }
             const items = await tx.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
-            for (const i of items) await tx.update(products).set({ stock: sql`${products.stock} + ${i.quantity}` }).where(eq(products.id, i.productId));
+            for (const i of items) if (i.kind !== 'installation') await tx.update(products).set({ stock: sql`${products.stock} + ${i.quantity}` }).where(eq(products.id, i.productId));
             const [u] = await tx.update(sellerOrders).set({ status: 'returned', returnStatus: 'received', creditNoteDocumentId: cn, refundPaise: so.totalPaise, refundStatus: r.status, refundReference: r.reference, updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
             await this.event(tx, so, 'returned', ctx.businessPartnerId ? 'seller' : 'admin', ctx.adminUserId, note ?? null);
             return u;
@@ -582,6 +609,7 @@ export class MarketplaceService {
     /** Delivered orders past their return window, with no open return, settle to the seller's ledger. */
     static async settleDue(now = new Date()) {
         const due = await db.select().from(sellerOrders).where(and(eq(sellerOrders.status, 'delivered'), isNull(sellerOrders.settledAt), lte(sellerOrders.settleAfter, now),
+            or(isNull(sellerOrders.installationStatus), eq(sellerOrders.installationStatus, 'done')),
             or(isNull(sellerOrders.returnStatus), eq(sellerOrders.returnStatus, 'rejected')))).limit(1000);
         let n = 0;
         for (const so of due) {

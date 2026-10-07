@@ -800,6 +800,12 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS courier_charge_paise INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS courier_charge_gst_paise INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS delhivery_pickup_name TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS installation_price_paise INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS installation_sac TEXT;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS installation_note TEXT;
+      ALTER TABLE seller_order_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'goods';
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS installation_status TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS installed_at TIMESTAMP;
     `],
     ['field: hours, holidays, auto-assign', `
       ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_hours JSONB;
@@ -813,6 +819,42 @@ const BLOCKS: Array<[string, string]> = [
         created_at TIMESTAMP DEFAULT NOW()
       );
       CREATE UNIQUE INDEX IF NOT EXISTS partner_holidays_bp_day_idx ON partner_holidays (business_partner_id, day);
+    `],
+    ['consignment: ledger type', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'consignment_sale';`],
+    ['consignment: lots and draws', `
+      CREATE TABLE IF NOT EXISTS consignment_lots (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        spare_part_id INTEGER NOT NULL REFERENCES spare_parts(id),
+        quantity_offered INTEGER NOT NULL,
+        quantity_received INTEGER NOT NULL DEFAULT 0,
+        quantity_sold INTEGER NOT NULL DEFAULT 0,
+        quantity_returned INTEGER NOT NULL DEFAULT 0,
+        unit_payout_paise INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'proposed',
+        notes TEXT,
+        review_note TEXT,
+        received_at TIMESTAMP,
+        received_by_admin_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS consignment_lots_bp_idx ON consignment_lots (business_partner_id);
+      CREATE INDEX IF NOT EXISTS consignment_lots_part_idx ON consignment_lots (spare_part_id, status);
+      CREATE TABLE IF NOT EXISTS consignment_draws (
+        id SERIAL PRIMARY KEY,
+        lot_id INTEGER NOT NULL REFERENCES consignment_lots(id) ON DELETE CASCADE,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        spare_part_id INTEGER NOT NULL,
+        movement_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_payout_paise INTEGER NOT NULL,
+        amount_paise INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS consignment_draws_lot_move_idx ON consignment_draws (lot_id, movement_id);
+      CREATE INDEX IF NOT EXISTS consignment_draws_bp_idx ON consignment_draws (business_partner_id, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS tax_documents_one_consignment ON tax_documents (issuer_partner_id, period_from) WHERE purpose = 'consignment' AND doc_kind <> 'credit_note';
     `],
     ['pay links: partner_pay_links', `
       CREATE TABLE IF NOT EXISTS partner_pay_links (

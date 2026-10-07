@@ -67,19 +67,22 @@ async function main() {
     const [cat] = await db.insert(productCategories).values({ name: `QA UI Net ${stamp}`, slug: `qa-ui-${stamp}` }).returning(); catId = cat.id;
     await api.post('/api/hub/store/listings', { name: 'Dual-band router', categoryId: cat.id, priceRupees: 2499, mrpRupees: 2999, stock: 10, hsnCode: '85176290', gstPercent: 18, countryOfOrigin: 'India', manufacturer: 'QA Networks' }, t);
 
+    const payLink = await api.post('/api/hub/pay-links', { kind: 'invoice', refId: inv.body?.data?.id }, t);
+
     // ── browse ───────────────────────────────────────────────────────────
     const pages = [
         '/partner', '/partner/onboarding', '/partner/settings', '/partner/team', '/partner/documents',
         '/partner/customers', `/partner/customers/${cid}`, '/partner/sales/invoices', `/partner/sales/invoices/${inv.body?.data?.id}`, '/partner/sales/invoices/new',
         '/partner/sales/quotations', '/partner/sales/quotations/new', '/partner/gst', '/partner/purchases', '/partner/money',
-        '/partner/parts', '/partner/parts/orders',
-        '/partner/field/jobs', '/partner/field/technicians', '/partner/field/territory', '/partner/field/rates', '/partner/field/warranty', '/partner/field/earnings',
+        '/partner/alerts', '/partner/sales/payments',
+        '/partner/parts', '/partner/parts/orders', '/partner/parts/consignment',
+        '/partner/field/jobs', '/partner/field/technicians', '/partner/field/territory', '/partner/field/rates', '/partner/field/warranty', '/partner/field/earnings', '/partner/field/settings',
         '/partner/consulting/appointments', '/partner/consulting/calendar', '/partner/consulting/services', '/partner/consulting/retainers',
         '/partner/events/enquiries', '/partner/events/quotations', '/partner/events/bookings', `/partner/events/bookings/${bk.body?.data?.id}`, '/partner/events/calendar', '/partner/events/packages', '/partner/events/vendors',
         '/partner/store/listings', '/partner/store/orders', '/partner/store/reviews',
     ];
-    const publicPages = [`/book/${bp.partnerCode}`, `/events/${bp.partnerCode}`, share.body.data.link, '/apply'];
-    const adminPages = ['/admin/partner-territories', '/admin/marketplace', '/admin/partner-settlements', '/admin/business-partners'];
+    const publicPages = [`/book/${bp.partnerCode}`, `/events/${bp.partnerCode}`, share.body.data.link, '/apply', ...(payLink.body?.data?.url ? [payLink.body.data.url] : [])];
+    const adminPages = ['/admin/partner-territories', '/admin/marketplace', '/admin/partner-settlements', '/admin/business-partners', '/admin/consignment', '/admin/go-live'];
 
     const browser = await chromium.launch();
     const results: Array<{ path: string; ok: boolean; errors: string[]; title: string }> = [];

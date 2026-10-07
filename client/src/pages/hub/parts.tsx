@@ -245,3 +245,68 @@ export function HubPartsOrderDetail() {
     </HubPage>
   );
 }
+
+type Lot = { id: number; sparePartId: number; partName: string | null; partCode: string | null; tradePrice: number | null; offered: number; received: number; sold: number; returned: number; inStock: number; unitPayout: number; status: string; notes: string | null; reviewNote: string | null; createdAt: string };
+const LOT_TONE: Record<string, string> = { proposed: "warn", received: "good", rejected: "bad", closed: "muted", withdrawn: "muted" };
+
+/** Parts the business keeps in UniteFix's warehouse on sale-or-return. */
+export function HubPartsConsignment() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{ lots: Lot[]; last30: { units: number; payout: number }; invoices: Array<{ id: number; number: string; periodFrom: string; total: number }> }>({ queryKey: ["/api/hub/consignment"], queryFn: async () => (await apiRequest("GET", "/api/hub/consignment")).data });
+  const [q, setQ] = useState("");
+  const catalog = useQuery<CatalogItem[]>({ queryKey: ["/api/b2b/catalog", "consign", q], enabled: q.trim().length >= 2, queryFn: async () => (await apiRequest("GET", `/api/b2b/catalog?limit=20&q=${encodeURIComponent(q.trim())}`)).data });
+  const [pick, setPick] = useState<CatalogItem | null>(null);
+  const [f, setF] = useState({ quantity: "", payout: "", notes: "" });
+  const refresh = () => qc.invalidateQueries({ queryKey: ["/api/hub/consignment"] });
+  const offer = async () => {
+    try { const r: any = await apiRequest("POST", "/api/hub/consignment", { sparePartId: pick!.id, quantity: Number(f.quantity), unitPayoutRupees: Number(f.payout), notes: f.notes || null }); refresh(); setPick(null); setF({ quantity: "", payout: "", notes: "" }); setQ(""); toast({ title: "Offer sent", description: r.message }); }
+    catch (e) { toast({ title: "Not sent", description: apiErrorMessage(e), variant: "destructive" }); }
+  };
+  const withdraw = async (id: number) => { try { await apiRequest("POST", `/api/hub/consignment/${id}/withdraw`, {}); refresh(); toast({ title: "Withdrawn" }); } catch (e) { toast({ title: "Not withdrawn", description: apiErrorMessage(e), variant: "destructive" }); } };
+  const lots = data?.lots ?? [];
+  return (
+    <HubPage title="Consignment stock" subtitle="Keep your parts in UniteFix's warehouse. UniteFix sells them to its technicians and partners; you are paid your price for each unit as it leaves the warehouse, in your settlement, and a monthly invoice from you to UniteFix is issued in your series. Unsold units can come back.">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] p-4"><p className="text-xs uppercase tracking-wider text-[hsl(215,20%,55%)]">In the warehouse</p><p className="mt-1 text-2xl font-semibold tabular-nums text-white">{lots.reduce((a, l) => a + (l.status === "received" ? l.inStock : 0), 0)}</p></div>
+        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] p-4"><p className="text-xs uppercase tracking-wider text-[hsl(215,20%,55%)]">Sold, last 30 days</p><p className="mt-1 text-2xl font-semibold tabular-nums text-white">{data?.last30.units ?? 0}</p><p className="text-xs text-[hsl(215,20%,60%)]">{inr(data?.last30.payout ?? 0)} to you before GST</p></div>
+      </div>
+      <Panel title="Offer stock">
+        <div className="min-w-0">
+          <label htmlFor="c-q" className="text-sm text-[hsl(215,20%,75%)]">Part from the UniteFix catalogue</label>
+          <Input id="c-q" placeholder="Search by name or part code" value={pick ? `${pick.name} (${pick.partCode})` : q} onChange={e => { setPick(null); setQ(e.target.value); }} />
+          {!pick && q.trim().length >= 2 && <ul className="mt-1 max-h-56 overflow-y-auto rounded-md border border-[rgba(255,255,255,0.08)]">{(catalog.data ?? []).map(c => (
+            <li key={c.id}><button className="block w-full px-3 py-2 text-left text-sm hover:bg-white/5" onClick={() => setPick(c)}><span className="text-white">{c.name}</span> <span className="font-mono text-xs text-[hsl(215,20%,55%)]">{c.partCode}</span> <span className="text-xs text-[hsl(215,20%,60%)]">· UniteFix sells at {inr(c.tradePrice)}</span></button></li>
+          ))}{catalog.data && !catalog.data.length && <li className="px-3 py-2 text-sm text-[hsl(215,20%,60%)]">Not in the catalogue. Ask UniteFix to add it first.</li>}</ul>}
+        </div>
+        {pick && <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div><label htmlFor="c-n" className="text-sm text-[hsl(215,20%,75%)]">Quantity</label><Input id="c-n" inputMode="numeric" value={f.quantity} onChange={e => setF({ ...f, quantity: e.target.value.replace(/\D/g, "") })} /></div>
+          <div><label htmlFor="c-p" className="text-sm text-[hsl(215,20%,75%)]">Your price per unit ₹ (before GST)</label><Input id="c-p" inputMode="decimal" value={f.payout} onChange={e => setF({ ...f, payout: e.target.value })} /><p className="mt-1 text-xs text-[hsl(215,20%,55%)]">Below UniteFix's {inr(pick.tradePrice)}.</p></div>
+          <div><label htmlFor="c-x" className="text-sm text-[hsl(215,20%,75%)]">Note (optional)</label><Input id="c-x" placeholder="Batch, packing" value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} /></div>
+          <div className="sm:col-span-3"><Button disabled={!f.quantity || !f.payout} onClick={offer}>Send offer</Button></div>
+        </div>}
+      </Panel>
+      <Panel title="Your lots">
+        {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !lots.length ? <Empty icon="inventory" title="Nothing on consignment yet" /> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="text-left text-[11px] uppercase tracking-wider text-[hsl(215,20%,55%)]"><th className="py-2 pr-2 font-medium">Part</th><th className="pr-2 font-medium">Status</th><th className="pr-2 text-right font-medium">Offered</th><th className="pr-2 text-right font-medium">Received</th><th className="pr-2 text-right font-medium">Sold</th><th className="pr-2 text-right font-medium">In stock</th><th className="pr-2 text-right font-medium">Your price</th><th /></tr></thead>
+            <tbody>{lots.map(l => (
+              <tr key={l.id} className="border-t border-[rgba(255,255,255,0.06)] align-top">
+                <td className="py-2 pr-2 text-white">{l.partName}<span className="block font-mono text-[11px] text-[hsl(215,20%,55%)]">{l.partCode}</span>{l.reviewNote && <span className="block text-[11px] text-amber-300">{l.reviewNote}</span>}</td>
+                <td className="pr-2"><Chip tone={LOT_TONE[l.status]}>{l.status === "proposed" ? "waiting for stock" : l.status}</Chip></td>
+                <td className="pr-2 text-right tabular-nums">{l.offered}</td><td className="pr-2 text-right tabular-nums">{l.received}</td><td className="pr-2 text-right tabular-nums">{l.sold}</td><td className="pr-2 text-right tabular-nums">{l.status === "received" ? l.inStock : "—"}</td>
+                <td className="pr-2 text-right tabular-nums">{inr(l.unitPayout)}</td>
+                <td className="text-right">{l.status === "proposed" && <Button size="sm" variant="ghost" onClick={() => withdraw(l.id)}>Withdraw</Button>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </Panel>
+      {!!data?.invoices.length && <Panel title="Your monthly invoices to UniteFix">
+        <ul className="divide-y divide-[rgba(255,255,255,0.06)] text-sm">{data.invoices.map(d => (
+          <li key={d.id} className="flex items-center gap-3 py-2"><span className="font-mono text-white">{d.number}</span><span className="flex-1 text-[hsl(215,20%,65%)]">{d.periodFrom.slice(0, 7)}</span><span className="tabular-nums">{inr(d.total)}</span><Button size="sm" variant="ghost" onClick={() => openAuthedPdf(`/api/hub/tax-documents/${d.id}/pdf`).catch(() => null)}>PDF</Button></li>
+        ))}</ul>
+      </Panel>}
+    </HubPage>
+  );
+}

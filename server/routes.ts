@@ -72,6 +72,7 @@ import { registerHubEventsRoutes } from "./routes/hub-events.routes";
 import { registerHubStoreRoutes } from "./routes/hub-store.routes";
 import { registerHubAlertsRoutes } from "./routes/hub-alerts.routes";
 import { registerHubPayLinkRoutes } from "./routes/hub-pay-links.routes";
+import { registerHubConsignmentRoutes } from "./routes/hub-consignment.routes";
 import { PartnerFieldService, pinFrom } from "./services/partner-field.service";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
 import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
@@ -3642,6 +3643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHubStoreRoutes(app); // Partner Hub: selling products — listings, split orders, settlement, reviews (/api/store for customers)
   registerHubAlertsRoutes(app); // Partner Hub: alert feed (bell) and alert preferences
   registerHubPayLinkRoutes(app); // Partner Hub: online payment links for partners' customers (/api/public/pay for the payer)
+  registerHubConsignmentRoutes(app); // Partner Hub: consignment stock; admin go-live checklist
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment

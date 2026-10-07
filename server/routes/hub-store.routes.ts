@@ -38,7 +38,7 @@ const upload = multer({
     storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => file.mimetype.startsWith('image/') ? cb(null, true) : cb(new Error('Upload an image.')),
 });
-const itemsSchema = z.array(z.object({ productId: z.number().int(), quantity: z.number().int().min(1).max(20) })).min(1).max(50);
+const itemsSchema = z.array(z.object({ productId: z.number().int(), quantity: z.number().int().min(1).max(20), withInstallation: z.boolean().optional() })).min(1).max(50);
 
 function listingView(r: { p: any; categoryName: string | null }) {
     const p = r.p;
@@ -46,7 +46,7 @@ function listingView(r: { p: any; categoryName: string | null }) {
         id: p.id, name: p.name, description: p.description, categoryId: p.categoryId, categoryName: r.categoryName, price: p.price, mrp: p.mrp, stock: p.stock,
         hsnCode: p.hsnCode, gstPercent: p.gstPercent == null ? null : Number(p.gstPercent), countryOfOrigin: p.countryOfOrigin, manufacturer: p.manufacturer,
         netQuantity: p.netQuantity, returnWindowDays: p.returnWindowDays, warrantyMonths: p.warrantyMonths, warrantyBy: p.warrantyBy, bisNumber: p.bisNumber, wpcEta: p.wpcEta,
-        images: p.images ?? [], sellerSku: p.sellerSku, status: p.listingStatus, rejectionReason: p.rejectionReason, updatedAt: p.updatedAt,
+        images: p.images ?? [], sellerSku: p.sellerSku, installationPrice: p.installationPricePaise != null ? p.installationPricePaise / 100 : null, installationSac: p.installationSac, installationNote: p.installationNote, status: p.listingStatus, rejectionReason: p.rejectionReason, updatedAt: p.updatedAt,
     };
 }
 
@@ -105,6 +105,7 @@ export function registerHubStoreRoutes(app: Express) {
         netQuantity: z.string().max(60).optional().nullable(), returnWindowDays: z.number().int().optional(), warrantyMonths: z.number().int().min(0).max(120).optional().nullable(),
         warrantyBy: z.string().optional().nullable(), bisNumber: z.string().max(40).optional().nullable(), wpcEta: z.string().max(40).optional().nullable(),
         images: z.array(z.string().max(500)).max(8).optional(), sellerSku: z.string().max(60).optional().nullable(),
+        installationPriceRupees: z.number().int().optional().nullable(), installationSac: z.string().max(8).optional().nullable(), installationNote: z.string().max(300).optional().nullable(),
     });
     app.get('/api/hub/store/listings', active, mod, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: (await MarketplaceService.listings(ctxOf(req).businessPartnerId)).map(listingView) }); } catch (e) { hubError(e, res, next); }
@@ -152,6 +153,12 @@ export function registerHubStoreRoutes(app: Express) {
             const b = parse(z.object({ to: z.enum(['confirmed', 'packed', 'dispatched', 'delivered', 'cancelled']), courier: z.string().max(60).optional().nullable(), trackingId: z.string().max(80).optional().nullable(), reason: z.string().max(300).optional().nullable() }), req.body);
             const o = await MarketplaceService.transition(ctxOf(req), Number(req.params.id), b.to, b);
             res.json({ success: true, message: o.status === 'dispatched' ? 'Dispatched. Your GST invoice to the customer has been issued.' : o.status === 'cancelled' ? 'Cancelled; the customer is refunded.' : `Marked ${o.status}.`, data: { status: o.status } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/store/orders/:id/installed', active, mod, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            await MarketplaceService.markInstalled(ctxOf(req), Number(req.params.id), typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : null);
+            res.json({ success: true, message: 'Marked installed. The order settles after its return window.' });
         } catch (e) { hubError(e, res, next); }
     });
     app.post('/api/hub/store/orders/:id/courier', active, mod, hubCan('ops:manage'), async (req, res, next) => {
