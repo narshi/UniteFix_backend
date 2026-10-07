@@ -70,6 +70,7 @@ import { registerHubFieldRoutes } from "./routes/hub-field.routes";
 import { registerHubConsultingRoutes } from "./routes/hub-consulting.routes";
 import { registerHubEventsRoutes } from "./routes/hub-events.routes";
 import { registerHubStoreRoutes } from "./routes/hub-store.routes";
+import { registerHubAlertsRoutes } from "./routes/hub-alerts.routes";
 import { PartnerFieldService, pinFrom } from "./services/partner-field.service";
 import { registerSparePartsRoutes } from "./routes/spare-parts.routes";
 import { registerPartsAccessRoutes } from "./routes/parts-access.routes";
@@ -2461,6 +2462,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await db.update(serviceRequests)
               .set({ bookingFeeStatus: 'paid' as any })
               .where(eq(serviceRequests.id, service.id));
+            // Treated as paid, so announced as a paid booking would be.
+            void BookingNotifications.bookingCreated(service.id);
           } else {
             // Keys missing in production is a configuration fault, not a reason
             // to hand out free bookings.
@@ -3636,6 +3639,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHubConsultingRoutes(app); // Partner Hub: consulting services, availability, appointments, retainers; public booking
   registerHubEventsRoutes(app); // Partner Hub: events — enquiries, quotations, bookings, advances, vendors; public + app channel
   registerHubStoreRoutes(app); // Partner Hub: selling products — listings, split orders, settlement, reviews (/api/store for customers)
+  registerHubAlertsRoutes(app); // Partner Hub: alert feed (bell) and alert preferences
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment

@@ -513,6 +513,13 @@ export class NotificationService {
      * Send Email using Nodemailer
      */
     static async sendEmail(to: string, subject: string, html: string) {
+        // Reserved test domains (RFC 2606 / 6761) never receive mail. Sending
+        // to them only produces bounces, which mail providers read as abuse.
+        const domain = String(to).split('@')[1]?.toLowerCase() ?? '';
+        if (/^example.(com|net|org)$/.test(domain) || /.(test|example|invalid|localhost)$/.test(domain) || ['test', 'example', 'invalid', 'localhost'].includes(domain)) {
+            logger.info(`[EMAIL] Skipped reserved test address ${to}`);
+            return;
+        }
         if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
             logger.warn(`[EMAIL MOCK] SMTP not configured — email NOT sent`, { to, subject });
             // Dev convenience only. Explicitly gated on NODE_ENV so a missing SMTP

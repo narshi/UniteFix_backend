@@ -16,6 +16,7 @@ import { HUB_ENTRIES, HUB_GROUP_ORDER, type HubEntry } from "@/components/hub/re
 import { useHubMe, hubCan, hubHas, signOut, type HubMe } from "@/lib/hub";
 import { HUB_ROLE_LABEL, PLAN_LABEL } from "@shared/hub";
 import NotFound from "@/pages/not-found";
+import { AlertBell } from "@/components/hub/AlertBell";
 
 const Icon = ({ name, className = "" }: { name: string; className?: string }) => (
   <span className={`material-icons ${className}`} style={{ fontFamily: "Material Icons" }} aria-hidden="true">{name}</span>
@@ -54,10 +55,11 @@ function Sidebar({ me, open, onClose }: { me: HubMe; open: boolean; onClose: () 
             <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[hsla(174,72%,40%,0.15)] border border-[hsla(174,72%,40%,0.35)] shrink-0">
               <Icon name="storefront" className="text-[hsl(174,72%,55%)]" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-white font-semibold truncate" title={me.displayName}>{me.displayName}</p>
               <p className="text-[11px] text-[hsl(215,20%,60%)] font-mono">{me.partnerCode} · {HUB_ROLE_LABEL[me.role]}</p>
             </div>
+            <div className="hidden lg:block"><AlertBell /></div>
           </div>
           {me.status !== "active" && (
             <p className="mt-3 text-xs rounded-md px-2 py-1.5 bg-[hsla(38,92%,50%,0.12)] text-[hsl(38,92%,65%)]">
@@ -136,6 +138,7 @@ export default function PartnerHubLayout() {
             <Icon name="menu" />
           </button>
           <span className="font-bold tracking-tight text-white truncate">{me.displayName}</span>
+          <div className="ml-auto"><AlertBell /></div>
         </header>
         <Switch>
           {routes.map(e => <Route key={e.path} path={e.path} component={e.component} />)}

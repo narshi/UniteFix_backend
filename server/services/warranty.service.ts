@@ -546,6 +546,10 @@ export async function createClaim(input: {
         description: input.description.trim().slice(0, 2000),
         status: 'open',
     }).returning();
+    if (partnerId) {
+        const { HubAlerts } = await import('./hub-alerts.service');
+        await HubAlerts.send(partnerId, 'warranty_claim', { title: `Warranty claim ${claimId}`, body: `A customer reported: "${input.description.trim().slice(0, 140)}". Take it within 48 hours and send a technician.`, link: '/partner/field/warranty', refType: 'warranty_claim', refId: claim.id });
+    }
     logger.info(
         `[WARRANTY] Claim ${claimId} opened on SR #${input.serviceRequestId}`
         + (input.loggedByAdminId ? ` (logged by admin #${input.loggedByAdminId})` : ''),

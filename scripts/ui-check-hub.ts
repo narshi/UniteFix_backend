@@ -6,7 +6,8 @@
  * removes everything it created.
  *
  *   1. npm run build
- *   2. NODE_ENV=production PORT=3056 CLIENT_URL=http://127.0.0.1:3056 node dist/index.js
+ *   2. NODE_ENV=production PORT=3056 CLIENT_URL=http://127.0.0.1:3056 SMTP_HOST= SMTP_USER= MSG91_API_KEY= TWILIO_SID= node dist/index.js
+ *      (blank the mail/SMS settings: the seeded partner raises real alerts)
  *   3. UI_BASE=http://127.0.0.1:3056 UI_OUT=./ui-shots npx tsx scripts/ui-check-hub.ts
  *
  * (Run against the built app: CLIENT_URL must allow the origin, or the

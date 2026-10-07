@@ -2397,6 +2397,7 @@ export const businessPartners = pgTable("business_partners", {
   grievancePhone: text("grievance_phone"),
   grievanceEmail: text("grievance_email"),
   returnPolicy: text("return_policy"),
+  alertPrefs: jsonb("alert_prefs"),                                     // { email, push, sms } for Hub alerts
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -3350,4 +3351,18 @@ export const productReviews = pgTable("product_reviews", {
 
 export type SellerOrder = typeof sellerOrders.$inferSelect;
 export type MarketCheckout = typeof marketCheckouts.$inferSelect;
+
+/** The Partner Hub's alert feed (the bell). Also emailed / pushed / texted per the partner's preferences. */
+export const hubAlerts = pgTable("hub_alerts", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  link: text("link"),
+  refType: text("ref_type"),
+  refId: integer("ref_id"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 

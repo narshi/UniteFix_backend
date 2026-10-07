@@ -443,6 +443,10 @@ export class PartnerHubService {
     static async afterApproval(bpId: number, adminId: number) {
         const bp = await BusinessPartnerService.byId(bpId);
         if (!bp) return null;
+        {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            await HubAlerts.send(bpId, 'application_approved', { title: 'Welcome to UniteFix', body: `${bp.displayName} is approved. Your Partner Hub is open — start with the checklist on the home page.`, link: '/partner' });
+        }
         if (bp.adminUserId) {
             await db.update(adminUsers).set({ isActive: true, updatedAt: new Date() }).where(eq(adminUsers.id, bp.adminUserId));
         }

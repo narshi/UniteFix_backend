@@ -127,6 +127,18 @@ export class BookingNotifications {
             `${p.serviceRef} (${jobLabel(p)}) is awaiting expert assignment.`,
             { serviceId: p.serviceRequestId }
         );
+
+        // A job in a partner's territory is theirs to assign.
+        try {
+            const { db } = await import('../db');
+            const { serviceRequests } = await import('@shared/schema');
+            const { eq } = await import('drizzle-orm');
+            const [sr] = await db.select({ bp: serviceRequests.dispatchPartnerId, pin: serviceRequests.pincode, by: serviceRequests.slaAssignBy }).from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+            if (sr?.bp) {
+                const { HubAlerts } = await import('./hub-alerts.service');
+                await HubAlerts.send(sr.bp, 'job_new', { title: `New job ${p.serviceRef}`, body: `${jobLabel(p)} in ${sr.pin ?? 'your territory'}. Assign a technician${sr.by ? ` by ${new Date(sr.by).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })}` : ''}.`, link: '/partner/field/jobs', refType: 'service_request', refId: serviceRequestId });
+            }
+        } catch { /* alerts never block a booking */ }
     }
 
     /**

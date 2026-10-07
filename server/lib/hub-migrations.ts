@@ -768,6 +768,24 @@ const BLOCKS: Array<[string, string]> = [
         ('BUSINESS_CONFIG.MARKETPLACE_DISPATCH_SLA_HOURS', '48', 'number', 'BUSINESS_CONFIG', 'Hours a seller has to dispatch an order', TRUE)
       ON CONFLICT (key) DO NOTHING;
     `],
+
+    // ── Follow-up: partner alerts
+    ['alerts: hub_alerts', `
+      CREATE TABLE IF NOT EXISTS hub_alerts (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        link TEXT,
+        ref_type TEXT,
+        ref_id INTEGER,
+        read_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS hub_alerts_bp_idx ON hub_alerts (business_partner_id, created_at DESC);
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS alert_prefs JSONB;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

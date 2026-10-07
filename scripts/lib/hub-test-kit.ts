@@ -32,6 +32,8 @@ export async function bootServer() {
     process.env.RATE_LIMIT_DISABLED = '1';
     // Never upload test files to the real CDN: force the dev (data-URI) path.
     delete process.env.CLOUDINARY_CLOUD_NAME; delete process.env.CLOUDINARY_API_KEY; delete process.env.CLOUDINARY_API_SECRET;
+    // Never send real email or SMS from a test run.
+    for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'ADMIN_ALERT_EMAIL', 'MSG91_API_KEY', 'TWILIO_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE']) delete process.env[k];
     await runStartupMigrations();
     const app = express();
     app.use(express.json({ limit: '5mb' }));

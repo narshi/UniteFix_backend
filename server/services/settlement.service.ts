@@ -159,6 +159,10 @@ export class SettlementService {
                 paidByAdminId: adminId, paidAt: new Date(),
             }).where(eq(settlementRuns.id, run.id)).returning();
             logger.info(`[SETTLEMENT] ${run.runCode} ${status}: payout ${run.payoutPaise}p, offset ${run.offsetPaise}p (${how.method})`);
+            if (status === 'paid') {
+                const { HubAlerts } = await import('./hub-alerts.service');
+                void HubAlerts.send(run.businessPartnerId, 'settlement_paid', { title: `Settlement ${run.runCode} paid`, body: `₹${(run.payoutPaise / 100).toLocaleString('en-IN')} sent to your bank${reference ? ` (ref ${reference})` : ''}${run.offsetPaise ? `, after ₹${(run.offsetPaise / 100).toLocaleString('en-IN')} offset against parts dues` : ''}.`, link: '/partner/money', refType: 'settlement_run', refId: run.id });
+            }
             return updated;
         });
     }

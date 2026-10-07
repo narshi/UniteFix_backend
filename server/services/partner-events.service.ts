@@ -119,6 +119,10 @@ export class PartnerEventsService {
             eventType: input.eventType.trim().slice(0, 80), eventDate: input.eventDate ?? null, guests: input.guests ?? null, venue: input.venue?.trim() || null,
             budgetPaise: input.budgetRupees != null ? Math.round(input.budgetRupees * 100) : null, message: input.message?.trim() || null, publicToken: token(),
         }).returning();
+        if (row.source !== 'hub') {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            await HubAlerts.send(ctx.businessPartnerId, 'enquiry_new', { title: `New enquiry: ${row.eventType}`, body: `${customer.name}${row.eventDate ? ` · ${row.eventDate}` : ''}${row.guests ? ` · ${row.guests} guests` : ''} — via ${row.source === 'app' ? 'the UniteFix app' : 'your enquiry page'}.`, link: '/partner/events/enquiries', refType: 'event_enquiry', refId: row.id });
+        }
         return row;
     }
 
@@ -203,6 +207,10 @@ export class PartnerEventsService {
         const [u] = await db.update(partnerQuotations).set({ status: decision === 'accept' ? 'accepted' : 'declined', respondedAt: new Date(), clientResponseNote: note?.trim() || null, updatedAt: new Date() })
             .where(and(eq(partnerQuotations.id, q.id), inArray(partnerQuotations.status, ['sent', 'draft']))).returning();
         if (!u) throw new HubError('Already answered.', 'BAD_STATE', 409);
+        {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            await HubAlerts.send(q.businessPartnerId, decision === 'accept' ? 'quote_accepted' : 'quote_declined', { title: `Quotation ${q.number} ${decision === 'accept' ? 'accepted' : 'declined'}`, body: decision === 'accept' ? `The client accepted ₹${(q.totalPaise / 100).toLocaleString('en-IN')}. Confirm the booking and the advance.` : `The client declined${note?.trim() ? `: "${note.trim().slice(0, 140)}"` : '.'}`, link: q.source === 'events' ? '/partner/events/quotations' : `/partner/sales/quotations/${q.id}`, refType: 'quotation', refId: q.id });
+        }
         if (decision === 'decline' && q.source === 'events' && q.sourceRefId) {
             await db.update(eventEnquiries).set({ status: 'lost', lostReason: note?.trim() || 'Client declined the quotation', updatedAt: new Date() }).where(and(eq(eventEnquiries.id, q.sourceRefId), ne(eventEnquiries.status, 'won')));
         }

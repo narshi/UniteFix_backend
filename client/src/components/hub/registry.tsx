@@ -25,6 +25,7 @@ import OperatorOverview from "@/pages/operator/overview";
 import { HubPartsCatalogue, HubPartsOrders, HubPartsOrderDetail } from "@/pages/hub/parts";
 import HubPurchases from "@/pages/hub/purchases";
 import HubMoney from "@/pages/hub/money";
+import { HubAlertsPage } from "@/components/hub/AlertBell";
 import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
@@ -49,6 +50,7 @@ export const HUB_GROUP_ORDER = ["Home", "Broadband", "Field service", "Consultin
 
 export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner", aliases: ["/", "/operator"], component: HubHome, module: "home", pending: true, nav: { group: "Home", label: "Overview", icon: "dashboard" } },
+  { path: "/partner/alerts", component: HubAlertsPage, module: "home", pending: true },
   { path: "/partner/onboarding", component: HubOnboarding, module: "onboarding", pending: true, nav: { group: "Business", label: "Onboarding & KYC", icon: "verified_user" } },
 
   // Broadband — the operator portal's pages, moved inside the Hub.

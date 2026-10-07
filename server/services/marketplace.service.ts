@@ -185,6 +185,13 @@ export class MarketplaceService {
         const rows = await db.update(products).set(approve ? { listingStatus: 'live', isActive: true, rejectionReason: null, updatedAt: new Date() } : { listingStatus: 'rejected', isActive: false, rejectionReason: reason!.trim(), updatedAt: new Date() })
             .where(and(inArray(products.id, ids), eq(products.listingStatus, 'pending_review'), isNotNull(products.sellerPartnerId))).returning({ id: products.id });
         logger.info(`[MARKET] Admin ${adminId} ${approve ? 'approved' : 'rejected'} listings ${rows.map(r => r.id).join(', ')}`);
+        if (rows.length) {
+            const owners = await db.select({ bp: products.sellerPartnerId, name: products.name }).from(products).where(inArray(products.id, rows.map(r => r.id)));
+            const { HubAlerts } = await import('./hub-alerts.service');
+            const by = new Map<number, string[]>();
+            for (const o of owners) if (o.bp) by.set(o.bp, [...(by.get(o.bp) ?? []), o.name]);
+            for (const [bp, names] of Array.from(by)) await HubAlerts.send(bp, 'listing_reviewed', { title: approve ? 'Listings approved' : 'Listings not approved', body: `${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''} ${approve ? 'are live in the store.' : `were not approved: ${reason}`}`, link: '/partner/store/listings' });
+        }
         return rows.length;
     }
 
@@ -314,6 +321,8 @@ export class MarketplaceService {
             await tx.update(marketCheckouts).set({ status: 'paid', paidAt: new Date(), razorpayPaymentId: params.razorpayPaymentId, productOrderId: po.id }).where(eq(marketCheckouts.id, c.id));
             await tx.delete(cartItems).where(and(eq(cartItems.userId, c.userId), inArray(cartItems.productId, lines.map(l => l.productId))));
             logger.info(`[MARKET] Checkout #${c.id} paid — ${created.length} seller order(s): ${created.map(s => s.code).join(', ')}`);
+            const { HubAlerts } = await import('./hub-alerts.service');
+            for (const so of created) void HubAlerts.send(so.sellerPartnerId, 'store_order', { title: `New store order ${so.code}`, body: `₹${(so.totalPaise / 100).toLocaleString('en-IN')} — confirm and dispatch it within the dispatch deadline.`, link: '/partner/store/orders', refType: 'seller_order', refId: so.id });
             return { checkout: c, created: true, productOrder: po, sellerOrders: created };
         });
     }
@@ -463,6 +472,8 @@ export class MarketplaceService {
         if (!reason?.trim()) throw new HubError('Tell the seller what is wrong.', 'NO_REASON');
         const [u] = await db.update(sellerOrders).set({ returnStatus: 'requested', returnReason: reason.trim(), returnRequestedAt: new Date(), updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
         await db.insert(sellerOrderEvents).values({ sellerOrderId: so.id, fromStatus: so.status, toStatus: 'return_requested', actorType: 'customer', actorId: userId, note: reason.trim() });
+        const { HubAlerts } = await import('./hub-alerts.service');
+        await HubAlerts.send(so.sellerPartnerId, 'store_return', { title: `Return requested on ${so.code}`, body: `"${reason.trim().slice(0, 140)}". Approve or reject it.`, link: '/partner/store/orders', refType: 'seller_order', refId: so.id });
         return u;
     }
 

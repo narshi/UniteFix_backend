@@ -410,9 +410,12 @@ export class PartnerConsultingService {
         if (!cust) {
             [cust] = await db.insert(partnerCustomers).values({ businessPartnerId: bp.id, name: input.name.trim().slice(0, 160), phone, email: input.email?.trim().toLowerCase() || null, stateCode: bp.stateCode, stateName: bp.stateName, tags: ['online booking'] }).returning();
         }
-        return this.createAppointment({ businessPartnerId: bp.id, adminUserId: null }, {
+        const appt = await this.createAppointment({ businessPartnerId: bp.id, adminUserId: null }, {
             customerId: cust.id, serviceId: svc.id, startsAt: s.toISOString(), mode: input.mode, status: 'requested', source: 'public', clientMessage: input.message ?? null,
         });
+        const { HubAlerts } = await import('./hub-alerts.service');
+        await HubAlerts.send(bp.id, 'booking_request', { title: `Booking request: ${svc.name}`, body: `${cust.name} asked for ${new Date(appt.startsAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. Confirm it so they get the details.`, link: '/partner/consulting/appointments', refType: 'consult_appointment', refId: appt.id });
+        return appt;
     }
 
     static async publicAppointment(token: string) {

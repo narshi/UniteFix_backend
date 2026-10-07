@@ -172,6 +172,12 @@ export class PartnerFieldService {
                 throw e;
             }
         }
+        if (done.length) {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            const byBp = new Map<number, string[]>();
+            for (const t of rows) if (done.includes(t.pincode)) byBp.set(t.businessPartnerId, [...(byBp.get(t.businessPartnerId) ?? []), t.pincode]);
+            for (const [bp, pins] of Array.from(byBp)) await HubAlerts.send(bp, 'territory_reviewed', { title: decision === 'approve' ? 'Pincodes approved' : 'Pincodes not approved', body: `${pins.join(', ')} ${decision === 'approve' ? 'are now yours — bookings there come to your queue.' : `were not approved${opts.note ? `: ${opts.note}` : '.'}`}`, link: '/partner/field/territory' });
+        }
         return { done, conflicts };
     }
 
@@ -339,6 +345,10 @@ export class PartnerFieldService {
             await db.update(partnerServiceRates).set({ status: approve ? 'live' : 'rejected', effectiveFrom: approve ? from : r.effectiveFrom, reviewedByAdminId: adminId, reviewedAt: now, reviewNote: note ?? null })
                 .where(eq(partnerServiceRates.id, r.id));
         }
+        const { HubAlerts } = await import('./hub-alerts.service');
+        const byBp = new Map<number, number>();
+        for (const r of rows) byBp.set(r.businessPartnerId, (byBp.get(r.businessPartnerId) ?? 0) + 1);
+        for (const [bp, n] of Array.from(byBp)) await HubAlerts.send(bp, 'rate_reviewed', { title: approve ? 'Rates approved' : 'Rates not approved', body: `${n} rate change(s) ${approve ? 'approved — they go live at their start time.' : `not approved${note ? `: ${note}` : '.'}`}`, link: '/partner/field/rates' });
         return rows.map(r => r.id);
     }
 
@@ -475,6 +485,8 @@ export class PartnerFieldService {
                 eq(serviceRequests.status, 'created' as any), eq(serviceRequests.bookingFeeStatus, 'paid'), lt(serviceRequests.slaAssignBy, new Date())))
             .returning({ id: serviceRequests.id, bp: serviceRequests.dispatchPartnerId });
         if (rows.length) logger.warn(`[FIELD] Escalated ${rows.length} partner job(s) past their assign-by time: ${rows.map(r => r.id).join(', ')}`);
+        const { HubAlerts } = await import('./hub-alerts.service');
+        for (const r of rows) await HubAlerts.send(r.bp, 'job_overdue', { title: 'A job passed its assign-by time', body: 'It now shows in UniteFix\'s queue too. Assign it now or UniteFix may send its own expert.', link: '/partner/field/jobs', refType: 'service_request', refId: r.id });
         return rows;
     }
 
