@@ -19,6 +19,7 @@ import {
 } from 'lucide-react-native';
 import { useRequestReturn } from '../../hooks/useShopData';
 import { colors } from '../../theme/colors';
+import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
@@ -40,7 +41,7 @@ export function OrderDetailScreen({ navigation, route }: Props) {
     const [returnReason, setReturnReason] = useState('');
     const { mutate: requestReturn, isPending: returning } = useRequestReturn();
 
-    if (!order) { navigation.goBack(); return null; }
+    if (!order) return <BackOnMount navigation={navigation} />;
 
     const createdDate = new Date(order.createdAt).toLocaleDateString('en-IN', {
         day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',

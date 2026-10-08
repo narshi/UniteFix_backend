@@ -35,8 +35,9 @@ import {
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { Button } from '../../components/ui';
-import { apiClient } from '../../api/client';
+import { Button, BackOnMount } from '../../components/ui';
+import { apiClient, getApiErrorMessage } from '../../api/client';
+import { inr } from '../../utils/money';
 import { usePublicConfig, queryKeys, useServiceRequests } from '../../hooks/useCustomerData';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
@@ -59,6 +60,8 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     const [paymentState, setPaymentState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle');
     const [billingData, setBillingData] = useState<any>(null);
     const [loadingBill, setLoadingBill] = useState(true);
+    const [billError, setBillError] = useState(false);
+    const [payError, setPayError] = useState<string | null>(null);
     const { data: publicConfig } = usePublicConfig();
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -80,13 +83,15 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     }, [request?.id]);
 
     const fetchBilling = async () => {
+        setLoadingBill(true);
+        setBillError(false);
         try {
             const { data } = await apiClient.get(`/api/v1/bookings/${request.id}/billing`);
-            if (data?.success) {
-                setBillingData(data.data);
-            }
+            if (data?.success && data.data?.billing) setBillingData(data.data);
+            else setBillError(true);
         } catch (err) {
             console.warn('Failed to fetch billing:', err);
+            setBillError(true);
         } finally {
             setLoadingBill(false);
         }
@@ -129,7 +134,9 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
     );
 
     const handlePayment = async () => {
+        if (total == null) return;
         setPaymentState('loading');
+        setPayError(null);
         try {
             if (total <= 0) {
                 // If amount is 0 (e.g. covered entirely by booking fee), just mark complete via verify endpoint
@@ -158,9 +165,12 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 // Verify on backend
                 await apiClient.post('/api/payments/verify', paymentResponse);
                 setPaymentState('success');
-            } else {
-                // Dev fallback
+            } else if (__DEV__) {
+                // Local development without Razorpay keys only.
                 setPaymentState('success');
+            } else {
+                // No order means nothing can be paid — never show a success the customer did not get.
+                throw new Error(data?.error || data?.message || 'Could not start the payment.');
             }
         } catch (err: any) {
             // Unlock cash payment on backend
@@ -174,8 +184,8 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 // User cancelled
                 setPaymentState('idle');
             } else {
+                setPayError(getApiErrorMessage(err));
                 setPaymentState('failed');
-                setTimeout(() => setPaymentState('idle'), 3000);
             }
         }
     };
@@ -190,23 +200,27 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 </View>
             );
         }
-        navigation.goBack();
-        return null;
+        return <BackOnMount navigation={navigation} />;
     }
 
-    const billing = billingData?.billing || {};
-    const sparePartsCost = billing.sparePartsCost || request.materialCharge || 0;
-    const serviceLaborCost = billing.serviceLaborCost || request.serviceCharge || 0;
-    const subtotal = sparePartsCost + serviceLaborCost;
-    const platformFee = billing.platformFee || Math.round(subtotal * 0.15);
-    const gst = billing.gst || Math.round((subtotal + platformFee) * 0.18);
-    const bookingCredit = request?.bookingFee ?? publicConfig?.bookingFee ?? 99;
-    const total = billing.finalTotal || request.totalCharge || (subtotal + platformFee + gst - bookingCredit);
-    // v2 parts ride on top of the fixed price with their own GST. Shown as their
-    // own lines so the summary adds up to the total the customer is asked for.
-    const addedParts = Number(billing.extraPartsCost || 0) + Number(billing.platformPartsCost || 0);
-    const addedPartsGst = Number(billing.partsGst || 0);
-    const gstRate = Number(billing.gstPercent) || 18;
+    // Every figure on this screen is the server's — the bill frozen on the
+    // booking. Nothing is estimated here: an estimate shown next to a Pay
+    // button is a promise, and the server charges its own number.
+    const billing: any = billingData?.billing ?? null;
+    const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+    const isFixedPrice = Number(billing?.snapshotVersion) === 2;
+    const total = num(billing?.finalTotal) ?? (billing ? num(request.totalCharge) : null);
+    const bookingCredit = num(billing?.bookingFeeCredit) ?? num(billing?.bookingFee) ?? 0;
+    const addedParts = Number(billing?.extraPartsCost || 0) + Number(billing?.platformPartsCost || 0);
+    const addedPartsGst = Number(billing?.partsGst || 0);
+    const sparePartsCost = Number(billing?.sparePartsCost || 0);
+    const serviceLaborCost = Number(billing?.serviceLaborCost || 0);
+    const subtotal = num(billing?.subtotal) ?? sparePartsCost + serviceLaborCost;
+    const platformFee = Number(billing?.platformFee || 0);
+    const gst = num(billing?.gst) ?? Number(billing?.cgst || 0) + Number(billing?.sgst || 0);
+    const gstRate = num(billing?.gstPercent);
+    const feeRate = num(billing?.platformFeePercent);
+    const billReady = !loadingBill && !billError && total != null;
 
     if (paymentState === 'success') {
         return (
@@ -217,7 +231,7 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                     </View>
                 </Animated.View>
                 <Text style={styles.successTitle}>Payment Successful!</Text>
-                <Text style={styles.successAmount}>₹{total}</Text>
+                {total != null && <Text style={styles.successAmount}>{inr(total)}</Text>}
                 <Text style={styles.successSub}>
                     Your service booking is now complete. Thank you for choosing UniteFix!
                 </Text>
@@ -234,10 +248,10 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
         <View style={styles.container}>
             {/* Header */}
             <View style={[styles.header, { paddingTop: headerTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
                     <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Complete Payment</Text>
+                <Text style={styles.headerTitle} numberOfLines={1}>Complete Payment</Text>
                 <View style={{ width: 40 }} />
             </View>
 
@@ -245,7 +259,9 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
                 {/* Amount Hero */}
                 <View style={styles.amountCard}>
                     <Text style={styles.amountLabel}>Total Due</Text>
-                    <Text style={styles.amountValue}>₹{total}</Text>
+                    {billReady
+                        ? <Text style={styles.amountValue} numberOfLines={1} adjustsFontSizeToFit>{inr(total)}</Text>
+                        : <ActivityIndicator color={colors.textInverse} style={{ marginVertical: spacing.md }} />}
                     <View style={styles.amountBadge}>
                         <Shield size={12} color={colors.textInverse} />
                         <Text style={styles.amountBadgeText}>Secure Payment via Razorpay</Text>
@@ -261,55 +277,32 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
 
                     {loadingBill ? (
                         <ActivityIndicator color={colors.primary} style={{ paddingVertical: spacing.xl }} />
+                    ) : !billReady ? (
+                        <View style={styles.billErrorBox}>
+                            <Text style={styles.billErrorText}>We couldn't load your bill. Check your connection and try again — you won't be charged until you see the amount.</Text>
+                            <Button title="Try again" variant="outline" size="sm" fullWidth={false} onPress={fetchBilling} />
+                        </View>
                     ) : (
                         <>
-                            <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>Spare Parts</Text>
-                                <Text style={styles.billValue}>₹{sparePartsCost}</Text>
-                            </View>
-                            <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>Service Labour</Text>
-                                <Text style={styles.billValue}>₹{serviceLaborCost}</Text>
-                            </View>
-                            <View style={styles.billDivider} />
-                            <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>Subtotal</Text>
-                                <Text style={styles.billValue}>₹{subtotal}</Text>
-                            </View>
-                            <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>UniteFix Fee (15%)</Text>
-                                <Text style={styles.billValue}>₹{platformFee}</Text>
-                            </View>
-                            <View style={styles.billRow}>
-                                <Text style={styles.billLabel}>GST ({gstRate}%)</Text>
-                                <Text style={styles.billValue}>₹{gst}</Text>
-                            </View>
-                            {addedParts > 0 && (
+                            {isFixedPrice ? (
+                                <BillRow label={`Service price${gstRate != null ? ` (incl. ${gstRate}% GST)` : ' (incl. GST)'}`} value={num(billing.basePrice) ?? 0} />
+                            ) : (
                                 <>
-                                    <View style={styles.billRow}>
-                                        <Text style={styles.billLabel}>Spare parts fitted</Text>
-                                        <Text style={styles.billValue}>₹{addedParts}</Text>
-                                    </View>
-                                    {addedPartsGst > 0 && (
-                                        <View style={styles.billRow}>
-                                            <Text style={styles.billLabel}>GST on parts</Text>
-                                            <Text style={styles.billValue}>₹{addedPartsGst}</Text>
-                                        </View>
-                                    )}
+                                    {sparePartsCost > 0 && <BillRow label="Spare parts" value={sparePartsCost} />}
+                                    {serviceLaborCost > 0 && <BillRow label="Service labour" value={serviceLaborCost} />}
+                                    <View style={styles.billDivider} />
+                                    <BillRow label="Subtotal" value={subtotal} />
+                                    {platformFee > 0 && <BillRow label={`UniteFix fee${feeRate != null ? ` (${feeRate}%)` : ''}`} value={platformFee} />}
+                                    {gst > 0 && <BillRow label={`GST${gstRate != null ? ` (${gstRate}%)` : ''}`} value={gst} />}
                                 </>
                             )}
-                            <View style={styles.billRow}>
-                                <Text style={[styles.billLabel, { color: colors.success }]}>
-                                    Booking Fee Credit
-                                </Text>
-                                <Text style={[styles.billValue, { color: colors.success }]}>
-                                    -₹{bookingCredit}
-                                </Text>
-                            </View>
+                            {addedParts > 0 && <BillRow label="Spare parts fitted" value={addedParts} />}
+                            {addedPartsGst > 0 && <BillRow label="GST on parts" value={addedPartsGst} />}
+                            {bookingCredit > 0 && <BillRow label="Booking fee already paid" value={-bookingCredit} good />}
                             <View style={styles.billDivider} />
                             <View style={styles.billRow}>
-                                <Text style={styles.billTotal}>Total</Text>
-                                <Text style={styles.billTotalValue}>₹{total}</Text>
+                                <Text style={styles.billTotal}>Total due</Text>
+                                <Text style={styles.billTotalValue} numberOfLines={1} adjustsFontSizeToFit>{inr(total)}</Text>
                             </View>
                         </>
                     )}
@@ -328,18 +321,29 @@ export function FinalPaymentScreen({ navigation, route }: Props) {
             {/* Fixed Bottom CTA */}
             <View style={[styles.ctaContainer, { paddingBottom: bottomPad }]}>
                 <Button
-                    title={paymentState === 'failed' ? 'Retry Payment' : `Pay ₹${total}`}
+                    title={!billReady ? 'Loading your bill…' : paymentState === 'failed' ? 'Try payment again' : total! <= 0 ? 'Complete booking' : `Pay ${inr(total)}`}
                     onPress={handlePayment}
                     loading={paymentState === 'loading'}
+                    disabled={!billReady}
                     variant={paymentState === 'failed' ? 'danger' : 'primary'}
                     icon={<CreditCard size={20} color="#fff" />}
                 />
                 {paymentState === 'failed' && (
                     <Text style={styles.failedText}>
-                        Payment failed. Please try again.
+                        {payError ?? 'Payment failed.'} No money was taken unless your bank confirms it.
                     </Text>
                 )}
             </View>
+        </View>
+    );
+}
+
+
+function BillRow({ label, value, good }: { label: string; value: number; good?: boolean }) {
+    return (
+        <View style={styles.billRow}>
+            <Text style={[styles.billLabel, good && { color: colors.success }]}>{label}</Text>
+            <Text style={[styles.billValue, good && { color: colors.success }]}>{inr(value, { paise: 'always' })}</Text>
         </View>
     );
 }
@@ -360,6 +364,8 @@ const styles = StyleSheet.create({
     scrollContent: { padding: spacing.xl, paddingBottom: 120 },
 
     // Amount hero
+    billErrorBox: { paddingVertical: spacing.md, gap: spacing.md, alignItems: 'flex-start' },
+    billErrorText: { ...typography.body, color: colors.textSecondary },
     amountCard: {
         backgroundColor: colors.primary,
         borderRadius: radii['2xl'], padding: spacing['2xl'],
@@ -384,9 +390,9 @@ const styles = StyleSheet.create({
     },
     billHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
     billTitle: { ...typography.h4, color: colors.textPrimary },
-    billRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
-    billLabel: { ...typography.body, color: colors.textSecondary },
-    billValue: { ...typography.mono, color: colors.textPrimary, fontSize: 14 },
+    billRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.md, paddingVertical: spacing.sm },
+    billLabel: { ...typography.body, color: colors.textSecondary, flex: 1, minWidth: 0 },
+    billValue: { ...typography.mono, color: colors.textPrimary, fontSize: 14, flexShrink: 0 },
     billDivider: { height: 1, backgroundColor: colors.divider, marginVertical: spacing.sm },
     billTotal: { ...typography.h4, color: colors.textPrimary },
     billTotalValue: { ...typography.monoLarge, color: colors.primary, fontSize: 22 },

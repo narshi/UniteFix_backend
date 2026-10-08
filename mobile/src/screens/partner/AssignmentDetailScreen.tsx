@@ -46,6 +46,7 @@ const QR_VALIDITY_MS = 12 * 60 * 1000;
 import { Assignment, partnerApi } from '../../api/partner.api';
 import PartRequestsPanel, { usePartRequests, partRequestTotals } from '../../components/partner/PartRequestsPanel';
 import { colors } from '../../theme/colors';
+import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, ScreenHeader } from '../../components/ui';
@@ -205,8 +206,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 </View>
             );
         }
-        navigation.goBack();
-        return null;
+        return <BackOnMount navigation={navigation} />;
     }
 
     const openDirections = () => {

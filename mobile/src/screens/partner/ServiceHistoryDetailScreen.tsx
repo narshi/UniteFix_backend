@@ -37,7 +37,7 @@ import PartsFitted from '../../components/partner/PartsFitted';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { Button } from '../../components/ui';
+import { Button, BackOnMount } from '../../components/ui';
 import { usePublicConfig } from '../../hooks/useCustomerData';
 import { useScreenInsets } from '../../theme/layout';
 import { inr } from '../../utils/money';
@@ -72,11 +72,7 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
     useEffect(() => {
         Animated.timing(headerAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
     }, []);
-    useEffect(() => {
-        if (!assignment) navigation.goBack();
-    }, [assignment, navigation]);
-
-    if (!assignment) return null;
+    if (!assignment) return <BackOnMount navigation={navigation} />;
 
     const isDone = assignment.status === 'completed';
     const isCancelled = assignment.status === 'cancelled';

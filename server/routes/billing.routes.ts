@@ -424,7 +424,14 @@ export function registerBillingRoutes(app: Express) {
             const [booking] = await db.select().from(serviceRequests)
                 .where(eq(serviceRequests.id, bookingId)).limit(1);
 
-            if (!booking) {
+            // Only the booking's customer or its assigned technician may see its bill.
+            const caller = (req as any).user as { userId: number; role: string } | undefined;
+            let allowed = !!booking && !!caller && caller.role === 'user' && booking.userId === caller.userId;
+            if (!allowed && booking && caller?.role === 'serviceman' && booking.providerId) {
+                const [emp] = await db.select({ userId: employees.userId }).from(employees).where(eq(employees.id, booking.providerId)).limit(1);
+                allowed = emp?.userId === caller.userId;
+            }
+            if (!booking || !allowed) {
                 return res.status(404).json({ success: false, message: 'Booking not found' });
             }
 

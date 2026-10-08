@@ -118,7 +118,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     // Category fee first — it is what the server will charge. The app-wide
     // fee only for a service from an older server that did not send one.
-    const bookingFee = categoryBookingFee ?? publicConfig?.bookingFee ?? 99;
+    const knownFee: number | undefined = categoryBookingFee ?? publicConfig?.bookingFee;
+    const feeKnown = typeof knownFee === 'number' && Number.isFinite(knownFee);
+    const bookingFee = feeKnown ? (knownFee as number) : 0;
     const isFixedPrice = basePrice > 0;
 
     // The server bills from the pricing snapshot, which already has the discount
@@ -235,6 +237,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     const handleSubmit = () => {
         if (!validate()) return;
+        if (!feeKnown) {
+            Alert.alert('One moment', 'Still loading the booking price. Please try again in a second.');
+            return;
+        }
 
         // Confirm booking fee before proceeding. For a fixed-price service, show the
         // full split so the customer knows the total and what's left to pay later.
@@ -537,9 +543,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
                 {/* Submit */}
                 <Button
-                    title={uploading ? 'Uploading photos...' : 'Submit Request'}
+                    title={uploading ? 'Uploading photos...' : !feeKnown ? 'Loading price…' : 'Submit Request'}
                     onPress={handleSubmit}
                     loading={isPending || uploading}
+                    disabled={!feeKnown}
                     style={styles.submitButton}
                 />
             </ScrollView>

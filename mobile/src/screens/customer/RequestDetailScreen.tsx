@@ -57,6 +57,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ServiceRequest, customerApi } from '../../api/customer.api';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
+import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
@@ -81,8 +82,8 @@ const SERVICE_ICONS: Record<string, { icon: any; color: string }> = {
 };
 
 // Full state machine timeline matching AI_CONTEXT.md §3.B
-const getTimelineSteps = (bookingFee: number, prepaid = false) => [
-    { key: 'created', label: 'Booking Created', sublabel: prepaid ? `Paid ₹${bookingFee} in full` : `Paid ₹${bookingFee} booking fee`, icon: CreditCard },
+const getTimelineSteps = (bookingFee: number | null, prepaid = false) => [
+    { key: 'created', label: 'Booking Created', sublabel: prepaid ? (bookingFee != null ? `Paid ₹${bookingFee} in full` : 'Paid in full') : (bookingFee != null ? `Paid ₹${bookingFee} booking fee` : 'Booking fee paid'), icon: CreditCard },
     { key: 'assigned', label: 'Service Expert Assigned', sublabel: 'On the way to your location', icon: User },
     { key: 'accepted', label: 'Service Expert Accepted', sublabel: 'OTP generated for verification', icon: Shield },
     { key: 'reached', label: 'Service Expert Arrived', sublabel: 'Location verified via GPS', icon: Navigation },
@@ -207,7 +208,9 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const prepaid = !!(request as any)?.pricingSnapshot?.prepaid;
     const bookingFee = prepaid
         ? Number((request as any).pricingSnapshot.prepaidAmount ?? 0)
-        : (request?.bookingFee ?? publicConfig?.bookingFee ?? 99);
+        : (request?.bookingFee ?? (request as any)?.pricingSnapshot?.bookingFee ?? publicConfig?.bookingFee ?? null);
+    // "₹99 " when the fee is known, "" when it is not — so sentences read either way.
+    const feeAmt = bookingFee != null ? `₹${bookingFee} ` : '';
     const whatsappNumber = publicConfig?.whatsappNumber || '919448850679';
     const timelineSteps = getTimelineSteps(bookingFee, prepaid);
 
@@ -227,8 +230,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 </View>
             );
         }
-        navigation.goBack();
-        return null;
+        return <BackOnMount navigation={navigation} />;
     }
 
     // Cancel only from 'created' state — once assigned, user must contact support
@@ -358,7 +360,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     razorpayOrderId: data.razorpayOrder.orderId,
                     razorpayKeyId: process.env.RAZORPAY_KEY_ID || data.razorpayOrder.razorpayKeyId,
                     amount: data.razorpayOrder.amount,
-                    description: prepaid ? `₹${bookingFee} (full amount) — Booking #${request.id}` : `₹${bookingFee} Booking Fee — Booking #${request.id}`,
+                    description: prepaid ? `${feeAmt}(full amount) — Booking #${request.id}` : `${feeAmt}Booking Fee — Booking #${request.id}`,
                 });
                 
                 // Verify payment
@@ -440,7 +442,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                             styles.bookingFeeText,
                             request.bookingFeeStatus === 'pending' ? { color: colors.errorDark } : {}
                         ]}>
-                            ₹{bookingFee} {prepaid ? 'Full payment' : 'Booking Fee'} {request.bookingFeeStatus === 'pending' ? 'Pending' : 'Paid'}
+                            {feeAmt}{prepaid ? 'Full payment' : 'Booking Fee'} {request.bookingFeeStatus === 'pending' ? 'Pending' : 'Paid'}
                         </Text>
                         {request.bookingFeeStatus === 'paid' && <CheckCircle size={14} color={colors.accent} />}
                     </View>
@@ -573,7 +575,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         <View style={styles.cancelledNote}>
                             <XCircle size={16} color={colors.error} />
                             <Text style={styles.cancelledText}>
-                                This booking was cancelled. Your ₹{bookingFee} booking fee has been refunded.
+                                This booking was cancelled. Your {feeAmt}booking fee has been refunded.
                             </Text>
                         </View>
                     )}
@@ -633,7 +635,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         )}
                         <View style={styles.chargeRow}>
                             <Text style={styles.chargeLabel}>Booking Fee (Credited)</Text>
-                            <Text style={[styles.chargeValue, { color: colors.success }]}>-₹{bookingFee}</Text>
+                            <Text style={[styles.chargeValue, { color: colors.success }]}>{bookingFee != null ? `-₹${bookingFee}` : 'Paid'}</Text>
                         </View>
                         <View style={[styles.chargeRow, styles.chargeTotal]}>
                             <Text style={styles.totalLabel}>Total</Text>
@@ -764,7 +766,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
             <ConfirmModal
                 visible={showCancelModal}
                 title="Cancel Booking?"
-                message={`Your ₹${bookingFee} booking fee will be fully refunded to your original payment method within 3-5 business days.`}
+                message={`Your ${feeAmt}booking fee will be fully refunded to your original payment method within 3-5 business days.`}
                 confirmText="Yes, Cancel"
                 cancelText="Keep Booking"
                 confirmVariant="danger"

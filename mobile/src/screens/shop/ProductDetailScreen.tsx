@@ -16,6 +16,7 @@ import { ArrowLeft, ShoppingCart, ShoppingBag, Star, Package } from 'lucide-reac
 import { useAddToCart } from '../../hooks/useShopData';
 import { Product } from '../../api/shop.api';
 import { colors } from '../../theme/colors';
+import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
@@ -28,7 +29,7 @@ export function ProductDetailScreen({ navigation, route }: Props) {
     const product: Product = route.params?.product;
     const { mutate: addToCart, isPending } = useAddToCart();
 
-    if (!product) { navigation.goBack(); return null; }
+    if (!product) return <BackOnMount navigation={navigation} />;
 
     const discount = product.mrp && product.mrp > product.price
         ? Math.round(((product.mrp - product.price) / product.mrp) * 100)

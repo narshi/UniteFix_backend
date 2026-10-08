@@ -19,6 +19,7 @@ import { ArrowLeft, MapPin, CreditCard, ShieldCheck, Package } from 'lucide-reac
 import { useCart, useCheckout } from '../../hooks/useShopData';
 import { CartItem } from '../../api/shop.api';
 import { colors } from '../../theme/colors';
+import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
@@ -99,8 +100,7 @@ export function CheckoutScreen({ navigation }: Props) {
     }
 
     if (cartItems.length === 0) {
-        navigation.goBack();
-        return null;
+        return <BackOnMount navigation={navigation} />;
     }
 
     return (

@@ -311,7 +311,8 @@ function ActiveBookingCard({
     index: number;
 }) {
     const { data: publicConfig } = usePublicConfig();
-    const defaultBookingFee = publicConfig?.bookingFee ?? 99;
+    // The fee frozen on this booking; the app-wide fee only for very old bookings.
+    const feePaid = item.bookingFee ?? (item as any).pricingSnapshot?.bookingFee ?? publicConfig?.bookingFee;
     const slideAnim = useRef(new Animated.Value(24)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -419,7 +420,7 @@ function ActiveBookingCard({
                         <Text style={activeCardStyles.amountText}>
                             {item.totalAmount
                                 ? `₹${item.totalAmount}`
-                                : `₹${item.bookingFee ?? defaultBookingFee} paid`}
+                                : feePaid != null ? `₹${feePaid} paid` : 'Booking fee paid'}
                         </Text>
                         <ChevronRight size={14} color={colors.textDisabled} />
                     </View>

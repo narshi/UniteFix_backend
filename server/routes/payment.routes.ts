@@ -156,6 +156,23 @@ export function registerPaymentRoutes(app: Express) {
     });
 
     /**
+     * What the customer still owes on a booking's final bill, computed from the
+     * frozen pricing snapshot (or the legacy service_charges row) — never from
+     * anything the client sends. null when no bill has been submitted.
+     */
+    async function finalAmountDue(serviceId: number): Promise<number | null> {
+        const [b] = await db.select({ pricingSnapshot: serviceRequests.pricingSnapshot }).from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+        const snapshot = b?.pricingSnapshot as any;
+        if (snapshot && snapshot.finalTotal !== undefined && snapshot.subtotal) {
+            return (await PaymentService.calculateInvoice(serviceId, snapshot.subtotal)).amountDue;
+        }
+        const r = await db.execute(sql`SELECT service_amount FROM service_charges WHERE service_request_id = ${serviceId}`) as any;
+        const rows = Array.isArray(r) ? r : (r?.rows || []);
+        if (!rows?.[0]) return null;
+        return (await PaymentService.calculateInvoice(serviceId, parseFloat(rows[0].service_amount))).amountDue;
+    }
+
+    /**
      * POST /api/customer/services/:id/create-final-payment
      * Customer creates final payment order after bill has been submitted.
      * Reads the FROZEN pricing_snapshot to verify bill exists and get the correct amount.
@@ -169,14 +186,15 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
-            // Read the frozen snapshot from the booking to verify bill has been submitted
+            // Read the frozen snapshot from the booking to verify bill has been submitted.
+            // Only the customer who made the booking can pay (or lock the cash option on) it.
             const [booking] = await db.select({
                 totalAmount: serviceRequests.totalAmount,
                 pricingSnapshot: serviceRequests.pricingSnapshot,
                 status: serviceRequests.status,
             })
             .from(serviceRequests)
-            .where(eq(serviceRequests.id, serviceId))
+            .where(and(eq(serviceRequests.id, serviceId), eq(serviceRequests.userId, customerId)))
             .limit(1);
 
             if (!booking) {
@@ -252,9 +270,11 @@ export function registerPaymentRoutes(app: Express) {
 
             if (!customerId) return res.status(401).json({ error: "Unauthorized" });
 
-            await db.update(serviceRequests)
+            const [reverted] = await db.update(serviceRequests)
                 .set({ paymentMethod: 'pending' })
-                .where(eq(serviceRequests.id, serviceId));
+                .where(and(eq(serviceRequests.id, serviceId), eq(serviceRequests.userId, customerId)))
+                .returning({ id: serviceRequests.id });
+            if (!reverted) return res.status(404).json({ error: "Booking not found" });
 
             res.json({ success: true, message: "Payment method reverted to pending" });
         } catch (error: any) {
@@ -814,8 +834,26 @@ export function registerPaymentRoutes(app: Express) {
             // booking stuck in pending_payment, and NO INVOICE EVER CREATED.
             let serviceId: number | null = null;
 
-            if (razorpay_payment_id === 'zero_amount' && razorpay_order_id.startsWith('order_')) {
-                serviceId = parseInt(razorpay_order_id.replace('order_', ''));
+            if (razorpay_payment_id === 'zero_amount') {
+                // No money moved, so there is no signature to check. Before this,
+                // anyone signed in could send zero_amount with any booking's id
+                // and mark it completed and paid online (or its booking fee paid).
+                const id = /^order_(\d+)$/.exec(String(razorpay_order_id))?.[1];
+                const userId = (req as any).user?.userId;
+                const [own] = id ? await db.select({ id: serviceRequests.id, status: serviceRequests.status })
+                    .from(serviceRequests).where(and(eq(serviceRequests.id, Number(id)), eq(serviceRequests.userId, userId))).limit(1) : [];
+                if (!own) {
+                    return res.status(404).json({ success: false, message: "Booking not found" });
+                }
+                if (own.status !== BookingState.PENDING_PAYMENT) {
+                    return res.status(409).json({ success: false, message: "This booking is not waiting for payment." });
+                }
+                const due = await finalAmountDue(own.id);
+                if (due === null || due > 0) {
+                    logger.warn(`[PAYMENT] zero-amount completion refused for booking #${own.id}: ${due === null ? 'no bill' : `₹${due} due`}`);
+                    return res.status(402).json({ success: false, message: due === null ? "The bill has not been submitted yet." : `₹${due} is due on this booking. Please pay it to complete the service.` });
+                }
+                serviceId = own.id;
             } else {
                 // The order_created row carries the booking link.
                 const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
