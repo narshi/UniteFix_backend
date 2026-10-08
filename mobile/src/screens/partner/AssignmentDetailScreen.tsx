@@ -17,6 +17,7 @@ import {
     Image,
     ActivityIndicator,
     Modal,
+    useWindowDimensions,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as ExpoLocation from 'expo-location';
@@ -54,7 +55,8 @@ import { useScreenInsets } from '../../theme/layout';
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 
 export function AssignmentDetailScreen({ navigation, route }: Props) {
-    const { headerTop } = useScreenInsets();
+    const { headerTop, scrollBottom } = useScreenInsets();
+    const { width: windowWidth } = useWindowDimensions();
     const routeAssignment: Assignment = route.params?.assignment;
     // A push notification only carries the booking id — the in-app list passes
     // the whole object. Support both so "New job assigned" opens the real job.
@@ -286,6 +288,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         requestPayment({ bookingId: assignment.id });
     };
 
+    // The enlarged QR fits the phone: screen width less the overlay and card padding.
+    const bigQr = Math.min(300, Math.floor(windowWidth - spacing.xl * 4));
+
     const createdDate = new Date(assignment.createdAt).toLocaleDateString('en-IN', {
         day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
@@ -298,7 +303,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
         >
             <ScreenHeader title="Assignment" onBack={() => navigation.goBack()} />
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottom }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {/* Service info card */}
                 <View style={styles.card}>
                     <Text style={styles.serviceType}>{assignment.serviceType.replace(/_/g, ' ')}</Text>
@@ -319,11 +324,11 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     )}
                     <Text style={styles.desc}>{assignment.description}</Text>
                     <View style={styles.metaRow}>
-                        <Calendar size={14} color={colors.textSecondary} />
+                        <Calendar size={14} color={colors.textSecondary} style={styles.metaIcon} />
                         <Text style={styles.metaText}>{createdDate}</Text>
                     </View>
                     <View style={styles.metaRow}>
-                        <MapPin size={14} color={colors.textSecondary} />
+                        <MapPin size={14} color={colors.textSecondary} style={styles.metaIcon} />
                         <Text style={styles.metaText}>{assignment.address}</Text>
                     </View>
                 </View>
@@ -367,11 +372,11 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                         <View style={styles.customerAvatar}>
                             <User size={20} color={colors.primary} />
                         </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.customerName}>{assignment.customerName}</Text>
+                        <View style={styles.customerInfo}>
+                            <Text style={styles.customerName} numberOfLines={2}>{assignment.customerName}</Text>
                             <View style={styles.phoneRow}>
                                 <Phone size={12} color={colors.textSecondary} />
-                                <Text style={styles.phoneText}>{assignment.customerPhone}</Text>
+                                <Text style={styles.phoneText} numberOfLines={1}>{assignment.customerPhone}</Text>
                             </View>
                         </View>
                         {/* Once the job is theirs, ringing the customer — running
@@ -386,7 +391,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 accessibilityLabel={`Call ${assignment.customerName ?? 'customer'}`}
                             >
                                 <Phone size={16} color={colors.textInverse} />
-                                <Text style={styles.callBtnText}>Call</Text>
+                                <Text style={styles.callBtnText} maxFontSizeMultiplier={1.3}>Call</Text>
                             </TouchableOpacity>
                         )}
                     </View>
@@ -406,9 +411,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             <View style={{ flex: 1 }}>
                                 <Button title="✓ Accept" onPress={handleAccept} loading={accepting} fullWidth={true} />
                             </View>
-                            <TouchableOpacity style={styles.denyBtn} onPress={handleDeny} disabled={denying}>
+                            <TouchableOpacity style={styles.denyBtn} onPress={handleDeny} disabled={denying} accessibilityRole="button" accessibilityLabel="Deny this job">
                                 <XCircle size={18} color={colors.error} />
-                                <Text style={styles.denyText}>Deny</Text>
+                                <Text style={styles.denyText} maxFontSizeMultiplier={1.3}>Deny</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -431,18 +436,17 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Verify Customer OTP</Text>
                         <Text style={styles.hintText}>Ask the customer for their service OTP to begin the job.</Text>
-                        <View style={styles.otpRow}>
-                            <TextInput
-                                style={styles.otpInput}
-                                placeholder="Enter OTP"
-                                value={otp}
-                                onChangeText={setOtp}
-                                keyboardType="number-pad"
-                                maxLength={6}
-                                placeholderTextColor={colors.textDisabled}
-                            />
-                            <Button title="▶ Verify & Start" onPress={handleVerifyAndStart} loading={starting} style={styles.otpBtn} fullWidth={false} />
-                        </View>
+                        <TextInput
+                            style={styles.otpInput}
+                            placeholder="Enter OTP"
+                            value={otp}
+                            onChangeText={(v) => setOtp(v.replace(/\D/g, '').slice(0, 6))}
+                            keyboardType="number-pad"
+                            maxLength={6}
+                            placeholderTextColor={colors.textDisabled}
+                            accessibilityLabel="Customer's service OTP"
+                        />
+                        <Button title="Verify & Start" onPress={handleVerifyAndStart} loading={starting} disabled={otp.length < 4} />
                     </View>
                 )}
 
@@ -605,20 +609,20 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 {/* Zoomed QR Modal */}
                                 <Modal visible={isQrModalVisible} transparent={true} statusBarTranslucent animationType="fade" onRequestClose={() => setQrModalVisible(false)}>
                                     <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl }}>
-                                        <TouchableOpacity style={{ position: 'absolute', top: headerTop, right: 30, padding: 10 }} onPress={() => setQrModalVisible(false)}>
+                                        <TouchableOpacity style={{ position: 'absolute', top: headerTop, right: spacing.lg, padding: 10 }} onPress={() => setQrModalVisible(false)} accessibilityRole="button" accessibilityLabel="Close">
                                             <XCircle size={32} color="#fff" />
                                         </TouchableOpacity>
                                         <View style={{ backgroundColor: '#fff', padding: spacing.xl, borderRadius: radii.lg, alignItems: 'center' }}>
                                             {qrCodeUrl ? (
                                                 <Image
                                                     source={{ uri: qrCodeUrl }}
-                                                    style={{ width: 300, height: 300 }}
+                                                    style={{ width: bigQr, height: bigQr }}
                                                     resizeMode="contain"
                                                 />
                                             ) : qrError && (
                                                 <QRCode
                                                     value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
-                                                    size={300}
+                                                    size={bigQr}
                                                     color="black"
                                                     backgroundColor="white"
                                                 />
@@ -735,25 +739,26 @@ const styles = StyleSheet.create({
     qtyBadgeText: { ...typography.bodySemibold, color: colors.primary },
     brandText: { ...typography.body2, color: colors.primary, fontWeight: '500', marginBottom: spacing.xs },
     desc: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs },
-    metaText: { ...typography.caption, color: colors.textSecondary },
+    // Long addresses wrap inside the card instead of running off the right edge.
+    metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginBottom: spacing.xs },
+    metaIcon: { marginTop: 2 },
+    metaText: { ...typography.caption, color: colors.textSecondary, flex: 1, minWidth: 0 },
     sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.md },
     customerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     customerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySurface, justifyContent: 'center', alignItems: 'center' },
+    customerInfo: { flex: 1, minWidth: 0 },
     customerName: { ...typography.bodyMedium, color: colors.textPrimary },
     phoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 },
-    phoneText: { ...typography.caption, color: colors.textSecondary },
-    callBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.success, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.full },
+    phoneText: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
+    callBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.success, paddingHorizontal: spacing.md, minHeight: 40, borderRadius: radii.full, flexShrink: 0 },
     callBtnText: { ...typography.bodySemibold, color: colors.textInverse },
     actionsCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.lg, ...shadows.md },
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     acceptBtn: { flex: 1 },
-    denyBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.error },
+    denyBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.error, flexShrink: 0, minHeight: 44 },
     denyText: { ...typography.bodyMedium, color: colors.error },
     hintText: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md, lineHeight: 18 },
-    otpRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
-    otpInput: { flex: 1, maxWidth: 320, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, fontSize: 24, fontWeight: '700', letterSpacing: 8, textAlign: 'center', color: colors.textPrimary },
-    otpBtn: { width: 100 },
+    otpInput: { width: '100%', borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.md, fontSize: 24, fontWeight: '700', letterSpacing: 8, textAlign: 'center', color: colors.textPrimary },
     startBtn: { marginTop: spacing.sm },
     chargeBtn: { marginBottom: spacing.md },
     earnCard: {

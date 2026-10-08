@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     lockedName: { ...typography.bodyMedium, color: colors.textPrimary },
     lockedBrand: { ...typography.caption, color: colors.textSecondary },
     lockedMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-    addRow: { flexDirection: 'row', gap: spacing.sm },
+    addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     stockBtn: { backgroundColor: colors.primary, borderColor: colors.primary },
     nudge: { marginTop: spacing.sm, padding: spacing.sm, borderRadius: radii.sm, backgroundColor: colors.warningLight },
     nudgeText: { ...typography.caption, color: colors.warningDark, textAlign: 'center' },
@@ -524,9 +524,10 @@ const styles = StyleSheet.create({
     removeLink: { ...typography.captionMedium, color: colors.error },
     addBtn: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs,
-        paddingVertical: spacing.sm,
+        flexGrow: 1, flexBasis: 140, minHeight: 44, paddingHorizontal: spacing.md,
+        borderRadius: radii.md, borderWidth: 1, borderColor: colors.primary,
     },
-    addBtnText: { ...typography.captionMedium, color: colors.primary },
+    addBtnText: { ...typography.captionMedium, color: colors.primary, flexShrink: 1, textAlign: 'center' },
     totalRow: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border,

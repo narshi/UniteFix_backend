@@ -52,9 +52,9 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
     return (
         <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
             <View style={styles.cardHeader}>
-                <Text style={styles.serviceType}>{item.serviceType.replace(/_/g, ' ')}</Text>
+                <Text style={styles.serviceType} numberOfLines={1}>{item.serviceType.replace(/_/g, ' ')}</Text>
                 <View style={[styles.badge, { backgroundColor: config.bg }]}>
-                    <Text style={[styles.badgeText, { color: config.text }]}>{config.label}</Text>
+                    <Text style={[styles.badgeText, { color: config.text }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>{config.label}</Text>
                 </View>
             </View>
 
@@ -69,9 +69,9 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
                 <Text style={styles.infoText} numberOfLines={1}>{item.address}</Text>
             </View>
             <View style={styles.cardFooter}>
-                <View style={styles.infoRow}>
+                <View style={[styles.infoRow, styles.footerDate]}>
                     <Calendar size={13} color={colors.textSecondary} />
-                    <Text style={styles.infoText}>{date}</Text>
+                    <Text style={styles.infoText} numberOfLines={1}>{date}</Text>
                 </View>
                 <View style={styles.footerActions}>
                     {canCallCustomer(item.status, item.customerPhone) && (
@@ -83,7 +83,7 @@ function AssignmentCard({ item, onPress, t }: { item: Assignment; onPress: () =>
                             accessibilityLabel={`Call ${item.customerName ?? 'customer'}`}
                         >
                             <Phone size={14} color={colors.success} />
-                            <Text style={styles.callChipText}>Call</Text>
+                            <Text style={styles.callChipText} maxFontSizeMultiplier={1.3}>Call</Text>
                         </TouchableOpacity>
                     )}
                     <ChevronRight size={18} color={colors.textSecondary} />
@@ -276,18 +276,23 @@ const styles = StyleSheet.create({
         borderWidth: 1, borderColor: colors.border,
     },
     cardHeader: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm,
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm,
     },
-    serviceType: { ...typography.bodyMedium, color: colors.textPrimary, textTransform: 'capitalize' },
-    badge: { paddingVertical: 3, paddingHorizontal: spacing.sm, borderRadius: radii.full },
+    // The service name takes what is left; the status badge never gets pushed off the card.
+    serviceType: { ...typography.bodyMedium, color: colors.textPrimary, textTransform: 'capitalize', flex: 1, minWidth: 0 },
+    badge: { paddingVertical: 3, paddingHorizontal: spacing.sm, borderRadius: radii.full, flexShrink: 0 },
     badgeText: { fontSize: 11, fontWeight: '600' },
     description: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
     earnText: { ...typography.bodyMedium, color: colors.success, marginBottom: spacing.md },
     infoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
     infoText: { ...typography.small, color: colors.textSecondary, flex: 1 },
-    cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
-    footerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    callChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radii.full, borderWidth: 1, borderColor: colors.success },
+    // The date shrinks (and truncates) so the Call chip and arrow always stay inside
+    // the card — before, the date row could not shrink and pushed them off the edge
+    // on narrow phones and with a larger system font.
+    cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+    footerDate: { flex: 1, minWidth: 0, marginBottom: 0 },
+    footerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 0 },
+    callChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.md, minHeight: 32, borderRadius: radii.full, borderWidth: 1, borderColor: colors.success },
     callChipText: { ...typography.captionMedium, color: colors.success },
 
     // Mirrors the customer home banner so the two apps read as one product.

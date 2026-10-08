@@ -17,6 +17,8 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
 import { ScreenHeader } from '../../components/ui';
+import { useScreenInsets } from '../../theme/layout';
+import { inr } from '../../utils/money';
 
 type Props = NativeStackScreenProps<any, 'MyStock'>;
 
@@ -26,6 +28,7 @@ const MOVE_LABEL: Record<string, string> = {
 };
 
 export function MyStockScreen({ navigation }: Props) {
+    const { scrollBottom } = useScreenInsets();
     const [returning, setReturning] = useState<number | null>(null);
     const { data, isLoading, refetch, isRefetching } = useQuery({
         queryKey: ['my-stock'],
@@ -57,7 +60,7 @@ export function MyStockScreen({ navigation }: Props) {
         <View style={styles.screen}>
             <ScreenHeader title="My stock" onBack={() => navigation.goBack()} />
             <ScrollView
-                contentContainerStyle={styles.content}
+                contentContainerStyle={[styles.content, { paddingBottom: scrollBottom }]}
                 refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />}
             >
                 {isLoading ? (
@@ -71,15 +74,18 @@ export function MyStockScreen({ navigation }: Props) {
                             ) : data!.items.map(it => (
                                 <View key={it.sparePartId} style={styles.itemRow}>
                                     <Package size={16} color={colors.primary} />
-                                    <View style={{ flex: 1 }}>
+                                    <View style={styles.grow}>
                                         <Text style={styles.itemName}>{it.name}{it.brand ? <Text style={styles.itemBrand}>  {it.brand}</Text> : null}</Text>
-                                        <Text style={styles.itemMeta}>{it.partCode} · ₹{it.unitPrice} each to the customer</Text>
+                                        <Text style={styles.itemMeta}>{it.partCode} · {inr(it.unitPrice)} each to the customer</Text>
                                     </View>
                                     <Text style={styles.itemQty}>×{it.quantity}</Text>
                                     <TouchableOpacity
                                         onPress={() => returnOne(it.sparePartId, it.name, it.quantity)}
                                         disabled={returning === it.sparePartId}
                                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        style={styles.returnBtn}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Return ${it.name}`}
                                     >
                                         {returning === it.sparePartId ? <ActivityIndicator size="small" color={colors.primary} /> : <Undo2 size={16} color={colors.textSecondary} />}
                                     </TouchableOpacity>
@@ -92,7 +98,7 @@ export function MyStockScreen({ navigation }: Props) {
                                 <Text style={styles.cardTitle}>Movements</Text>
                                 {data!.movements.map(m => (
                                     <View key={m.id} style={styles.moveRow}>
-                                        <View style={{ flex: 1 }}>
+                                        <View style={styles.grow}>
                                             <Text style={styles.moveTitle}>{MOVE_LABEL[m.type] ?? m.type} · {m.part.name}</Text>
                                             <Text style={styles.moveDate}>{new Date(m.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}{m.notes ? ` · ${m.notes}` : ''}</Text>
                                         </View>
@@ -118,9 +124,11 @@ const styles = StyleSheet.create({
     itemName: { ...typography.bodyMedium, color: colors.textPrimary },
     itemBrand: { ...typography.caption, color: colors.textSecondary },
     itemMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-    itemQty: { ...typography.bodySemibold, color: colors.textPrimary },
+    grow: { flex: 1, minWidth: 0 },
+    itemQty: { ...typography.bodySemibold, color: colors.textPrimary, flexShrink: 0 },
+    returnBtn: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
     moveRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
     moveTitle: { ...typography.captionMedium, color: colors.textPrimary },
     moveDate: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-    moveQty: { ...typography.captionMedium },
+    moveQty: { ...typography.captionMedium, flexShrink: 0 },
 });

@@ -96,8 +96,8 @@ const styles = StyleSheet.create({
     rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
     name: { ...typography.captionMedium, color: colors.textPrimary, flex: 1 },
     brand: { ...typography.caption, color: colors.textSecondary },
-    price: { ...typography.captionMedium, color: colors.textPrimary },
+    price: { ...typography.captionMedium, color: colors.textPrimary, flexShrink: 0 },
     source: { ...typography.caption, color: colors.textPrimary, marginTop: 2 },
     coverRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
-    cover: { ...typography.caption, color: colors.textSecondary },
+    cover: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
 });

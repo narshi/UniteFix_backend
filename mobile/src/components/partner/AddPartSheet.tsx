@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     choiceTitle: { ...typography.bodySemibold, color: colors.textPrimary, marginTop: spacing.xs },
     choiceSub: { ...typography.caption, color: colors.textSecondary },
 
-    factRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    factRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md },
     factLabel: { ...typography.body, color: colors.textSecondary },
     factValue: { ...typography.bodySemibold, color: colors.textPrimary },
 
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
     errorText: { ...typography.caption, color: colors.errorDark },
 
     totals: { gap: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider },
-    totalLine: { flexDirection: 'row', justifyContent: 'space-between' },
+    totalLine: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
     totalLabel: { ...typography.body, color: colors.textSecondary },
     totalValue: { ...typography.body, color: colors.textPrimary },
     payLine: { marginTop: spacing.xs },

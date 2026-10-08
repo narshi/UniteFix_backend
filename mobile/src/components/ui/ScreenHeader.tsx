@@ -39,11 +39,13 @@ export function ScreenHeader({ title, onBack, rightAction, variant = 'default' }
                 onPress={onBack}
                 style={styles.backBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
             >
                 <ArrowLeft size={20} color={colors.textPrimary} strokeWidth={2.2} />
             </TouchableOpacity>
 
-            <Text style={styles.title} numberOfLines={1}>{title}</Text>
+            <Text style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.3} accessibilityRole="header">{title}</Text>
 
             <View style={styles.rightSlot}>
                 {rightAction || <View style={styles.placeholder} />}
@@ -83,8 +85,9 @@ const styles = StyleSheet.create({
         marginHorizontal: spacing.sm,
     },
     rightSlot: {
-        width: 40,
+        minWidth: 40,
         alignItems: 'flex-end',
+        flexShrink: 0,
     },
     placeholder: {
         width: 40,

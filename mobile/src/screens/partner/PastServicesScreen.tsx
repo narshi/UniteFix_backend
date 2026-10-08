@@ -25,6 +25,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useScreenInsets } from '../../theme/layout';
+import { inr } from '../../utils/money';
 
 function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) {
     const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
@@ -36,9 +37,9 @@ function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) 
         <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
             <View style={styles.cardLeft}>
                 <View style={[styles.statusDot, { backgroundColor: isDone ? colors.success : colors.error }]} />
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.serviceType}>{item.serviceType.replace(/_/g, ' ')}</Text>
-                    <Text style={styles.customer}>
+                <View style={styles.cardText}>
+                    <Text style={styles.serviceType} numberOfLines={1}>{item.serviceType.replace(/_/g, ' ')}</Text>
+                    <Text style={styles.customer} numberOfLines={1}>
                         {item.customerName}{item.serviceId ? ` · ${item.serviceId}` : ''}
                     </Text>
                     <View style={styles.dateRow}>
@@ -49,7 +50,7 @@ function PastCard({ item, onPress }: { item: Assignment; onPress: () => void }) 
             </View>
             <View style={styles.cardRight}>
                 {item.totalCharge != null && item.totalCharge > 0 && (
-                    <Text style={styles.charge}>₹{item.totalCharge}</Text>
+                    <Text style={styles.charge} numberOfLines={1}>{inr(item.totalCharge)}</Text>
                 )}
                 {item.rating != null && (
                     <View style={styles.ratingRow}>
@@ -94,7 +95,7 @@ export function PastServicesScreen() {
         <View style={styles.container}>
             <View style={[styles.header, { paddingTop: headerTop }]}>
                 <Text style={styles.headerTitle}>Past Services</Text>
-                <Text style={styles.headerSub}>{totalCount} completed</Text>
+                <Text style={styles.headerSub}>{totalCount} {totalCount === 1 ? 'job' : 'jobs'}</Text>
             </View>
 
             <FlatList
@@ -149,13 +150,14 @@ const styles = StyleSheet.create({
         padding: spacing.lg, marginBottom: spacing.sm,
         borderWidth: 1, borderColor: colors.border,
     },
-    cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: spacing.md },
+    cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: spacing.md },
+    cardText: { flex: 1, minWidth: 0 },
     statusDot: { width: 10, height: 10, borderRadius: 5 },
     serviceType: { ...typography.bodyMedium, color: colors.textPrimary, textTransform: 'capitalize' },
     customer: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
     dateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
     dateText: { ...typography.small, color: colors.textDisabled },
-    cardRight: { alignItems: 'flex-end', gap: spacing.xs },
+    cardRight: { alignItems: 'flex-end', gap: spacing.xs, flexShrink: 0, marginLeft: spacing.sm },
     charge: { ...typography.bodyMedium, color: colors.success },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     ratingText: { ...typography.small, color: colors.textSecondary },

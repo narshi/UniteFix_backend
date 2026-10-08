@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.sm, paddingVertical: 8, marginBottom: spacing.xs,
         color: colors.textPrimary, ...typography.caption,
     },
-    chipRow: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
     chip: {
         paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radii.sm,
         borderWidth: 1, borderColor: colors.border,

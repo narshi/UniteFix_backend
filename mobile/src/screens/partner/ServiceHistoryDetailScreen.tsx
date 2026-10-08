@@ -40,6 +40,7 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { usePublicConfig } from '../../hooks/useCustomerData';
 import { useScreenInsets } from '../../theme/layout';
+import { inr } from '../../utils/money';
 
 type Props = NativeStackScreenProps<any, 'ServiceHistoryDetail'>;
 
@@ -65,21 +66,20 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
     const { headerTop } = useScreenInsets();
     const assignment: Assignment = route.params?.assignment;
 
-    // Animations
+    // Every hook runs on every render, before any early return.
+    const { data: publicConfig } = usePublicConfig();
     const headerAnim = useRef(new Animated.Value(0)).current;
     useEffect(() => {
         Animated.timing(headerAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
     }, []);
+    useEffect(() => {
+        if (!assignment) navigation.goBack();
+    }, [assignment, navigation]);
 
-    if (!assignment) {
-        navigation.goBack();
-        return null;
-    }
+    if (!assignment) return null;
 
     const isDone = assignment.status === 'completed';
     const isCancelled = assignment.status === 'cancelled';
-
-    const { data: publicConfig } = usePublicConfig();
 
     // Support window: configurable hours from completedAt
     const SUPPORT_WINDOW_HOURS = publicConfig?.supportWindowHours ?? 48;
@@ -124,7 +124,8 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
     const serviceCharge = assignment.serviceCharge ?? 0;
     const materialCharge = assignment.materialCharge ?? 0;
     const totalCharge = assignment.totalCharge ?? 0;
-    const bookingFee = (assignment as any).bookingFee ?? 99;
+    // Only what was actually recorded — never an assumed fee.
+    const bookingFee = Number((assignment as any).bookingFee ?? 0);
     const commissionAmount = (assignment as any).commissionAmount ?? 0;
     const partnerEarning = totalCharge - commissionAmount;
 
@@ -132,12 +133,12 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
         <View style={styles.container}>
             {/* Header */}
             <Animated.View style={[styles.header, { paddingTop: headerTop }, { opacity: headerAnim }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
                     <ArrowLeft size={20} color={colors.textPrimary} />
                 </TouchableOpacity>
                 <View style={styles.headerCenter}>
-                    <Text style={styles.headerTitle}>Service Details</Text>
-                    <Text style={styles.headerSub}>{assignment.serviceId || `#${assignment.id}`}</Text>
+                    <Text style={styles.headerTitle} numberOfLines={1}>Service Details</Text>
+                    <Text style={styles.headerSub} numberOfLines={1}>{assignment.serviceId || `#${assignment.id}`}</Text>
                 </View>
                 <View style={{ width: 40 }} />
             </Animated.View>
@@ -202,7 +203,7 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
                             </Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.personName}>{assignment.customerName || 'Customer'}</Text>
+                            <Text style={styles.personName} numberOfLines={2}>{assignment.customerName || 'Customer'}</Text>
                             <Text style={styles.personSub}>Contact hidden for completed services</Text>
                         </View>
                     </View>
@@ -256,33 +257,35 @@ export function ServiceHistoryDetailScreen({ navigation, route }: Props) {
                         {serviceCharge > 0 && (
                             <View style={styles.billingRow}>
                                 <Text style={styles.billingLabel}>Service Labour</Text>
-                                <Text style={styles.billingValue}>₹{serviceCharge}</Text>
+                                <Text style={styles.billingValue}>{inr(serviceCharge)}</Text>
                             </View>
                         )}
                         {materialCharge > 0 && (
                             <View style={styles.billingRow}>
                                 <Text style={styles.billingLabel}>Spare Parts</Text>
-                                <Text style={styles.billingValue}>₹{materialCharge}</Text>
+                                <Text style={styles.billingValue}>{inr(materialCharge)}</Text>
                             </View>
                         )}
-                        <View style={styles.billingRow}>
-                            <Text style={styles.billingLabel}>Booking Fee (Credited)</Text>
-                            <Text style={[styles.billingValue, { color: colors.success }]}>-₹{bookingFee}</Text>
-                        </View>
+                        {bookingFee > 0 && (
+                            <View style={styles.billingRow}>
+                                <Text style={styles.billingLabel}>Booking Fee (Credited)</Text>
+                                <Text style={[styles.billingValue, { color: colors.success }]}>{inr(-bookingFee)}</Text>
+                            </View>
+                        )}
                         {commissionAmount > 0 && (
                             <View style={styles.billingRow}>
                                 <Text style={styles.billingLabel}>Platform Fee</Text>
-                                <Text style={[styles.billingValue, { color: colors.error }]}>-₹{commissionAmount}</Text>
+                                <Text style={[styles.billingValue, { color: colors.error }]}>{inr(-commissionAmount)}</Text>
                             </View>
                         )}
                         <View style={[styles.billingRow, styles.billingTotal]}>
                             <Text style={styles.totalLabel}>Customer Paid</Text>
-                            <Text style={styles.totalValue}>₹{totalCharge}</Text>
+                            <Text style={styles.totalValue} numberOfLines={1} adjustsFontSizeToFit>{inr(totalCharge)}</Text>
                         </View>
                         {commissionAmount > 0 && (
                             <View style={[styles.billingRow, { marginTop: spacing.xs }]}>
                                 <Text style={[styles.totalLabel, { color: colors.primary }]}>Your Earning</Text>
-                                <Text style={[styles.totalValue, { color: colors.primary }]}>₹{partnerEarning}</Text>
+                                <Text style={[styles.totalValue, { color: colors.primary }]} numberOfLines={1} adjustsFontSizeToFit>{inr(partnerEarning)}</Text>
                             </View>
                         )}
                     </View>
@@ -334,7 +337,7 @@ const styles = StyleSheet.create({
         width: 40, height: 40, borderRadius: radii.lg,
         backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
     },
-    headerCenter: { flex: 1, alignItems: 'center' },
+    headerCenter: { flex: 1, minWidth: 0, alignItems: 'center', marginHorizontal: spacing.sm },
     headerTitle: { ...typography.h3, color: colors.textPrimary },
     headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     scrollContent: { padding: spacing.lg, paddingBottom: 120 },
@@ -397,11 +400,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingVertical: spacing.sm,
     },
-    billingLabel: { ...typography.body, color: colors.textSecondary },
-    billingValue: { ...typography.bodyMedium, color: colors.textPrimary },
+    billingLabel: { ...typography.body, color: colors.textSecondary, flex: 1, minWidth: 0, marginRight: spacing.sm },
+    billingValue: { ...typography.bodyMedium, color: colors.textPrimary, flexShrink: 0 },
     billingTotal: { borderTopWidth: 1, borderTopColor: colors.divider, marginTop: spacing.sm, paddingTop: spacing.md },
-    totalLabel: { ...typography.bodySemibold, color: colors.textPrimary },
-    totalValue: { ...typography.h3, color: colors.textPrimary },
+    totalLabel: { ...typography.bodySemibold, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
+    totalValue: { ...typography.h3, color: colors.textPrimary, flexShrink: 0, maxWidth: '60%' },
 
     // Rating
     ratingRow: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm },

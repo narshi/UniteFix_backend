@@ -42,6 +42,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useScreenInsets } from '../../theme/layout';
+import { inr } from '../../utils/money';
 
 /** "4 Sep" — short enough for a summary card, unambiguous enough to plan around. */
 function formatReleaseDate(iso: string): string {
@@ -71,11 +72,11 @@ function TransactionItem({ item }: { item: WalletTransaction }) {
                 )}
             </View>
             <View style={styles.txnContent}>
-                <Text style={styles.txnDesc}>{item.description}</Text>
+                <Text style={styles.txnDesc} numberOfLines={2}>{item.description}</Text>
                 <Text style={styles.txnDate}>{date}</Text>
             </View>
-            <Text style={[styles.txnAmount, { color: isCredit ? colors.success : colors.error }]}>
-                {isCredit ? '+' : '-'}₹{item.amount}
+            <Text style={[styles.txnAmount, { color: isCredit ? colors.success : colors.error }]} numberOfLines={1}>
+                {isCredit ? '+' : '−'}{inr(Math.abs(Number(item.amount)))}
             </Text>
         </View>
     );
@@ -111,7 +112,7 @@ export function WalletScreen() {
                     <Text style={styles.headerTitle}>Your pay</Text>
                 </View>
                 <View style={{ margin: spacing.md, padding: spacing.md, borderRadius: radii.xl, backgroundColor: colors.primarySurface, borderWidth: 1, borderColor: colors.primaryLight }}>
-                    <Text style={{ ...typography.h3, color: colors.textPrimary }}>Employed by {employer.name}</Text>
+                    <Text style={{ ...typography.h3, color: colors.textPrimary }} numberOfLines={2}>Employed by {employer.name}</Text>
                     <Text style={{ ...typography.body, color: colors.textSecondary, marginTop: spacing.sm }}>
                         Your pay comes from your employer, not a UniteFix wallet. UniteFix settles your jobs with {employer.name}.
                         {employer.phone ? `\n\nQuestions about your pay: ${employer.phone}` : ''}
@@ -190,11 +191,11 @@ export function WalletScreen() {
                             <View style={styles.duesAlertCard}>
                                 <View style={styles.duesAlertHeader}>
                                     <AlertTriangle size={20} color="#DC2626" />
-                                    <Text style={styles.duesAlertTitle}>Outstanding Platform Dues</Text>
+                                    <Text style={styles.duesAlertTitle} numberOfLines={2}>Outstanding Platform Dues</Text>
                                 </View>
                                 <Text style={styles.duesAlertText}>
                                     Your wallet has an unpaid cash commission of{' '}
-                                    <Text style={{ fontWeight: '800' }}>₹{Math.abs(available)}</Text>.
+                                    <Text style={{ fontWeight: '800' }}>{inr(Math.abs(available))}</Text>.
                                     New job assignments are paused until your balance is brought above -₹250.
                                 </Text>
                             </View>
@@ -215,8 +216,8 @@ export function WalletScreen() {
                         >
                             <View style={styles.completedLeft}>
                                 <Briefcase size={18} color={colors.success} />
-                                <Text style={styles.completedText}>
-                                    {wallet?.completedJobs || 0} jobs completed
+                                <Text style={styles.completedText} numberOfLines={1}>
+                                    {wallet?.completedJobs || 0} {(wallet?.completedJobs || 0) === 1 ? 'job' : 'jobs'} completed
                                 </Text>
                             </View>
                             <Info size={16} color={colors.successDark} />
@@ -249,8 +250,8 @@ export function WalletScreen() {
                             <Text style={[
                                 styles.availableAmount,
                                 available < 0 && { color: '#DC2626' }
-                            ]}>
-                                {available < 0 ? `-₹${Math.abs(available)}` : `₹${available}`}
+                            ]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                                {inr(available)}
                             </Text>
 
                             <Button
@@ -267,7 +268,7 @@ export function WalletScreen() {
                                 <View style={styles.holdBannerBox}>
                                     <Clock size={14} color="#B45309" />
                                     <Text style={styles.holdBannerText}>
-                                        ₹{held} from recent jobs is on hold
+                                        {inr(held)} from recent jobs is on hold
                                         {wallet?.nextReleaseDate
                                             ? ` (unlocks ${formatReleaseDate(wallet.nextReleaseDate)})`
                                             : ''}
@@ -296,7 +297,7 @@ export function WalletScreen() {
                                     <TrendingUp size={20} color={colors.success} />
                                     <Info size={14} color={colors.textTertiary} />
                                 </View>
-                                <Text style={styles.summaryAmount}>₹{wallet?.totalEarnings || 0}</Text>
+                                <Text style={styles.summaryAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{inr(wallet?.totalEarnings || 0)}</Text>
                                 <Text style={styles.summaryLabel}>Total Earned</Text>
                             </TouchableOpacity>
 
@@ -319,12 +320,12 @@ export function WalletScreen() {
                                     <Clock size={20} color="#D97706" />
                                     <Info size={14} color={colors.textTertiary} />
                                 </View>
-                                <Text style={styles.summaryAmount}>₹{held}</Text>
+                                <Text style={styles.summaryAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{inr(held)}</Text>
                                 <Text style={styles.summaryLabel}>On Hold</Text>
                                 {held > 0 && (
                                     <View style={styles.fastTrackPill}>
                                         <Sparkles size={10} color="#059669" />
-                                        <Text style={styles.fastTrackText}>5★ = Instant Unlock</Text>
+                                        <Text style={styles.fastTrackText} numberOfLines={1}>5★ = Instant Unlock</Text>
                                     </View>
                                 )}
                             </TouchableOpacity>
@@ -360,7 +361,7 @@ export function WalletScreen() {
                 <Pressable style={styles.modalOverlay} onPress={() => setActiveInfo(null)}>
                     <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                         <View style={styles.modalHeader}>
-                            <View>
+                            <View style={styles.modalTitleWrap}>
                                 <Text style={styles.modalTitle}>{activeInfo?.title}</Text>
                                 {activeInfo?.badge && (
                                     <View style={styles.modalBadge}>
@@ -371,6 +372,9 @@ export function WalletScreen() {
                             <TouchableOpacity
                                 style={styles.modalCloseBtn}
                                 onPress={() => setActiveInfo(null)}
+                                accessibilityRole="button"
+                                accessibilityLabel="Close"
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                                 <X size={18} color={colors.textSecondary} />
                             </TouchableOpacity>
@@ -431,6 +435,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     duesAlertTitle: {
+        flexShrink: 1,
         fontSize: 14,
         fontWeight: '800',
         color: '#DC2626',
@@ -458,8 +463,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
+        flex: 1,
+        minWidth: 0,
+        marginRight: spacing.sm,
     },
     completedText: {
+        flexShrink: 1,
         ...typography.bodySemibold,
         color: '#065F46',
         fontSize: 13,
@@ -584,10 +593,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginRight: spacing.md,
     },
-    txnContent: { flex: 1 },
+    txnContent: { flex: 1, minWidth: 0, marginRight: spacing.sm },
     txnDesc: { ...typography.bodyMedium, color: colors.textPrimary },
     txnDate: { ...typography.small, color: colors.textDisabled, marginTop: 1 },
-    txnAmount: { ...typography.bodyMedium, fontWeight: '700' },
+    txnAmount: { ...typography.bodyMedium, fontWeight: '700', flexShrink: 0 },
 
     // Modal
     modalOverlay: {
@@ -611,6 +620,7 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         marginBottom: spacing.sm,
     },
+    modalTitleWrap: { flex: 1, minWidth: 0, marginRight: spacing.sm },
     modalTitle: {
         ...typography.h3,
         color: colors.textPrimary,

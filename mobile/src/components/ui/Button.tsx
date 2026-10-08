@@ -89,6 +89,9 @@ export function Button({
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
                 disabled={isDisabled}
+                accessibilityRole="button"
+                accessibilityLabel={title}
+                accessibilityState={{ disabled: isDisabled, busy: loading }}
                 style={[
                     styles.base,
                     sizeStyles[size],
@@ -115,6 +118,8 @@ export function Button({
                                 sizeTextStyles[size],
                                 variantTextStyles[variant],
                             ]}
+                            numberOfLines={2}
+                            maxFontSizeMultiplier={1.3}
                         >
                             {title}
                         </Text>
@@ -133,6 +138,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderRadius: radii.lg,
         overflow: 'hidden',
+        minHeight: 44,
     },
     fullWidth: {
         width: '100%',
@@ -140,13 +146,19 @@ const styles = StyleSheet.create({
     disabled: {
         opacity: 0.45,
     },
+    // The label may wrap to a second line rather than run past the button's
+    // edges (narrow phones, large system font, long amounts in the title).
     content: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        maxWidth: '100%',
+        flexShrink: 1,
     },
     text: {
         ...typography.button,
+        flexShrink: 1,
+        textAlign: 'center',
     },
     iconLeft: {
         marginRight: spacing.sm,

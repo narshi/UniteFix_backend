@@ -147,10 +147,10 @@ export function StartServiceScreen({ navigation, route }: Props) {
         >
             {/* Header */}
             <View style={[styles.header, { paddingTop: headerTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>
+                <Text style={styles.headerTitle} numberOfLines={1}>
                     {phase === 'arrive' ? 'Confirm Arrival' : 'Enter Service Code'}
                 </Text>
                 <View style={{ width: 36 }} />
@@ -251,6 +251,7 @@ export function StartServiceScreen({ navigation, route }: Props) {
                                 keyboardType="number-pad"
                                 maxLength={6}
                                 placeholder="● ● ● ● ● ●"
+                                accessibilityLabel="6-digit service code"
                                 placeholderTextColor={colors.textDisabled}
                                 textAlign="center"
                                 autoFocus
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
         width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface,
         justifyContent: 'center', alignItems: 'center',
     },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
+    headerTitle: { ...typography.h4, color: colors.textPrimary, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
     content: { flexGrow: 1, padding: spacing.xl },
 
     // Step indicator

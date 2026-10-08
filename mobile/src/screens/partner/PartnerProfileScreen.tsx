@@ -303,7 +303,7 @@ export function PartnerProfileScreen() {
                 <View style={styles.avatarLarge}>
                     <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
                 </View>
-                <Text style={styles.displayName}>{displayName}</Text>
+                <Text style={styles.displayName} numberOfLines={2}>{displayName}</Text>
                 <View style={styles.rolePill}>
                     <Text style={styles.roleText}>🔧 Service Expert</Text>
                 </View>
@@ -328,6 +328,7 @@ export function PartnerProfileScreen() {
                     <View style={[styles.onlineDot, { backgroundColor: isOnline ? colors.success : colors.textDisabled }]} />
                     <Text style={styles.onlineLabel}>{isOnline ? 'Online' : 'Offline'}</Text>
                     <Switch
+                        accessibilityLabel={isOnline ? 'You are online. Turn off to stop receiving jobs.' : 'You are offline. Turn on to receive jobs.'}
                         value={isOnline}
                         onValueChange={handleToggleOnline}
                         disabled={togglingOnline}
@@ -466,7 +467,7 @@ export function PartnerProfileScreen() {
                         <Globe size={20} color={colors.primary} />
                         <Text style={styles.menuLabel}>{t('profile.language', 'Language')} ({language === 'en' ? 'English' : 'ಕನ್ನಡ'})</Text>
                     </View>
-                    <Text style={{ ...typography.caption, color: colors.textSecondary }}>{t('profile.select_language', 'Tap to change')}</Text>
+                    <Text style={styles.menuHint} numberOfLines={1}>{t('profile.select_language', 'Tap to change')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.menuItem} onPress={() => {
@@ -582,7 +583,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md,
     },
     avatarText: { fontSize: 32, fontWeight: '700', color: colors.textInverse },
-    displayName: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.xs },
+    displayName: { ...typography.h3, color: colors.textPrimary, marginBottom: spacing.xs, textAlign: 'center', paddingHorizontal: spacing.xl },
     rolePill: {
         backgroundColor: colors.surface, paddingVertical: spacing.xs,
         paddingHorizontal: spacing.md, borderRadius: radii.full,
@@ -606,7 +607,7 @@ const styles = StyleSheet.create({
     onlineDot: {
         width: 10, height: 10, borderRadius: 5,
     },
-    onlineLabel: { ...typography.bodyMedium, flex: 1 },
+    onlineLabel: { ...typography.bodyMedium, color: colors.textPrimary, marginRight: spacing.xs },
     editBtn: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
         marginTop: spacing.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.base,
@@ -635,10 +636,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center', alignItems: 'center', marginRight: spacing.md,
     },
     infoLabel: { ...typography.small, color: colors.textSecondary },
-    infoValue: { ...typography.bodyMedium, color: colors.textPrimary, marginTop: 1 },
+    infoValue: { ...typography.bodyMedium, color: colors.textPrimary, marginTop: 1, flexShrink: 1 },
     menuItem: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md,
     },
-    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+    menuLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1, minWidth: 0, marginRight: spacing.sm },
+    menuHint: { ...typography.caption, color: colors.textSecondary, flexShrink: 0, maxWidth: '40%' },
     menuLabel: { ...typography.bodyMedium, color: colors.textPrimary, flexShrink: 1 },
 });

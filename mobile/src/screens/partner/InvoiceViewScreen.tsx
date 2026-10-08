@@ -26,6 +26,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import { useScreenInsets } from '../../theme/layout';
+import { inr } from '../../utils/money';
 
 type Props = NativeStackScreenProps<any, 'InvoiceView'>;
 
@@ -54,7 +55,7 @@ interface Invoice {
 }
 
 export function InvoiceViewScreen({ navigation, route }: Props) {
-    const { headerTop } = useScreenInsets();
+    const { headerTop, scrollBottom } = useScreenInsets();
     const serviceId = route.params?.serviceId;
     const [downloading, setDownloading] = useState(false);
 
@@ -131,13 +132,13 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Invoice</Text>
-                <TouchableOpacity onPress={handleDownload} style={styles.downloadBtn}>
+                <Text style={styles.headerTitle} numberOfLines={1}>Invoice</Text>
+                <TouchableOpacity onPress={handleDownload} style={styles.downloadBtn} accessibilityRole="button" accessibilityLabel="Download invoice PDF">
                     <Download size={20} color={colors.primary} />
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottom }]} showsVerticalScrollIndicator={false}>
                 {/* Invoice header card */}
                 <View style={styles.invoiceCard}>
                     <View style={styles.invoiceHeader}>
@@ -145,7 +146,7 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                             <FileText size={20} color={colors.primary} />
                         </View>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.invoiceNumber}>
+                            <Text style={styles.invoiceNumber} numberOfLines={1}>
                                 #{invoice.invoiceNumber || `INV-${invoice.id}`}
                             </Text>
                             <Text style={styles.invoiceDate}>
@@ -249,7 +250,7 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
                     )}
                     <View style={styles.totalRow}>
                         <Text style={styles.totalLabel}>Total Amount</Text>
-                        <Text style={styles.totalAmount}>₹{invoice.totalAmount.toFixed(2)}</Text>
+                        <Text style={styles.totalAmount} numberOfLines={1} adjustsFontSizeToFit>{inr(invoice.totalAmount, { paise: 'always' })}</Text>
                     </View>
 
                     {/* Advance + balance always reconcile to the total above. */}
@@ -276,9 +277,9 @@ export function InvoiceViewScreen({ navigation, route }: Props) {
 function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
     return (
         <View style={styles.detailRow}>
-            {icon}
+            <View style={styles.detailIcon}>{icon}</View>
             <Text style={styles.detailLabel}>{label}</Text>
-            <Text style={styles.detailValue}>{value}</Text>
+            <Text style={styles.detailValue} selectable>{value}</Text>
         </View>
     );
 }
@@ -287,7 +288,7 @@ function AmountRow({ label, amount }: { label: string; amount: number }) {
     return (
         <View style={styles.amountRow}>
             <Text style={styles.amountLabel}>{label}</Text>
-            <Text style={styles.amountValue}>₹{Number(amount).toFixed(2)}</Text>
+            <Text style={styles.amountValue}>{inr(amount, { paise: 'always' })}</Text>
         </View>
     );
 }
@@ -300,7 +301,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
     },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
+    headerTitle: { ...typography.h4, color: colors.textPrimary, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
     downloadBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { padding: spacing.xl, paddingBottom: 40 },
     invoiceCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm },
@@ -311,19 +312,20 @@ const styles = StyleSheet.create({
     },
     invoiceNumber: { ...typography.h4, color: colors.textPrimary },
     invoiceDate: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-    statusBadge: { paddingVertical: 4, paddingHorizontal: spacing.md, borderRadius: radii.full },
+    statusBadge: { paddingVertical: 4, paddingHorizontal: spacing.md, borderRadius: radii.full, flexShrink: 0 },
     statusText: { ...typography.small, fontWeight: '700' },
     detailCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm },
     sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.lg },
-    detailRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
-    detailLabel: { ...typography.caption, color: colors.textSecondary, flex: 1 },
-    detailValue: { ...typography.bodyMedium, color: colors.textPrimary },
-    amountRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
-    amountLabel: { ...typography.body, color: colors.textSecondary },
-    amountValue: { ...typography.bodyMedium, color: colors.textPrimary },
+    detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
+    detailIcon: { marginTop: 2 },
+    detailLabel: { ...typography.caption, color: colors.textSecondary, width: '34%', marginTop: 1 },
+    detailValue: { ...typography.bodyMedium, color: colors.textPrimary, flex: 1, minWidth: 0, textAlign: 'right' },
+    amountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: spacing.sm, gap: spacing.md },
+    amountLabel: { ...typography.body, color: colors.textSecondary, flex: 1, minWidth: 0 },
+    amountValue: { ...typography.bodyMedium, color: colors.textPrimary, flexShrink: 0 },
     totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.md, marginTop: spacing.sm, borderTopWidth: 2, borderTopColor: colors.primary },
-    totalLabel: { ...typography.h4, color: colors.textPrimary },
-    totalAmount: { fontSize: 20, fontWeight: '800', color: colors.primary },
+    totalLabel: { ...typography.h4, color: colors.textPrimary, flexShrink: 1, marginRight: spacing.sm },
+    totalAmount: { fontSize: 20, fontWeight: '800', color: colors.primary, flexShrink: 0, maxWidth: '60%' },
     emptyTitle: { ...typography.h4, color: colors.textPrimary, marginTop: spacing.lg },
     emptyText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm },
 });

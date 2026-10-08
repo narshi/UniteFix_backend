@@ -159,10 +159,10 @@ export function SubmitBillScreen({ navigation, route }: Props) {
         >
             {/* Header */}
             <View style={[styles.header, { paddingTop: headerTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
                     <ArrowLeft size={22} color={colors.textPrimary} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Submit Bill</Text>
+                <Text style={styles.headerTitle} numberOfLines={1}>Submit Bill</Text>
                 <View style={{ width: 36 }} />
             </View>
 
@@ -237,13 +237,13 @@ export function SubmitBillScreen({ navigation, route }: Props) {
                         <View style={styles.divider} />
                         <View style={styles.finalRow}>
                             <Text style={styles.finalLabel}>Customer Pays</Text>
-                            <Text style={styles.finalValue}>₹{billing.finalTotal.toFixed(2)}</Text>
+                            <Text style={styles.finalValue} numberOfLines={1} adjustsFontSizeToFit>₹{billing.finalTotal.toFixed(2)}</Text>
                         </View>
 
                         {/* Employee earnings callout */}
                         <View style={styles.earningsCard}>
                             <IndianRupee size={16} color={colors.success} />
-                            <Text style={styles.earningsText}>
+                            <Text style={styles.earningsText} numberOfLines={2}>
                                 Your earnings: ₹{billing.subtotal.toFixed(2)}
                             </Text>
                         </View>
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
         width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface,
         justifyContent: 'center', alignItems: 'center',
     },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
+    headerTitle: { ...typography.h4, color: colors.textPrimary, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
     scroll: { flex: 1 },
     scrollContent: { padding: spacing.xl, paddingBottom: 100 },
 
@@ -331,22 +331,22 @@ const styles = StyleSheet.create({
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingVertical: spacing.xs + 2,
     },
-    breakdownLabel: { ...typography.caption, color: colors.textPrimary },
-    breakdownValue: { ...typography.caption, color: colors.textPrimary },
+    breakdownLabel: { ...typography.caption, color: colors.textPrimary, flex: 1, minWidth: 0, marginRight: spacing.sm },
+    breakdownValue: { ...typography.caption, color: colors.textPrimary, flexShrink: 0 },
     breakdownBold: { fontWeight: '700', fontSize: 14 },
     divider: { height: 1, backgroundColor: colors.divider, marginVertical: spacing.sm },
     finalRow: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         paddingVertical: spacing.md,
     },
-    finalLabel: { ...typography.h4, color: colors.textPrimary },
-    finalValue: { fontSize: 24, fontWeight: '800', color: colors.primary },
+    finalLabel: { ...typography.h4, color: colors.textPrimary, flexShrink: 1, marginRight: spacing.sm },
+    finalValue: { fontSize: 24, fontWeight: '800', color: colors.primary, flexShrink: 0, maxWidth: '60%' },
     earningsCard: {
         flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
         backgroundColor: colors.successLight, borderRadius: radii.md,
         padding: spacing.md, marginTop: spacing.md,
     },
-    earningsText: { ...typography.bodyMedium, color: colors.success, fontWeight: '600' },
+    earningsText: { ...typography.bodyMedium, color: colors.success, fontWeight: '600', flex: 1 },
 
     // Bottom bar
     bottomBar: {

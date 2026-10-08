@@ -22,6 +22,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
 import { Button } from '../ui';
+import { useScreenInsets } from '../../theme/layout';
 
 interface Props {
     visible: boolean;
@@ -33,6 +34,7 @@ interface Props {
 }
 
 export default function PartsPickerSheet({ visible, onClose, onPick, onProposed, serviceRequestId }: Props) {
+    const { headerTop } = useScreenInsets();
     const [q, setQ] = useState('');
     const [debounced, setDebounced] = useState('');
     const [proposing, setProposing] = useState(false);
@@ -99,9 +101,9 @@ export default function PartsPickerSheet({ visible, onClose, onPick, onProposed,
     return (
         <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
             <KeyboardAvoidingView style={styles.screen} behavior="padding">
-                <View style={styles.head}>
+                <View style={[styles.head, { paddingTop: headerTop }]}>
                     <Text style={styles.title}>{proposing ? 'Propose a part' : 'UniteFix stock'}</Text>
-                    <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><X size={22} color={colors.textPrimary} /></TouchableOpacity>
+                    <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityRole="button" accessibilityLabel="Close"><X size={22} color={colors.textPrimary} /></TouchableOpacity>
                 </View>
 
                 {!proposing ? (
@@ -179,20 +181,20 @@ export default function PartsPickerSheet({ visible, onClose, onPick, onProposed,
 
 const styles = StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.background },
-    head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingTop: spacing.xl + spacing.md, paddingBottom: spacing.sm },
-    title: { ...typography.h4, color: colors.textPrimary },
+    head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    title: { ...typography.h4, color: colors.textPrimary, flex: 1 },
     searchWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, marginBottom: spacing.sm, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, backgroundColor: colors.surface },
     search: { flex: 1, paddingVertical: spacing.sm + 2, ...typography.body, color: colors.textPrimary },
     section: { ...typography.captionMedium, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs },
     row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 2, borderBottomWidth: 1, borderBottomColor: colors.border },
-    rowBody: { flex: 1 },
+    rowBody: { flex: 1, minWidth: 0 },
     rowName: { ...typography.bodyMedium, color: colors.textPrimary },
     rowBrand: { ...typography.caption, color: colors.textSecondary },
     rowSpec: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-    rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+    rowMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginTop: 3 },
     rowAvail: { ...typography.caption },
     rowWarranty: { ...typography.caption, color: colors.textSecondary },
-    rowPrice: { ...typography.bodySemibold, color: colors.textPrimary },
+    rowPrice: { ...typography.bodySemibold, color: colors.textPrimary, flexShrink: 0 },
     empty: { padding: spacing.xl, alignItems: 'center', gap: spacing.sm },
     emptyTitle: { ...typography.bodySemibold, color: colors.textPrimary, textAlign: 'center' },
     emptyText: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
