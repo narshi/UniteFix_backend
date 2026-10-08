@@ -40,7 +40,7 @@ import logger from '../lib/logger';
 export type BpLedgerEntryType =
     | 'order_invoice' | 'payment_received' | 'credit_note' | 'refund' | 'adjustment'
     | 'settlement_paid' | 'settlement_received' | 'fee_charge' | 'settlement_offset'
-    | 'online_collection' | 'gateway_fee' | 'store_penalty' | 'consignment_sale';
+    | 'online_collection' | 'gateway_fee' | 'store_penalty' | 'consignment_sale' | 'booking_commission';
 
 export interface BusinessPartnerContext {
     id: number;

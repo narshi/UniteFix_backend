@@ -39,7 +39,7 @@ export default function HubHome() {
   if (summary.data?.checklist) checklist.push(...summary.data.checklist);
   if (hubHas(me, "broadband")) checklist.push({ label: "Broadband: plans, add-ons and coverage", done: !!summary.data?.broadband?.plans, href: "/partner/broadband/plans" });
 
-  const moduleLinks = HUB_ENTRIES.filter(e => e.nav && e.module !== "home" && e.module !== "onboarding" && hubHas(me, e.module) && (!e.perm || hubCan(me, e.perm)))
+  const moduleLinks = HUB_ENTRIES.filter(e => e.nav && !e.anyModule && e.module !== "home" && e.module !== "onboarding" && hubHas(me, e.module) && (!e.perm || hubCan(me, e.perm)) && (!e.show || e.show(me)))
     .reduce<Record<string, { label: string; href: string; icon: string }>>((acc, e) => { if (!acc[e.module]) acc[e.module] = { label: MODULE_LABEL[e.module], href: e.path, icon: e.nav!.icon }; return acc; }, {});
 
   return (

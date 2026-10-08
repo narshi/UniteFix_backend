@@ -171,6 +171,20 @@ export class PartnerPayLinkService {
                 await db.update(partnerPayLinks).set({ status: 'cancelled', note: 'The milestone was paid another way' }).where(eq(partnerPayLinks.id, l.id));
                 throw new HubError('This has already been paid. Thank you.', 'PAID', 409);
             }
+            const [b] = await db.select().from(eventBookings).where(eq(eventBookings.id, m.bookingId)).limit(1);
+            if (!b || b.status === 'cancelled') {
+                await db.update(partnerPayLinks).set({ status: 'cancelled', note: 'The booking was cancelled' }).where(eq(partnerPayLinks.id, l.id));
+                throw new HubError('This booking is no longer active. Please contact the business.', 'CLOSED', 410);
+            }
+            if (b.status === 'pending' && b.holdExpiresAt) {
+                // The client is paying now: keep their date for the length of a payment, so it cannot lapse mid-checkout.
+                const until = new Date(Date.now() + 20 * 60_000);
+                if (b.holdExpiresAt < until) {
+                    await db.update(eventBookings).set({ holdExpiresAt: until }).where(and(eq(eventBookings.id, b.id), eq(eventBookings.status, 'pending')));
+                    const { BookingCalendar } = await import('./booking-calendar.service');
+                    await BookingCalendar.extendHold({ bookingId: b.id }, until);
+                }
+            }
         }
         const rzp = this.rzp();
         if (!rzp) throw new HubError('Online payment is not available right now. Please pay the business directly.', 'NO_GATEWAY', 503);

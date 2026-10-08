@@ -13,12 +13,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
-import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
+import { useHubMe, hubCan, hubHas, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
 import { PayLinkButton } from "@/components/hub/PayLink";
 import { uploadPhoto } from "@/pages/hub/events-showcase";
 
-type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; sac: string; gstRate: number; isActive: boolean; photos: string[]; capacity: number | null; showOnPage: boolean; maxQty: number | null };
+type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; sac: string; gstRate: number; isActive: boolean; photos: string[]; capacity: number | null; showOnPage: boolean; maxQty: number | null; isAddon?: boolean };
 type Selection = { ownVenue: string | null; theme: string | null; customization: string | null; items: Array<{ kind: string; name: string; quantity: number; unit: string; amount: number }>; estimate: { taxable: number; gst: number; total: number } };
 type Enquiry = { selection?: Selection | null; id: number; source: string; eventType: string; eventDate: string | null; guests: number | null; venue: string | null; budget: number | null; message: string | null; status: string; lostReason: string | null; customerId: number; customerName: string; customerPhone: string | null; createdAt: string; statusLink: string };
 type BookingRow = { id: number; title: string; eventDate: string; venue: string | null; guests: number | null; status: string; total: number; paid: number; vendorCost: number; customerName: string; customerPhone: string | null; invoiced: boolean };
@@ -106,7 +106,7 @@ export function HubEventEnquiries() {
                       {e.selection.items.map((i, n) => <li key={n}>{i.name}{i.quantity > 1 ? ` × ${i.quantity} ${i.unit}` : ""} — {inr(i.amount)}</li>)}
                     </ul>
                     {e.selection.customization && <p className="mt-1 text-[hsl(215,20%,62%)]">Their touches: “{e.selection.customization}”</p>}
-                    {e.status === "new" && <p className="mt-1 text-[hsl(174,72%,62%)]">A quotation of exactly this is drafted — check the date, then send it from Quotations.</p>}
+                    {e.status === "new" && <p className="mt-1 text-[hsl(174,72%,62%)]">{(e.selection as any).kind === "hall" ? "A hall request — accept or decline it in Venue → Requests while the date is held." : "A quotation of exactly this is drafted — check the date, then send it from Quotations."}</p>}
                   </div>
                 ) : e.message && <p className="mt-0.5 text-xs text-[hsl(215,20%,60%)]">“{e.message}”</p>}
                 {e.lostReason && <p className="mt-0.5 text-xs text-rose-300">{e.lostReason}</p>}
@@ -252,7 +252,7 @@ export function HubEventBookings() {
                 <td className="py-2 pr-2 whitespace-nowrap text-white">{nice(b.eventDate)}</td>
                 <td className="pr-2"><Link href={`/partner/events/bookings/${b.id}`} className="text-[hsl(174,72%,60%)] hover:text-white">{b.title}</Link><span className="block text-xs text-[hsl(215,20%,55%)]">{[b.venue, b.guests ? `${b.guests} guests` : null].filter(Boolean).join(" · ")}</span></td>
                 <td className="pr-2">{b.customerName}</td>
-                <td className="pr-2"><Chip tone={b.status === "confirmed" ? "info" : b.status === "completed" ? "good" : "muted"}>{b.status}</Chip>{b.invoiced && <Chip tone="good">invoiced</Chip>}</td>
+                <td className="pr-2"><Chip tone={b.status === "confirmed" ? "info" : b.status === "completed" ? "good" : b.status === "pending" ? "warn" : "muted"}>{b.status === "pending" ? "awaiting advance" : b.status}</Chip>{b.invoiced && <Chip tone="good">invoiced</Chip>}</td>
                 <td className="pr-2 text-right tabular-nums">{inr(b.total)}</td>
                 <td className="pr-2 text-right tabular-nums">{inr(b.paid)}</td>
                 <td className="text-right tabular-nums">{inr(b.vendorCost)}</td>
@@ -266,6 +266,8 @@ export function HubEventBookings() {
 
 type BookingDetail = {
   id: number; title: string; eventDate: string; venue: string | null; guests: number | null; status: string; total: number; paid: number; vendorCost: number; margin: number; notes: string | null;
+  kind: string; origin: string; slot: string | null; holdExpiresAt: string | null; deposit: number; depositStatus: string; depositNote: string | null; commissionPercent: string | null; commissionChargedAt: string | null;
+  cancelRequestedAt: string | null; cancelRequestNote: string | null; terms: { lines: string[]; refundPercentNow: number; refundNow: number } | null;
   checklist: Array<{ text: string; done: boolean; owner?: string | null }>; staff: Array<{ name: string; role?: string | null; phone?: string | null }>;
   finalInvoiceDocumentId: number | null; cancelledReason: string | null;
   customer: { id: number; name: string; phone: string | null }; quotation: { id: number; number: string; version: number };
@@ -314,6 +316,15 @@ export function HubEventBookingDetail() {
     try { const r: any = await apiRequest("POST", `/api/hub/events/costs/${c.id}/pay`, { billNumber, reference: reference || null }); refresh(); toast({ title: r.message }); } catch (e) { fail("Not paid")(e); }
   };
   const canSell = hubCan(me, "sales:manage");
+  const cancelAsAsked = async () => {
+    if (!b.terms) return;
+    try { const r: any = await apiRequest("POST", `/api/hub/events/bookings/${id}/cancel`, { reason: `Cancelled at the client's request${b.cancelRequestNote ? `: ${b.cancelRequestNote}` : ""}`, refundRupees: b.terms.refundNow }); refresh(); toast({ title: "Cancelled", description: r.message }); } catch (e) { fail("Not cancelled")(e); }
+  };
+  const deposit = async (status: string) => {
+    const note = status === "withheld" ? window.prompt("What was the deposit kept for? (damage, overtime…)") : null;
+    if (status === "withheld" && !note) return;
+    try { await apiRequest("POST", `/api/hub/venue/bookings/${id}/deposit`, { status, note }); refresh(); toast({ title: "Deposit updated" }); } catch (e) { fail("Not saved")(e); }
+  };
 
   return (
     <HubPage title={b.title} subtitle={`${nice(b.eventDate)}${b.venue ? ` · ${b.venue}` : ""}${b.guests ? ` · ${b.guests} guests` : ""} · ${b.customer.name}${b.customer.phone ? ` · ${b.customer.phone}` : ""}`}
@@ -325,6 +336,14 @@ export function HubEventBookingDetail() {
         {live && b.eventDate < today() && b.status === "confirmed" && <Button variant="outline" onClick={() => patch({ status: "completed" })}>Mark completed</Button>}
         {canSell && live && !b.finalInvoiceDocumentId && <Button variant="ghost" className="text-rose-300" onClick={cancel}>Cancel</Button>}
       </>}>
+      {b.origin !== "hub" && <div className="flex flex-wrap gap-2"><Chip tone="info">Booked through UniteFix{b.origin === "app" ? " (app)" : ""}</Chip>{b.commissionPercent && Number(b.commissionPercent) > 0 && <Chip tone="muted">{b.commissionChargedAt ? "Commission charged" : `Commission ${Number(b.commissionPercent)}% after the event`}</Chip>}</div>}
+      {b.status === "pending" && <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">Waiting for the client's advance. The date is held until {b.holdExpiresAt ? new Date(b.holdExpiresAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}; if it is not paid by then, the booking cancels itself and the date is free again. Paid by cash or UPI to you? Record it below — that confirms the booking.</div>}
+      {b.cancelRequestedAt && live && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+          <span>The client asked to cancel on {new Date(b.cancelRequestedAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}{b.cancelRequestNote ? `: “${b.cancelRequestNote}”` : "."}{b.terms ? ` Under your terms the refund is ${b.terms.refundPercentNow}% = ${inr(b.terms.refundNow)}.` : ""}</span>
+          {canSell && b.terms && !b.finalInvoiceDocumentId && <Button size="sm" onClick={cancelAsAsked}>Cancel with {inr(b.terms.refundNow)} refund</Button>}
+        </div>
+      )}
       {b.status === "cancelled" && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">Cancelled: {b.cancelledReason}{b.refunds.length ? ` · refund voucher ${b.refunds.map(r => `${r.number} (${inr(r.total)})`).join(", ")}` : ""}</div>}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Stat label="Quoted (with GST)" value={inr(b.total)} />
@@ -332,6 +351,19 @@ export function HubEventBookingDetail() {
         <Stat label="Vendor costs" value={inr(b.vendorCost)} />
         <Stat label="Margin before GST" value={inr(b.margin)} />
       </div>
+
+      {(b.deposit > 0 || b.terms) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {b.deposit > 0 && (
+            <Panel title="Refundable security deposit">
+              <p className="text-sm text-white">{inr(b.deposit)} · <Chip tone={b.depositStatus === "refunded" ? "good" : b.depositStatus === "withheld" ? "bad" : b.depositStatus === "collected" ? "info" : "warn"}>{b.depositStatus}</Chip></p>
+              <p className="mt-1 text-xs text-[hsl(215,20%,62%)]">You collect it and return it after the event. UniteFix only keeps the record.{b.depositNote ? ` Note: ${b.depositNote}` : ""}</p>
+              {canSell && live && <div className="mt-2 flex flex-wrap gap-2">{b.depositStatus === "due" && <Button size="sm" variant="outline" onClick={() => deposit("collected")}>Collected</Button>}{b.depositStatus === "collected" && <><Button size="sm" variant="outline" onClick={() => deposit("refunded")}>Refunded</Button><Button size="sm" variant="ghost" className="text-rose-300" onClick={() => deposit("withheld")}>Kept (part or all)</Button></>}</div>}
+            </Panel>
+          )}
+          {b.terms && <Panel title="Cancellation terms (as booked)"><ul className="list-disc space-y-0.5 pl-5 text-sm text-[hsl(215,20%,75%)]">{b.terms.lines.map(l => <li key={l}>{l}</li>)}</ul></Panel>}
+        </div>
+      )}
 
       <Panel title="Payment plan">
         <ul className="divide-y divide-[rgba(255,255,255,0.06)] text-sm">{b.milestones.map(m => (
@@ -408,14 +440,14 @@ export function HubEventPackages() {
   const qc = useQueryClient();
   const fail = useFail();
   const { data, isLoading } = usePackages();
-  const blank = { name: "", category: "venue", unit: "event", priceRupees: "", sac: "998596", gstRate: "18", description: "", capacity: "", maxQty: "", showOnPage: true };
+  const blank = { name: "", category: "venue", unit: "event", priceRupees: "", sac: "998596", gstRate: "18", description: "", capacity: "", maxQty: "", showOnPage: true, isAddon: false };
   const [f, setF] = useState(blank);
   const [editing, setEditing] = useState<Pkg | null>(null);
   const [open, setOpen] = useState(false);
   const manage = hubCan(me, "settings:manage");
   const save = async () => {
     const body = { name: f.name, category: f.category, unit: f.unit, priceRupees: Number(f.priceRupees), sac: f.sac, gstRate: Number(f.gstRate), description: f.description || null,
-      showOnPage: f.showOnPage, capacity: f.category === "venue" && f.capacity ? Number(f.capacity) : null, maxQty: !["event", "plate"].includes(f.unit) && f.maxQty ? Number(f.maxQty) : null };
+      showOnPage: f.showOnPage, isAddon: f.isAddon, capacity: f.category === "venue" && f.capacity ? Number(f.capacity) : null, maxQty: !["event", "plate"].includes(f.unit) && f.maxQty ? Number(f.maxQty) : null };
     try { await apiRequest(editing ? "PATCH" : "POST", editing ? `/api/hub/events/packages/${editing.id}` : "/api/hub/events/packages", body); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); setOpen(false); } catch (e) { fail("Not saved")(e); }
   };
   const grouped = useMemo(() => CATS.map(c => [c, (data ?? []).filter(p => p.category === c)] as const).filter(([, l]) => l.length), [data]);
@@ -441,8 +473,9 @@ export function HubEventPackages() {
               <span className="text-white">{p.name}</span><span className="text-[hsl(215,20%,60%)]">{p.description}</span>
               {p.capacity ? <Chip>up to {p.capacity} guests</Chip> : null}
               {!p.showOnPage && <Chip>not on your page</Chip>}
+              {p.isAddon && <Chip>extra</Chip>}
               <span className="ml-auto tabular-nums">{inr(p.price)} / {p.unit}</span><span className="text-xs text-[hsl(215,20%,55%)]">SAC {p.sac} · {p.gstRate}%</span>
-              {manage && <><Button size="sm" variant="ghost" onClick={() => { setEditing(p); setF({ name: p.name, category: p.category, unit: p.unit, priceRupees: String(p.price), sac: p.sac, gstRate: String(p.gstRate), description: p.description ?? "", capacity: p.capacity ? String(p.capacity) : "", maxQty: p.maxQty ? String(p.maxQty) : "", showOnPage: p.showOnPage !== false }); setOpen(true); }}>Edit</Button>
+              {manage && <><Button size="sm" variant="ghost" onClick={() => { setEditing(p); setF({ name: p.name, category: p.category, unit: p.unit, priceRupees: String(p.price), sac: p.sac, gstRate: String(p.gstRate), description: p.description ?? "", capacity: p.capacity ? String(p.capacity) : "", maxQty: p.maxQty ? String(p.maxQty) : "", showOnPage: p.showOnPage !== false, isAddon: !!p.isAddon }); setOpen(true); }}>Edit</Button>
                 <Button size="sm" variant="ghost" onClick={async () => { try { await apiRequest("PATCH", `/api/hub/events/packages/${p.id}`, { isActive: !p.isActive }); qc.invalidateQueries({ queryKey: ["/api/hub/events/packages"] }); } catch (e) { fail("Not changed")(e); } }}>{p.isActive ? "Hide" : "Show"}</Button></>}
             </li>
           ))}</ul>
@@ -465,6 +498,12 @@ export function HubEventPackages() {
               <input type="checkbox" className="mt-1" checked={f.showOnPage} onChange={e => setF({ ...f, showOnPage: e.target.checked })} />
               <span>Show on your public page<span className="block text-xs text-[hsl(215,20%,60%)]">{f.category === "venue" ? "Listed as a venue clients can choose." : f.unit === "plate" ? "An add-on priced for every guest." : f.unit === "event" ? "An add-on clients can tick, at this price." : `An add-on clients can order by the ${f.unit}.`}</span></span>
             </label>
+            {hubHas(me, "portfolio") && (
+              <label className="sm:col-span-2 flex items-start gap-2 text-sm text-white">
+                <input type="checkbox" className="mt-1" checked={f.isAddon} onChange={e => setF({ ...f, isAddon: e.target.checked })} />
+                <span>An extra, not a package<span className="block text-xs text-[hsl(215,20%,60%)]">Drone, an extra album, a same-day edit — clients add it to a package on your portfolio.</span></span>
+              </label>
+            )}
           </div>
           {live && (
             <div>

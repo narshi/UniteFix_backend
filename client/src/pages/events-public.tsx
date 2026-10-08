@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import ShowcasePage from "@/pages/events-showcase-public";
+import BookingStatusPage from "@/pages/celebrations/booking";
 
 const rs = (n: number) => `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
@@ -101,36 +102,11 @@ function QuotePage({ token }: { token: string }) {
   );
 }
 
-function StatusPage({ token }: { token: string }) {
-  const q = useQuery<{ partner: string; eventType: string; eventDate: string | null; guests?: number | null; status: string; quotation: string | null; selection?: { ownVenue: string | null; customization: string | null; items: Array<{ name: string; quantity: number; unit: string; amount: number }>; estimate: { total: number } } | null }>({ queryKey: ["/api/public/events/e", token], queryFn: async () => (await apiRequest("GET", `/api/public/events/e/${encodeURIComponent(token)}`)).data, retry: false });
-  if (q.isError) return <Shell><h1 className="text-2xl font-semibold text-white">Enquiry not found.</h1></Shell>;
-  if (!q.data) return <Shell><p className="text-[hsl(215,20%,65%)]">Loading…</p></Shell>;
-  const L: Record<string, string> = { new: "Received", contacted: "In discussion", quoted: "Quotation ready", won: "Booked", lost: "Closed" };
-  return (
-    <Shell>
-      <p className="text-xs font-mono uppercase tracking-widest text-[hsl(174,72%,55%)]">{L[q.data.status] ?? q.data.status}</p>
-      <h1 className="mt-2 text-3xl font-semibold text-white">{q.data.eventType}</h1>
-      <p className="text-[hsl(215,20%,65%)]">with {q.data.partner}{q.data.eventDate ? ` · ${q.data.eventDate}` : ""}</p>
-      {q.data.selection && (
-        <div className="mt-6 rounded-xl border border-[rgba(255,255,255,0.1)] p-4 text-sm">
-          <p className="font-medium text-white">What you asked for</p>
-          <ul className="mt-2 space-y-1 text-[hsl(215,20%,75%)]">
-            {q.data.selection.ownVenue && <li>At: {q.data.selection.ownVenue}</li>}
-            {q.data.selection.items.map((i, n) => <li key={n} className="flex justify-between gap-3"><span>{i.name}{i.quantity > 1 ? ` × ${i.quantity}` : ""}</span><span className="tabular-nums">{rs(i.amount)}</span></li>)}
-          </ul>
-          {q.data.selection.customization && <p className="mt-2 text-[hsl(215,20%,65%)]">“{q.data.selection.customization}”</p>}
-          <p className="mt-3 border-t border-[rgba(255,255,255,0.08)] pt-2 text-white">Estimate {rs(q.data.selection.estimate.total)} <span className="text-xs text-[hsl(215,20%,55%)]">incl. GST — the quotation is final</span></p>
-        </div>
-      )}
-      {q.data.quotation ? <a href={q.data.quotation} className="mt-6 inline-block rounded-lg bg-[hsl(174,72%,38%)] px-5 py-2.5 font-medium text-white">View your quotation</a> : <p className="mt-6 text-[hsl(215,20%,70%)]">Your quotation will appear here.</p>}
-    </Shell>
-  );
-}
-
 export default function EventsPublicRouter() {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts[1] === "q" && parts[2]) return <QuotePage token={parts[2]} />;
-  if (parts[1] === "e" && parts[2]) return <StatusPage token={parts[2]} />;
+  // A client's enquiry: the shared Celebrations booking page (request, quotation, booking, payments, review).
+  if (parts[1] === "e" && parts[2]) return <BookingStatusPage token={parts[2]} />;
   // The showcase and planner; partners who have not set up venues, themes or add-ons keep the simple enquiry form.
   return <ShowcasePage code={parts[1] ?? ""} fallback={<EnquiryPage code={parts[1] ?? ""} />} />;
 }

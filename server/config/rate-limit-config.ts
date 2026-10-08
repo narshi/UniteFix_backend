@@ -100,6 +100,23 @@ export const RATE_LIMIT_CONFIG: Record<string, RateLimitConfig> = {
         message: 'Too many applications from this network. Please try again later.',
     },
 
+    /**
+     * Celebrations and events pages: browsing (pages, availability, live
+     * prices, search). A customer comparing dates and add-ons makes many
+     * small requests, and families on the same mobile network share an IP.
+     */
+    celebrationsBrowse: {
+        windowMs: 60 * 1000,
+        max: 150,
+        message: 'Too many requests. Please wait a moment and try again.',
+    },
+    /** Celebrations: sending a booking, request, plan, cancellation or review. */
+    celebrationsSubmit: {
+        windowMs: 60 * 60 * 1000,
+        max: 30,
+        message: 'Too many requests from this network. Please try again in a little while.',
+    },
+
     // Public endpoints (health check, static resources)
     public: {
         windowMs: 60 * 1000,  // 1 minute

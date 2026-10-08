@@ -63,6 +63,8 @@ import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerPartRequestRoutes } from "./routes/part-requests.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
+import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
+import { registerPortfolioRoutes } from "./routes/portfolio.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
@@ -84,7 +86,7 @@ import { registerAdminWithdrawalRoutes } from "./routes/admin-withdrawals.routes
 import { registerAdminDbConsoleRoutes } from "./routes/admin-db-console.routes";
 import { registerUploadRoutes } from "./routes/upload.routes";
 import { registerPartnerProfileRoutes } from "./routes/partner-profile.routes";
-import { authLimiter, identityLimiter, sessionLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter } from "./middleware/rate-limit";
+import { authLimiter, identityLimiter, sessionLimiter, adminLimiter, partnerLimiter, mobileLimiter, publicLimiter, celebrationsBrowseLimiter } from "./middleware/rate-limit";
 import { BillingEngine } from "./services/billing-engine";
 import { PaymentTrackingService } from "./services/payment-tracking.service";
 import { PaymentService } from "./services/payment.service";
@@ -266,7 +268,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/catalog", mobileLimiter);  // Product catalog
 
   // Public/Default
-  app.use("/api/public", publicLimiter);
+  // Celebrations and events pages get a browsing allowance of their own: one
+  // customer comparing dates makes many small requests, and families on the
+  // same mobile network share an IP. Submissions have their own limit per route.
+  const CELEBRATIONS_PUBLIC = /^\/(halls|photographers|celebrations|events)\//;
+  app.use("/api/public", (req, res, next) => (CELEBRATIONS_PUBLIC.test(req.path) ? celebrationsBrowseLimiter : publicLimiter)(req, res, next));
 
   // ==================== AUTHENTICATION ROUTES ====================
 
@@ -3651,6 +3657,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerPartRequestRoutes(app); // Spare parts the customer approves before they are billed
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it
+  registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
+  registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)

@@ -32,6 +32,7 @@ export type OnboardingStackParamList = {
 export type CustomerTabParamList = {
     HomeTab: undefined;
     BookingsTab: undefined;
+    CelebrateTab: undefined;
     ShopTab: undefined;
     OrdersTab: undefined;
     ProfileTab: undefined;

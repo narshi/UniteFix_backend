@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { useHubMe, hubCan, inr } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, HubSelect } from "@/components/hub/ui";
+import { ListingBanner } from "@/pages/hub/venue";
 
 type Showcase = { profile: { tagline?: string | null; about?: string | null; coverPhoto?: string | null; instagram?: string | null }; pageUrl: string; counts: { photos: number; instagram: number; themes: number; venues: number; addons: number } };
 type GalleryItem = { id: number; kind: "photo" | "instagram"; url: string; embed: string | null; caption: string | null; themeId: number | null };
@@ -45,7 +46,9 @@ export function HubEventShowcase() {
   const sc = useQuery<Showcase>({ queryKey: ["/api/hub/events/showcase"], queryFn: async () => (await apiRequest("GET", "/api/hub/events/showcase")).data });
   const gal = useQuery<GalleryItem[]>({ queryKey: ["/api/hub/events/gallery"], queryFn: async () => (await apiRequest("GET", "/api/hub/events/gallery")).data });
   const th = useQuery<Theme[]>({ queryKey: ["/api/hub/events/themes"], queryFn: async () => (await apiRequest("GET", "/api/hub/events/themes")).data });
-  const refresh = () => ["/api/hub/events/showcase", "/api/hub/events/gallery", "/api/hub/events/themes"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+  const listing = useQuery<{ listing: any; readiness: { ready: boolean; checks: Array<{ label: string; done: boolean }> }; commissionPercent: number }>({ queryKey: ["/api/hub/events/listing"], queryFn: async () => (await apiRequest("GET", "/api/hub/events/listing")).data });
+  const refresh = () => ["/api/hub/events/showcase", "/api/hub/events/gallery", "/api/hub/events/themes", "/api/hub/events/listing"].forEach(k => qc.invalidateQueries({ queryKey: [k] }));
+  const submitListing = async () => { try { const r: any = await apiRequest("POST", "/api/hub/events/listing/submit", {}); refresh(); toast({ title: "Sent for review", description: r.message }); } catch (e) { fail("Not submitted")(e); } };
 
   // profile
   const [prof, setProf] = useState<Showcase["profile"] | null>(null);
@@ -96,6 +99,12 @@ export function HubEventShowcase() {
   return (
     <HubPage title="Your page" subtitle="What clients see when they open your link: your work, your venues and themes, and the add-ons they can include while building their event. Venues and add-ons come from Packages."
       actions={sc.data ? <a href={sc.data.pageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center rounded-md border border-[rgba(255,255,255,0.15)] px-4 text-sm text-white hover:bg-white/5">Open your page ↗</a> : undefined}>
+      {listing.data && (
+        <div>
+          <p className="mb-2 text-sm text-[hsl(215,20%,65%)]">Your page works as a link you share. To also appear in <b className="text-white">UniteFix Celebrations</b> search — next to halls and photographers — UniteFix checks it first.</p>
+          <ListingBanner listing={listing.data.listing} readiness={listing.data.readiness} onSubmit={submitListing} pageUrl={sc.data?.pageUrl ?? ""} previewUrl={sc.data?.pageUrl ?? "#"} commission={listing.data.commissionPercent} />
+        </div>
+      )}
       {c && (
         <Panel>
           <div className="flex flex-wrap items-center gap-2 text-sm">

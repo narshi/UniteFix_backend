@@ -23,7 +23,8 @@ const Icon = ({ name, className = "" }: { name: string; className?: string }) =>
 );
 
 function visible(me: HubMe, e: HubEntry) {
-  if (!hubHas(me, e.module)) return false;
+  if (!(e.anyModule ? e.anyModule.some(m => hubHas(me, m)) : hubHas(me, e.module))) return false;
+  if (e.show && !e.show(me)) return false;
   if (me.status !== "active" && !e.pending) return false;
   if (e.perm && !hubCan(me, e.perm)) return false;
   return true;

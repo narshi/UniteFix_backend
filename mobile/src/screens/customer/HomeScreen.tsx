@@ -313,7 +313,7 @@ export function HomeScreen() {
                         {/* Events — planners from the UniteFix Partner Hub. */}
                         <TouchableOpacity
                             style={styles.broadbandBanner}
-                            onPress={() => navigation.navigate('EventPlanner')}
+                            onPress={() => navigation.navigate('CelebrateTab')}
                             activeOpacity={0.85}
                         >
                             <View style={styles.broadbandIcon}>
@@ -321,10 +321,10 @@ export function HomeScreen() {
                             </View>
                             <View style={{ flex: 1, marginLeft: 12 }}>
                                 <Text style={styles.broadbandTitle}>
-                                    {t('home.events_title', 'Plan an event')}
+                                    {t('home.celebrations_title', 'Celebrations')}
                                 </Text>
                                 <Text style={styles.broadbandSubtitle}>
-                                    {t('home.events_subtitle', 'Weddings, birthdays, corporate — get quotations from planners near you')}
+                                    {t('home.celebrations_subtitle', 'Halls, photographers and planners for your date')}
                                 </Text>
                             </View>
                             <ChevronRight size={18} color={colors.textSecondary} />

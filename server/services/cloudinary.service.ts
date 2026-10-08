@@ -163,3 +163,32 @@ export async function uploadDocumentBuffer(
     stream.end(buffer);
   });
 }
+
+export class VideoStorageUnavailable extends Error {}
+
+/**
+ * Upload a short video clip (a photographer's reel). Cloudinary transcodes it
+ * to a web-friendly MP4 no wider than 1280 px; the poster frame is the same
+ * URL as a .jpg. Without Cloudinary there is nowhere sensible to keep video
+ * (a data URI of a clip is megabytes in a database row), so this refuses.
+ */
+export async function uploadVideoBuffer(buffer: Buffer, folder: string): Promise<UploadResult & { durationSec: number | null; posterUrl: string }> {
+  if (!ensureInitialized()) throw new VideoStorageUnavailable('Video uploads need cloud storage, which is not set up.');
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: `unitefix/${folder}`, resource_type: 'video', transformation: [{ width: 1280, crop: 'limit', quality: 'auto', fetch_format: 'mp4' }] },
+      (error, result: UploadApiResponse | undefined) => {
+        if (error) { logger.error('[CLOUDINARY] Video upload failed', { error: error.message, folder }); return reject(new Error(`Video upload failed: ${error.message}`)); }
+        if (!result) return reject(new Error('Video upload returned no result'));
+        const url = result.secure_url;
+        resolve({ url, publicId: result.public_id, width: result.width, height: result.height, durationSec: result.duration != null ? Math.round(Number(result.duration)) : null, posterUrl: url.replace(/\.[a-z0-9]+$/i, '.jpg') });
+      },
+    );
+    stream.end(buffer);
+  });
+}
+
+export async function deleteVideo(publicId: string): Promise<void> {
+  if (!ensureInitialized()) return;
+  try { await cloudinary.uploader.destroy(publicId, { resource_type: 'video' }); } catch (e: any) { logger.error('[CLOUDINARY] Video delete failed', { publicId, error: e?.message }); }
+}

@@ -9,6 +9,7 @@
 
 import type { ComponentType } from "react";
 import type { HubModule, HubPermission } from "@shared/hub";
+import type { HubMe } from "@/lib/hub";
 
 import HubHome from "@/pages/hub/home";
 import HubOnboarding from "@/pages/hub/onboarding";
@@ -35,6 +36,8 @@ import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubCons
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
 import { HubEventShowcase } from "@/pages/hub/events-showcase";
 import { HubStoreListings, HubStoreOrders, HubStoreReviews } from "@/pages/hub/store";
+import { HubVenuePage, HubVenueSpaces, HubVenueCalendar, HubVenueRequests, HubReviews } from "@/pages/hub/venue";
+import { HubPortfolioPage, HubPortfolioAlbums, HubPortfolioAlbum, HubPortfolioDates } from "@/pages/hub/portfolio";
 
 export interface HubEntry {
   path: string;
@@ -42,13 +45,17 @@ export interface HubEntry {
   aliases?: string[];
   component: ComponentType<any>;
   module: HubModule;
+  /** Shown when the business has any of these modules instead (pages several modules share). */
+  anyModule?: HubModule[];
+  /** An extra condition on the signed-in business. */
+  show?: (me: HubMe) => boolean;
   perm?: HubPermission;
   /** Reachable while the application is under review. */
   pending?: boolean;
   nav?: { group: string; label: string; icon: string };
 }
 
-export const HUB_GROUP_ORDER = ["Home", "Broadband", "Field service", "Consulting", "Events", "Store", "Parts", "Customers", "Sales", "Purchases", "Money", "GST desk", "Business"];
+export const HUB_GROUP_ORDER = ["Home", "Venue", "Portfolio", "Broadband", "Field service", "Consulting", "Events", "Store", "Parts", "Customers", "Sales", "Purchases", "Money", "GST desk", "Business"];
 
 export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner", aliases: ["/", "/operator"], component: HubHome, module: "home", pending: true, nav: { group: "Home", label: "Overview", icon: "dashboard" } },
@@ -85,9 +92,22 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/events/bookings", component: HubEventBookings, module: "events", perm: "ops:view", nav: { group: "Events", label: "Bookings", icon: "event_available" } },
   { path: "/partner/events/bookings/:id", component: HubEventBookingDetail, module: "events", perm: "ops:view" },
   { path: "/partner/events/calendar", component: HubEventCalendar, module: "events", perm: "ops:view", nav: { group: "Events", label: "Calendar", icon: "calendar_month" } },
-  { path: "/partner/events/showcase", component: HubEventShowcase, module: "events", perm: "ops:view", nav: { group: "Events", label: "Your page", icon: "photo_library" } },
+  // Halls and photographers have their own page; the events page is for planners.
+  { path: "/partner/events/showcase", component: HubEventShowcase, module: "events", perm: "ops:view", show: me => me.verticals.includes("events") || !(me.modules.includes("venue") || me.modules.includes("portfolio")), nav: { group: "Events", label: "Your page", icon: "photo_library" } },
   { path: "/partner/events/packages", component: HubEventPackages, module: "events", perm: "ops:view", nav: { group: "Events", label: "Packages", icon: "inventory" } },
   { path: "/partner/events/vendors", component: HubEventVendors, module: "events", perm: "ops:view", nav: { group: "Events", label: "Vendors", icon: "storefront" } },
+
+  // Celebrations — halls. Bookings, quotations, add-ons and vendors are the Events pages.
+  { path: "/partner/venue/page", component: HubVenuePage, module: "venue", perm: "ops:view", nav: { group: "Venue", label: "Hall page & policies", icon: "storefront" } },
+  { path: "/partner/venue/spaces", component: HubVenueSpaces, module: "venue", perm: "ops:view", nav: { group: "Venue", label: "Spaces & rates", icon: "meeting_room" } },
+  { path: "/partner/venue/calendar", component: HubVenueCalendar, module: "venue", perm: "ops:view", nav: { group: "Venue", label: "Calendar", icon: "calendar_month" } },
+  { path: "/partner/venue/requests", component: HubVenueRequests, module: "venue", perm: "ops:view", nav: { group: "Venue", label: "Requests", icon: "mark_email_unread" } },
+  // Celebrations — photographers.
+  { path: "/partner/portfolio", component: HubPortfolioPage, module: "portfolio", perm: "ops:view", nav: { group: "Portfolio", label: "Portfolio page", icon: "photo_camera" } },
+  { path: "/partner/portfolio/albums", component: HubPortfolioAlbums, module: "portfolio", perm: "ops:view", nav: { group: "Portfolio", label: "Albums", icon: "photo_library" } },
+  { path: "/partner/portfolio/albums/:id", component: HubPortfolioAlbum, module: "portfolio", perm: "ops:view" },
+  { path: "/partner/portfolio/dates", component: HubPortfolioDates, module: "portfolio", perm: "ops:view", nav: { group: "Portfolio", label: "Dates", icon: "event_available" } },
+  { path: "/partner/reviews", component: HubReviews, module: "venue", anyModule: ["venue", "portfolio", "events"], perm: "ops:view", nav: { group: "Customers", label: "Reviews", icon: "reviews" } },
 
   // Phase 7 — selling products in the UniteFix store.
   { path: "/partner/store/listings", component: HubStoreListings, module: "marketplace", perm: "ops:view", nav: { group: "Store", label: "Listings", icon: "storefront" } },

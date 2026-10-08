@@ -39,7 +39,10 @@ app.use(helmet({
         // script, its payment frame, and the calls the frame makes back.
         'script-src': ["'self'", 'https://checkout.razorpay.com'],
         // Events partners show Instagram posts of their work on their public page.
-        'frame-src': ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com', 'https://www.instagram.com'],
+        // Halls and photographers show video tours and films from YouTube and Vimeo.
+        'frame-src': ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com', 'https://www.instagram.com', 'https://www.youtube-nocookie.com', 'https://www.youtube.com', 'https://player.vimeo.com'],
+        // Short clips photographers upload play from Cloudinary.
+        'media-src': ["'self'", 'https://res.cloudinary.com', 'data:', 'blob:'],
         'connect-src': ["'self'", 'https://api.razorpay.com', 'https://lumberjack.razorpay.com'],
       },
     }

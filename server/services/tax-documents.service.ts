@@ -322,6 +322,15 @@ export class TaxDocumentService {
             lines.push({ description: `Online payment collection — ${pl.n} payment${pl.n === 1 ? '' : 's'}, ${monthLabel}`, hsnSac: sac, quantity: pl.n, unit: 'payment', ratePaise: Math.round(pl.feePaise / Math.max(1, pl.n)), taxablePaise: pl.feePaise, gstRate, taxPaise: pl.gstPaise });
         }
 
+        // Celebrations commission on hall / photography / event bookings made
+        // through UniteFix — charged on the ledger when each event took place
+        // (or on what was kept at a cancellation); invoiced here.
+        const { CelebrationBookings } = await import('./celebration-bookings.service');
+        const bc = await CelebrationBookings.commissionsCharged(bpId, from, to);
+        if (bc.feePaise > 0) {
+            lines.push({ description: `Booking commission — ${bc.n} booking${bc.n === 1 ? '' : 's'} through UniteFix Celebrations, ${monthLabel}`, hsnSac: sac, quantity: bc.n, unit: 'booking', ratePaise: Math.round(bc.feePaise / Math.max(1, bc.n)), taxablePaise: bc.feePaise, gstRate, taxPaise: bc.gstPaise });
+        }
+
         const proBilled = bp.hubPlan === 'pro' && (!bp.hubPlanSince || bp.hubPlanSince < to);
         let proTotal = 0;
         if (proBilled) {

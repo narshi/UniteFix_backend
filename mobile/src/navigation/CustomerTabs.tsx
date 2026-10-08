@@ -12,7 +12,7 @@ import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, ClipboardList, ShoppingBag, User } from 'lucide-react-native';
+import { Home, ClipboardList, ShoppingBag, User, Sparkles } from 'lucide-react-native';
 import { CustomerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
 import { radii, spacing, shadows } from '../theme/spacing';
@@ -22,6 +22,7 @@ import { HomeScreen } from '../screens/customer/HomeScreen';
 import { MyRequestsScreen } from '../screens/customer/MyRequestsScreen';
 import { ProfileScreen } from '../screens/customer/ProfileScreen';
 import { ShopScreen } from '../screens/shop/ShopScreen';
+import { CelebrationsScreen } from '../screens/customer/CelebrationsScreen';
 import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator<CustomerTabParamList>();
@@ -107,6 +108,17 @@ export function CustomerTabs() {
                     tabBarLabel: t('tabs.my_requests', 'Bookings'),
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={ClipboardList} color={color} focused={focused} />
+                    ),
+                }}
+            />
+            {/* Celebrations: halls, photographers and event planners. */}
+            <Tab.Screen
+                name="CelebrateTab"
+                component={CelebrationsScreen}
+                options={{
+                    tabBarLabel: t('tabs.celebrate', 'Celebrate'),
+                    tabBarIcon: ({ color, focused }) => (
+                        <TabIcon icon={Sparkles} color={color} focused={focused} />
                     ),
                 }}
             />

@@ -9,6 +9,7 @@
  *   App      /api/events/partners?pincode=, /api/events/enquiries, /api/events/my-enquiries
  */
 
+import { refundPercentFor, cancellationText } from '@shared/celebrations';
 import type { Express } from 'express';
 import { z } from 'zod';
 import { authenticateToken } from '../middleware/auth.middleware';
@@ -65,10 +66,10 @@ export function registerHubEventsRoutes(app: Express) {
     });
 
     // ── packages ──────────────────────────────────────────────────────────
-    const pkgView = (p: any) => ({ id: p.id, name: p.name, category: p.category, description: p.description, unit: p.unit, price: rupees(p.pricePaise), sac: p.sac, gstRate: Number(p.gstRate), isActive: p.isActive, photos: p.photos ?? [], capacity: p.capacity ?? null, showOnPage: p.showOnPage !== false, maxQty: p.maxQty ?? null });
+    const pkgView = (p: any) => ({ id: p.id, name: p.name, category: p.category, description: p.description, unit: p.unit, price: rupees(p.pricePaise), sac: p.sac, gstRate: Number(p.gstRate), isActive: p.isActive, photos: p.photos ?? [], capacity: p.capacity ?? null, showOnPage: p.showOnPage !== false, maxQty: p.maxQty ?? null, isAddon: !!p.isAddon });
     const pkgSchema = z.object({
         name: z.string().max(120).optional(), category: z.string().optional(), description: z.string().max(500).optional().nullable(), unit: z.string().max(20).optional(), priceRupees: z.coerce.number().min(0).max(1e8).optional(), sac: z.string().max(8).optional(), gstRate: z.coerce.number().optional(), isActive: z.boolean().optional(),
-        photos: z.array(z.string().max(2_600_000)).max(8).optional(), capacity: z.number().int().optional().nullable(), showOnPage: z.boolean().optional(), maxQty: z.number().int().optional().nullable(),
+        photos: z.array(z.string().max(2_600_000)).max(8).optional(), capacity: z.number().int().optional().nullable(), showOnPage: z.boolean().optional(), maxQty: z.number().int().optional().nullable(), isAddon: z.boolean().optional(),
     });
     app.get('/api/hub/events/packages', active, mod, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: (await PartnerEventsService.packages(ctxOf(req).businessPartnerId)).map(pkgView) }); } catch (e) { hubError(e, res, next); }
@@ -145,6 +146,13 @@ export function registerHubEventsRoutes(app: Express) {
                     milestones: d.milestones.map(m => ({ id: m.m.id, label: m.m.label, dueDate: m.m.dueDate, amount: rupees(m.m.amountPaise), status: m.m.status, paidOn: m.m.paidOn, method: m.m.method, reference: m.m.reference, receiptDocumentId: m.m.receiptDocumentId, receiptNumber: m.receiptNumber })),
                     costs: d.costs.map(c => ({ id: c.c.id, vendorName: c.vendorName, description: c.c.description, taxable: rupees(c.c.taxablePaise), gst: rupees(c.c.gstPaise), dueDate: c.c.dueDate, status: c.c.status, paidOn: c.c.paidOn, billNumber: c.c.billNumber, inPurchaseRegister: !!c.c.purchaseBillId })),
                     refunds: d.refunds.map(docView),
+                    // Celebrations: what the booking terms give back if it is cancelled today.
+                    terms: d.booking.cancellationPolicy ? (() => {
+                        const daysLeft = Math.round((Date.parse(`${d.booking.eventDate}T00:00:00Z`) - Date.parse(`${new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)}T00:00:00Z`)) / 86_400_000);
+                        const pct = refundPercentFor(d.booking.cancellationPolicy as any, daysLeft);
+                        return { lines: cancellationText(d.booking.cancellationPolicy as any), refundPercentNow: pct, refundNow: rupees(Math.round(paid * pct / 100)) };
+                    })() : null,
+                    deposit: rupees(d.booking.depositPaise ?? 0),
                 },
             });
         } catch (e) { hubError(e, res, next); }

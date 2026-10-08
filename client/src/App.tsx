@@ -39,6 +39,7 @@ import PartnerTerritoriesPage from "@/pages/admin/partner-territories";
 import MarketplacePage from "@/pages/admin/marketplace";
 import ConsignmentPage from "@/pages/admin/consignment";
 import GoLivePage from "@/pages/admin/go-live";
+import CelebrationsAdminPage from "@/pages/admin/celebrations";
 import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
@@ -46,6 +47,7 @@ import PartnerApplyPage from "@/pages/partner-apply";
 import ConsultBookRouter from "@/pages/consult-book";
 import EventsPublicRouter from "@/pages/events-public";
 import PayLinkPage from "@/pages/pay-link";
+import CelebrationsRouter, { isCelebrationsPath } from "@/pages/celebrations";
 import { WeakPasswordBanner } from "@/components/admin/WeakPasswordBanner";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -238,6 +240,11 @@ function Router() {
     return <PayLinkPage />;
   }
 
+  // UniteFix Celebrations: halls, photographers, search, a client's booking and plan.
+  if (typeof window !== "undefined" && isCelebrationsPath(window.location.pathname)) {
+    return <CelebrationsRouter />;
+  }
+
   // An events partner's enquiry page, a client's quotation link, an enquiry's status.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/events/")) {
     return <EventsPublicRouter />;
@@ -305,6 +312,7 @@ function Router() {
           <Route path="/admin/marketplace"><Gate capability="partners:view" component={MarketplacePage} /></Route>
           <Route path="/admin/consignment"><Gate capability="partners:view" component={ConsignmentPage} /></Route>
           <Route path="/admin/go-live"><Gate capability="partners:view" component={GoLivePage} /></Route>
+          <Route path="/admin/celebrations"><Gate capability="partners:view" component={CelebrationsAdminPage} /></Route>
           <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>

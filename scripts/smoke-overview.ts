@@ -28,7 +28,7 @@ async function main() {
         const staff = (await api.login(sa.username, sa.password))!;
         const get = async () => (await api.get('/api/admin/reports/overview?range=30d', staff)).body?.data;
         const before = await get();
-        check('the overview loads for staff', !!before && Array.isArray(before.series) && before.series.length === 30 && before.streams.length === 7, JSON.stringify(before && { s: before.series.length, st: before.streams?.length }));
+        check('the overview loads for staff', !!before && Array.isArray(before.series) && before.series.length === 30 && before.streams.length === 8, JSON.stringify(before && { s: before.series.length, st: before.streams?.length }));
         check('12 months means 12 bars', (await api.get('/api/admin/reports/overview?range=12m', staff)).body?.data?.series?.length === 12);
         check('it is not public', (await api.get('/api/admin/reports/overview')).status === 401);
 

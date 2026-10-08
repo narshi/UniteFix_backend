@@ -31,6 +31,7 @@ import { PartnerSalesService, GST_RATES, type SaleLineInput } from './partner-sa
 import { TaxDocumentService, type DocLineInput, type Party } from './tax-documents.service';
 import { BusinessPartnerService } from './business-partner.service';
 import { withTransaction } from '../lib/transaction';
+import { CelebrationBookings } from './celebration-bookings.service';
 
 const token = () => crypto.randomBytes(18).toString('base64url');
 const today = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
@@ -50,7 +51,7 @@ export class PartnerEventsService {
             .orderBy(asc(eventPackages.category), asc(eventPackages.name));
     }
 
-    static async savePackage(ctx: HubContext, id: number | null, input: { name?: string; category?: string; description?: string | null; unit?: string; priceRupees?: number; sac?: string; gstRate?: number; isActive?: boolean; photos?: string[]; capacity?: number | null; showOnPage?: boolean; maxQty?: number | null }) {
+    static async savePackage(ctx: HubContext, id: number | null, input: { name?: string; category?: string; description?: string | null; unit?: string; priceRupees?: number; sac?: string; gstRate?: number; isActive?: boolean; photos?: string[]; capacity?: number | null; showOnPage?: boolean; maxQty?: number | null; isAddon?: boolean }) {
         const bp = await BusinessPartnerService.byId(ctx.businessPartnerId);
         if (input.name !== undefined && !input.name.trim()) throw new HubError('Name the package.', 'NO_NAME');
         if (input.category !== undefined && !CATEGORIES.includes(input.category)) throw new HubError(`Category is one of ${CATEGORIES.join(', ')}.`, 'BAD_CATEGORY');
@@ -70,6 +71,7 @@ export class PartnerEventsService {
         if (input.photos !== undefined) v.photos = (input.photos ?? []).filter(u => typeof u === 'string' && (/^https:\/\/\S+$/i.test(u) || /^data:image\//i.test(u))).slice(0, 8);
         if (input.capacity !== undefined) { if (input.capacity != null && !(Number.isInteger(input.capacity) && input.capacity > 0 && input.capacity <= 100000)) throw new HubError('Capacity is a number of guests.', 'BAD_CAPACITY'); v.capacity = input.capacity; }
         if (input.showOnPage !== undefined) v.showOnPage = input.showOnPage;
+        if (input.isAddon !== undefined) v.isAddon = !!input.isAddon;
         if (input.maxQty !== undefined) { if (input.maxQty != null && !(Number.isInteger(input.maxQty) && input.maxQty >= 1 && input.maxQty <= 500)) throw new HubError('Most a client can order: 1–500.', 'BAD_MAX'); v.maxQty = input.maxQty; }
         if (id) {
             const [u] = await db.update(eventPackages).set({ ...v, updatedAt: new Date() }).where(and(eq(eventPackages.id, id), eq(eventPackages.businessPartnerId, ctx.businessPartnerId))).returning();
@@ -112,7 +114,7 @@ export class PartnerEventsService {
     static async createEnquiry(ctx: Ctx, input: {
         customerId?: number | null; name?: string; phone?: string; email?: string | null; userId?: number | null; source?: 'hub' | 'public' | 'app';
         eventType: string; eventDate?: string | null; guests?: number | null; venue?: string | null; budgetRupees?: number | null; message?: string | null;
-    }) {
+    }, opts: { silent?: boolean } = {}) {
         if (!input.eventType?.trim()) throw new HubError('What kind of event?', 'NO_TYPE');
         if (input.eventDate && !/^\d{4}-\d{2}-\d{2}$/.test(input.eventDate)) throw new HubError('Event date is YYYY-MM-DD.', 'BAD_DATE');
         if (input.eventDate && input.eventDate < today()) throw new HubError('The event date has passed.', 'PAST_DATE');
@@ -124,7 +126,7 @@ export class PartnerEventsService {
             eventType: input.eventType.trim().slice(0, 80), eventDate: input.eventDate ?? null, guests: input.guests ?? null, venue: input.venue?.trim() || null,
             budgetPaise: input.budgetRupees != null ? Math.round(input.budgetRupees * 100) : null, message: input.message?.trim() || null, publicToken: token(),
         }).returning();
-        if (row.source !== 'hub') {
+        if (row.source !== 'hub' && !opts.silent) {
             const { HubAlerts } = await import('./hub-alerts.service');
             await HubAlerts.send(ctx.businessPartnerId, 'enquiry_new', { title: `New enquiry: ${row.eventType}`, body: `${customer.name}${row.eventDate ? ` · ${row.eventDate}` : ''}${row.guests ? ` · ${row.guests} guests` : ''} — via ${row.source === 'app' ? 'the UniteFix app' : 'your enquiry page'}.`, link: '/partner/events/enquiries', refType: 'event_enquiry', refId: row.id });
         }
@@ -216,7 +218,14 @@ export class PartnerEventsService {
             const { HubAlerts } = await import('./hub-alerts.service');
             await HubAlerts.send(q.businessPartnerId, decision === 'accept' ? 'quote_accepted' : 'quote_declined', { title: `Quotation ${q.number} ${decision === 'accept' ? 'accepted' : 'declined'}`, body: decision === 'accept' ? `The client accepted ₹${(q.totalPaise / 100).toLocaleString('en-IN')}. Confirm the booking and the advance.` : `The client declined${note?.trim() ? `: "${note.trim().slice(0, 140)}"` : '.'}`, link: q.source === 'events' ? '/partner/events/quotations' : `/partner/sales/quotations/${q.id}`, refType: 'quotation', refId: q.id });
         }
+        if (decision === 'accept' && q.source === 'events' && q.sourceRefId) {
+            // A photographer's date held for this request stays held while they confirm the booking.
+            const { BookingCalendar } = await import('./booking-calendar.service');
+            await BookingCalendar.extendHold({ enquiryId: q.sourceRefId }, new Date(Date.now() + 72 * 3600_000));
+        }
         if (decision === 'decline' && q.source === 'events' && q.sourceRefId) {
+            const { BookingCalendar } = await import('./booking-calendar.service');
+            await BookingCalendar.release(db, { enquiryId: q.sourceRefId });
             await db.update(eventEnquiries).set({ status: 'lost', lostReason: note?.trim() || 'Client declined the quotation', updatedAt: new Date() }).where(and(eq(eventEnquiries.id, q.sourceRefId), ne(eventEnquiries.status, 'won')));
         }
         return u;
@@ -247,8 +256,9 @@ export class PartnerEventsService {
         else rows[rows.length - 1].amountPaise += diff;
         if (rows.some(r => r.amountPaise <= 0)) throw new HubError('Every payment must be more than zero.', 'BAD_PLAN');
         const dates = await db.select({ id: eventBookings.id }).from(eventBookings).where(and(eq(eventBookings.businessPartnerId, ctx.businessPartnerId), eq(eventBookings.eventDate, eventDate), ne(eventBookings.status, 'cancelled')));
+        let made: { booking: EventBooking; sameDay: number };
         try {
-            return await withTransaction(async (tx) => {
+            made = await withTransaction(async (tx) => {
                 const [b] = await tx.insert(eventBookings).values({
                     businessPartnerId: ctx.businessPartnerId, enquiryId: e?.id ?? null, customerId: q.customerId, quotationId: q.id,
                     title: (input.title?.trim() || (e ? `${e.eventType}` : `Event ${q.number}`)).slice(0, 120), eventDate, venue: input.venue ?? e?.venue ?? null, guests: input.guests ?? e?.guests ?? null,
@@ -263,6 +273,9 @@ export class PartnerEventsService {
             if (err?.code === '23505') throw new HubError('This quotation is already a booking.', 'BOOKED', 409);
             throw err;
         }
+        // Halls, photographers and UniteFix-channel events: where it came from, commission, the calendar.
+        await CelebrationBookings.afterConfirm(made.booking.id, e?.id ?? null);
+        return made;
     }
 
     static async bookings(bpId: number, opts: { from?: string; to?: string } = {}) {
@@ -303,12 +316,14 @@ export class PartnerEventsService {
         const b = await this.booking(ctx.businessPartnerId, id);
         if (b.status === 'cancelled') throw new HubError('This booking is cancelled.', 'CANCELLED', 409);
         if (patch.status === 'completed' && b.eventDate > today()) throw new HubError('Mark it completed after the event.', 'TOO_EARLY', 409);
+        if (patch.status === 'completed' && b.status === 'pending') throw new HubError('The advance was never paid — cancel this booking instead.', 'PENDING', 409);
         const [u] = await db.update(eventBookings).set({
             ...(patch.checklist ? { checklist: patch.checklist.slice(0, 100).map(x => ({ text: String(x.text).slice(0, 200), done: !!x.done, owner: x.owner ?? null })) as any } : {}),
             ...(patch.staff ? { staff: patch.staff.slice(0, 100).map(x => ({ name: String(x.name).slice(0, 80), role: x.role ?? null, phone: x.phone ?? null })) as any } : {}),
             ...(patch.notes !== undefined ? { notes: patch.notes } : {}), ...(patch.venue !== undefined ? { venue: patch.venue } : {}),
             ...(patch.guests !== undefined ? { guests: patch.guests } : {}), ...(patch.status ? { status: patch.status } : {}), updatedAt: new Date(),
         }).where(eq(eventBookings.id, id)).returning();
+        if (patch.status === 'completed' && b.status !== 'completed') await CelebrationBookings.onCompleted(id);
         return u;
     }
 
@@ -352,13 +367,14 @@ export class PartnerEventsService {
         if (b.finalInvoiceDocumentId) {
             await PartnerSalesService.recordPayment(ctx, b.finalInvoiceDocumentId, { amountRupees: m.amountPaise / 100, method: input.method, reference: input.reference ?? null, receivedOn: paidOn, notes: m.label });
             const [u] = await db.update(eventMilestones).set({ status: 'paid', paidOn, method: input.method, reference: input.reference ?? null }).where(eq(eventMilestones.id, m.id)).returning();
+            await CelebrationBookings.onMilestonePaid(b.id);
             return { milestone: u, voucher: null };
         }
         const bp = await BusinessPartnerService.byId(ctx.businessPartnerId);
         const [c] = await db.select().from(partnerCustomers).where(eq(partnerCustomers.id, b.customerId)).limit(1);
         const lines = await this.advanceLines(b, m.amountPaise, m.label);
         const prefix = await PartnerSalesService.prefixFor(ctx.businessPartnerId);
-        return withTransaction(async (tx) => {
+        const out = await withTransaction(async (tx) => {
             const doc = await TaxDocumentService.create(tx as any, {
                 docKind: 'receipt_voucher', issuer: 'partner', issuerPartnerId: ctx.businessPartnerId, seriesKey: `bp-${ctx.businessPartnerId}-rv`, prefix, letter: 'R', numberWidth: 4,
                 purpose: 'event_advance', supplier: TaxDocumentService.partnerParty(bp!), recipient: PartnerSalesService.customerParty(c), lines, partnerCustomerId: c.id,
@@ -369,6 +385,9 @@ export class PartnerEventsService {
             if (!u) throw new HubError('Already recorded as paid.', 'PAID', 409);
             return { milestone: u, voucher: doc };
         });
+        // A hall's date held for its advance is now booked.
+        await CelebrationBookings.onMilestonePaid(b.id);
+        return out;
     }
 
     /**
@@ -426,6 +445,8 @@ export class PartnerEventsService {
             }));
         }
         await db.update(eventBookings).set({ status: 'cancelled', cancelledReason: input.reason.trim(), updatedAt: new Date() }).where(eq(eventBookings.id, b.id));
+        // Dates back on the calendar, open payment links closed, commission on what is kept.
+        await CelebrationBookings.onCancelled(b.id, advance - refund);
         return { voucher, kept: (advance - refund) / 100 };
     }
 
@@ -526,6 +547,8 @@ export class PartnerEventsService {
         const out = [];
         for (const bp of bps) {
             if (!(await PartnerHubService.modulesOf(bp)).includes('events')) continue;
+            // Halls and photographers take bookings through the events module but are not planners.
+            if (!(await BusinessPartnerService.verticalCodesOf(bp.id)).includes('events')) continue;
             const near = (bp.coveragePincodes ?? []).includes(pincode) || (!!sp?.district && !!bp.district && sp.district.toLowerCase() === bp.district.toLowerCase()) || (!!bp.pincode && bp.pincode.slice(0, 3) === pincode.slice(0, 3));
             if (!near) continue;
             const pk = await this.packages(bp.id, true);
@@ -545,18 +568,27 @@ export class PartnerEventsService {
     }
 
     /** A UniteFix customer's enquiries, with each one's latest quotation link. */
+    /**
+     * A UniteFix customer's enquiries and bookings: those sent from the app,
+     * and those they made on a web page with the same (OTP-verified) mobile
+     * number — halls, photographers and planners alike.
+     */
     static async myEnquiries(userId: number) {
+        const [u] = await db.select({ phone: users.phone }).from(users).where(eq(users.id, userId)).limit(1);
+        const phone = String(u?.phone ?? '').replace(/\D/g, '').slice(-10);
         const rows = await db.select({ e: eventEnquiries, partner: businessPartners.displayName, phone: businessPartners.contactPhone }).from(eventEnquiries)
             .innerJoin(businessPartners, eq(businessPartners.id, eventEnquiries.businessPartnerId))
-            .where(eq(eventEnquiries.userId, userId)).orderBy(desc(eventEnquiries.createdAt)).limit(50);
+            .innerJoin(partnerCustomers, eq(partnerCustomers.id, eventEnquiries.customerId))
+            .where(phone.length === 10 ? or(eq(eventEnquiries.userId, userId), and(eq(partnerCustomers.phone, phone), ne(eventEnquiries.source, 'hub'))) : eq(eventEnquiries.userId, userId))
+            .orderBy(desc(eventEnquiries.createdAt)).limit(50);
         const out = [];
         for (const r of rows) {
             const [q] = await db.select().from(partnerQuotations).where(and(eq(partnerQuotations.source, 'events'), eq(partnerQuotations.sourceRefId, r.e.id)))
                 .orderBy(desc(partnerQuotations.version)).limit(1);
             out.push({
                 id: r.e.id, partner: r.partner, partnerPhone: r.phone, eventType: r.e.eventType, eventDate: r.e.eventDate, guests: r.e.guests, status: r.e.status,
-                quotation: q && q.publicToken ? { number: q.number, version: q.version, status: q.status, total: q.totalPaise / 100, link: `/events/q/${q.publicToken}` } : null,
-                createdAt: r.e.createdAt,
+                quotation: q && q.publicToken && q.status !== 'draft' ? { number: q.number, version: q.version, status: q.status, total: q.totalPaise / 100, link: `/events/q/${q.publicToken}` } : null,
+                kind: r.e.kind, page: `/celebrations/b/${r.e.publicToken}`, createdAt: r.e.createdAt,
             });
         }
         return out;

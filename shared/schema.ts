@@ -2407,7 +2407,9 @@ export const businessPartners = pgTable("business_partners", {
   fieldAutoAssign: boolean("field_auto_assign").notNull().default(false),
   fieldAutoAssignMinutes: integer("field_auto_assign_minutes").notNull().default(15),                   // the seller's pickup point as registered with Delhivery
   alertPrefs: jsonb("alert_prefs"),
-  eventsProfile: jsonb("events_profile"),                               // public events page: { tagline, about, coverPhoto, instagram }                                     // { email, push, sms } for Hub alerts
+  eventsProfile: jsonb("events_profile"),                               // public events page: { tagline, about, coverPhoto, instagram }
+  venueProfile: jsonb("venue_profile"),                                 // a hall's page and policies (see venue.service.ts VenueProfile)
+  portfolioProfile: jsonb("portfolio_profile"),                         // a photographer's page (see portfolio.service.ts PortfolioProfile)
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
@@ -2705,6 +2707,7 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   'gateway_fee',            // UniteFix's collection fee + GST on it, +
   'store_penalty',          // a store order dispatched late or cancelled by the seller, +
   'consignment_sale',       // the partner's consigned parts UniteFix drew from its warehouse (payout, GST on the monthly invoice), −
+  'booking_commission',     // Celebrations: UniteFix commission + GST on a hall / photography booking made through UniteFix, +
 ]);
 
 /**
@@ -3171,6 +3174,8 @@ export const eventPackages = pgTable("event_packages", {
   capacity: integer("capacity"),
   showOnPage: boolean("show_on_page").notNull().default(true),
   maxQty: integer("max_qty"),
+  // Photographers: a package a client books, or an add-on to one (drone, extra album).
+  isAddon: boolean("is_addon").notNull().default(false),
   sac: text("sac").notNull().default('998596'),
   gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
   isActive: boolean("is_active").notNull().default(true),
@@ -3192,6 +3197,8 @@ export const eventEnquiries = pgTable("event_enquiries", {
   message: text("message"),
   // What the client built on the public page: venue, theme, add-ons, their notes, the estimate.
   selection: jsonb("selection"),
+  kind: text("kind").notNull().default('event'),           // event | hall | shoot
+  basketId: integer("basket_id"),                          // several partners asked for the same day at once (Celebrations plan)
   status: text("status").notNull().default('new'),         // new | contacted | quoted | won | lost
   lostReason: text("lost_reason"),
   publicToken: text("public_token").notNull().unique(),
@@ -3209,8 +3216,25 @@ export const eventBookings = pgTable("event_bookings", {
   eventDate: text("event_date").notNull(),
   venue: text("venue"),
   guests: integer("guests"),
-  status: text("status").notNull().default('confirmed'),   // confirmed | completed | cancelled
+  status: text("status").notNull().default('confirmed'),   // pending (advance awaited) | confirmed | completed | cancelled
   totalPaise: integer("total_paise").notNull(),
+  // Halls and photographers (and events booked through UniteFix)
+  kind: text("kind").notNull().default('event'),           // event | hall | shoot
+  origin: text("origin").notNull().default('hub'),         // hub | public | app — where the client came from
+  spaceId: integer("space_id"),                            // a hall's space
+  slot: text("slot"),                                      // am | pm | full
+  holdExpiresAt: timestamp("hold_expires_at"),             // pending: the date is held until then for the advance
+  depositPaise: integer("deposit_paise").notNull().default(0),      // refundable, collected and returned by the hall
+  depositStatus: text("deposit_status").notNull().default('none'),  // none | due | collected | refunded | withheld
+  depositNote: text("deposit_note"),
+  cancellationPolicy: jsonb("cancellation_policy"),       // the terms when booked: [{ daysBefore, refundPercent }]
+  commissionPercent: decimal("commission_percent", { precision: 5, scale: 2 }),
+  commissionPaise: integer("commission_paise"),
+  commissionGstPaise: integer("commission_gst_paise"),
+  commissionChargedAt: timestamp("commission_charged_at"),
+  cancelRequestedAt: timestamp("cancel_requested_at"),
+  cancelRequestNote: text("cancel_request_note"),
+  reviewPromptedAt: timestamp("review_prompted_at"),
   checklist: jsonb("checklist").notNull().default([] as any),   // [{ text, done, owner }]
   staff: jsonb("staff").notNull().default([] as any),           // [{ name, role, phone }]
   notes: text("notes"),
@@ -3539,3 +3563,141 @@ export const eventGallery = pgTable("event_gallery", {
 });
 export type EventTheme = typeof eventThemes.$inferSelect;
 export type EventGalleryItem = typeof eventGallery.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Celebrations — halls, photographers and the public listing of both
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A bookable space in a hall partner's property: main hall, mini hall, lawn. */
+export const venueSpaces = pgTable("venue_spaces", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default('hall'),            // hall | banquet | lawn | terrace | rooftop | room | other
+  description: text("description"),
+  seated: integer("seated"),
+  floating: integer("floating"),                           // standing / floating guests
+  areaSqft: integer("area_sqft"),
+  photos: jsonb("photos").$type<string[]>(),
+  videoUrl: text("video_url"),                             // a YouTube / Vimeo / Instagram tour
+  features: jsonb("features").$type<string[]>(),           // this space's own: "AC", "Stage", "Dining hall for 200"
+  included: text("included"),                              // what the rent includes
+  // Rent before GST, in paise, by kind of day and part of day. 0 / missing = not offered.
+  rates: jsonb("rates").$type<{ weekday?: Record<string, number>; weekend?: Record<string, number>; peak?: Record<string, number> }>(),
+  sac: text("sac").notNull().default('997212'),
+  gstRate: decimal("gst_rate", { precision: 5, scale: 2 }).notNull().default('18'),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type VenueSpace = typeof venueSpaces.$inferSelect;
+
+/**
+ * Who has which date. One row per resource, day and half-day (am / pm; a full
+ * day is both). A partial unique index over live rows (hold, booked, blocked)
+ * makes a double booking impossible, whatever the screens do.
+ */
+export const bookingCalendar = pgTable("booking_calendar", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  resourceKind: text("resource_kind").notNull(),          // space | crew
+  resourceId: integer("resource_id").notNull(),           // venue_spaces.id, or the photographer's crew number (1…)
+  day: text("day").notNull(),                             // YYYY-MM-DD
+  part: text("part").notNull(),                           // am | pm
+  status: text("status").notNull(),                       // hold | booked | blocked | released
+  holdExpiresAt: timestamp("hold_expires_at"),
+  enquiryId: integer("enquiry_id"),
+  bookingId: integer("booking_id"),
+  note: text("note"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  releasedAt: timestamp("released_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ dayIdx: index("booking_calendar_bp_day_idx").on(t.businessPartnerId, t.day) }));
+export type BookingCalendarRow = typeof bookingCalendar.$inferSelect;
+
+/** A partner's public listing in Celebrations, reviewed by UniteFix before it goes live. */
+export const partnerListings = pgTable("partner_listings", {
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  kind: text("kind").notNull(),                            // venue | portfolio | events
+  status: text("status").notNull().default('draft'),       // draft | submitted | live | changes_requested | paused
+  reviewNote: text("review_note"),
+  submittedAt: timestamp("submitted_at"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedByAdminId: integer("reviewed_by_admin_id"),
+  featured: boolean("featured").notNull().default(false),
+  commissionPercent: decimal("commission_percent", { precision: 5, scale: 2 }),   // null = the default for the kind
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.businessPartnerId, t.kind] }) }));
+export type PartnerListing = typeof partnerListings.$inferSelect;
+
+/** A photographer's albums — one story per event. */
+export const portfolioAlbums = pgTable("portfolio_albums", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  story: text("story"),
+  location: text("location"),
+  eventDate: text("event_date"),
+  category: text("category").notNull().default('wedding'), // wedding | pre_wedding | candid | maternity | baby | portrait | product | event | other
+  coverUrl: text("cover_url"),
+  isPublished: boolean("is_published").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type PortfolioAlbum = typeof portfolioAlbums.$inferSelect;
+
+/** Photos, short uploaded clips and linked films (YouTube, Vimeo, Instagram). */
+export const portfolioMedia = pgTable("portfolio_media", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  albumId: integer("album_id").references(() => portfolioAlbums.id, { onDelete: 'cascade' }),
+  kind: text("kind").notNull(),                            // photo | video | embed
+  url: text("url").notNull(),
+  thumbUrl: text("thumb_url"),
+  provider: text("provider"),                              // youtube | vimeo | instagram (embeds)
+  width: integer("width"),
+  height: integer("height"),
+  durationSec: integer("duration_sec"),
+  caption: text("caption"),
+  featured: boolean("featured").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ bpIdx: index("portfolio_media_bp_idx").on(t.businessPartnerId, t.albumId, t.sortOrder) }));
+export type PortfolioMedia = typeof portfolioMedia.$inferSelect;
+
+/** Verified reviews: one per booking made through UniteFix, after the event. */
+export const partnerReviews = pgTable("partner_reviews", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  kind: text("kind").notNull(),                            // venue | portfolio | events
+  bookingId: integer("booking_id").notNull().unique(),
+  reviewerName: text("reviewer_name").notNull(),           // "Priya S."
+  occasion: text("occasion"),
+  eventDate: text("event_date"),
+  rating: integer("rating").notNull(),                     // 1–5
+  body: text("body"),
+  reply: text("reply"),
+  repliedAt: timestamp("replied_at"),
+  status: text("status").notNull().default('published'),   // published | hidden
+  hiddenReason: text("hidden_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ bpIdx: index("partner_reviews_bp_idx").on(t.businessPartnerId, t.status) }));
+export type PartnerReview = typeof partnerReviews.$inferSelect;
+
+/** A Celebrations plan: one client asking several partners for the same day at once. */
+export const celebrationBaskets = pgTable("celebration_baskets", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  email: text("email"),
+  userId: integer("user_id"),
+  occasion: text("occasion"),
+  eventDate: text("event_date").notNull(),
+  guests: integer("guests"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type CelebrationBasket = typeof celebrationBaskets.$inferSelect;

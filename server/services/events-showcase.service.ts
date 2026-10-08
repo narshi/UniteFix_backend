@@ -232,7 +232,7 @@ export class EventsShowcaseService {
     static async request(bp: typeof businessPartners.$inferSelect, input: {
         name: string; phone: string; email?: string | null; eventType: string; eventDate?: string | null; guests?: number | null;
         venueId?: number | null; ownVenue?: string | null; themeId?: number | null; customization?: string | null; addons?: Array<{ packageId: number; quantity?: number }>;
-    }) {
+    }, channel: { source: 'public' | 'app'; userId?: number | null; basketId?: number | null } = { source: 'public' }) {
         if (!input.eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(input.eventDate)) throw new HubError('Choose the event date.', 'NO_DATE');
         if (input.eventDate < today()) throw new HubError('The event date has passed.', 'PAST_DATE');
         const priced = await this.price(bp.id, input);
@@ -251,11 +251,11 @@ export class EventsShowcaseService {
         const { PartnerSalesService } = await import('./partner-sales.service');
         const ctx = { businessPartnerId: bp.id, adminUserId: null } as any;
         const e = await PartnerEventsService.createEnquiry(ctx, {
-            name: input.name, phone: input.phone, email: input.email ?? null, source: 'public',
+            name: input.name, phone: input.phone, email: input.email ?? null, source: channel.source, userId: channel.userId ?? null,
             eventType: input.eventType, eventDate: input.eventDate, guests: input.guests ?? null, venue: venueName, message: summary,
         });
         const selection = { venueId: input.venueId ?? null, ownVenue: input.venueId ? null : venueName, themeId: input.themeId ?? null, theme: themeName, customization: custom, items: priced.picked, estimate: priced.estimate };
-        await db.update(eventEnquiries).set({ selection: selection as any, updatedAt: new Date() }).where(eq(eventEnquiries.id, e.id));
+        await db.update(eventEnquiries).set({ selection: selection as any, basketId: channel.basketId ?? null, updatedAt: new Date() }).where(eq(eventEnquiries.id, e.id));
         // Drafted, not sent: the partner checks the date (and can adjust) before the client sees it.
         const q = await PartnerSalesService.createQuotation(ctx, {
             customerId: e.customerId, lines: priced.lines,

@@ -266,6 +266,16 @@ async function partnerFieldTick(): Promise<void> {
     }
 }
 
+/** Celebrations: lapse unpaid hall holds, release unanswered requests, complete past bookings, ask for reviews. */
+async function celebrationsTick(): Promise<void> {
+    try {
+        const { CelebrationBookings } = await import('./celebration-bookings.service');
+        await CelebrationBookings.tick();
+    } catch (error: any) {
+        logger.error('[CRON] Celebrations tick failed', { error: error.message });
+    }
+}
+
 /** Partners' monthly invoices to UniteFix for field work (subcontract), 1st–3rd IST. */
 async function issueMonthlySubcontractInvoices(): Promise<void> {
     try {
@@ -676,6 +686,9 @@ export function startBackgroundJobs(): void {
     setTimeout(issueMonthlySubcontractInvoices, 85000);
     // Partner jobs past their assign-by time, and job values past their hold.
     intervals.push(setInterval(partnerFieldTick, FIFTEEN_MINUTES));
+    // Hall holds run in hours, so a lapsed one is released within five minutes.
+    intervals.push(setInterval(celebrationsTick, 5 * 60 * 1000));
+    setTimeout(celebrationsTick, 115000);
     intervals.push(setInterval(billDueRetainers, SIX_HOURS));
     intervals.push(setInterval(marketplaceTick, SIX_HOURS));
     setTimeout(marketplaceTick, 100000);

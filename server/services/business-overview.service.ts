@@ -25,13 +25,13 @@ import { and, eq, gte, inArray, isNotNull, isNull, ne, notInArray, or, sql, coun
 import {
     serviceRequests, ftthRecharges, ftthLeads, b2bOrders, sellerOrders, partnerPayLinks, taxDocuments, taxDocumentLines,
     users, employees, businessPartners, partnerTerritories, partnerServiceRates, products, consignmentLots,
-    withdrawalRequests, warrantyClaims, supportTickets, ratings, partRequests,
+    withdrawalRequests, warrantyClaims, supportTickets, ratings, partRequests, eventBookings,
 } from '@shared/schema';
 import { nowFilledMs } from '../lib/db-time';
 import logger from '../lib/logger';
 
 export type Range = '7d' | '30d' | '90d' | '12m';
-type Stream = 'services_direct' | 'services_partner' | 'broadband' | 'parts' | 'store' | 'paylinks' | 'subscriptions';
+type Stream = 'services_direct' | 'services_partner' | 'broadband' | 'parts' | 'store' | 'paylinks' | 'celebrations' | 'subscriptions';
 
 export const STREAMS: Array<{ key: Stream; label: string; note: string }> = [
     { key: 'services_direct', label: 'Services · UniteFix experts', note: 'Platform fee, booking charge and UniteFix parts on jobs done by UniteFix experts' },
@@ -40,6 +40,7 @@ export const STREAMS: Array<{ key: Stream; label: string; note: string }> = [
     { key: 'parts', label: 'Parts sales (B2B)', note: 'Spare parts sold to technicians and partners, before GST' },
     { key: 'store', label: 'Partner store', note: 'Commission, payment collection fee and charges on partner listings' },
     { key: 'paylinks', label: 'Payment links', note: 'Collection fee on partners\' customers paying online' },
+    { key: 'celebrations', label: 'Celebrations bookings', note: 'Commission on hall, photography and event bookings made through UniteFix, when the event takes place' },
     { key: 'subscriptions', label: 'Hub subscriptions', note: 'Partner Hub Pro plans, before GST' },
 ];
 
@@ -130,6 +131,15 @@ export class BusinessOverviewService {
         const pl = await db.select({ at: partnerPayLinks.paidAt, amt: partnerPayLinks.amountPaise, fee: partnerPayLinks.feePaise, feeGst: partnerPayLinks.feeGstPaise })
             .from(partnerPayLinks).where(and(eq(partnerPayLinks.status, 'paid'), gte(partnerPayLinks.paidAt, since)));
         for (const x of pl) if (x.at) ev.push({ at: new Date(x.at).getTime(), stream: 'paylinks', gmv: x.amt, unitefix: x.fee, partner: x.amt - x.fee - x.feeGst, expert: 0, gst: 0 });
+
+        // Celebrations: commission on bookings through UniteFix, when charged (the event took place, or what was kept on a cancellation).
+        const cb = await db.select({ at: eventBookings.commissionChargedAt, total: eventBookings.totalPaise, status: eventBookings.status, fee: eventBookings.commissionPaise, pct: eventBookings.commissionPercent })
+            .from(eventBookings).where(and(isNotNull(eventBookings.commissionChargedAt), gte(eventBookings.commissionChargedAt, since)));
+        for (const x of cb) {
+            if (!x.at || !x.fee) continue;
+            const base = x.status === 'cancelled' && Number(x.pct) > 0 ? Math.round(x.fee * 100 / Number(x.pct)) : x.total;
+            ev.push({ at: new Date(x.at).getTime(), stream: 'celebrations', gmv: base, unitefix: x.fee, partner: base - x.fee, expert: 0, gst: 0 });
+        }
 
         // Hub Pro subscriptions, from the monthly fee invoices.
         const subs = await db.select({ period: taxDocuments.periodFrom, taxable: taxDocumentLines.taxablePaise })

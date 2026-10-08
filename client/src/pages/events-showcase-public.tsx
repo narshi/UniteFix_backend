@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
+import { addToPlan } from "@/pages/celebrations/plan-store";
 
 type Pkg = { id: number; name: string; category: string; description: string | null; unit: string; price: number; gstRate: number; photos: string[]; capacity: number | null; maxQty: number | null };
 type Theme = { id: number; name: string; description: string | null; suitableFor: string | null; photos: string[]; price: number; gstRate: number };
@@ -368,6 +369,14 @@ export default function ShowcasePage({ code, fallback }: { code: string; fallbac
                 <button disabled={!ready || sending} onClick={send} className="mt-4 w-full rounded-lg bg-[hsl(174,72%,38%)] py-3 font-medium text-white hover:bg-[hsl(174,72%,33%)] disabled:cursor-not-allowed disabled:opacity-40">
                   {sending ? "Sending…" : "Send booking request"}
                 </button>
+                {date && lines.length > 0 && (
+                  <button className="mt-2 w-full rounded-lg border border-[rgba(255,255,255,0.15)] py-2.5 text-sm text-white hover:bg-white/5" onClick={() => {
+                    addToPlan({ type: "planner", code, name: d.name, date, detail: lines.map(l => l.name).slice(0, 3).join(", "), photo: d.profile.coverPhoto ?? d.gallery.find(x => x.kind === "photo")?.url ?? null,
+                      payload: { venueId: typeof venueId === "number" ? venueId : null, ownVenue: venueId === "own" ? ownVenue : null, themeId, customization: custom || null, addons: Object.entries(addons).map(([id, qty]) => ({ packageId: Number(id), quantity: qty })) },
+                      estimate: taxable + gst, guests: g || null, occasion: occasion || null });
+                    window.location.href = "/celebrations/plan";
+                  }}>Add to my plan — book with a hall and photographer</button>
+                )}
                 <p className="mt-2 text-xs text-[hsl(215,20%,55%)]">
                   {!occasion.trim() || !date ? "Add the occasion and date." : !lines.length ? "Choose at least a venue, theme or add-on." : needsGuests ? "Enter the number of guests." : tooMany ? "Too many guests for this venue." : venueId === "own" && ownVenue.trim().length < 3 ? "Add your venue." : !(who.name.trim().length >= 2 && /^[6-9]\d{9}$/.test(who.phone)) ? "Add your name and mobile number." : "Nothing is charged now. You get the final quotation to accept."}
                 </p>

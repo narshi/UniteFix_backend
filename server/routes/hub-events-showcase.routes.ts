@@ -17,7 +17,7 @@ import type { Express } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { authenticateHub, hubCan, hubModule, hubError, HubRequest } from '../middleware/hub-auth';
-import { operatorApplyLimiter, publicLimiter } from '../middleware/rate-limit';
+import { celebrationsSubmitLimiter } from '../middleware/rate-limit';
 import { HubError } from '../services/partner-hub.service';
 import { PartnerEventsService } from '../services/partner-events.service';
 import { EventsShowcaseService } from '../services/events-showcase.service';
@@ -146,7 +146,7 @@ export function registerHubEventsShowcaseRoutes(app: Express) {
             res.json({ success: true, data: await EventsShowcaseService.publicShowcase(bp) });
         } catch (e) { hubError(e, res, next); }
     });
-    app.post('/api/public/events/:code/estimate', publicLimiter, async (req, res, next) => {
+    app.post('/api/public/events/:code/estimate', async (req, res, next) => {
         try {
             const bp = await PartnerEventsService.publicPartner(req.params.code);
             if (!bp) return res.status(404).json({ success: false, message: 'Not found' });
@@ -154,7 +154,7 @@ export function registerHubEventsShowcaseRoutes(app: Express) {
             res.json({ success: true, data: { items: p.picked, ...p.estimate } });
         } catch (e) { hubError(e, res, next); }
     });
-    app.post('/api/public/events/:code/request', operatorApplyLimiter, async (req, res, next) => {
+    app.post('/api/public/events/:code/request', celebrationsSubmitLimiter, async (req, res, next) => {
         try {
             const bp = await PartnerEventsService.publicPartner(req.params.code);
             if (!bp) return res.status(404).json({ success: false, message: 'Not found' });

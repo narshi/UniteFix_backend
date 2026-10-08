@@ -938,6 +938,165 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS partner_pay_links_bp_idx ON partner_pay_links (business_partner_id, created_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS partner_pay_links_order_idx ON partner_pay_links (razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
     `],
+    ['celebrations: verticals', `
+      INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
+        ('hall', 'Halls & Venues', 'Marriage halls, party halls, banquet spaces and lawns', 70),
+        ('photography', 'Photography & Films', 'Wedding, event and portrait photographers and studios', 80)
+      ON CONFLICT (code) DO NOTHING;
+    `],
+    ['celebrations: columns', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS venue_profile JSONB;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS portfolio_profile JSONB;
+      ALTER TABLE event_packages ADD COLUMN IF NOT EXISTS is_addon BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE event_enquiries ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'event';
+      ALTER TABLE event_enquiries ADD COLUMN IF NOT EXISTS basket_id INTEGER;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'event';
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'hub';
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS space_id INTEGER;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS slot TEXT;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS hold_expires_at TIMESTAMP;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS deposit_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS deposit_status TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS deposit_note TEXT;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS cancellation_policy JSONB;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS commission_percent NUMERIC(5,2);
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS commission_paise INTEGER;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS commission_gst_paise INTEGER;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS commission_charged_at TIMESTAMP;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMP;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS cancel_request_note TEXT;
+      ALTER TABLE event_bookings ADD COLUMN IF NOT EXISTS review_prompted_at TIMESTAMP;
+    `],
+    ['celebrations: venue_spaces', `
+      CREATE TABLE IF NOT EXISTS venue_spaces (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'hall',
+        description TEXT,
+        seated INTEGER,
+        floating INTEGER,
+        area_sqft INTEGER,
+        photos JSONB,
+        video_url TEXT,
+        features JSONB,
+        included TEXT,
+        rates JSONB,
+        sac TEXT NOT NULL DEFAULT '997212',
+        gst_rate NUMERIC(5,2) NOT NULL DEFAULT 18,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS venue_spaces_bp_idx ON venue_spaces (business_partner_id);
+    `],
+    ['celebrations: booking_calendar', `
+      CREATE TABLE IF NOT EXISTS booking_calendar (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        resource_kind TEXT NOT NULL,
+        resource_id INTEGER NOT NULL,
+        day TEXT NOT NULL,
+        part TEXT NOT NULL,
+        status TEXT NOT NULL,
+        hold_expires_at TIMESTAMP,
+        enquiry_id INTEGER,
+        booking_id INTEGER,
+        note TEXT,
+        created_by_admin_user_id INTEGER,
+        released_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS booking_calendar_bp_day_idx ON booking_calendar (business_partner_id, day);
+      CREATE UNIQUE INDEX IF NOT EXISTS booking_calendar_live_slot_idx ON booking_calendar (business_partner_id, resource_kind, resource_id, day, part)
+        WHERE status IN ('hold', 'booked', 'blocked');
+      CREATE INDEX IF NOT EXISTS booking_calendar_hold_idx ON booking_calendar (hold_expires_at) WHERE status = 'hold';
+    `],
+    ['celebrations: partner_listings', `
+      CREATE TABLE IF NOT EXISTS partner_listings (
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        review_note TEXT,
+        submitted_at TIMESTAMP,
+        reviewed_at TIMESTAMP,
+        reviewed_by_admin_id INTEGER,
+        featured BOOLEAN NOT NULL DEFAULT FALSE,
+        commission_percent NUMERIC(5,2),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (business_partner_id, kind)
+      );
+    `],
+    ['celebrations: portfolio', `
+      CREATE TABLE IF NOT EXISTS portfolio_albums (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        story TEXT,
+        location TEXT,
+        event_date TEXT,
+        category TEXT NOT NULL DEFAULT 'wedding',
+        cover_url TEXT,
+        is_published BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS portfolio_albums_bp_idx ON portfolio_albums (business_partner_id, sort_order);
+      CREATE TABLE IF NOT EXISTS portfolio_media (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        album_id INTEGER REFERENCES portfolio_albums(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        url TEXT NOT NULL,
+        thumb_url TEXT,
+        provider TEXT,
+        width INTEGER,
+        height INTEGER,
+        duration_sec INTEGER,
+        caption TEXT,
+        featured BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS portfolio_media_bp_idx ON portfolio_media (business_partner_id, album_id, sort_order);
+    `],
+    ['celebrations: partner_reviews', `
+      CREATE TABLE IF NOT EXISTS partner_reviews (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        booking_id INTEGER NOT NULL UNIQUE,
+        reviewer_name TEXT NOT NULL,
+        occasion TEXT,
+        event_date TEXT,
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        body TEXT,
+        reply TEXT,
+        replied_at TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'published',
+        hidden_reason TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_reviews_bp_idx ON partner_reviews (business_partner_id, status);
+    `],
+    ['celebrations: celebration_baskets', `
+      CREATE TABLE IF NOT EXISTS celebration_baskets (
+        id SERIAL PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT,
+        user_id INTEGER,
+        occasion TEXT,
+        event_date TEXT NOT NULL,
+        guests INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
+    ['celebrations: ledger types booking_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'booking_commission';`],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

@@ -19,7 +19,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export type Range = "7d" | "30d" | "90d" | "12m";
-type StreamKey = "services_direct" | "services_partner" | "broadband" | "parts" | "store" | "paylinks" | "subscriptions";
+type StreamKey = "services_direct" | "services_partner" | "broadband" | "parts" | "store" | "paylinks" | "celebrations" | "subscriptions";
 type Totals = { gmv: number; unitefix: number; partner: number; expert: number; gst: number; jobs: number; partnerOwnSales: number; takeRate: number };
 type Overview = {
   range: Range; granularity: "day" | "week" | "month"; from: string; to: string;
@@ -42,6 +42,7 @@ const STREAM_COLOR: Record<StreamKey, string> = {
   parts: "hsl(38,92%,55%)",
   store: "hsl(280,70%,68%)",
   paylinks: "hsl(330,75%,64%)",
+  celebrations: "hsl(45,90%,60%)",
   subscriptions: "hsl(14,85%,62%)",
 };
 const FLOW = [

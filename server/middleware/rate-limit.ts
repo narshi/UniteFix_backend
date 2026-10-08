@@ -86,6 +86,24 @@ export const operatorApplyLimiter = rateLimit({
     skip: skipInLocalTests,
 });
 
+export const celebrationsBrowseLimiter = rateLimit({
+    windowMs: RATE_LIMIT_CONFIG.celebrationsBrowse.windowMs,
+    max: RATE_LIMIT_CONFIG.celebrationsBrowse.max,
+    message: { success: false, message: RATE_LIMIT_CONFIG.celebrationsBrowse.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: skipInLocalTests,
+});
+
+export const celebrationsSubmitLimiter = rateLimit({
+    windowMs: RATE_LIMIT_CONFIG.celebrationsSubmit.windowMs,
+    max: RATE_LIMIT_CONFIG.celebrationsSubmit.max,
+    message: { success: false, message: RATE_LIMIT_CONFIG.celebrationsSubmit.message },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: skipInLocalTests,
+});
+
 export const publicLimiter = rateLimit({
     windowMs: RATE_LIMIT_CONFIG.public.windowMs,
     max: RATE_LIMIT_CONFIG.public.max,

@@ -18,15 +18,15 @@ export type HubModule =
     // every partner
     | 'home' | 'onboarding' | 'team' | 'customers' | 'sales' | 'purchases' | 'money' | 'gst' | 'docs'
     // by vertical
-    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace';
+    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace' | 'venue' | 'portfolio';
 
 export const CORE_MODULES: HubModule[] = ['home', 'onboarding', 'team', 'customers', 'sales', 'purchases', 'money', 'gst', 'docs'];
-export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace'];
+export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace', 'venue', 'portfolio'];
 
 export const MODULE_LABEL: Record<HubModule, string> = {
     home: 'Home', onboarding: 'Onboarding', team: 'Team', customers: 'Customers', sales: 'Sales', purchases: 'Purchases',
     money: 'Money', gst: 'GST desk', docs: 'Documents', broadband: 'Broadband', field: 'Field service', parts: 'Parts',
-    consulting: 'Consulting', events: 'Events', marketplace: 'Store',
+    consulting: 'Consulting', events: 'Events', marketplace: 'Store', venue: 'Venue', portfolio: 'Portfolio',
 };
 
 /** What each vertical switches on. A partner with several verticals gets the union. */
@@ -37,6 +37,11 @@ export const VERTICAL_TO_MODULES: Record<string, HubModule[]> = {
     electronics: ['marketplace', 'parts'],
     consultation: ['consulting'],
     events: ['events'],
+    // Halls and photographers take bookings through the events machinery
+    // (enquiries, quotations, bookings, advances, vendors) and add their own
+    // pages: a hall's spaces and calendar, a photographer's portfolio.
+    hall: ['venue', 'events'],
+    photography: ['portfolio', 'events'],
     other: [],
 };
 
@@ -111,7 +116,8 @@ export const DOC_TYPES: DocType[] = [
     { code: 'address_proof', label: 'Shop or office address proof', hint: 'Rent agreement, utility bill or shop licence.', requiredFor: [], optionalFor: ['*'] },
     { code: 'isp_licence', label: 'ISP licence or franchise agreement', hint: 'DoT ISP authorisation, or your agreement with the licensed ISP you resell for.', requiredFor: ['isp'] },
     { code: 'liability_insurance', label: 'Public liability insurance', hint: 'Covers damage at a customer\'s premises. Needed before your own technicians take jobs.', requiredFor: [], optionalFor: ['computer', 'cctv'], hasExpiry: true },
-    { code: 'trade_licence', label: 'Trade licence', hint: 'Municipal trade licence, if your business holds one.', requiredFor: [], optionalFor: ['events', 'electronics'], hasExpiry: true },
+    { code: 'trade_licence', label: 'Trade licence', hint: 'Municipal trade licence, if your business holds one.', requiredFor: [], optionalFor: ['events', 'electronics', 'hall', 'photography'], hasExpiry: true },
+    { code: 'fire_noc', label: 'Fire safety NOC', hint: 'From the fire department, for a hall that hosts large gatherings.', requiredFor: [], optionalFor: ['hall'], hasExpiry: true },
     { code: 'professional_certificate', label: 'Professional certificate', hint: 'ICAI / ICSI / bar membership or similar, for regulated advice.', requiredFor: [], optionalFor: ['consultation'], hasExpiry: true },
 ];
 
@@ -171,6 +177,25 @@ export const AGREEMENTS: AgreementDoc[] = [
             ['Quotations', 'A quotation the client accepts is binding on the scope and price it states. Changes are a new quotation version.'],
             ['Advances', 'Advances received are recorded against the booking and adjusted in the final invoice, with GST as the law requires on advances.'],
             ['Vendors', 'You are responsible for the vendors you engage and for paying them.'],
+        ],
+    },
+    {
+        code: 'venue', version: '2026-10-v1', title: 'Venue annex', appliesTo: ['hall'],
+        sections: [
+            ['Your calendar', 'Dates you show as free are free. Block dates you have booked elsewhere the same day, so no client books a date you cannot give them. A date held for a client stays theirs until the hold ends.'],
+            ['Your page', 'Photos, capacities and amenities on your page are of your property and true. UniteFix reviews your page before it goes live and may pause it if it is not.'],
+            ['Advances and deposits', 'Advances paid through UniteFix are settled to you weekly after the collection fee. A refundable security deposit is collected and returned by you, on the terms shown on your page.'],
+            ['Cancellations', 'The cancellation terms on your page when a client booked are the terms for that booking.'],
+            ['Commission', 'Bookings that come to you through UniteFix carry the commission shown in your Hub, charged on your statement once the event has taken place (or, on a cancellation, on what you keep).'],
+        ],
+    },
+    {
+        code: 'portfolio', version: '2026-10-v1', title: 'Photography annex', appliesTo: ['photography'],
+        sections: [
+            ['Your work', 'Photos and films on your portfolio are your own work, and you have the consent of the people in them to show them publicly.'],
+            ['Your dates', 'Keep your availability current. A date you confirm for a client is theirs.'],
+            ['Deliverables', 'You deliver what your package promises, by the date you agreed.'],
+            ['Commission', 'Bookings that come to you through UniteFix carry the commission shown in your Hub, charged on your statement once the shoot has taken place (or, on a cancellation, on what you keep).'],
         ],
     },
     {
