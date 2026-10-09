@@ -35,6 +35,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Withdrawals", href: "/admin/withdrawals", icon: "account_balance", capability: "withdrawals:view" },
   { name: "Warranty Claims", href: "/admin/warranty-claims", icon: "verified_user", capability: "bookings:view" },
   { name: "Marketing Push", href: "/admin/marketing", icon: "campaign", capability: "marketing:view" },
+  { name: "Account Deletions", href: "/admin/account-deletions", icon: "person_remove", capability: "customers:view" },
   { name: "Audit Trail", href: "/admin/audit-logs", icon: "history", capability: "audit:view" },
   { name: "Districts", href: "/admin/districts", icon: "map", capability: "locations:view" },
   { name: "Location Management", href: "/locations", icon: "location_on", capability: "locations:view" },

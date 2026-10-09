@@ -56,7 +56,8 @@
     "smoke:part-approval": "tsx scripts/smoke-part-approval.ts",
     "smoke:overview": "tsx scripts/smoke-overview.ts",
     "smoke:celebrations": "tsx scripts/smoke-celebrations.ts",
-    "smoke:payment-guards": "tsx scripts/smoke-payment-guards.ts"
+    "smoke:payment-guards": "tsx scripts/smoke-payment-guards.ts",
+    "smoke:account-deletion": "tsx scripts/smoke-account-deletion.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

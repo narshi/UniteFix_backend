@@ -58,6 +58,9 @@ const RULES: Rule[] = [
     // /accounts/:kind/... where kind is 'user' or 'employee'. Deleting a
     // customer and deleting an expert are different powers, so they map to
     // different areas rather than one blanket grant.
+    // Requests from customers and experts to delete their own account: review
+    // (view) and approve or deny (manage). Listed before the purge rules.
+    { test: /^\/accounts\/deletion-requests(\/|$)/, area: 'customers' },
     { test: /^\/accounts\/user(\/|$)/, area: 'customers', force: 'manage' },
     { test: /^\/accounts\/employee(\/|$)/, area: 'employees', force: 'manage' },
 

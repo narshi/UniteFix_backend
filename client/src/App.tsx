@@ -40,6 +40,7 @@ import MarketplacePage from "@/pages/admin/marketplace";
 import ConsignmentPage from "@/pages/admin/consignment";
 import GoLivePage from "@/pages/admin/go-live";
 import CelebrationsAdminPage from "@/pages/admin/celebrations";
+import AccountDeletionsPage from "@/pages/admin/account-deletions";
 import PartsAccessPage from "@/pages/admin/parts-access";
 import B2bOrdersPage from "@/pages/admin/b2b-orders";
 import PartnerHubLayout from "@/layouts/PartnerHubLayout";
@@ -313,6 +314,7 @@ function Router() {
           <Route path="/admin/consignment"><Gate capability="partners:view" component={ConsignmentPage} /></Route>
           <Route path="/admin/go-live"><Gate capability="partners:view" component={GoLivePage} /></Route>
           <Route path="/admin/celebrations"><Gate capability="partners:view" component={CelebrationsAdminPage} /></Route>
+          <Route path="/admin/account-deletions"><Gate capability="customers:view" component={AccountDeletionsPage} /></Route>
           <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>
           <Route path="/admin/developer"><Gate capability="db_console:manage" component={DeveloperPage} /></Route>

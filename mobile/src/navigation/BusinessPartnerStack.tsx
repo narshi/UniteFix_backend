@@ -9,6 +9,7 @@ import { PartDetailScreen } from '../screens/b2b/PartDetailScreen';
 import { CartScreen } from '../screens/b2b/CartScreen';
 import { OrderDetailScreen } from '../screens/b2b/OrderDetailScreen';
 import { LegalScreen } from '../screens/LegalScreen';
+import { AboutScreen } from '../screens/AboutScreen';
 // Shared with the other roles — the same durable record, filtered by user.
 import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
 
@@ -23,6 +24,7 @@ export function BusinessPartnerStack() {
             <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
+            <Stack.Screen name="About" component={AboutScreen} />
         </Stack.Navigator>
     );
 }

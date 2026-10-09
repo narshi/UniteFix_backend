@@ -546,62 +546,7 @@ export function registerClientFeatureRoutes(app: Express) {
         }
     });
 
-    // ==================== ACCOUNT DELETION ====================
-
-    /**
-     * DELETE /api/client/account
-     * Soft delete account (30-day recovery window)
-     *
-     * - Password users: must send { password: "..." } in body
-     * - Truecaller-only users: must send { confirmDelete: true } (phone already verified via TC)
-     */
-    app.delete("/api/client/account", authenticateAny, async (req: Request, res, next) => {
-        try {
-            const userId = (req as any).user!.userId;
-            const { password, confirmDelete } = req.body;
-
-            const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-            if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-            if (user.password) {
-                // Password-based account: require password confirmation
-                if (!password) {
-                    return res.status(400).json({ success: false, message: "Password required to delete account" });
-                }
-                const bcrypt = await import('bcrypt');
-                const valid = await bcrypt.compare(password, user.password);
-                if (!valid) {
-                    return res.status(401).json({ success: false, message: "Incorrect password" });
-                }
-            } else {
-                // Truecaller-only account: require explicit confirmation flag
-                // (Phone identity was verified by Truecaller at login — no password exists)
-                if (!confirmDelete) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Please confirm deletion by sending { confirmDelete: true }",
-                    });
-                }
-            }
-
-            // Soft delete — set deletedAt, deactivate
-            await db.update(users)
-                .set({
-                    isActive: false,
-                    deletedAt: new Date(),
-                    updatedAt: new Date(),
-                })
-                .where(eq(users.id, userId));
-
-            res.json({
-                success: true,
-                message: "Account scheduled for deletion. You have 30 days to recover it by logging in.",
-            });
-        } catch (error) {
-            next(error);
-        }
-    });
-
+    // Account deletion: see account-deletion.routes.ts — a request staff approve or deny.
 
     // ==================== WALLET V2 APIs (Partner) ====================
 

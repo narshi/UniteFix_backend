@@ -901,11 +901,25 @@ export function authenticateAny(req: Request, res: Response, next: NextFunction)
         });
     }
 
-    (req as any).user = {
-        userId: decoded.userId,
-        role: decoded.role,
-    };
-    next();
+    // A closed (deleted) account is signed out on its very next request, here as
+    // on the customer routes — its token may otherwise live for weeks. Only
+    // deletion is checked: an expert awaiting verification is inactive but
+    // still needs these shared endpoints (uploads, push registration).
+    db.select({ deletedAt: users.deletedAt })
+        .from(users)
+        .where(eq(users.id, decoded.userId))
+        .limit(1)
+        .then(([row]) => {
+            if (row?.deletedAt) {
+                return res.status(403).json({ success: false, message: 'This account has been closed.' });
+            }
+            (req as any).user = {
+                userId: decoded.userId,
+                role: decoded.role,
+            };
+            next();
+        })
+        .catch(next);
 }
 
 

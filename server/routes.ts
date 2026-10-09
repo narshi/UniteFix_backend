@@ -65,6 +65,7 @@ import { registerPartRequestRoutes } from "./routes/part-requests.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
 import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
 import { registerPortfolioRoutes } from "./routes/portfolio.routes";
+import { registerAccountDeletionRoutes } from "./routes/account-deletion.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
@@ -3659,6 +3660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it
   registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
   registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests
+  registerAccountDeletionRoutes(app); // Customers and experts ask to delete their account; staff approve or deny
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)

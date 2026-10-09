@@ -15,6 +15,8 @@ import { EnablePartsScreen } from '../screens/partner/EnablePartsScreen';
 import { MyStockScreen } from '../screens/partner/MyStockScreen';
 import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
 import { LegalScreen } from '../screens/LegalScreen';
+import { AboutScreen } from '../screens/AboutScreen';
+import { DeleteAccountScreen } from '../screens/DeleteAccountScreen';
 // Shared with the customer stack — an expert needs the same durable record of
 // assignments, wallet credits and verification decisions.
 import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
@@ -36,6 +38,8 @@ export function PartnerStack() {
             <Stack.Screen name="MyStock" component={MyStockScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
+            <Stack.Screen name="About" component={AboutScreen} />
+            <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
             {/* Search/pick a base location. Shared with the customer and onboarding
                 stacks; each navigator needs its own registration. */}
             <Stack.Screen name="MapAddressPicker" component={MapAddressPickerScreen} />

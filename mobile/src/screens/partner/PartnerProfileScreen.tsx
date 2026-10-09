@@ -17,7 +17,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import {
     User, Mail, Phone, MapPin, LogOut, ChevronRight,
-    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase, Map as MapIcon, Package, Boxes } from 'lucide-react-native';
+    Shield, Edit3, CheckCircle, Navigation, MessageCircle, Trash2, Globe, Briefcase, Map as MapIcon, Package, Boxes, Info } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
 import * as Location from 'expo-location';
@@ -244,28 +244,8 @@ export function PartnerProfileScreen() {
         ]);
     };
 
-    const handleDeleteAccount = () => {
-        Alert.alert(
-            'Delete Account',
-            'This will permanently delete your partner account and all associated data after 30 days. This action cannot be undone.\n\nAre you sure you want to proceed?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete My Account',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await apiClient.delete('/api/client/account', { data: { confirmDelete: true } });
-                            Alert.alert('Account Scheduled for Deletion', 'Your account will be deleted within 30 days. You will now be logged out.');
-                            await logout();
-                        } catch (err: any) {
-                            Alert.alert('Error', err?.response?.data?.message || 'Failed to delete account. Please try again.');
-                        }
-                    },
-                },
-            ]
-        );
-    };
+    // Deleting is a request UniteFix reviews — the screen explains what happens.
+    const handleDeleteAccount = () => navigation.navigate('DeleteAccount');
 
     // PHASE 3: Online/offline toggle handler (Task 3.4)
     const handleToggleOnline = async (value: boolean) => {
@@ -524,6 +504,14 @@ export function PartnerProfileScreen() {
                     <View style={styles.menuLeft}>
                         <Shield size={20} color={colors.primary} />
                         <Text style={styles.menuLabel}>Legal & Policies</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={() => navigation.navigate('About')}>
+                    <View style={styles.menuLeft}>
+                        <Info size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>About UniteFix</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

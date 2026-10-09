@@ -3701,3 +3701,23 @@ export const celebrationBaskets = pgTable("celebration_baskets", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 export type CelebrationBasket = typeof celebrationBaskets.$inferSelect;
+
+/**
+ * A customer or expert asks UniteFix to delete their account; staff approve
+ * (the account is deactivated and marked deleted, exactly as self-deletion
+ * did) or deny with a reason the person sees.
+ */
+export const accountDeletionRequests = pgTable("account_deletion_requests", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  role: text("role").notNull(),                          // user | serviceman | business_partner
+  reasonCategory: text("reason_category"),               // not_using | privacy | bad_experience | duplicate | moving | other
+  reason: text("reason").notNull(),                      // in their own words
+  status: text("status").notNull().default('pending'),   // pending | approved | denied | cancelled
+  adminNote: text("admin_note"),                         // shown to the person on a denial
+  decidedByAdminId: integer("decided_by_admin_id"),
+  decidedAt: timestamp("decided_at"),
+  source: text("source").notNull().default('app'),       // app | legacy_app (an older app's one-tap delete)
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ userIdx: index("account_deletion_requests_user_idx").on(t.userId, t.status) }));
+export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;

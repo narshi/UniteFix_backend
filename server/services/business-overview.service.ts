@@ -277,6 +277,10 @@ export class BusinessOverviewService {
         push('territories', 'Pincodes partners asked for', await c(db.select({ n: count() }).from(partnerTerritories).where(eq(partnerTerritories.status, 'proposed'))), '/admin/partner-territories');
         push('rates', 'Partner price changes to review', await c(db.select({ n: count() }).from(partnerServiceRates).where(eq(partnerServiceRates.status, 'pending_review'))), '/admin/partner-territories');
         push('listings', 'Store listings to review', await c(db.select({ n: count() }).from(products).where(eq(products.listingStatus, 'pending_review'))), '/admin/marketplace');
+        try {
+            const { AccountDeletionService } = await import('./account-deletion.service');
+            push('deletions', 'Account deletion requests to review', await AccountDeletionService.pendingCount(), '/admin/account-deletions');
+        } catch { /* table not created yet */ }
         push('consignment', 'Consignment stock to receive', await c(db.select({ n: count() }).from(consignmentLots).where(eq(consignmentLots.status, 'proposed'))), '/admin/consignment');
         return items;
     }

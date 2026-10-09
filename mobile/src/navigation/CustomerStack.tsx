@@ -21,6 +21,8 @@ import { FinalPaymentScreen } from '../screens/customer/FinalPaymentScreen';
 import { SavedAddressesScreen } from '../screens/customer/SavedAddressesScreen';
 import { MapAddressPickerScreen } from '../screens/customer/MapAddressPickerScreen';
 import { LegalScreen } from '../screens/LegalScreen';
+import { AboutScreen } from '../screens/AboutScreen';
+import { DeleteAccountScreen } from '../screens/DeleteAccountScreen';
 import { FTTHOperatorSelectScreen } from '../screens/ftth/FTTHOperatorSelectScreen';
 import { FTTHOnboardingScreen } from '../screens/ftth/FTTHOnboardingScreen';
 import { FTTHRechargeScreen } from '../screens/ftth/FTTHRechargeScreen';
@@ -51,6 +53,8 @@ export function CustomerStack() {
             <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
             <Stack.Screen name="MapAddressPicker" component={MapAddressPickerScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
+            <Stack.Screen name="About" component={AboutScreen} />
+            <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
 
             {/* FTTH broadband */}
             <Stack.Screen name="FTTHOperatorSelect" component={FTTHOperatorSelectScreen} />

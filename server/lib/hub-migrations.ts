@@ -1097,6 +1097,23 @@ const BLOCKS: Array<[string, string]> = [
       );
     `],
     ['celebrations: ledger types booking_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'booking_commission';`],
+    ['accounts: deletion requests', `
+      CREATE TABLE IF NOT EXISTS account_deletion_requests (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        role TEXT NOT NULL,
+        reason_category TEXT,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        admin_note TEXT,
+        decided_by_admin_id INTEGER,
+        decided_at TIMESTAMP,
+        source TEXT NOT NULL DEFAULT 'app',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS account_deletion_requests_user_idx ON account_deletion_requests (user_id, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS account_deletion_requests_one_open_idx ON account_deletion_requests (user_id) WHERE status = 'pending';
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

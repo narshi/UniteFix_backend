@@ -31,7 +31,7 @@ import {
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
-import { Trash2 } from 'lucide-react-native';
+import { Trash2, Info } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { apiClient } from '../../api/client';
 import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
@@ -136,28 +136,8 @@ export function ProfileScreen() {
         ]);
     };
 
-    const handleDeleteAccount = () => {
-        Alert.alert(
-            'Delete Account',
-            'This will permanently delete your account and all associated data after 30 days. This action cannot be undone.\n\nAre you sure you want to proceed?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete My Account',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await apiClient.delete('/api/client/account', { data: { confirmDelete: true } });
-                            Alert.alert('Account Scheduled for Deletion', 'Your account will be deleted within 30 days. You will now be logged out.');
-                            await logout();
-                        } catch (err: any) {
-                            Alert.alert('Error', err?.response?.data?.message || 'Failed to delete account. Please try again.');
-                        }
-                    },
-                },
-            ]
-        );
-    };
+    // Deleting is a request UniteFix reviews — the screen explains what happens.
+    const handleDeleteAccount = () => navigation.navigate('DeleteAccount');
 
     const toggleLanguage = () => {
         const newLang = language === 'en' ? 'kn' : 'en';
@@ -329,6 +309,14 @@ export function ProfileScreen() {
                     <View style={styles.menuLeft}>
                         <Shield size={20} color={colors.primary} />
                         <Text style={styles.menuLabel}>Legal & Policies</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('About')}>
+                    <View style={styles.menuLeft}>
+                        <Info size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>About UniteFix</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
