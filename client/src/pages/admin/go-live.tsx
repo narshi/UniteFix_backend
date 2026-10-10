@@ -29,7 +29,8 @@ function CashfreeCheck() {
       const env = d.environment === "PROD" ? "live" : "test";
       const v1 = d.v1.ok ? `payouts work (balance ${rs(d.v1.balance)}, available ${rs(d.v1.available)})` : `payouts API refused: ${d.v1.message}`;
       const v2 = d.v2.ok ? "the newer v2 API accepts the keys too" : `v2 API: ${d.v2.message}`;
-      setState({ busy: false, ok: d.v1.ok, text: `Cashfree ${env}${d.signed ? ", signed with your public key" : ""} — ${v1}; ${v2}.` });
+      const cg = !d.cashgram?.configured ? "Cashgram not set up" : d.cashgram.ok ? `Cashgram keys accepted${d.cashgram.signed ? " (signed)" : ""}` : `Cashgram refused: ${d.cashgram.message}`;
+      setState({ busy: false, ok: d.v1.ok, text: `Cashfree ${env}${d.signed ? ", signed with your public key" : ""} — ${v1}; ${v2}. ${cg}.` });
     } catch (e) { setState({ busy: false, ok: false, text: apiErrorMessage(e) }); }
   };
   return (

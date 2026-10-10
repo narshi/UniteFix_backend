@@ -11,7 +11,7 @@ import { adminUsers, spareParts, products, businessPartners } from '@shared/sche
 import { checkGstin } from '@shared/hub';
 import { configService } from './config.service';
 import { publicAppUrl } from '../lib/public-url';
-import { cashfreeLive } from '../lib/cashfree-env';
+import { cashfreeLive, cashfreeKeys, cashfreePublicKey, CASHFREE_VARS } from '../lib/cashfree-env';
 import { loadSellerDetails } from './invoice-generator';
 
 export type Check = { key: string; area: string; label: string; status: 'ok' | 'action' | 'info'; detail: string; fix?: string };
@@ -52,14 +52,23 @@ export class GoLiveService {
             : { key: 'razorpay_webhook', area: 'Money', label: 'Razorpay webhook', status: 'action', detail: 'No webhook secret — a payment whose page was closed early is never recorded (store orders, pay links, B2B, recharges).', fix: 'Razorpay → Webhooks → payment.captured and payment.failed to /api/payments/webhook; put the secret in RAZORPAY_WEBHOOK_SECRET.' });
         {
             const live = cashfreeLive();
-            const signed = has('CASHFREE_PUBLIC_KEY');
-            add(!has('CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET')
-                ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: 'Not connected — withdrawals and settlement runs can only be paid by hand (bank transfer + reference).', fix: 'CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET from Cashfree Payouts (not Payment Gateway keys).' }
+            const envNote = `CASHFREE_ENVIRONMENT is "${process.env.CASHFREE_ENVIRONMENT || 'unset'}" — calls go to Cashfree's test system.`;
+            const P = CASHFREE_VARS.payouts, G = CASHFREE_VARS.cashgram;
+            const payLabel = 'Cashfree Payouts (withdrawals, settlements, refunds)';
+            add(!cashfreeKeys('payouts')
+                ? { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'action', detail: 'Not connected — withdrawals and settlement runs can only be paid by hand (bank transfer + reference).', fix: `${P.id} and ${P.secret}: the Payouts keys (not Payment Gateway or Cashgram keys).` }
                 : !live
-                    ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: `Keys present, but CASHFREE_ENVIRONMENT is "${process.env.CASHFREE_ENVIRONMENT || 'unset'}" — payouts go to Cashfree's test system.`, fix: 'CASHFREE_ENVIRONMENT=PROD with your live Payouts keys.' }
-                    : !signed
-                        ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: 'Live keys present, but no public key. Cashfree refuses live calls from an address it has not whitelisted, and Render’s outgoing address is not fixed.', fix: 'Payouts dashboard → Developers → Two-Factor Authentication → generate the Public Key → paste it into CASHFREE_PUBLIC_KEY. Then "Test connection".' }
-                        : { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'ok', detail: 'Live keys and public key present. Use "Test connection" to confirm Cashfree accepts them.' });
+                    ? { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'action', detail: `Payouts keys present, but ${envNote}`, fix: 'CASHFREE_ENVIRONMENT=PROD with the live Payouts keys.' }
+                    : !cashfreePublicKey('payouts')
+                        ? { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'action', detail: 'Live Payouts keys present, but no public key. Cashfree refuses live calls from an address it has not whitelisted, and Render’s outgoing address is not fixed.', fix: `Cashfree Payouts → Developers → Two-Factor Authentication → Public Key → paste it into ${P.key}. Then "Test connection".` }
+                        : { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'ok', detail: 'Live Payouts keys and public key present. Use "Test connection" to confirm Cashfree accepts them.' });
+            add(!cashfreeKeys('cashgram')
+                ? { key: 'cashfree_cashgram', area: 'Money', label: 'Cashfree Cashgram (payout links)', status: 'info', detail: 'Not set up. Nothing in UniteFix sends Cashgrams yet, so this is optional.', fix: `${G.id}, ${G.secret} and ${G.key}: the Cashgram keys, separate from Payouts.` }
+                : !live
+                    ? { key: 'cashfree_cashgram', area: 'Money', label: 'Cashfree Cashgram (payout links)', status: 'action', detail: `Cashgram keys present, but ${envNote}`, fix: 'CASHFREE_ENVIRONMENT=PROD with the live Cashgram keys.' }
+                    : !cashfreePublicKey('cashgram')
+                        ? { key: 'cashfree_cashgram', area: 'Money', label: 'Cashfree Cashgram (payout links)', status: 'action', detail: 'Live Cashgram keys present, but no Cashgram public key.', fix: `Cashgram's own public key (Developers → Two-Factor Authentication) in ${G.key}.` }
+                        : { key: 'cashfree_cashgram', area: 'Money', label: 'Cashfree Cashgram (payout links)', status: 'ok', detail: 'Live Cashgram keys and public key present. "Test connection" on Payouts checks these too.' });
         }
         add(has('CASHFREE_VERIFICATION_CLIENT_ID', 'CASHFREE_VERIFICATION_CLIENT_SECRET')
             ? { key: 'cashfree_verify', area: 'Money', label: 'Bank / PAN / GSTIN verification', status: 'ok', detail: 'Cashfree Verification keys present.' }
