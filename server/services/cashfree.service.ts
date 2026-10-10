@@ -42,7 +42,7 @@ import { employees, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../lib/logger';
 import crypto from 'crypto';
-import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS, type CashfreeProduct } from '../lib/cashfree-env';
+import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS } from '../lib/cashfree-env';
 
 type Employee = typeof employees.$inferSelect;
 
@@ -64,8 +64,6 @@ export interface CashfreeCheck {
     signed: boolean;
     v1: { ok: boolean; message: string; balance?: number | null; available?: number | null };
     v2: { ok: boolean; message: string };
-    /** Cashgram's own keys (separate from Payouts). Nothing sends Cashgrams yet; this only proves the keys. */
-    cashgram: { configured: boolean; ok: boolean; signed: boolean; message: string };
 }
 
 export interface PayoutResult {
@@ -89,19 +87,15 @@ const TOKEN_SAFETY_MARGIN_MS = 30_000;
 
 export class CashfreeService {
 
-    /** One sign-in per product: Payouts and Cashgram have their own keys. */
-    private static tokens: Partial<Record<CashfreeProduct, { value: string; expiresAt: number }>> = {};
+    private static token: { value: string; expiresAt: number } | null = null;
 
     // ──────────────────────────────────────────────────────────────────────
     // Configuration
     // ──────────────────────────────────────────────────────────────────────
 
-    private static credentials(product: CashfreeProduct = 'payouts') {
-        const keys = cashfreeKeys(product);
-        if (!keys) {
-            const v = CASHFREE_VARS[product];
-            throw new Error(`Cashfree ${product === 'payouts' ? 'Payouts' : 'Cashgram'} is not configured: set ${v.id} and ${v.secret} in the server environment.`);
-        }
+    private static credentials() {
+        const keys = cashfreeKeys();
+        if (!keys) throw new Error(`Cashfree Payouts is not configured: set ${CASHFREE_VARS.id} and ${CASHFREE_VARS.secret} in the server environment.`);
         return keys;
     }
 
@@ -117,8 +111,8 @@ export class CashfreeService {
      * the Payouts public key (RSA-OAEP, SHA-1), base64. Cashfree accepts this
      * in place of a whitelisted IP. Null when no key is configured.
      */
-    static signature(clientId: string, nowMs = Date.now(), product: CashfreeProduct = 'payouts'): string | null {
-        const key = cashfreePublicKey(product);
+    static signature(clientId: string, nowMs = Date.now()): string | null {
+        const key = cashfreePublicKey();
         if (!key) return null;
         const plain = Buffer.from(`${clientId}.${Math.floor(nowMs / 1000)}`);
         return crypto.publicEncrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1' }, plain).toString('base64');
@@ -147,14 +141,13 @@ export class CashfreeService {
      * the alternative — one authorize per call — doubles every request and
      * trips their rate limit on a busy approval afternoon.
      */
-    static async getAuthToken(force = false, product: CashfreeProduct = 'payouts'): Promise<string> {
-        const cached = this.tokens[product];
-        if (!force && cached && cached.expiresAt > Date.now()) {
-            return cached.value;
+    static async getAuthToken(force = false): Promise<string> {
+        if (!force && this.token && this.token.expiresAt > Date.now()) {
+            return this.token.value;
         }
 
-        const { clientId, clientSecret } = this.credentials(product);
-        const signature = this.signature(clientId, Date.now(), product);
+        const { clientId, clientSecret } = this.credentials();
+        const signature = this.signature(clientId);
         const res = await this.rawClient().post('/authorize', undefined, {
             headers: { 'X-Client-Id': clientId, 'X-Client-Secret': clientSecret, ...(signature ? { 'X-Cf-Signature': signature } : {}) },
         });
@@ -162,8 +155,8 @@ export class CashfreeService {
         const body = res.data ?? {};
         if (res.status !== 200 || body.status !== 'SUCCESS' || !body.data?.token) {
             const why = body.message || `HTTP ${res.status}`;
-            logger.error(`[CASHFREE] ${product} authorize failed: ${why}`);
-            const keyVar = CASHFREE_VARS[product].key;
+            logger.error(`[CASHFREE] authorize failed: ${why}`);
+            const keyVar = CASHFREE_VARS.key;
             const hint = /ip|whitelist|signature/i.test(String(why))
                 ? (signature ? ` Check that ${keyVar} is the current public key of this Cashfree account.` : ` Set ${keyVar} (Cashfree → Developers → Two-Factor Authentication), or whitelist the server IP.`)
                 : '';
@@ -175,8 +168,8 @@ export class CashfreeService {
             ? Number(body.data.expiry) * 1000
             : Date.now() + 5 * 60_000;
 
-        this.tokens[product] = { value: body.data.token, expiresAt: expiresAtMs - TOKEN_SAFETY_MARGIN_MS };
-        return body.data.token;
+        this.token = { value: body.data.token, expiresAt: expiresAtMs - TOKEN_SAFETY_MARGIN_MS };
+        return this.token.value;
     }
 
     /**
@@ -223,7 +216,7 @@ export class CashfreeService {
         const { clientId, clientSecret } = this.credentials();
         const environment = cashfreeLive() ? 'PROD' : 'TEST';
         const signature = this.signature(clientId);
-        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' }, cashgram: { configured: false, ok: false, signed: false, message: '' } };
+        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' } };
 
         // v1 — what payouts use today: sign in, then read the balance.
         try {
@@ -253,19 +246,6 @@ export class CashfreeService {
             out.v2 = { ok: false, message: e?.message ?? 'Failed' };
         }
 
-        // Cashgram — its own keys; a successful sign-in proves them.
-        const cg = cashfreeKeys('cashgram');
-        if (!cg) {
-            out.cashgram = { configured: false, ok: false, signed: false, message: `Not set up (${CASHFREE_VARS.cashgram.id} / ${CASHFREE_VARS.cashgram.secret}).` };
-        } else {
-            const signedCg = !!this.signature(cg.clientId, Date.now(), 'cashgram');
-            try {
-                await this.getAuthToken(true, 'cashgram');
-                out.cashgram = { configured: true, ok: true, signed: signedCg, message: 'Signed in.' };
-            } catch (e: any) {
-                out.cashgram = { configured: true, ok: false, signed: signedCg, message: e?.message ?? 'Failed' };
-            }
-        }
         return out;
     }
 

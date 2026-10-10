@@ -42,29 +42,19 @@ check('the key is read back as a PEM', /^-----BEGIN PUBLIC KEY-----\n[\s\S]+\n--
 const a = CashfreeService.signature('CF1', now), b = CashfreeService.signature('CF1', now);
 check('each signature is freshly encrypted (OAEP is randomised)', a !== b && decrypt(a!) === decrypt(b!));
 
-// ── Payouts and Cashgram have separate keys ──
-const clear = () => { for (const k of Object.keys(process.env)) if (/^CASHFREE_(PAYOUTS_|CASHGRAM_)?(CLIENT_ID|CLIENT_SECRET|PUBLIC_KEY)$/.test(k)) delete process.env[k]; };
+// ── the Payouts variable names ──
+const clear = () => { for (const k of Object.keys(process.env)) if (/^CASHFREE_(PAYOUTS_)?(CLIENT_ID|CLIENT_SECRET|PUBLIC_KEY)$/.test(k)) delete process.env[k]; };
 clear();
+check('no keys: Payouts is not set up', cashfreeKeys() === null);
 process.env.CASHFREE_CLIENT_ID = 'OLD_ID'; process.env.CASHFREE_CLIENT_SECRET = 'OLD_SECRET';
-check('Payouts still works on the older variable names', cashfreeKeys('payouts')?.clientId === 'OLD_ID');
-check('…but Cashgram never borrows the Payouts keys', cashfreeKeys('cashgram') === null);
+check('the older variable names still work', cashfreeKeys()?.clientId === 'OLD_ID');
 process.env.CASHFREE_PAYOUTS_CLIENT_ID = 'PAY_ID'; process.env.CASHFREE_PAYOUTS_CLIENT_SECRET = 'PAY_SECRET';
-process.env.CASHFREE_CASHGRAM_CLIENT_ID = 'CG_ID'; process.env.CASHFREE_CASHGRAM_CLIENT_SECRET = 'CG_SECRET';
-check('the Payouts names win over the older ones', cashfreeKeys('payouts')?.clientId === 'PAY_ID' && cashfreeKeys('payouts')?.clientSecret === 'PAY_SECRET');
-check('Cashgram reads its own keys', cashfreeKeys('cashgram')?.clientId === 'CG_ID' && cashfreeKeys('cashgram')?.clientSecret === 'CG_SECRET');
-process.env.CASHFREE_CASHGRAM_CLIENT_SECRET = '';
-check('a Cashgram id without its secret counts as not set up', cashfreeKeys('cashgram') === null);
-
+check('the CASHFREE_PAYOUTS_ names win over the older ones', cashfreeKeys()?.clientId === 'PAY_ID' && cashfreeKeys()?.clientSecret === 'PAY_SECRET');
 const other = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+process.env.CASHFREE_PUBLIC_KEY = other.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 process.env.CASHFREE_PAYOUTS_PUBLIC_KEY = pem;
-process.env.CASHFREE_CASHGRAM_PUBLIC_KEY = other.publicKey.export({ type: 'spki', format: 'pem' }).toString();
-const sigPay = CashfreeService.signature('PAY_ID', now, 'payouts')!;
-const sigCg = CashfreeService.signature('CG_ID', now, 'cashgram')!;
-const open = (key: crypto.KeyObject, sig: string) => { try { return crypto.privateDecrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1' }, Buffer.from(sig, 'base64')).toString(); } catch { return null; } };
-check('Payouts signs with the Payouts public key', open(privateKey, sigPay) === `PAY_ID.${Math.floor(now / 1000)}` && open(other.privateKey, sigPay) === null);
-check('Cashgram signs with its own public key', open(other.privateKey, sigCg) === `CG_ID.${Math.floor(now / 1000)}` && open(privateKey, sigCg) === null);
-delete process.env.CASHFREE_CASHGRAM_PUBLIC_KEY;
-check('Cashgram without its own public key sends no signature (never the Payouts one)', CashfreeService.signature('CG_ID', now, 'cashgram') === null);
+const sig = CashfreeService.signature('PAY_ID', now)!;
+check('CASHFREE_PAYOUTS_PUBLIC_KEY wins over the older CASHFREE_PUBLIC_KEY', decrypt(sig) === `PAY_ID.${Math.floor(now / 1000)}`);
 clear();
 
 const failed = results.filter(r => !r.pass).length;
