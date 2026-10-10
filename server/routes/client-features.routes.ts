@@ -21,6 +21,7 @@ import {
     partnerWallets, walletTransactionsV2, invoices,
     supportTickets, ticketMessages, withdrawalRequests, serviceCategories,
 } from "@shared/schema";
+import { publicAppUrl } from '../lib/public-url';
 import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
 import { InvoiceGenerator } from "../services/invoice-generator";
@@ -989,7 +990,7 @@ export function registerClientFeatureRoutes(app: Express) {
                 { expiresIn: '5m' },
             );
 
-            const base = process.env.PUBLIC_BASE_URL
+            const base = process.env.PUBLIC_BASE_URL || publicAppUrl()
                 || `${req.protocol}://${req.get('host')}`;
 
             res.json({
@@ -1118,7 +1119,7 @@ export function registerClientFeatureRoutes(app: Express) {
                 { expiresIn: '5m' },
             );
 
-            const base = process.env.PUBLIC_BASE_URL
+            const base = process.env.PUBLIC_BASE_URL || publicAppUrl()
                 || `${req.protocol}://${req.get('host')}`;
 
             res.json({

@@ -31,8 +31,14 @@ function getApiBaseUrl(): string {
     return 'http://localhost:3000';
 }
 
-/** Also the web origin: public pages (quotation links) are served from the same host. */
+/** Where the app's API calls go. Builds already installed use the Render address, which stays live. */
 export const API_BASE_URL = getApiBaseUrl();
+
+/**
+ * UniteFix's own web address: every link people see, open or share (newspapers,
+ * quotations, hall pages, the reader). The same server as the API.
+ */
+export const WEB_BASE_URL = __DEV__ ? API_BASE_URL : 'https://app.unitefix.com';
 
 
 export const apiClient = axios.create({

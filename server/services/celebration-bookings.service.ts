@@ -35,10 +35,11 @@ import { ListingService, listingKindOf } from './listings.service';
 import { BusinessPartnerService } from './business-partner.service';
 import { configService } from './config.service';
 import logger from '../lib/logger';
+import { publicAppUrl } from '../lib/public-url';
 
 const rs = (p: number) => `₹${(p / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
-const publicBase = () => (process.env.HUB_BASE_URL || process.env.CLIENT_URL || '').replace(/\/$/, '');
+const publicBase = () => publicAppUrl();
 
 export class CelebrationBookings {
 

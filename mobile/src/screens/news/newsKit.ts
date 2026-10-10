@@ -1,7 +1,7 @@
 /** Shared bits of the newspaper screens: newsprint colours, dates, sharing. */
 
 import { Share } from 'react-native';
-import { API_BASE_URL } from '../../api/client';
+import { WEB_BASE_URL } from '../../api/client';
 
 export const NEWS_PAPER = '#F5F1E8';
 export const NEWS_INK = '#16130F';
@@ -22,11 +22,11 @@ export const longDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateStr
 
 /** Share an edition: the link shows half the front page and brings people to the app. */
 export function shareEdition(e: { paper: string; editionDate: string; headline?: string | null; shareUrl: string }) {
-    const url = `${API_BASE_URL}${e.shareUrl}`;
+    const url = `${WEB_BASE_URL}${e.shareUrl}`;
     return Share.share({ message: `${e.paper} — ${longDay(e.editionDate)}${e.headline ? `\n${e.headline}` : ''}\n\nRead it free on UniteFix: ${url}` }).catch(() => undefined);
 }
 
 export function sharePaper(p: { name: string; shareUrl: string | null }) {
     if (!p.shareUrl) return Promise.resolve(undefined);
-    return Share.share({ message: `Read ${p.name} free on the UniteFix app, and get every new edition the moment it comes out: ${API_BASE_URL}${p.shareUrl}` }).catch(() => undefined);
+    return Share.share({ message: `Read ${p.name} free on the UniteFix app, and get every new edition the moment it comes out: ${WEB_BASE_URL}${p.shareUrl}` }).catch(() => undefined);
 }

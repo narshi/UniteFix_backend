@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { Sparkles, ChevronLeft, ChevronRight, Star, CalendarDays, X } from 'lucide-react-native';
-import { apiClient, API_BASE_URL } from '../../api/client';
+import { apiClient, WEB_BASE_URL } from '../../api/client';
 import { useProfile } from '../../hooks/useCustomerData';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -139,7 +139,7 @@ export function CelebrationsScreen({ navigation }: any) {
 
                 {(mine.data ?? []).length > 0 && <Text style={s.section}>My celebrations</Text>}
                 {(mine.data ?? []).map(m => (
-                    <TouchableOpacity key={m.id} style={s.mine} onPress={() => Linking.openURL(`${API_BASE_URL}${m.page ?? m.quotation?.link ?? ''}`)} accessibilityRole="link">
+                    <TouchableOpacity key={m.id} style={s.mine} onPress={() => Linking.openURL(`${WEB_BASE_URL}${m.page ?? m.quotation?.link ?? ''}`)} accessibilityRole="link">
                         <View style={{ flex: 1 }}>
                             <Text style={s.mineTitle}>{m.eventType} · {m.partner}</Text>
                             <Text style={s.meta}>{STATUS[m.status] ?? m.status}{m.eventDate ? ` · ${niceDate(m.eventDate)}` : ''}{m.quotation ? ` · ${rs(m.quotation.total)}` : ''}</Text>

@@ -10,6 +10,7 @@ import { and, eq, isNull, isNotNull, notInArray, or, sql } from 'drizzle-orm';
 import { adminUsers, spareParts, products, businessPartners } from '@shared/schema';
 import { checkGstin } from '@shared/hub';
 import { configService } from './config.service';
+import { publicAppUrl } from '../lib/public-url';
 import { loadSellerDetails } from './invoice-generator';
 
 export type Check = { key: string; area: string; label: string; status: 'ok' | 'action' | 'info'; detail: string; fix?: string };
@@ -69,9 +70,14 @@ export class GoLiveService {
         add(has('FCM_SERVICE_ACCOUNT_JSON') || has('GOOGLE_APPLICATION_CREDENTIALS')
             ? { key: 'push', area: 'Messages', label: 'App push notifications', status: 'ok', detail: 'Firebase credential present.' }
             : { key: 'push', area: 'Messages', label: 'App push notifications', status: 'info', detail: 'No explicit Firebase credential — works only where the host supplies Google credentials (Cloud Run).', fix: 'FCM_SERVICE_ACCOUNT_JSON.' });
-        add(has('CLIENT_URL') || has('HUB_BASE_URL')
-            ? { key: 'links', area: 'Messages', label: 'Links in emails and pay links', status: 'ok', detail: `Links point to ${process.env.HUB_BASE_URL || process.env.CLIENT_URL}.` }
-            : { key: 'links', area: 'Messages', label: 'Links in emails and pay links', status: 'action', detail: 'No CLIENT_URL — links in alert emails are relative and do not open.', fix: 'CLIENT_URL (and HUB_BASE_URL if the Hub lives elsewhere).' });
+        {
+            const url = publicAppUrl();
+            add(!url
+                ? { key: 'links', area: 'Messages', label: 'Web address for links', status: 'action', detail: 'No PUBLIC_APP_URL — links in alert emails are relative and do not open.', fix: 'PUBLIC_APP_URL=https://app.unitefix.com and ADMIN_APP_URL=https://admin.unitefix.com, once both domains are verified on Render.' }
+                : /onrender.com/i.test(url)
+                    ? { key: 'links', area: 'Messages', label: 'Web address for links', status: 'action', detail: `Links point to ${url} — the Render address, not UniteFix's own domain.`, fix: 'Add app.unitefix.com on Render, then PUBLIC_APP_URL=https://app.unitefix.com.' }
+                    : { key: 'links', area: 'Messages', label: 'Web address for links', status: 'ok', detail: `Links point to ${url}; pages opened on the Render address move there.` });
+        }
 
         // ── Operations ────────────────────────────────────────────────────
         const live = process.env.DELHIVERY_MODE === 'live' && has('DELHIVERY_API_KEY');

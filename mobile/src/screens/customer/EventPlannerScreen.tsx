@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, PartyPopper, ChevronRight } from 'lucide-react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { apiClient, API_BASE_URL, getApiErrorMessage } from '../../api/client';
+import { apiClient, WEB_BASE_URL, getApiErrorMessage } from '../../api/client';
 import { useProfile } from '../../hooks/useCustomerData';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -86,7 +86,7 @@ export function EventPlannerScreen({ navigation }: Props) {
                                     <Text style={styles.cardTitle}>{e.eventType} · {e.partner}</Text>
                                     <Text style={styles.cardSub}>{STATUS[e.status] ?? e.status}{e.eventDate ? ` · ${e.eventDate}` : ''}{e.guests ? ` · ${e.guests} guests` : ''}</Text>
                                     {e.quotation && (
-                                        <TouchableOpacity onPress={() => Linking.openURL(`${API_BASE_URL}${e.quotation!.link}`)} accessibilityRole="link">
+                                        <TouchableOpacity onPress={() => Linking.openURL(`${WEB_BASE_URL}${e.quotation!.link}`)} accessibilityRole="link">
                                             <Text style={styles.link}>Quotation {e.quotation.number} · ₹{e.quotation.total.toLocaleString('en-IN')} · {e.quotation.status === 'sent' ? 'tap to accept or decline' : e.quotation.status}</Text>
                                         </TouchableOpacity>
                                     )}

@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Star, X } from 'lucide-react-native';
-import { apiClient, API_BASE_URL } from '../../api/client';
+import { apiClient, WEB_BASE_URL } from '../../api/client';
 import { niceDate, rs, type CelebrationType } from './CelebrationsScreen';
 
 type Offer = { title: string; sub: string | null; price: string | null };
@@ -57,7 +57,7 @@ export function CelebrationDetailScreen({ navigation, route }: any) {
         const p = new URLSearchParams();
         if (date) p.set('date', date);
         if (guests) p.set('guests', guests);
-        Linking.openURL(`${API_BASE_URL}${url}${p.toString() ? `?${p}` : ''}${type === 'photographers' ? '#ask' : type === 'halls' ? '#book' : ''}`);
+        Linking.openURL(`${WEB_BASE_URL}${url}${p.toString() ? `?${p}` : ''}${type === 'photographers' ? '#ask' : type === 'halls' ? '#book' : ''}`);
     };
     return (
         <SafeAreaView style={s.container} edges={['top']}>

@@ -44,6 +44,7 @@ import { NewsStorage } from '../lib/news-storage';
 import { photoUpload, uploadPhotoFrom } from './celebrations.routes';
 import { uploadImageBuffer } from '../services/cloudinary.service';
 import logger from '../lib/logger';
+import { publicAppUrl } from '../lib/public-url';
 
 const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -62,7 +63,7 @@ const editionUpload = multer({
 }).fields([{ name: 'file', maxCount: 1 }, { name: 'preview', maxCount: 1 }]);
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const absBase = (req: Request) => (process.env.HUB_BASE_URL || process.env.CLIENT_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+const absBase = (req: Request) => publicAppUrl() || `${req.protocol}://${req.get('host')}`;
 const dayLabel = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 /** The built client's index.html (production); in development Vite serves the page and the tags are skipped. */

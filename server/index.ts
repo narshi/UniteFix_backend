@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import cors from "cors";
 import { registerRoutes } from "./routes";
+import { canonicalHost, assetLinks, ownOrigins } from "./lib/public-url";
 import { setupVite, serveStatic, log } from "./vite";
 import { pool, runStartupMigrations } from "./db";
 import logger from "./lib/logger";
@@ -58,6 +59,8 @@ const ALLOWED_ORIGINS = [
   "https://unitefix.com", // static website (register.html calls /api/auth/fallback/*)
   "https://www.unitefix.com",
   "https://admin.unitefix.com", // admin dashboard on its own subdomain
+  "https://app.unitefix.com", // Partner Hub, shared links and the API
+  ...ownOrigins(),
   "https://unitefix-backend.onrender.com", // the Render URL stays live for the mobile app
   process.env.CLIENT_URL,
 ].filter(Boolean) as string[];
@@ -76,6 +79,11 @@ app.use(cors({
 
 // P2: Request correlation ID — attaches X-Request-Id to every request
 app.use(requestIdMiddleware);
+
+// Pages opened on the onrender.com address move to app.unitefix.com /
+// admin.unitefix.com once PUBLIC_APP_URL is set; the API stays on both.
+app.use(canonicalHost());
+app.get("/.well-known/assetlinks.json", assetLinks);
 
 // P0: Body size limit to prevent DoS via large payloads
 //

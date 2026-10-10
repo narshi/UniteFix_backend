@@ -42,6 +42,14 @@
         <data android:scheme="unitefix"/>
         <data android:scheme="exp+unitefix-mobile"/>
       </intent-filter>
+      <!-- Newspaper links from WhatsApp open the app directly (verified by https://app.unitefix.com/.well-known/assetlinks.json). -->
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="app.unitefix.com" android:pathPrefix="/news/e/"/>
+        <data android:scheme="https" android:host="app.unitefix.com" android:pathPrefix="/news/p/"/>
+      </intent-filter>
     </activity>
     <uses-library android:name="org.apache.http.legacy" android:required="false"/>
   </application>

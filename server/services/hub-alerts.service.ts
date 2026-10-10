@@ -13,6 +13,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { hubAlerts, businessPartners, partnerUsers, adminUsers } from '@shared/schema';
 import { ROLE_PERMISSIONS, type HubPermission, type HubRole } from '@shared/hub';
 import logger from '../lib/logger';
+import { publicAppUrl } from '../lib/public-url';
 
 export type AlertKind =
     | 'job_new' | 'job_overdue' | 'job_assigned' | 'warranty_claim'
@@ -71,7 +72,7 @@ export class HubAlerts {
         if (!bp) return;
         const prefs: AlertPrefs = { ...DEFAULT_PREFS, ...((bp.alertPrefs as any) ?? {}) };
         const { NotificationService } = await import('./notification.service');
-        const base = (process.env.HUB_BASE_URL || process.env.CLIENT_URL || '').replace(/\/$/, '');
+        const base = publicAppUrl();
         const url = input.link && base ? `${base}${input.link}` : null;
 
         if (prefs.email) {

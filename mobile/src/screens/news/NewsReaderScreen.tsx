@@ -9,7 +9,7 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } 
 import { WebView } from 'react-native-webview';
 import { useQueryClient } from '@tanstack/react-query';
 import { Share2, RotateCw } from 'lucide-react-native';
-import { apiClient, API_BASE_URL } from '../../api/client';
+import { apiClient, API_BASE_URL, WEB_BASE_URL } from '../../api/client';
 import { ScreenHeader } from '../../components/ui';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
@@ -68,7 +68,7 @@ export function NewsReaderScreen({ navigation, route }: any) {
                 <View style={s.center}><ActivityIndicator color="#fff" /><Text style={s.msgSoft}>Opening the paper…</Text></View>
             ) : (
                 <WebView
-                    source={{ uri: `${API_BASE_URL}${opened.url}` }}
+                    source={{ uri: `${WEB_BASE_URL}${opened.url}` }}
                     style={s.web}
                     originWhitelist={['https://*', 'http://*']}
                     onMessage={onMessage}
@@ -83,7 +83,7 @@ export function NewsReaderScreen({ navigation, route }: any) {
                     domStorageEnabled
                     onShouldStartLoadWithRequest={(req) => {
                         // Stay on the reader; anything else (a link printed in the paper) opens in the browser.
-                        if (req.url.startsWith(API_BASE_URL) || req.url.startsWith('about:') || req.url.startsWith('blob:') || req.url.startsWith('data:')) return true;
+                        if (req.url.startsWith(WEB_BASE_URL) || req.url.startsWith(API_BASE_URL) || req.url.startsWith('about:') || req.url.startsWith('blob:') || req.url.startsWith('data:')) return true;
                         void Linking.openURL(req.url).catch(() => undefined);
                         return false;
                     }}
