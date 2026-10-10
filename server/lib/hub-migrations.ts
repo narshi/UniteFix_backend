@@ -1097,6 +1097,81 @@ const BLOCKS: Array<[string, string]> = [
       );
     `],
     ['celebrations: ledger types booking_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'booking_commission';`],
+    ['news: vertical', `
+      INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
+        ('media', 'Newspapers & Media', 'Local newspapers and news publishers', 90)
+      ON CONFLICT (code) DO NOTHING;
+    `],
+    ['news: tables', `
+      CREATE TABLE IF NOT EXISTS news_papers (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL UNIQUE REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT 'kannada',
+        city TEXT,
+        frequency TEXT NOT NULL DEFAULT 'daily',
+        description TEXT,
+        logo_url TEXT,
+        status TEXT NOT NULL DEFAULT 'draft',
+        review_note TEXT,
+        archive_until TIMESTAMP,
+        plan_reminded_for TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS news_editions (
+        id SERIAL PRIMARY KEY,
+        paper_id INTEGER NOT NULL REFERENCES news_papers(id) ON DELETE CASCADE,
+        edition_date TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'Main edition',
+        headline TEXT,
+        page_count INTEGER NOT NULL DEFAULT 1,
+        file_key TEXT,
+        file_size INTEGER NOT NULL DEFAULT 0,
+        preview_url TEXT,
+        public_token TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'live',
+        removed_reason TEXT,
+        reads INTEGER NOT NULL DEFAULT 0,
+        link_views INTEGER NOT NULL DEFAULT 0,
+        notified_at TIMESTAMP,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS news_editions_paper_idx ON news_editions (paper_id, edition_date);
+      CREATE UNIQUE INDEX IF NOT EXISTS news_editions_live_title_idx ON news_editions (paper_id, edition_date, lower(title)) WHERE status = 'live';
+      CREATE TABLE IF NOT EXISTS news_follows (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        paper_id INTEGER NOT NULL REFERENCES news_papers(id) ON DELETE CASCADE,
+        source TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, paper_id)
+      );
+      CREATE INDEX IF NOT EXISTS news_follows_paper_idx ON news_follows (paper_id);
+      CREATE TABLE IF NOT EXISTS news_reads (
+        user_id INTEGER NOT NULL,
+        edition_id INTEGER NOT NULL REFERENCES news_editions(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (user_id, edition_id)
+      );
+      CREATE TABLE IF NOT EXISTS news_archive_plans (
+        id SERIAL PRIMARY KEY,
+        paper_id INTEGER NOT NULL REFERENCES news_papers(id) ON DELETE CASCADE,
+        months INTEGER NOT NULL,
+        amount_paise INTEGER NOT NULL,
+        gst_paise INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'created',
+        razorpay_order_id TEXT,
+        razorpay_payment_id TEXT,
+        starts_at TIMESTAMP,
+        ends_at TIMESTAMP,
+        invoice_document_id INTEGER,
+        created_by_admin_user_id INTEGER,
+        paid_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS news_archive_plans_order_idx ON news_archive_plans (razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
+    `],
     ['accounts: deletion requests', `
       CREATE TABLE IF NOT EXISTS account_deletion_requests (
         id SERIAL PRIMARY KEY,

@@ -564,6 +564,15 @@ export class PaymentService {
                     logger.error(`[WEBHOOK] Partner pay link apply failed: ${err.message}`, { orderId, paymentId });
                 }
             }
+            if (notes?.payment_type === 'news_archive') {
+                try {
+                    const { NewsService } = await import('./news.service');
+                    const plan = await NewsService.applyPayment({ orderId, paymentId });
+                    logger.info('[WEBHOOK] Newspaper archive plan handled', { planId: plan.id });
+                } catch (err: any) {
+                    logger.error(`[WEBHOOK] Newspaper archive plan apply failed: ${err.message}`, { orderId, paymentId });
+                }
+            }
             if (notes?.payment_type === 'b2b_order') {
                 try {
                     const { B2bOrderService } = await import('./b2b-order.service');

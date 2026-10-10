@@ -219,6 +219,8 @@ export class NotificationService {
          * start must not follow these — see RootNavigator.
          */
         generic?: boolean;
+        /** The screen exists in every signed-in app; open it in whichever one is showing. */
+        anyStack?: boolean;
     } | null {
         const data = notification.request.content.data as Record<string, any> | undefined;
         if (!data) return null;
@@ -261,6 +263,10 @@ export class NotificationService {
 
             case 'service_completed':
                 return { stack: 'CustomerMain', screen: 'RequestDetail', params: { id: serviceId } };
+
+            // ── Newspapers: a new edition of a paper the reader follows ──
+            case 'news_edition':
+                return { stack: 'CustomerMain', screen: 'NewsReader', params: { editionId: Number(data.editionId) }, anyStack: true };
 
             // ── Service expert: assignments ────────────────────────────
             case 'assignment_new':

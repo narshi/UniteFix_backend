@@ -10,6 +10,7 @@ import { CartScreen } from '../screens/b2b/CartScreen';
 import { OrderDetailScreen } from '../screens/b2b/OrderDetailScreen';
 import { LegalScreen } from '../screens/LegalScreen';
 import { AboutScreen } from '../screens/AboutScreen';
+import { NewsScreen, NewsPaperScreen, NewsReaderScreen, NewsLinkScreen } from '../screens/news';
 // Shared with the other roles — the same durable record, filtered by user.
 import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
 
@@ -25,6 +26,11 @@ export function BusinessPartnerStack() {
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Legal" component={LegalScreen} />
             <Stack.Screen name="About" component={AboutScreen} />
+            {/* Newspapers: follow local papers and read their editions. */}
+            <Stack.Screen name="News" component={NewsScreen} />
+            <Stack.Screen name="NewsPaper" component={NewsPaperScreen} />
+            <Stack.Screen name="NewsReader" component={NewsReaderScreen} />
+            <Stack.Screen name="NewsLink" component={NewsLinkScreen} />
         </Stack.Navigator>
     );
 }

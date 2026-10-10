@@ -31,7 +31,7 @@ import {
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
-import { Trash2, Info } from 'lucide-react-native';
+import { Trash2, Info, Newspaper } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { apiClient } from '../../api/client';
 import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
@@ -309,6 +309,14 @@ export function ProfileScreen() {
                     <View style={styles.menuLeft}>
                         <Shield size={20} color={colors.primary} />
                         <Text style={styles.menuLabel}>Legal & Policies</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('News')}>
+                    <View style={styles.menuLeft}>
+                        <Newspaper size={20} color={colors.primary} />
+                        <Text style={styles.menuLabel}>Newspapers</Text>
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>

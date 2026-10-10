@@ -8,7 +8,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Linking, Platform } from 'react-native';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
-import { Wrench, Router, ShoppingBag, Sparkles, Phone, Mail, Globe, Shield, ChevronRight, BadgeCheck, Clock, Home } from 'lucide-react-native';
+import { Wrench, Router, ShoppingBag, Sparkles, Newspaper, Phone, Mail, Globe, Shield, ChevronRight, BadgeCheck, Clock, Home } from 'lucide-react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScreenHeader } from '../components/ui';
 import { colors } from '../theme/colors';
@@ -48,6 +48,7 @@ export function AboutScreen({ navigation }: Props) {
             { icon: Router, title: 'Broadband', text: 'Recharge your fibre connection or ask for a new one.' },
             { icon: ShoppingBag, title: 'Shop', text: 'Electronics and spares, delivered.' },
             { icon: Sparkles, title: 'Celebrations', text: 'Halls, photographers and event planners for your big day.' },
+            { icon: Newspaper, title: 'Newspapers', text: 'Your local papers, free to read, the moment each edition comes out.' },
         ];
 
     return (

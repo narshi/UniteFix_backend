@@ -29,6 +29,7 @@ import {
     addNotificationResponseListener,
 } from '../services/notifications';
 import * as SecureStore from 'expo-secure-store';
+import { onNewsLink, takePendingNewsLink } from '../services/newsLinks';
 import { colors } from '../theme/colors';
 
 const RootStack = createNativeStackNavigator();
@@ -95,6 +96,11 @@ function getNavigationBranch(
     return 'customer';
 }
 
+/** The signed-in apps, by branch — where screens every reader has (newspapers) live. */
+const STACK_OF: Partial<Record<ReturnType<typeof getNavigationBranch>, string>> = {
+    customer: 'CustomerMain', employee_verified: 'EmployeeMain', business_partner: 'BusinessPartnerMain',
+};
+
 export function RootNavigator() {
     const { isAuthenticated, isLoading, hydrate, recordActivity, user } = useAuthStore();
     const navigationRef = useRef<NavigationContainerRef<any>>(null);
@@ -140,6 +146,11 @@ export function RootNavigator() {
         // The target stack only exists when the signed-in user's role matches it.
         // Ignoring a mismatch beats crashing on an unknown route name.
         const activeStack = getNavigationBranch(useAuthStore.getState().user);
+        if (route.anyStack) {
+            const stack = STACK_OF[activeStack];
+            if (stack && navigationRef.current) (navigationRef.current as any).navigate(stack, { screen: route.screen, params: route.params });
+            return;
+        }
         const stackIsMounted =
             (route.stack === 'CustomerMain' && activeStack === 'customer') ||
             (route.stack === 'EmployeeMain' && activeStack === 'employee_verified') ||
@@ -225,6 +236,27 @@ export function RootNavigator() {
             if (timer) clearTimeout(timer);
         };
     }, [isAuthenticated, user?.role]);
+
+    /**
+     * A newspaper link (WhatsApp, a QR code) that arrived before sign-in, or
+     * while the app was open: open it once a signed-in app is showing.
+     */
+    const branchNow = isAuthenticated ? getNavigationBranch(user) : 'auth';
+    useEffect(() => {
+        const stack = STACK_OF[branchNow];
+        if (!stack) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const go = () => {
+            const link = takePendingNewsLink();
+            if (!link) return;
+            timer = setTimeout(() => {
+                (navigationRef.current as any)?.navigate(stack, { screen: 'NewsLink', params: link.kind === 'edition' ? { token: link.token } : { code: link.code } });
+            }, 450);
+        };
+        go();
+        const off = onNewsLink(go);
+        return () => { off(); if (timer) clearTimeout(timer); };
+    }, [branchNow]);
 
     if (isLoading) {
         return <LoadingScreen />;

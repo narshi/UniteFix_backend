@@ -319,8 +319,10 @@ async function main() {
         const [pbk] = await db.select().from(eventBookings).where(eq(eventBookings.id, pb.body?.data?.id ?? 0));
         const booked = await db.select().from(bookingCalendar).where(and(eq(bookingCalendar.bookingId, pbk?.id ?? 0), eq(bookingCalendar.status, 'booked')));
         check('confirming the booking books the crew for both days, at 8% commission', pb.status === 201 && pbk.kind === 'shoot' && pbk.origin === 'public' && Number(pbk.commissionPercent) === 8 && booked.length === 4, JSON.stringify({ s: pb.status, k: pbk?.kind, n: booked.length }));
-        const pcal = await api.get(`/api/hub/portfolio/calendar?month=${shootDay.slice(0, 7)}`, P);
-        check('the photographer\'s calendar shows the booked days and the other hold', pcal.body?.data?.entries?.filter((e: any) => e.status === 'booked').length === 4 && pcal.body.data.entries.some((e: any) => e.status === 'hold' && e.crew === 2));
+        // The two days can straddle a month end (a shoot on the 30th): read both months.
+        const months = Array.from(new Set([shootDay.slice(0, 7), add(shootDay, 1).slice(0, 7)]));
+        const entries = (await Promise.all(months.map(m => api.get(`/api/hub/portfolio/calendar?month=${m}`, P)))).flatMap(r => r.body?.data?.entries ?? []);
+        check('the photographer\'s calendar shows the booked days and the other hold', entries.filter((e: any) => e.status === 'booked').length === 4 && entries.some((e: any) => e.status === 'hold' && e.crew === 2), JSON.stringify(entries.map((e: any) => `${e.day}:${e.status}`)));
         const away = await api.post('/api/hub/portfolio/calendar/block', { from: add(shootDay, 10), slot: 'full', note: 'Away' }, P);
         const pav = await api.get(`/api/public/photographers/${ph.bp.partnerCode}/availability?month=${add(shootDay, 10).slice(0, 7)}`);
         check('blocking a day blocks every crew; the public sees it taken', away.status === 201 && pav.body?.data?.days?.find((x: any) => x.day === add(shootDay, 10))?.pm === false);

@@ -3721,3 +3721,81 @@ export const accountDeletionRequests = pgTable("account_deletion_requests", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({ userIdx: index("account_deletion_requests_user_idx").on(t.userId, t.status) }));
 export type AccountDeletionRequest = typeof accountDeletionRequests.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Newspapers — media partners publish editions; readers follow and read them
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A media partner's newspaper, reviewed by UniteFix before readers see it. */
+export const newsPapers = pgTable("news_papers", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().unique().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  language: text("language").notNull().default('kannada'),   // kannada | english | hindi | marathi | konkani | tulu | urdu | other
+  city: text("city"),
+  frequency: text("frequency").notNull().default('daily'),     // daily | weekly | fortnightly | monthly
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  status: text("status").notNull().default('draft'),           // draft | submitted | live | changes_requested | paused
+  reviewNote: text("review_note"),
+  archiveUntil: timestamp("archive_until"),                     // a paid 30-day archive runs until this moment
+  planRemindedFor: timestamp("plan_reminded_for"),              // the archiveUntil we last warned about
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type NewsPaper = typeof newsPapers.$inferSelect;
+
+/** One edition (a day's paper, or a city edition of it). The PDF is private; the preview is public. */
+export const newsEditions = pgTable("news_editions", {
+  id: serial("id").primaryKey(),
+  paperId: integer("paper_id").notNull().references(() => newsPapers.id, { onDelete: 'cascade' }),
+  editionDate: text("edition_date").notNull(),                 // YYYY-MM-DD
+  title: text("title").notNull().default('Main edition'),
+  headline: text("headline"),
+  pageCount: integer("page_count").notNull().default(1),
+  fileKey: text("file_key"),                                   // private storage key; null once removed
+  fileSize: integer("file_size").notNull().default(0),
+  previewUrl: text("preview_url"),                             // top half of page 1, public
+  publicToken: text("public_token").notNull().unique(),
+  status: text("status").notNull().default('live'),            // live | removed | expired
+  removedReason: text("removed_reason"),
+  reads: integer("reads").notNull().default(0),
+  linkViews: integer("link_views").notNull().default(0),
+  notifiedAt: timestamp("notified_at"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ paperIdx: index("news_editions_paper_idx").on(t.paperId, t.editionDate) }));
+export type NewsEdition = typeof newsEditions.$inferSelect;
+
+export const newsFollows = pgTable("news_follows", {
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  paperId: integer("paper_id").notNull().references(() => newsPapers.id, { onDelete: 'cascade' }),
+  source: text("source"),                                      // app | link | qr
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.userId, t.paperId] }) }));
+
+/** Who read which edition (once per reader) — the paper's readership numbers. */
+export const newsReads = pgTable("news_reads", {
+  userId: integer("user_id").notNull(),
+  editionId: integer("edition_id").notNull().references(() => newsEditions.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ pk: primaryKey({ columns: [t.userId, t.editionId] }) }));
+
+/** A paid 30-day archive: 1, 3 or 6 months, plus GST, paid online. */
+export const newsArchivePlans = pgTable("news_archive_plans", {
+  id: serial("id").primaryKey(),
+  paperId: integer("paper_id").notNull().references(() => newsPapers.id, { onDelete: 'cascade' }),
+  months: integer("months").notNull(),
+  amountPaise: integer("amount_paise").notNull(),               // before GST
+  gstPaise: integer("gst_paise").notNull(),
+  status: text("status").notNull().default('created'),         // created | paid | failed
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
+  invoiceDocumentId: integer("invoice_document_id"),
+  createdByAdminUserId: integer("created_by_admin_user_id"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type NewsArchivePlan = typeof newsArchivePlans.$inferSelect;

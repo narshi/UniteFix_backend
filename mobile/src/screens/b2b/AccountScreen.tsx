@@ -13,7 +13,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, FileText, LogOut, ChevronRight, Building2, Wifi, Wrench, Info } from 'lucide-react-native';
+import { Bell, FileText, LogOut, ChevronRight, Building2, Wifi, Wrench, Info, Newspaper } from 'lucide-react-native';
 import { b2bApi, type LedgerLine } from '../../api/b2b.api';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
@@ -143,6 +143,7 @@ export function AccountScreen() {
                 <View style={styles.menu}>
                     <MenuRow icon={<Bell size={18} color={colors.textSecondary} />} label="Notifications" onPress={() => navigation.navigate('Notifications')} />
                     <MenuRow icon={<FileText size={18} color={colors.textSecondary} />} label="Legal & policies" onPress={() => navigation.navigate('Legal')} />
+                    <MenuRow icon={<Newspaper size={18} color={colors.textSecondary} />} label="Newspapers" onPress={() => navigation.navigate('News')} />
                     <MenuRow icon={<Info size={18} color={colors.textSecondary} />} label="About UniteFix" onPress={() => navigation.navigate('About')} />
                     <MenuRow icon={<LogOut size={18} color={colors.errorDark} />} label="Log out" onPress={confirmLogout} danger />
                 </View>

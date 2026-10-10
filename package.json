@@ -57,7 +57,8 @@
     "smoke:overview": "tsx scripts/smoke-overview.ts",
     "smoke:celebrations": "tsx scripts/smoke-celebrations.ts",
     "smoke:payment-guards": "tsx scripts/smoke-payment-guards.ts",
-    "smoke:account-deletion": "tsx scripts/smoke-account-deletion.ts"
+    "smoke:account-deletion": "tsx scripts/smoke-account-deletion.ts",
+    "smoke:news": "tsx scripts/smoke-news.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -91,6 +92,7 @@
     "@radix-ui/react-toggle-group": "^1.1.3",
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "^5.60.5",
+    "@types/qrcode": "^1.5.5",
     "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "bwip-js": "^4.11.4",
@@ -120,8 +122,10 @@
     "next-themes": "^0.4.6",
     "nodemailer": "^7.0.12",
     "openid-client": "^6.7.1",
+    "pdfjs-dist": "^4.10.38",
     "pdfkit": "^0.17.2",
     "pg": "^8.16.3",
+    "qrcode": "^1.5.4",
     "razorpay": "^2.9.6",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",

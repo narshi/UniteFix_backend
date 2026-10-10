@@ -49,6 +49,8 @@ import ConsultBookRouter from "@/pages/consult-book";
 import EventsPublicRouter from "@/pages/events-public";
 import PayLinkPage from "@/pages/pay-link";
 import CelebrationsRouter, { isCelebrationsPath } from "@/pages/celebrations";
+import NewsRouter, { isNewsPath } from "@/pages/news";
+import NewsAdminPage from "@/pages/admin/news";
 import { WeakPasswordBanner } from "@/components/admin/WeakPasswordBanner";
 import { useAdminMe } from "@/lib/admin-auth";
 import { getDashboardRole } from "@/lib/operator-auth";
@@ -246,6 +248,11 @@ function Router() {
     return <CelebrationsRouter />;
   }
 
+  // Newspapers: a shared edition, a paper's follow page, the app's reader.
+  if (typeof window !== "undefined" && isNewsPath(window.location.pathname)) {
+    return <NewsRouter />;
+  }
+
   // An events partner's enquiry page, a client's quotation link, an enquiry's status.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/events/")) {
     return <EventsPublicRouter />;
@@ -314,6 +321,7 @@ function Router() {
           <Route path="/admin/consignment"><Gate capability="partners:view" component={ConsignmentPage} /></Route>
           <Route path="/admin/go-live"><Gate capability="partners:view" component={GoLivePage} /></Route>
           <Route path="/admin/celebrations"><Gate capability="partners:view" component={CelebrationsAdminPage} /></Route>
+          <Route path="/admin/news"><Gate capability="partners:view" component={NewsAdminPage} /></Route>
           <Route path="/admin/account-deletions"><Gate capability="customers:view" component={AccountDeletionsPage} /></Route>
           <Route path="/admin/b2b-orders"><Gate capability="orders:view" component={B2bOrdersPage} /></Route>
           <Route path="/admin/audit-logs"><Gate capability="audit:view" component={AuditLogsPage} /></Route>

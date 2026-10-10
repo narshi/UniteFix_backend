@@ -276,6 +276,16 @@ async function celebrationsTick(): Promise<void> {
     }
 }
 
+/** Newspapers: remove editions past each paper's 3- or 30-day window; warn before an archive plan ends. */
+async function newsTick(): Promise<void> {
+    try {
+        const { NewsService } = await import('./news.service');
+        await NewsService.tick();
+    } catch (error: any) {
+        logger.error('[CRON] Newspapers tick failed', { error: error.message });
+    }
+}
+
 /** Partners' monthly invoices to UniteFix for field work (subcontract), 1st–3rd IST. */
 async function issueMonthlySubcontractInvoices(): Promise<void> {
     try {
@@ -689,6 +699,8 @@ export function startBackgroundJobs(): void {
     // Hall holds run in hours, so a lapsed one is released within five minutes.
     intervals.push(setInterval(celebrationsTick, 5 * 60 * 1000));
     setTimeout(celebrationsTick, 115000);
+    intervals.push(setInterval(newsTick, 60 * 60 * 1000));
+    setTimeout(newsTick, 125000);
     intervals.push(setInterval(billDueRetainers, SIX_HOURS));
     intervals.push(setInterval(marketplaceTick, SIX_HOURS));
     setTimeout(marketplaceTick, 100000);

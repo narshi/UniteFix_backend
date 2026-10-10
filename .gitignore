@@ -79,3 +79,6 @@ WorkerBehavior_extracted/
 
 # Partner Hub browser check screenshots
 ui-shots/
+
+# Newspaper PDFs stored locally in development (production uses Cloudinary)
+.data/

@@ -69,11 +69,16 @@ function Sidebar({ me, open, onClose }: { me: HubMe; open: boolean; onClose: () 
           )}
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-          {groups.map(([group, entries]) => (
+          {(() => {
+            // Only the most specific entry is current: on /partner/news/editions,
+            // "Editions" — not also "Your paper" at /partner/news.
+            const matches = (p: string) => location === p || (p !== "/partner" && location.startsWith(p + "/"));
+            const current = groups.flatMap(([, es]) => es.map(e => e.path)).filter(matches).sort((x, y) => y.length - x.length)[0];
+            return groups.map(([group, entries]) => (
             <div key={group}>
               <p className="px-3 mb-1 text-[10px] font-mono uppercase tracking-wider text-[hsl(215,20%,50%)]">{group}</p>
               {entries.map(e => {
-                const active = location === e.path || (e.path !== "/partner" && location.startsWith(e.path + "/"));
+                const active = e.path === current;
                 return (
                   <Link key={e.path} href={e.path} aria-current={active ? "page" : undefined}
                     className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${active
@@ -85,7 +90,8 @@ function Sidebar({ me, open, onClose }: { me: HubMe; open: boolean; onClose: () 
                 );
               })}
             </div>
-          ))}
+          ));
+          })()}
         </nav>
         <div className="p-4 border-t border-[rgba(255,255,255,0.06)] space-y-2">
           <p className="text-[11px] text-[hsl(215,20%,55%)]">Plan: <span className="text-[hsl(210,20%,85%)]">{PLAN_LABEL[me.plan]}</span></p>

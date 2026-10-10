@@ -25,7 +25,7 @@ import { and, eq, gte, inArray, isNotNull, isNull, ne, notInArray, or, sql, coun
 import {
     serviceRequests, ftthRecharges, ftthLeads, b2bOrders, sellerOrders, partnerPayLinks, taxDocuments, taxDocumentLines,
     users, employees, businessPartners, partnerTerritories, partnerServiceRates, products, consignmentLots,
-    withdrawalRequests, warrantyClaims, supportTickets, ratings, partRequests, eventBookings,
+    withdrawalRequests, warrantyClaims, supportTickets, ratings, partRequests, eventBookings, newsArchivePlans, newsPapers,
 } from '@shared/schema';
 import { nowFilledMs } from '../lib/db-time';
 import logger from '../lib/logger';
@@ -41,7 +41,7 @@ export const STREAMS: Array<{ key: Stream; label: string; note: string }> = [
     { key: 'store', label: 'Partner store', note: 'Commission, payment collection fee and charges on partner listings' },
     { key: 'paylinks', label: 'Payment links', note: 'Collection fee on partners\' customers paying online' },
     { key: 'celebrations', label: 'Celebrations bookings', note: 'Commission on hall, photography and event bookings made through UniteFix, when the event takes place' },
-    { key: 'subscriptions', label: 'Hub subscriptions', note: 'Partner Hub Pro plans, before GST' },
+    { key: 'subscriptions', label: 'Subscriptions', note: 'Partner Hub Pro plans and newspapers’ archive plans, before GST' },
 ];
 
 interface Event { at: number; stream: Stream; gmv: number; unitefix: number; partner: number; expert: number; gst: number; job?: boolean }
@@ -146,6 +146,11 @@ export class BusinessOverviewService {
             .from(taxDocumentLines).innerJoin(taxDocuments, eq(taxDocuments.id, taxDocumentLines.documentId))
             .where(and(eq(taxDocuments.purpose, 'fee'), eq(taxDocuments.status, 'issued'), sql`${taxDocumentLines.description} ILIKE 'Partner Hub Pro%'`, gte(taxDocuments.periodFrom, new Date(since.getTime() + IST).toISOString().slice(0, 10))));
         for (const x of subs) if (x.period) ev.push({ at: new Date(`${x.period}T00:00:00+05:30`).getTime(), stream: 'subscriptions', gmv: 0, unitefix: x.taxable, partner: 0, expert: 0, gst: 0 });
+
+        // Newspapers' 30-day archive plans, when paid.
+        const news = await db.select({ at: newsArchivePlans.paidAt, amount: newsArchivePlans.amountPaise }).from(newsArchivePlans)
+            .where(and(eq(newsArchivePlans.status, 'paid'), gte(newsArchivePlans.paidAt, since)));
+        for (const x of news) if (x.at) ev.push({ at: new Date(x.at).getTime(), stream: 'subscriptions', gmv: 0, unitefix: x.amount, partner: 0, expert: 0, gst: 0 });
 
         // Partners' own invoices to their own customers — context, not UniteFix money.
         const own = await db.select({ at: taxDocuments.issuedAt, total: taxDocuments.totalPaise }).from(taxDocuments)
@@ -281,6 +286,7 @@ export class BusinessOverviewService {
             const { AccountDeletionService } = await import('./account-deletion.service');
             push('deletions', 'Account deletion requests to review', await AccountDeletionService.pendingCount(), '/admin/account-deletions');
         } catch { /* table not created yet */ }
+        push('newspapers', 'Newspapers to review', await c(db.select({ n: count() }).from(newsPapers).where(eq(newsPapers.status, 'submitted'))), '/admin/news');
         push('consignment', 'Consignment stock to receive', await c(db.select({ n: count() }).from(consignmentLots).where(eq(consignmentLots.status, 'proposed'))), '/admin/consignment');
         return items;
     }

@@ -18,15 +18,15 @@ export type HubModule =
     // every partner
     | 'home' | 'onboarding' | 'team' | 'customers' | 'sales' | 'purchases' | 'money' | 'gst' | 'docs'
     // by vertical
-    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace' | 'venue' | 'portfolio';
+    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace' | 'venue' | 'portfolio' | 'newsroom';
 
 export const CORE_MODULES: HubModule[] = ['home', 'onboarding', 'team', 'customers', 'sales', 'purchases', 'money', 'gst', 'docs'];
-export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace', 'venue', 'portfolio'];
+export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace', 'venue', 'portfolio', 'newsroom'];
 
 export const MODULE_LABEL: Record<HubModule, string> = {
     home: 'Home', onboarding: 'Onboarding', team: 'Team', customers: 'Customers', sales: 'Sales', purchases: 'Purchases',
     money: 'Money', gst: 'GST desk', docs: 'Documents', broadband: 'Broadband', field: 'Field service', parts: 'Parts',
-    consulting: 'Consulting', events: 'Events', marketplace: 'Store', venue: 'Venue', portfolio: 'Portfolio',
+    consulting: 'Consulting', events: 'Events', marketplace: 'Store', venue: 'Venue', portfolio: 'Portfolio', newsroom: 'Newsroom',
 };
 
 /** What each vertical switches on. A partner with several verticals gets the union. */
@@ -42,6 +42,8 @@ export const VERTICAL_TO_MODULES: Record<string, HubModule[]> = {
     // pages: a hall's spaces and calendar, a photographer's portfolio.
     hall: ['venue', 'events'],
     photography: ['portfolio', 'events'],
+    // Local newspapers publish their editions to UniteFix readers.
+    media: ['newsroom'],
     other: [],
 };
 
@@ -117,6 +119,7 @@ export const DOC_TYPES: DocType[] = [
     { code: 'isp_licence', label: 'ISP licence or franchise agreement', hint: 'DoT ISP authorisation, or your agreement with the licensed ISP you resell for.', requiredFor: ['isp'] },
     { code: 'liability_insurance', label: 'Public liability insurance', hint: 'Covers damage at a customer\'s premises. Needed before your own technicians take jobs.', requiredFor: [], optionalFor: ['computer', 'cctv'], hasExpiry: true },
     { code: 'trade_licence', label: 'Trade licence', hint: 'Municipal trade licence, if your business holds one.', requiredFor: [], optionalFor: ['events', 'electronics', 'hall', 'photography'], hasExpiry: true },
+    { code: 'rni_certificate', label: 'RNI / PRGI registration', hint: 'The registration of your newspaper with the Registrar of Newspapers (PRGI), if it is registered.', requiredFor: [], optionalFor: ['media'] },
     { code: 'fire_noc', label: 'Fire safety NOC', hint: 'From the fire department, for a hall that hosts large gatherings.', requiredFor: [], optionalFor: ['hall'], hasExpiry: true },
     { code: 'professional_certificate', label: 'Professional certificate', hint: 'ICAI / ICSI / bar membership or similar, for regulated advice.', requiredFor: [], optionalFor: ['consultation'], hasExpiry: true },
 ];
@@ -196,6 +199,15 @@ export const AGREEMENTS: AgreementDoc[] = [
             ['Your dates', 'Keep your availability current. A date you confirm for a client is theirs.'],
             ['Deliverables', 'You deliver what your package promises, by the date you agreed.'],
             ['Commission', 'Bookings that come to you through UniteFix carry the commission shown in your Hub, charged on your statement once the shoot has taken place (or, on a cancellation, on what you keep).'],
+        ],
+    },
+    {
+        code: 'newsroom', version: '2026-10-v1', title: 'Media annex', appliesTo: ['media'],
+        sections: [
+            ['Your content', 'You publish only newspapers and material you own or are licensed to publish, and you are responsible for what they say, as their publisher.'],
+            ['Reach', 'UniteFix shows your editions to readers who choose your paper, free to read in the UniteFix app, and shows a preview of your first page on the links you and your readers share.'],
+            ['Takedown', 'UniteFix may take down an edition that breaks the law or these terms, and will tell you why.'],
+            ['Storage', 'Editions are kept for 3 days free, or 30 days on a paid archive plan. Older editions are removed automatically.'],
         ],
     },
     {

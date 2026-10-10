@@ -18,7 +18,7 @@ export type AlertKind =
     | 'job_new' | 'job_overdue' | 'job_assigned' | 'warranty_claim'
     | 'enquiry_new' | 'quote_accepted' | 'quote_declined' | 'booking_request'
     | 'store_order' | 'store_return' | 'listing_reviewed' | 'store_penalty'
-    | 'payment_received' | 'settlement_paid' | 'territory_reviewed' | 'rate_reviewed' | 'application_approved' | 'review_new';
+    | 'payment_received' | 'settlement_paid' | 'territory_reviewed' | 'rate_reviewed' | 'application_approved' | 'review_new' | 'news_plan';
 
 /** Who on the team needs each kind, and whether it is worth a text message. */
 const KIND: Record<AlertKind, { perm: HubPermission | null; urgent?: boolean }> = {
@@ -31,6 +31,7 @@ const KIND: Record<AlertKind, { perm: HubPermission | null; urgent?: boolean }> 
     quote_declined: { perm: 'sales:manage' },
     booking_request: { perm: 'ops:view', urgent: true },
     review_new: { perm: 'ops:view' },
+    news_plan: { perm: 'money:view' },
     store_order: { perm: 'ops:view', urgent: true },
     store_return: { perm: 'ops:view' },
     listing_reviewed: { perm: 'sales:manage' },

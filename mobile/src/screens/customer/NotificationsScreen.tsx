@@ -29,8 +29,7 @@ import {
     Info,
     Briefcase,
     ShieldCheck,
-    Megaphone,
-} from 'lucide-react-native';
+    Megaphone, Newspaper } from 'lucide-react-native';
 import {
     useNotifications,
     useMarkNotificationRead,
@@ -58,6 +57,7 @@ function getNotificationIcon(type: string) {
     if (type.startsWith('verification') || type.startsWith('account')) return ShieldCheck;
     if (type.startsWith('order')) return Package;
     if (type === 'marketing') return Megaphone;
+    if (type === 'news_edition') return Newspaper;
     return Info;
 }
 
@@ -120,6 +120,12 @@ export function NotificationsScreen({ navigation }: Props) {
         // every value, so serviceId can arrive as "42".
         const data = item.data ?? {};
         const type = String(item.type ?? '');
+
+        // A new edition of a paper the reader follows.
+        if (type === 'news_edition') {
+            if (data.editionId != null) navigation.navigate('NewsReader', { editionId: Number(data.editionId) });
+            return;
+        }
 
         // Trade orders (business partner mode) carry orderId, not serviceId.
         if (type === 'b2b_order_update') {

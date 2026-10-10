@@ -53,7 +53,8 @@ import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
-import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
+import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
+import { NewsHomeCard } from '../news/NewsHomeCard';
 
 // Trust indicators — non-committing labels as requested
 const TRUST_ITEMS = [
@@ -274,6 +275,9 @@ export function HomeScreen() {
                         </View>
                     ))}
                 </View>
+
+                {/* Newspapers — today's editions of the papers this customer follows. */}
+                <NewsHomeCard navigation={navigation} />
 
                 {/* Serviceability Check */}
                 {isServiceable === false ? (

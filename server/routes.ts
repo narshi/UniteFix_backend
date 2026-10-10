@@ -66,6 +66,7 @@ import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.ro
 import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
 import { registerPortfolioRoutes } from "./routes/portfolio.routes";
 import { registerAccountDeletionRoutes } from "./routes/account-deletion.routes";
+import { registerNewsRoutes } from "./routes/news.routes";
 import { registerWarrantyRoutes } from "./routes/warranty.routes";
 import { registerBusinessPartnerRoutes } from "./routes/business-partner.routes";
 import { registerPartnerHubRoutes } from "./routes/partner-hub.routes";
@@ -267,12 +268,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/orders", mobileLimiter);   // Order placement
   app.use("/api/cart", mobileLimiter);     // Cart management
   app.use("/api/catalog", mobileLimiter);  // Product catalog
+  app.use("/api/news", mobileLimiter);     // Newspapers in the app
 
   // Public/Default
   // Celebrations and events pages get a browsing allowance of their own: one
-  // customer comparing dates makes many small requests, and families on the
+  // customer comparing dates (or a newspaper link shared in a busy WhatsApp
+  // group) makes many small requests, and families on the
   // same mobile network share an IP. Submissions have their own limit per route.
-  const CELEBRATIONS_PUBLIC = /^\/(halls|photographers|celebrations|events)\//;
+  const CELEBRATIONS_PUBLIC = /^\/(halls|photographers|celebrations|events|news)\//;
   app.use("/api/public", (req, res, next) => (CELEBRATIONS_PUBLIC.test(req.path) ? celebrationsBrowseLimiter : publicLimiter)(req, res, next));
 
   // ==================== AUTHENTICATION ROUTES ====================
@@ -3661,6 +3664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
   registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests
   registerAccountDeletionRoutes(app); // Customers and experts ask to delete their account; staff approve or deny
+  registerNewsRoutes(app); // Newspapers: media partners publish editions; readers follow, read and share them
   registerWarrantyRoutes(app); // Spare-part provenance + warranty claims
   registerBusinessPartnerRoutes(app); // Business partners (ISPs, shops, installers) — party model + /api/b2b
   registerPartnerHubRoutes(app); // Partner Hub: apply, onboarding, team, documents (/api/hub, /api/admin/hub)

@@ -84,7 +84,7 @@ export class GoLiveService {
             : { key: 'courier', area: 'Operations', label: 'Courier (Delhivery) for store orders', status: noPickup ? 'action' : 'ok', detail: noPickup ? `${noPickup} active seller(s) without a registered pickup point.` : 'Live; every seller has a pickup point.' });
         add(has('CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
             ? { key: 'uploads', area: 'Operations', label: 'File uploads', status: 'ok', detail: 'Cloudinary connected.' }
-            : { key: 'uploads', area: 'Operations', label: 'File uploads', status: 'action', detail: 'No Cloudinary — KYC documents, listing photos and technician papers cannot be uploaded.', fix: 'CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.' });
+            : { key: 'uploads', area: 'Operations', label: 'File uploads', status: 'action', detail: 'No Cloudinary — KYC documents, listing photos, technician papers and newspaper editions cannot be uploaded.', fix: 'CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.' });
 
         // ── Security ──────────────────────────────────────────────────────
         add((process.env.JWT_SECRET ?? '').length >= 32

@@ -38,6 +38,7 @@ import { HubEventShowcase } from "@/pages/hub/events-showcase";
 import { HubStoreListings, HubStoreOrders, HubStoreReviews } from "@/pages/hub/store";
 import { HubVenuePage, HubVenueSpaces, HubVenueCalendar, HubVenueRequests, HubReviews } from "@/pages/hub/venue";
 import { HubPortfolioPage, HubPortfolioAlbums, HubPortfolioAlbum, HubPortfolioDates } from "@/pages/hub/portfolio";
+import { HubNewsPaper, HubNewsEditions, HubNewsPlan } from "@/pages/hub/news";
 
 export interface HubEntry {
   path: string;
@@ -55,7 +56,7 @@ export interface HubEntry {
   nav?: { group: string; label: string; icon: string };
 }
 
-export const HUB_GROUP_ORDER = ["Home", "Venue", "Portfolio", "Broadband", "Field service", "Consulting", "Events", "Store", "Parts", "Customers", "Sales", "Purchases", "Money", "GST desk", "Business"];
+export const HUB_GROUP_ORDER = ["Home", "Venue", "Portfolio", "Newsroom", "Broadband", "Field service", "Consulting", "Events", "Store", "Parts", "Customers", "Sales", "Purchases", "Money", "GST desk", "Business"];
 
 export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner", aliases: ["/", "/operator"], component: HubHome, module: "home", pending: true, nav: { group: "Home", label: "Overview", icon: "dashboard" } },
@@ -107,6 +108,10 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/portfolio/albums", component: HubPortfolioAlbums, module: "portfolio", perm: "ops:view", nav: { group: "Portfolio", label: "Albums", icon: "photo_library" } },
   { path: "/partner/portfolio/albums/:id", component: HubPortfolioAlbum, module: "portfolio", perm: "ops:view" },
   { path: "/partner/portfolio/dates", component: HubPortfolioDates, module: "portfolio", perm: "ops:view", nav: { group: "Portfolio", label: "Dates", icon: "event_available" } },
+  // Newspapers.
+  { path: "/partner/news", component: HubNewsPaper, module: "newsroom", perm: "ops:view", nav: { group: "Newsroom", label: "Your paper", icon: "newspaper" } },
+  { path: "/partner/news/editions", component: HubNewsEditions, module: "newsroom", perm: "ops:view", nav: { group: "Newsroom", label: "Editions", icon: "upload_file" } },
+  { path: "/partner/news/plan", component: HubNewsPlan, module: "newsroom", perm: "money:view", nav: { group: "Newsroom", label: "Archive plan", icon: "inventory_2" } },
   { path: "/partner/reviews", component: HubReviews, module: "venue", anyModule: ["venue", "portfolio", "events"], perm: "ops:view", nav: { group: "Customers", label: "Reviews", icon: "reviews" } },
 
   // Phase 7 — selling products in the UniteFix store.
