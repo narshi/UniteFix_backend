@@ -39,6 +39,18 @@ export function registerAdminWithdrawalRoutes(app: Express) {
         fullName: employees.fullName,
     };
 
+    /**
+     * Is Cashfree Payouts connected? Signs in and reads the account balance —
+     * moves no money, so it is safe to run on production after changing keys.
+     */
+    app.get("/api/admin/withdrawals/cashfree-check", authenticateAdmin, async (_req: Request, res: Response) => {
+        try {
+            res.json({ success: true, data: await CashfreeService.check() });
+        } catch (e: any) {
+            res.status(502).json({ success: false, message: e?.message ?? 'Cashfree check failed' });
+        }
+    });
+
     app.get("/api/admin/withdrawals", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const listOptions = { defaultSort: 'createdAt', sortable: WITHDRAWAL_SORTABLE };

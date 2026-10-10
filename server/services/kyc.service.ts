@@ -13,6 +13,7 @@
  */
 
 import logger from '../lib/logger';
+import { cashfreeLive } from '../lib/cashfree-env';
 
 export type BankCheck =
     | { status: 'verified'; nameAtBank: string | null; reference: string | null }
@@ -20,7 +21,7 @@ export type BankCheck =
     | { status: 'manual'; reason: string };
 
 function verificationBase(): string {
-    return (process.env.CASHFREE_ENVIRONMENT || '').toUpperCase() === 'PRODUCTION'
+    return cashfreeLive()
         ? 'https://api.cashfree.com/verification'
         : 'https://sandbox.cashfree.com/verification';
 }

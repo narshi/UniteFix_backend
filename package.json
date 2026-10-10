@@ -59,7 +59,8 @@
     "smoke:payment-guards": "tsx scripts/smoke-payment-guards.ts",
     "smoke:account-deletion": "tsx scripts/smoke-account-deletion.ts",
     "smoke:news": "tsx scripts/smoke-news.ts",
-    "smoke:domains": "tsx scripts/smoke-domains.ts"
+    "smoke:domains": "tsx scripts/smoke-domains.ts",
+    "smoke:cashfree": "tsx scripts/smoke-cashfree.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

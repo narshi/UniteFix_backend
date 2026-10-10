@@ -11,6 +11,7 @@ import { adminUsers, spareParts, products, businessPartners } from '@shared/sche
 import { checkGstin } from '@shared/hub';
 import { configService } from './config.service';
 import { publicAppUrl } from '../lib/public-url';
+import { cashfreeLive } from '../lib/cashfree-env';
 import { loadSellerDetails } from './invoice-generator';
 
 export type Check = { key: string; area: string; label: string; status: 'ok' | 'action' | 'info'; detail: string; fix?: string };
@@ -49,10 +50,17 @@ export class GoLiveService {
         add(has('RAZORPAY_WEBHOOK_SECRET')
             ? { key: 'razorpay_webhook', area: 'Money', label: 'Razorpay webhook', status: 'ok', detail: 'Secret present. Captures settle even if the customer closes the app.' }
             : { key: 'razorpay_webhook', area: 'Money', label: 'Razorpay webhook', status: 'action', detail: 'No webhook secret — a payment whose page was closed early is never recorded (store orders, pay links, B2B, recharges).', fix: 'Razorpay → Webhooks → payment.captured and payment.failed to /api/payments/webhook; put the secret in RAZORPAY_WEBHOOK_SECRET.' });
-        const cfEnv = (process.env.CASHFREE_ENVIRONMENT ?? '').toUpperCase();
-        add(has('CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET')
-            ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (settlements to partner banks)', status: cfEnv === 'PRODUCTION' || cfEnv === 'PROD' ? 'ok' : 'action', detail: cfEnv === 'PRODUCTION' || cfEnv === 'PROD' ? 'Keys present, production. Make sure they are Payouts keys — Payment Gateway keys are rejected by the Payouts API.' : `Keys present but CASHFREE_ENVIRONMENT is "${cfEnv || 'unset'}".`, fix: 'CASHFREE_ENVIRONMENT=PRODUCTION with Payouts (not PG) keys; whitelist the server IP in Cashfree.' }
-            : { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (settlements to partner banks)', status: 'action', detail: 'Not connected — settlement runs can only be paid by hand (bank transfer + reference).', fix: 'CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET from Cashfree Payouts.' });
+        {
+            const live = cashfreeLive();
+            const signed = has('CASHFREE_PUBLIC_KEY');
+            add(!has('CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET')
+                ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: 'Not connected — withdrawals and settlement runs can only be paid by hand (bank transfer + reference).', fix: 'CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET from Cashfree Payouts (not Payment Gateway keys).' }
+                : !live
+                    ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: `Keys present, but CASHFREE_ENVIRONMENT is "${process.env.CASHFREE_ENVIRONMENT || 'unset'}" — payouts go to Cashfree's test system.`, fix: 'CASHFREE_ENVIRONMENT=PROD with your live Payouts keys.' }
+                    : !signed
+                        ? { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'action', detail: 'Live keys present, but no public key. Cashfree refuses live calls from an address it has not whitelisted, and Render’s outgoing address is not fixed.', fix: 'Payouts dashboard → Developers → Two-Factor Authentication → generate the Public Key → paste it into CASHFREE_PUBLIC_KEY. Then "Test connection".' }
+                        : { key: 'cashfree_payouts', area: 'Money', label: 'Cashfree Payouts (withdrawals and settlements)', status: 'ok', detail: 'Live keys and public key present. Use "Test connection" to confirm Cashfree accepts them.' });
+        }
         add(has('CASHFREE_VERIFICATION_CLIENT_ID', 'CASHFREE_VERIFICATION_CLIENT_SECRET')
             ? { key: 'cashfree_verify', area: 'Money', label: 'Bank / PAN / GSTIN verification', status: 'ok', detail: 'Cashfree Verification keys present.' }
             : { key: 'cashfree_verify', area: 'Money', label: 'Bank / PAN / GSTIN verification', status: 'action', detail: 'Not connected — partner bank accounts and GSTINs are checked by format only, and staff verify by hand.', fix: 'CASHFREE_VERIFICATION_CLIENT_ID / _SECRET (Cashfree Secure ID).' });

@@ -41,6 +41,8 @@ import { db } from '../db';
 import { employees, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../lib/logger';
+import crypto from 'crypto';
+import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey } from '../lib/cashfree-env';
 
 type Employee = typeof employees.$inferSelect;
 
@@ -55,6 +57,14 @@ type CashfreeTransferStatus =
  * same bug gets written twice. The raw status rides along for logs.
  */
 export type PayoutStatus = 'processed' | 'processing' | 'failed' | 'reversed';
+
+export interface CashfreeCheck {
+    environment: 'PROD' | 'TEST';
+    /** The /authorize call carried an X-Cf-Signature from CASHFREE_PUBLIC_KEY. */
+    signed: boolean;
+    v1: { ok: boolean; message: string; balance?: number | null; available?: number | null };
+    v2: { ok: boolean; message: string };
+}
 
 export interface PayoutResult {
     /** The transferId we chose — what the caller stores and later polls with. */
@@ -95,12 +105,22 @@ export class CashfreeService {
     }
 
     private static baseUrl(): string {
-        const env = (process.env.CASHFREE_ENVIRONMENT || 'TEST').toUpperCase();
-        const url = BASE_URL[env];
-        if (!url) {
-            throw new Error(`CASHFREE_ENVIRONMENT must be TEST or PROD, got "${process.env.CASHFREE_ENVIRONMENT}".`);
+        if (!cashfreeEnvValid()) {
+            throw new Error(`CASHFREE_ENVIRONMENT must be PROD (or PRODUCTION) or TEST, got "${process.env.CASHFREE_ENVIRONMENT}".`);
         }
-        return url;
+        return cashfreeLive() ? BASE_URL.PROD : BASE_URL.TEST;
+    }
+
+    /**
+     * X-Cf-Signature for /authorize: "<clientId>.<unix seconds>" encrypted with
+     * the Payouts public key (RSA-OAEP, SHA-1), base64. Cashfree accepts this
+     * in place of a whitelisted IP. Null when no key is configured.
+     */
+    static signature(clientId: string, nowMs = Date.now()): string | null {
+        const key = cashfreePublicKey();
+        if (!key) return null;
+        const plain = Buffer.from(`${clientId}.${Math.floor(nowMs / 1000)}`);
+        return crypto.publicEncrypt({ key, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1' }, plain).toString('base64');
     }
 
     private static rawClient(): AxiosInstance {
@@ -132,15 +152,19 @@ export class CashfreeService {
         }
 
         const { clientId, clientSecret } = this.credentials();
+        const signature = this.signature(clientId);
         const res = await this.rawClient().post('/authorize', undefined, {
-            headers: { 'X-Client-Id': clientId, 'X-Client-Secret': clientSecret },
+            headers: { 'X-Client-Id': clientId, 'X-Client-Secret': clientSecret, ...(signature ? { 'X-Cf-Signature': signature } : {}) },
         });
 
         const body = res.data ?? {};
         if (res.status !== 200 || body.status !== 'SUCCESS' || !body.data?.token) {
             const why = body.message || `HTTP ${res.status}`;
             logger.error(`[CASHFREE] authorize failed: ${why}`);
-            throw new Error(`Cashfree authorization failed: ${why}`);
+            const hint = /ip|whitelist|signature/i.test(String(why))
+                ? (signature ? ' Check that CASHFREE_PUBLIC_KEY is the current key from this Payouts account.' : ' Set CASHFREE_PUBLIC_KEY (Payouts → Developers → Two-Factor Authentication), or whitelist the server IP.')
+                : '';
+            throw new Error(`Cashfree authorization failed: ${why}.${hint}`);
         }
 
         // `expiry` is a unix timestamp in seconds.
@@ -186,6 +210,47 @@ export class CashfreeService {
 
     private static reason(data: any, httpStatus: number): string {
         return data?.message || data?.status || `HTTP ${httpStatus}`;
+    }
+
+    /**
+     * A read-only connection check: authorize, then GET /getBalance. Moves no
+     * money and touches no beneficiary — safe to run against production.
+     */
+    static async check(): Promise<CashfreeCheck> {
+        const { clientId, clientSecret } = this.credentials();
+        const environment = cashfreeLive() ? 'PROD' : 'TEST';
+        const signature = this.signature(clientId);
+        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' } };
+
+        // v1 — what payouts use today: sign in, then read the balance.
+        try {
+            this.token = null;
+            await this.getAuthToken(true);
+            const r = await this.call('get', '/getBalance');
+            if (!this.ok(r.data)) throw new Error(this.reason(r.data, r.httpStatus));
+            const d: any = (r.data as any).data ?? {};
+            out.v1 = { ok: true, message: 'Signed in and read the balance.', balance: d.balance != null ? Number(d.balance) : null, available: d.availableBalance != null ? Number(d.availableBalance) : null };
+        } catch (e: any) {
+            out.v1 = { ok: false, message: e?.message ?? 'Failed' };
+        }
+
+        // v2 — what Cashfree is moving everyone to: look up a transfer that does
+        // not exist. "Not found" proves the keys and signature are accepted.
+        try {
+            const base = environment === 'PROD' ? 'https://api.cashfree.com/payout' : 'https://sandbox.cashfree.com/payout';
+            const res = await axios.get(`${base}/transfers`, {
+                params: { transfer_id: 'uf_connection_probe' }, timeout: 20_000, validateStatus: () => true,
+                headers: { 'x-client-id': clientId, 'x-client-secret': clientSecret, 'x-api-version': '2024-01-01', ...(signature ? { 'x-cf-signature': signature } : {}) },
+            });
+            const d: any = res.data ?? {};
+            const reached = res.status === 200 || (res.status === 404 && d.type !== 'internal_error');
+            out.v2 = reached
+                ? { ok: true, message: 'Keys accepted.' }
+                : { ok: false, message: `HTTP ${res.status}: ${d.message ?? d.code ?? 'no message'}` };
+        } catch (e: any) {
+            out.v2 = { ok: false, message: e?.message ?? 'Failed' };
+        }
+        return out;
     }
 
     // ──────────────────────────────────────────────────────────────────────

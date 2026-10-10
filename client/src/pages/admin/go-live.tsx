@@ -3,11 +3,12 @@
  * running server. Shows whether something is set, never its value.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 
 type Check = { key: string; area: string; label: string; status: "ok" | "action" | "info"; detail: string; fix?: string };
 const TONE: Record<Check["status"], string> = {
@@ -16,6 +17,28 @@ const TONE: Record<Check["status"], string> = {
   info: "border-sky-500/40 text-sky-600 dark:text-sky-300",
 };
 const LABEL: Record<Check["status"], string> = { ok: "Ready", action: "To do", info: "Note" };
+
+/** Signs in to Cashfree Payouts and reads the balance — moves no money. */
+function CashfreeCheck() {
+  const [state, setState] = useState<{ busy: boolean; ok?: boolean; text?: string }>({ busy: false });
+  const run = async () => {
+    setState({ busy: true });
+    try {
+      const d = (await apiRequest("GET", "/api/admin/withdrawals/cashfree-check")).data;
+      const rs = (n: number | null | undefined) => (n == null ? "—" : `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`);
+      const env = d.environment === "PROD" ? "live" : "test";
+      const v1 = d.v1.ok ? `payouts work (balance ${rs(d.v1.balance)}, available ${rs(d.v1.available)})` : `payouts API refused: ${d.v1.message}`;
+      const v2 = d.v2.ok ? "the newer v2 API accepts the keys too" : `v2 API: ${d.v2.message}`;
+      setState({ busy: false, ok: d.v1.ok, text: `Cashfree ${env}${d.signed ? ", signed with your public key" : ""} — ${v1}; ${v2}.` });
+    } catch (e) { setState({ busy: false, ok: false, text: apiErrorMessage(e) }); }
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" onClick={run} disabled={state.busy}>{state.busy ? "Connecting…" : "Test connection"}</Button>
+      {state.text && <span className={`text-xs ${state.ok ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>{state.text}</span>}
+    </div>
+  );
+}
 
 export default function GoLivePage() {
   const q = useQuery<{ checks: Check[]; summary: { ok: number; action: number; info: number } }>({ queryKey: ["/api/admin/hub/go-live"], queryFn: async () => (await apiRequest("GET", "/api/admin/hub/go-live")).data });
@@ -47,6 +70,7 @@ export default function GoLivePage() {
                   <p className="font-medium">{c.label}</p>
                   <p className="text-muted-foreground">{c.detail}</p>
                   {c.fix && c.status !== "ok" && <p className="mt-1 text-xs"><span className="font-medium">How: </span>{c.fix}</p>}
+                  {c.key === "cashfree_payouts" && <CashfreeCheck />}
                 </div>
               </li>
             ))}</ul>
