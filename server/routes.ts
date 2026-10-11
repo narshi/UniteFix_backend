@@ -1847,6 +1847,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * staff cannot necessarily read what they earn. The page is told which
    * sections were withheld rather than being left to guess from empty arrays.
    */
+  /**
+   * POST /api/admin/servicemen/:id/upi/verify
+   *
+   * Check an expert's saved UPI ID now (Cashfree, then Razorpay if switched
+   * on) — for ids saved while verification was off. Records the registered
+   * name when it exists; clears the verified mark when the id is not found;
+   * changes nothing when the provider cannot be reached.
+   */
+  app.post("/api/admin/servicemen/:id/upi/verify", async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) return res.status(400).json({ success: false, message: "Invalid employee id" });
+      const [emp] = await db.select({ id: employees.id, upiId: employees.upiId }).from(employees).where(eq(employees.id, id)).limit(1);
+      if (!emp) return res.status(404).json({ success: false, message: "Expert not found" });
+      if (!emp.upiId) return res.status(400).json({ success: false, message: "This expert has not saved a UPI ID." });
+      const { UpiValidationService } = await import("./services/upi-validation.service");
+      const v = await UpiValidationService.verify(emp.upiId);
+      if (v.status === "unverified") {
+        return res.status(502).json({ success: false, message: `Could not check right now: ${v.reason ?? "the payment provider did not answer"}. Nothing was changed.` });
+      }
+      await db.update(employees).set({
+        upiVerifiedAt: v.status === "valid" ? new Date() : null,
+        upiVerifiedName: v.status === "valid" ? (v.customerName ?? null) : null,
+        updatedAt: new Date(),
+      }).where(eq(employees.id, id));
+      await recordAudit({ entityType: "employee", entityId: id, action: v.status === "valid" ? "upi_verified" : "upi_not_found", changedBy: (req as any).admin?.userId ?? null, metadata: { registeredName: v.customerName ?? null } });
+      res.json({
+        success: true,
+        message: v.status === "valid"
+          ? `Verified${v.customerName ? ` — registered to ${v.customerName}` : ""}.`
+          : "No such UPI ID. Ask the expert to copy it again from their payment app.",
+        data: { status: v.status, upiVerifiedName: v.customerName ?? null },
+      });
+    } catch (e) { next(e); }
+  });
+
   app.get("/api/admin/servicemen/:id/detail", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);

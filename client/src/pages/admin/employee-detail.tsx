@@ -16,7 +16,9 @@
 
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Star, Lock, Wallet, Briefcase, Banknote } from "lucide-react";
@@ -170,9 +172,10 @@ export default function EmployeeDetailPage() {
               Not verified — nobody has confirmed this UPI ID exists.
             </p>
           )}
+          {e.upiId && <UpiVerifyButton employeeId={e.id} verified={!!e.upiVerifiedAt} />}
           {e.hasPayoutDestination && !e.payoutAutomationReady && (
             <p className="text-[hsl(215,20%,60%)]">
-              No RazorpayX fund account — payouts must be settled manually with a proof screenshot.
+              Not registered with Cashfree yet — UniteFix registers them on their first approved payout.
             </p>
           )}
         </CardContent>
@@ -344,6 +347,26 @@ function Restricted({ need }: { need: string }) {
     <div className="flex items-center gap-2 text-sm text-[hsl(215,20%,60%)] py-4">
       <Lock className="w-4 h-4" />
       <span>Your role can't see this. It needs {need} access.</span>
+    </div>
+  );
+}
+
+/** Check the saved UPI ID with the payment provider now (for ids saved before verification was on). */
+function UpiVerifyButton({ employeeId, verified }: { employeeId: number; verified: boolean }) {
+  const qc = useQueryClient();
+  const [state, setState] = useState<{ busy: boolean; ok?: boolean; text?: string }>({ busy: false });
+  const run = async () => {
+    setState({ busy: true });
+    try {
+      const r: any = await apiRequest("POST", `/api/admin/servicemen/${employeeId}/upi/verify`, {});
+      setState({ busy: false, ok: r?.data?.status === "valid", text: r?.message });
+      qc.invalidateQueries({ queryKey: [`/api/admin/servicemen/${employeeId}/detail`] });
+    } catch (err) { setState({ busy: false, ok: false, text: apiErrorMessage(err) }); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-1">
+      <Button size="sm" variant="outline" onClick={run} disabled={state.busy}>{state.busy ? "Checking…" : verified ? "Check again" : "Verify now"}</Button>
+      {state.text && <span className={`text-xs ${state.ok ? "text-[hsl(160,84%,65%)]" : "text-[hsl(38,92%,65%)]"}`}>{state.text}</span>}
     </div>
   );
 }

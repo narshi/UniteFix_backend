@@ -60,7 +60,8 @@
     "smoke:account-deletion": "tsx scripts/smoke-account-deletion.ts",
     "smoke:news": "tsx scripts/smoke-news.ts",
     "smoke:domains": "tsx scripts/smoke-domains.ts",
-    "smoke:cashfree": "tsx scripts/smoke-cashfree.ts"
+    "smoke:cashfree": "tsx scripts/smoke-cashfree.ts",
+    "smoke:upi-verify": "tsx scripts/smoke-upi-verify.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

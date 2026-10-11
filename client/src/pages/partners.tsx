@@ -483,8 +483,8 @@ export default function PartnersPage() {
                               className="bg-[rgba(255,255,255,0.05)] text-[hsl(215,20%,70%)] border-[rgba(255,255,255,0.12)] text-[10px] mr-1"
                               title={
                                 partner.upiVerifiedName
-                                  ? `UPI verified — registered to ${partner.upiVerifiedName}. RazorpayX has no fund account, so payouts are settled manually with a proof screenshot.`
-                                  : "Payout details saved, but RazorpayX has no fund account for them. They can still request a payout — it has to be settled manually with a proof screenshot."
+                                  ? `UPI verified — registered to ${partner.upiVerifiedName}. Registered with Cashfree on their first approved payout.`
+                                  : "Payout details saved, not yet registered with Cashfree. They can still request a payout — it has to be settled manually with a proof screenshot."
                               }
                             >
                               Manual payout only

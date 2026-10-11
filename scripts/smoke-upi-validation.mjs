@@ -160,8 +160,10 @@ try {
     // it is recorded as UNVERIFIED rather than falsely confirmed, and no
     // partner is blocked from being paid.
     r = await req('POST', '/api/partner/profile/upi/validate', { token, body: { upiId: 'success@razorpay' } });
-    check('VPA validation is switched OFF, and says so honestly',
-        r.json?.data?.status === 'unverified' && /not switched on/i.test(r.json?.data?.reason ?? ''),
+    // With Cashfree keys present the check goes to Cashfree first; whichever
+    // provider could not answer, the reason must say so plainly.
+    check('when nobody can check the id, it says so honestly',
+        r.json?.data?.status === 'unverified' && /not switched on|could not reach|not enabled|refused|not configured/i.test(r.json?.data?.reason ?? ''),
         );
 
     r = await req('PUT', '/api/partner/profile/upi', { token, body: { upiId: 'success@razorpay' } });

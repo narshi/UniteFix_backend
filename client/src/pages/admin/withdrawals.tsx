@@ -146,12 +146,12 @@ export default function WithdrawalsPage() {
   });
 
   /**
-   * Reconcile a payout against RazorpayX.
+   * Reconcile a payout against Cashfree.
    *
    * A request only leaves 'processing' when the payout.processed webhook lands.
    * If that webhook is failing, successful payouts sit here indefinitely and a
    * reversed payout never returns the money to the partner's wallet. This asks
-   * RazorpayX directly and applies the real outcome.
+   * Cashfree directly and applies the real outcome.
    */
   const syncMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -340,7 +340,7 @@ export default function WithdrawalsPage() {
                             variant="outline"
                             disabled={!w.request.razorpayPayoutId || syncingId === w.request.id}
                             title={w.request.razorpayPayoutId
-                              ? "Ask RazorpayX for the real payout status"
+                              ? "Ask Cashfree for the real payout status"
                               : "No payout id recorded for this request"}
                             className="bg-[hsla(217,91%,60%,0.1)] text-[hsl(217,91%,70%)] hover:bg-[hsla(217,91%,60%,0.2)] border-[hsla(217,91%,60%,0.3)] transition-colors disabled:opacity-40"
                             onClick={() => {
@@ -348,7 +348,7 @@ export default function WithdrawalsPage() {
                               syncMutation.mutate(w.request.id);
                             }}
                           >
-                            {syncingId === w.request.id ? "Checking…" : "Sync with RazorpayX"}
+                            {syncingId === w.request.id ? "Checking…" : "Sync with Cashfree"}
                           </Button>
                         )}
                         {w.request.paymentProofUrl && (

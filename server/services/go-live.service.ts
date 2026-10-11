@@ -63,6 +63,9 @@ export class GoLiveService {
                         ? { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'action', detail: 'Live Payouts keys present, but no public key. Cashfree refuses live calls from an address it has not whitelisted, and Render’s outgoing address is not fixed.', fix: `Cashfree Payouts → Developers → Two-Factor Authentication → Public Key → paste it into ${P.key}. Then "Test connection".` }
                         : { key: 'cashfree_payouts', area: 'Money', label: payLabel, status: 'ok', detail: 'Live Payouts keys and public key present. Use "Test connection" to confirm Cashfree accepts them.' });
         }
+        add(cashfreeKeys()
+            ? { key: 'upi_verify', area: 'Money', label: 'Expert UPI ID verification', status: cashfreeLive() ? 'ok' : 'action', detail: cashfreeLive() ? 'Checked with Cashfree Payouts: experts see whose name a UPI ID is registered to before saving it.' : 'Uses Cashfree Payouts, which is still on its test system.', fix: 'CASHFREE_ENVIRONMENT=PROD with the live Payouts keys.' }
+            : { key: 'upi_verify', area: 'Money', label: 'Expert UPI ID verification', status: 'action', detail: 'Off — UPI IDs save as "not verified", and staff confirm them by hand before paying.', fix: 'Connect Cashfree Payouts (it verifies UPI IDs with the same keys).' });
         add(has('CASHFREE_VERIFICATION_CLIENT_ID', 'CASHFREE_VERIFICATION_CLIENT_SECRET')
             ? { key: 'cashfree_verify', area: 'Money', label: 'Bank / PAN / GSTIN verification', status: 'ok', detail: 'Cashfree Verification keys present.' }
             : { key: 'cashfree_verify', area: 'Money', label: 'Bank / PAN / GSTIN verification', status: 'action', detail: 'Not connected — partner bank accounts and GSTINs are checked by format only, and staff verify by hand.', fix: 'CASHFREE_VERIFICATION_CLIENT_ID / _SECRET (Cashfree Secure ID).' });
