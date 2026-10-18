@@ -92,10 +92,10 @@ function TestPayout() {
         {to === "upi"
           ? <Input id="tp-upi" aria-label="UPI ID" placeholder="name@okhdfcbank" value={f.upiId} onChange={e => { setF({ ...f, upiId: e.target.value }); setConfirming(false); }} />
           : <>
-              <Input id="tp-acc" aria-label="Bank account number" inputMode="numeric" placeholder="Account number" value={f.bankAccount} onChange={e => { setF({ ...f, bankAccount: e.target.value.replace(/s/g, "") }); setConfirming(false); }} />
+              <Input id="tp-acc" aria-label="Bank account number" inputMode="numeric" placeholder="Account number" value={f.bankAccount} onChange={e => { setF({ ...f, bankAccount: e.target.value.replace(/\s/g, "") }); setConfirming(false); }} />
               <Input id="tp-ifsc" aria-label="IFSC" placeholder="IFSC" value={f.ifsc} onChange={e => { setF({ ...f, ifsc: e.target.value.toUpperCase() }); setConfirming(false); }} />
             </>}
-        <Input id="tp-amt" aria-label="Amount in rupees" inputMode="numeric" placeholder="1" value={f.amount} onChange={e => { setF({ ...f, amount: e.target.value.replace(/[^d]/g, "") }); setConfirming(false); }} />
+        <Input id="tp-amt" aria-label="Amount in rupees" inputMode="numeric" placeholder="1" value={f.amount} onChange={e => { setF({ ...f, amount: e.target.value.replace(/[^\d]/g, "") }); setConfirming(false); }} />
       </div>
       {!confirming
         ? <Button size="sm" onClick={() => setConfirming(true)} disabled={busy || !f.name.trim() || !(to === "upi" ? f.upiId.trim() : f.bankAccount && f.ifsc) || !(Number(f.amount) >= 1 && Number(f.amount) <= 10)}>Review test payout</Button>
