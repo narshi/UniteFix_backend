@@ -51,6 +51,66 @@ export function registerAdminWithdrawalRoutes(app: Express) {
         }
     });
 
+    /**
+     * A real test payout of ₹1–₹10 to a UPI ID or bank account a super admin
+     * names — through the same Cashfree calls a withdrawal uses (register the
+     * beneficiary, send the transfer, read its status), without touching any
+     * wallet or withdrawal record. For proving payouts work on production.
+     */
+    app.post("/api/admin/withdrawals/cashfree-test-payout", authenticateAdmin, async (req: Request, res: Response) => {
+        const admin = (req as any).admin;
+        if (!admin?.isSuperAdmin) return res.status(403).json({ success: false, message: "Only a super admin can send a test payout." });
+        const b = req.body ?? {};
+        const amount = Number(b.amount ?? 1);
+        if (!(amount >= 1 && amount <= 10) || Math.round(amount * 100) !== amount * 100) {
+            return res.status(400).json({ success: false, message: "A test payout is ₹1 to ₹10." });
+        }
+        const name = String(b.name ?? '').trim();
+        if (name.length < 2) return res.status(400).json({ success: false, message: "Enter the account holder's name." });
+        const vpa = String(b.upiId ?? '').trim().toLowerCase();
+        const bankAccount = String(b.bankAccount ?? '').replace(/\s+/g, '');
+        const ifsc = String(b.ifsc ?? '').trim().toUpperCase();
+        const toBank = !!(bankAccount || ifsc);
+        if (toBank) {
+            if (!/^\d{9,18}$/.test(bankAccount)) return res.status(400).json({ success: false, message: "Bank account number: 9 to 18 digits." });
+            if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) return res.status(400).json({ success: false, message: "That IFSC is not valid — 4 letters, a zero, then 6 letters or digits." });
+        } else if (!/^[a-z0-9._-]{2,256}@[a-z][a-z0-9.-]{1,64}$/.test(vpa)) {
+            return res.status(400).json({ success: false, message: "Enter a UPI ID like name@okhdfcbank, or a bank account and IFSC." });
+        }
+        // One beneficiary per destination, so repeating a test reuses it.
+        const crypto = await import('crypto');
+        const dest = toBank ? `${bankAccount}:${ifsc}` : vpa;
+        const beneId = `uftest_${crypto.createHash('sha256').update(dest).digest('hex').slice(0, 16)}`;
+        const transferId = `UFTEST_${Date.now().toString(36).toUpperCase()}`;
+        try {
+            await CashfreeService.addBeneficiary({
+                beneId, name, email: 'payouts-test@unitefix.com', phone: String(b.phone ?? '9999999999'),
+                ...(toBank ? { bankAccount, ifsc } : { vpa }),
+            });
+            const p = await CashfreeService.createPayout(beneId, amount, transferId, 'UniteFix test payout');
+            let status: any = null;
+            try { status = await CashfreeService.fetchPayoutStatus(p.transferId); } catch { /* checked again below */ }
+            await recordAudit({ entityType: 'config', entityId: 0, action: 'cashfree_test_payout', changedBy: admin.userId, metadata: { amount, mode: toBank ? 'bank' : 'upi', transferId: p.transferId, beneId } });
+            logger.info(`[CASHFREE] test payout ${p.transferId} ₹${amount} via ${toBank ? 'bank' : 'upi'} by admin ${admin.userId}`);
+            res.json({ success: true, message: `Sent ₹${amount} to Cashfree.`, data: { transferId: p.transferId, status: status?.status ?? 'processing', providerStatus: status?.providerStatus ?? null, utr: status?.utr ?? p.utr ?? null, reason: status?.failureReason ?? null } });
+        } catch (e: any) {
+            logger.error(`[CASHFREE] test payout failed: ${e?.message}`);
+            res.status(502).json({ success: false, message: e?.message ?? 'Test payout failed' });
+        }
+    });
+
+    app.get("/api/admin/withdrawals/cashfree-test-payout/:transferId", authenticateAdmin, async (req: Request, res: Response) => {
+        if (!(req as any).admin?.isSuperAdmin) return res.status(403).json({ success: false, message: "Only a super admin can check a test payout." });
+        const id = String(req.params.transferId);
+        if (!/^UFTEST_[A-Z0-9]+$/.test(id)) return res.status(400).json({ success: false, message: "Not a test payout." });
+        try {
+            const s = await CashfreeService.fetchPayoutStatus(id);
+            res.json({ success: true, data: { transferId: id, status: s.status, providerStatus: s.providerStatus, utr: s.utr, reason: s.failureReason ?? null } });
+        } catch (e: any) {
+            res.status(502).json({ success: false, message: e?.message ?? 'Status check failed' });
+        }
+    });
+
     app.get("/api/admin/withdrawals", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const listOptions = { defaultSort: 'createdAt', sortable: WITHDRAWAL_SORTABLE };

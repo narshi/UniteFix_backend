@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 
 type Check = { key: string; area: string; label: string; status: "ok" | "action" | "info"; detail: string; fix?: string };
@@ -36,6 +37,69 @@ function CashfreeCheck() {
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <Button size="sm" variant="outline" onClick={run} disabled={state.busy}>{state.busy ? "Connecting…" : "Test connection"}</Button>
       {state.text && <span className={`text-xs ${state.ok ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>{state.text}</span>}
+    </div>
+  );
+}
+
+/**
+ * A real ₹1–₹10 transfer through Cashfree to an account you name — the same
+ * calls a withdrawal makes, with no wallet involved. Asks to confirm first.
+ */
+function TestPayout() {
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState<"upi" | "bank">("upi");
+  const [f, setF] = useState({ name: "", upiId: "", bankAccount: "", ifsc: "", amount: "1" });
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; transferId?: string } | null>(null);
+  const describe = (d: any) => `${d.transferId}: ${d.status === "processed" ? "money sent" : d.status === "processing" ? "on its way (Cashfree: " + (d.providerStatus ?? "PENDING") + ")" : d.status + (d.reason ? " — " + d.reason : "")}${d.utr ? ` · UTR ${d.utr}` : ""}`;
+  const send = async () => {
+    setBusy(true); setResult(null);
+    try {
+      const body = to === "upi" ? { name: f.name, upiId: f.upiId, amount: Number(f.amount) } : { name: f.name, bankAccount: f.bankAccount, ifsc: f.ifsc, amount: Number(f.amount) };
+      const r: any = await apiRequest("POST", "/api/admin/withdrawals/cashfree-test-payout", body);
+      setResult({ ok: r.data.status !== "failed", text: describe(r.data), transferId: r.data.transferId });
+    } catch (e) { setResult({ ok: false, text: apiErrorMessage(e) }); }
+    finally { setBusy(false); setConfirming(false); }
+  };
+  const check = async () => {
+    if (!result?.transferId) return;
+    setBusy(true);
+    try { const r: any = await apiRequest("GET", `/api/admin/withdrawals/cashfree-test-payout/${result.transferId}`); setResult({ ok: r.data.status !== "failed", text: describe(r.data), transferId: r.data.transferId }); }
+    catch (e) { setResult({ ...result, ok: false, text: apiErrorMessage(e) }); }
+    finally { setBusy(false); }
+  };
+  if (!open) return <Button size="sm" variant="ghost" className="mt-1 px-0 text-xs underline" onClick={() => setOpen(true)}>Send a test payout…</Button>;
+  const dest = to === "upi" ? f.upiId : `account ${f.bankAccount} (${f.ifsc})`;
+  return (
+    <div className="mt-3 space-y-2 rounded-md border p-3">
+      <p className="text-xs text-muted-foreground">Sends real money (₹1–₹10) through Cashfree to the account below — the same steps a withdrawal takes, without touching any wallet. Use your own account.</p>
+      <div className="flex gap-1">
+        {(["upi", "bank"] as const).map(k => <Button key={k} size="sm" variant={to === k ? "default" : "outline"} onClick={() => { setTo(k); setConfirming(false); }}>{k === "upi" ? "UPI ID" : "Bank account"}</Button>)}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input id="tp-name" aria-label="Account holder's name" placeholder="Account holder's name" value={f.name} onChange={e => { setF({ ...f, name: e.target.value }); setConfirming(false); }} />
+        {to === "upi"
+          ? <Input id="tp-upi" aria-label="UPI ID" placeholder="name@okhdfcbank" value={f.upiId} onChange={e => { setF({ ...f, upiId: e.target.value }); setConfirming(false); }} />
+          : <>
+              <Input id="tp-acc" aria-label="Bank account number" inputMode="numeric" placeholder="Account number" value={f.bankAccount} onChange={e => { setF({ ...f, bankAccount: e.target.value.replace(/s/g, "") }); setConfirming(false); }} />
+              <Input id="tp-ifsc" aria-label="IFSC" placeholder="IFSC" value={f.ifsc} onChange={e => { setF({ ...f, ifsc: e.target.value.toUpperCase() }); setConfirming(false); }} />
+            </>}
+        <Input id="tp-amt" aria-label="Amount in rupees" inputMode="numeric" placeholder="1" value={f.amount} onChange={e => { setF({ ...f, amount: e.target.value.replace(/[^d]/g, "") }); setConfirming(false); }} />
+      </div>
+      {!confirming
+        ? <Button size="sm" onClick={() => setConfirming(true)} disabled={busy || !f.name.trim() || !(to === "upi" ? f.upiId.trim() : f.bankAccount && f.ifsc) || !(Number(f.amount) >= 1 && Number(f.amount) <= 10)}>Review test payout</Button>
+        : <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span>Send <b>₹{f.amount}</b> to <b>{f.name}</b>, {dest}?</span>
+            <Button size="sm" onClick={send} disabled={busy}>{busy ? "Sending…" : `Send ₹${f.amount}`}</Button>
+            <Button size="sm" variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
+          </div>}
+      {result && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-xs ${result.ok ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>{result.text}</span>
+          {result.transferId && <Button size="sm" variant="outline" onClick={check} disabled={busy}>Check status</Button>}
+        </div>
+      )}
     </div>
   );
 }
@@ -70,7 +134,7 @@ export default function GoLivePage() {
                   <p className="font-medium">{c.label}</p>
                   <p className="text-muted-foreground">{c.detail}</p>
                   {c.fix && c.status !== "ok" && <p className="mt-1 text-xs"><span className="font-medium">How: </span>{c.fix}</p>}
-                  {c.key === "cashfree_payouts" && <CashfreeCheck />}
+                  {c.key === "cashfree_payouts" && <><CashfreeCheck /><TestPayout /></>}
                 </div>
               </li>
             ))}</ul>
