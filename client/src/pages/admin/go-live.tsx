@@ -41,6 +41,7 @@ function CashfreeCheck() {
         <div className="w-full rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
           <p className="font-medium text-foreground">What the server is using</p>
           <p>Client ID: <code>{state.using.clientId ?? "none"}</code> from <code>{state.using.clientIdVar ?? "—"}</code>{state.using.clientIdLooksTest ? " — this looks like a TEST key" : ""}</p>
+          <p>Server's outgoing IP right now: <code>{state.using.outboundIp ?? "unknown"}</code> — Render can change it on any deploy or restart, so an IP whitelist on Cashfree breaks; the public key method does not.</p>
           <p>Public key ending: <code>…{state.using.publicKeyEnding ?? "none"}</code> from <code>{state.using.publicKeyVar ?? "—"}</code></p>
           {state.using.oldNamesAlsoSet?.length > 0 && <p>Older variables still set on Render: {state.using.oldNamesAlsoSet.join(", ")} (used only when the CASHFREE_PAYOUTS_ ones are empty).</p>}
           <p>Compare: the Client ID with Cashfree → Payouts (Production) → Developers → API Keys, and the key ending with the last line of the public key file you downloaded.</p>

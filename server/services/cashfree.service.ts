@@ -62,7 +62,7 @@ export interface CashfreeCheck {
     v1: { ok: boolean; message: string; balance?: number | null; available?: number | null };
     v2: { ok: boolean; message: string };
     /** Which keys the server is using (masked) — to compare with the Cashfree dashboard. */
-    using: ReturnType<typeof cashfreeDiagnostics>;
+    using: ReturnType<typeof cashfreeDiagnostics> & { outboundIp: string | null };
 }
 
 export interface PayoutResult {
@@ -211,11 +211,19 @@ export class CashfreeService {
      * A read-only connection check: authorize, then GET /getBalance. Moves no
      * money and touches no beneficiary — safe to run against production.
      */
+    /** The IP this server reaches the internet from right now — what Cashfree checks against its whitelist. */
+    static async outboundIp(): Promise<string | null> {
+        try {
+            const r = await axios.get('https://api.ipify.org', { params: { format: 'json' }, timeout: 5000 });
+            return typeof r.data?.ip === 'string' ? r.data.ip : null;
+        } catch { return null; }
+    }
+
     static async check(): Promise<CashfreeCheck> {
         const { clientId, clientSecret } = this.credentials();
         const environment = cashfreeLive() ? 'PROD' : 'TEST';
         const signature = this.signature(clientId);
-        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' }, using: cashfreeDiagnostics() };
+        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' }, using: { ...cashfreeDiagnostics(), outboundIp: await this.outboundIp() } };
 
         // v1 — sign-in and balance only (transfers moved to v2).
         try {
