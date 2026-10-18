@@ -62,7 +62,8 @@
     "smoke:domains": "tsx scripts/smoke-domains.ts",
     "smoke:cashfree": "tsx scripts/smoke-cashfree.ts",
     "smoke:upi-verify": "tsx scripts/smoke-upi-verify.ts",
-    "smoke:test-payout": "tsx scripts/smoke-test-payout.ts"
+    "smoke:test-payout": "tsx scripts/smoke-test-payout.ts",
+    "smoke:cashfree-v2": "tsx scripts/smoke-cashfree-v2.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

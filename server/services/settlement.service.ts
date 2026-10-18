@@ -117,14 +117,13 @@ export class SettlementService {
 
         if (how.method === 'cashfree' && run.payoutPaise > 0) {
             try {
-                const beneId = bp.cashfreeBeneId || `BP${bp.id}`;
-                if (!bp.cashfreeBeneId) {
-                    await CashfreeService.addBeneficiary({
-                        beneId, name: bp.beneficiaryName || bp.legalName, email: bp.contactEmail || `${bp.partnerCode.toLowerCase()}@partners.unitefix.in`,
-                        phone: bp.contactPhone, bankAccount: bp.bankAccountNumber!, ifsc: bp.bankIfsc!, address1: bp.address ?? undefined,
-                    });
-                    await db.update(businessPartners).set({ cashfreeBeneId: beneId }).where(eq(businessPartners.id, bp.id));
-                }
+                // Always make sure Cashfree has this account as it stands now; the id
+                // comes from the account itself, so a changed account gets a new one.
+                const beneId = await CashfreeService.addBeneficiary({
+                    name: bp.beneficiaryName || bp.legalName, email: bp.contactEmail || `${bp.partnerCode.toLowerCase()}@partners.unitefix.in`,
+                    phone: bp.contactPhone, bankAccount: bp.bankAccountNumber!, ifsc: bp.bankIfsc!, address1: bp.address ?? undefined,
+                });
+                if (bp.cashfreeBeneId !== beneId) await db.update(businessPartners).set({ cashfreeBeneId: beneId }).where(eq(businessPartners.id, bp.id));
                 const r = await CashfreeService.createPayout(beneId, run.payoutPaise / 100, run.runCode, 'settlement');
                 reference = r.utr ?? r.referenceId ?? run.runCode;
                 status = r.utr ? 'paid' : 'processing';

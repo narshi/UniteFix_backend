@@ -21,22 +21,31 @@ const LABEL: Record<Check["status"], string> = { ok: "Ready", action: "To do", i
 
 /** Signs in to Cashfree Payouts and reads the balance — moves no money. */
 function CashfreeCheck() {
-  const [state, setState] = useState<{ busy: boolean; ok?: boolean; text?: string }>({ busy: false });
+  const [state, setState] = useState<{ busy: boolean; ok?: boolean; text?: string; using?: any }>({ busy: false });
   const run = async () => {
     setState({ busy: true });
     try {
       const d = (await apiRequest("GET", "/api/admin/withdrawals/cashfree-check")).data;
       const rs = (n: number | null | undefined) => (n == null ? "—" : `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`);
       const env = d.environment === "PROD" ? "live" : "test";
-      const v1 = d.v1.ok ? `payouts work (balance ${rs(d.v1.balance)}, available ${rs(d.v1.available)})` : `payouts API refused: ${d.v1.message}`;
-      const v2 = d.v2.ok ? "the newer v2 API accepts the keys too" : `v2 API: ${d.v2.message}`;
-      setState({ busy: false, ok: d.v1.ok, text: `Cashfree ${env}${d.signed ? ", signed with your public key" : ""} — ${v1}; ${v2}.` });
+      const v2 = d.v2.ok ? "payouts (v2) accept the keys" : `payouts (v2) refused: ${d.v2.message}`;
+      const v1 = d.v1.ok ? `balance ${rs(d.v1.balance)}, available ${rs(d.v1.available)}` : "balance not available";
+      setState({ busy: false, ok: d.v2.ok, text: `Cashfree ${env}${d.signed ? ", signed with your public key" : ""} — ${v2}; ${v1}.`, using: d.using });
     } catch (e) { setState({ busy: false, ok: false, text: apiErrorMessage(e) }); }
   };
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <Button size="sm" variant="outline" onClick={run} disabled={state.busy}>{state.busy ? "Connecting…" : "Test connection"}</Button>
       {state.text && <span className={`text-xs ${state.ok ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>{state.text}</span>}
+      {state.using && (
+        <div className="w-full rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">What the server is using</p>
+          <p>Client ID: <code>{state.using.clientId ?? "none"}</code> from <code>{state.using.clientIdVar ?? "—"}</code>{state.using.clientIdLooksTest ? " — this looks like a TEST key" : ""}</p>
+          <p>Public key ending: <code>…{state.using.publicKeyEnding ?? "none"}</code> from <code>{state.using.publicKeyVar ?? "—"}</code></p>
+          {state.using.oldNamesAlsoSet?.length > 0 && <p>Older variables still set on Render: {state.using.oldNamesAlsoSet.join(", ")} (used only when the CASHFREE_PAYOUTS_ ones are empty).</p>}
+          <p>Compare: the Client ID with Cashfree → Payouts (Production) → Developers → API Keys, and the key ending with the last line of the public key file you downloaded.</p>
+        </div>
+      )}
     </div>
   );
 }

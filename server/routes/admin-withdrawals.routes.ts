@@ -77,14 +77,11 @@ export function registerAdminWithdrawalRoutes(app: Express) {
         } else if (!/^[a-z0-9._-]{2,256}@[a-z][a-z0-9.-]{1,64}$/.test(vpa)) {
             return res.status(400).json({ success: false, message: "Enter a UPI ID like name@okhdfcbank, or a bank account and IFSC." });
         }
-        // One beneficiary per destination, so repeating a test reuses it.
-        const crypto = await import('crypto');
-        const dest = toBank ? `${bankAccount}:${ifsc}` : vpa;
-        const beneId = `uftest_${crypto.createHash('sha256').update(dest).digest('hex').slice(0, 16)}`;
         const transferId = `UFTEST_${Date.now().toString(36).toUpperCase()}`;
         try {
-            await CashfreeService.addBeneficiary({
-                beneId, name, email: 'payouts-test@unitefix.com', phone: String(b.phone ?? '9999999999'),
+            // The same destination always reuses its beneficiary.
+            const beneId = await CashfreeService.addBeneficiary({
+                name, email: 'payouts-test@unitefix.com', phone: String(b.phone ?? '9999999999'),
                 ...(toBank ? { bankAccount, ifsc } : { vpa }),
             });
             const p = await CashfreeService.createPayout(beneId, amount, transferId, 'UniteFix test payout');

@@ -16,7 +16,7 @@ const adminIds: number[] = [];
 const calls: Array<{ fn: string; args: any[] }> = [];
 
 async function main() {
-    (CashfreeService as any).addBeneficiary = async (input: any) => { calls.push({ fn: 'addBeneficiary', args: [input] }); return input.beneId; };
+    (CashfreeService as any).addBeneficiary = async (input: any) => { calls.push({ fn: 'addBeneficiary', args: [input] }); return CashfreeService.beneIdFor(input); };
     (CashfreeService as any).createPayout = async (beneId: string, amount: number, transferId: string, purpose: string) => { calls.push({ fn: 'createPayout', args: [beneId, amount, transferId, purpose] }); return { id: transferId, transferId, referenceId: 'REF1', utr: null, alreadyExisted: false, raw: {} }; };
     let statusReply: any = { status: 'processing', providerStatus: 'PENDING', utr: null, referenceId: 'REF1', raw: {} };
     (CashfreeService as any).fetchPayoutStatus = async (id: string) => { calls.push({ fn: 'fetchPayoutStatus', args: [id] }); return statusReply; };
@@ -45,18 +45,18 @@ async function main() {
         const bene = calls.find(c => c.fn === 'addBeneficiary')?.args[0];
         const pay = calls.find(c => c.fn === 'createPayout')?.args;
         check('₹1 to a UPI ID: beneficiary registered with that UPI ID', r.status === 200 && bene?.vpa === 'ravi@okhdfcbank' && !bene.bankAccount && bene.name === 'Ravi Kumar', JSON.stringify(r.body));
-        check('…then exactly ₹1 sent, on a test transfer id', pay?.[1] === 1 && /^UFTEST_[A-Z0-9]+$/.test(pay?.[2]) && pay?.[0] === bene.beneId);
+        check('…then exactly ₹1 sent, on a test transfer id', pay?.[1] === 1 && /^UFTEST_[A-Z0-9]+$/.test(pay?.[2]) && pay?.[0] === CashfreeService.beneIdFor(bene));
         check('…and its status read back and shown', r.body?.data?.status === 'processing' && r.body.data.providerStatus === 'PENDING' && r.body.data.transferId === pay?.[2]);
 
         calls.length = 0;
         const r2 = await send({ name: 'Ravi Kumar', upiId: 'ravi@okhdfcbank', amount: 2 });
         const bene2 = calls.find(c => c.fn === 'addBeneficiary')?.args[0];
-        check('the same UPI ID reuses its beneficiary', r2.status === 200 && bene2?.beneId === bene.beneId);
+        check('the same UPI ID reuses its beneficiary', r2.status === 200 && CashfreeService.beneIdFor(bene2) === CashfreeService.beneIdFor(bene));
 
         calls.length = 0;
         const r3 = await send({ name: 'Ravi Kumar', bankAccount: '0262 9180 0001 191', ifsc: 'yesb0000262', amount: 1 });
         const bene3 = calls.find(c => c.fn === 'addBeneficiary')?.args[0];
-        check('₹1 to a bank account: registered with account and IFSC', r3.status === 200 && bene3?.bankAccount === '026291800001191' && bene3.ifsc === 'YESB0000262' && !bene3.vpa && bene3.beneId !== bene.beneId);
+        check('₹1 to a bank account: registered with account and IFSC', r3.status === 200 && bene3?.bankAccount === '026291800001191' && bene3.ifsc === 'YESB0000262' && !bene3.vpa && CashfreeService.beneIdFor(bene3) !== CashfreeService.beneIdFor(bene));
 
         statusReply = { status: 'processed', providerStatus: 'SUCCESS', utr: 'UTR123', referenceId: 'REF1', raw: {} };
         const st = await api.get(`/api/admin/withdrawals/cashfree-test-payout/${r.body.data.transferId}`, S);

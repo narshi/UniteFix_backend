@@ -42,3 +42,26 @@ export function cashfreePublicKey(): string | null {
     const body = pem.replace(/\s+/g, '').match(/.{1,64}/g)?.join('\n') ?? '';
     return `-----BEGIN PUBLIC KEY-----\n${body}\n-----END PUBLIC KEY-----`;
 }
+
+/**
+ * What the server is actually using, safe to show staff: which variables were
+ * read, the Client ID with its middle masked, and the ending of the public key
+ * (public keys all begin the same way; the ending is what tells two apart).
+ * The secret is never included.
+ */
+export function cashfreeDiagnostics() {
+    const pick = (names: string[]) => names.find(n => (process.env[n] ?? '').trim()) ?? null;
+    const idVar = pick([CASHFREE_VARS.id, 'CASHFREE_CLIENT_ID']);
+    const keyVar = pick([CASHFREE_VARS.key, 'CASHFREE_PUBLIC_KEY']);
+    const id = idVar ? process.env[idVar]!.trim() : '';
+    const pem = cashfreePublicKey();
+    const body = pem ? pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '') : '';
+    return {
+        clientIdVar: idVar,
+        clientId: id ? (id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : '…') : null,
+        clientIdLooksTest: /^TEST/i.test(id),
+        publicKeyVar: keyVar,
+        publicKeyEnding: body ? body.slice(-24) : null,
+        oldNamesAlsoSet: ['CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET', 'CASHFREE_PUBLIC_KEY'].filter(n => (process.env[n] ?? '').trim()),
+    };
+}

@@ -6,16 +6,15 @@
  * here; Razorpay itself stays exactly where it is for collections (booking fees,
  * bills, FTTH recharges). Two providers, one direction each.
  *
- * THE SHAPE OF THE API, because it is not what the HTTP layer suggests:
+ * TRANSFERS AND BENEFICIARIES USE PAYOUTS v2 (Cashfree retired v1 for them).
+ * The v1 sign-in (/authorize) and balance remain only for "Test connection".
  *
- *   - Cashfree v1 answers almost everything with HTTP 200 and puts the real
- *     outcome in `status` ("SUCCESS" | "ERROR") plus a `subCode` that carries the
- *     HTTP-like code ("200", "409", "404"...). An axios try/catch alone will
- *     happily treat a rejected transfer as a success. Every call below reads the
- *     body, not the status line.
+ *   - v1 answers almost everything with HTTP 200 and puts the real outcome in
+ *     `status` plus a `subCode`; v2 uses real HTTP statuses. Both are read
+ *     from the body, never from the status line alone.
  *
- *   - The bearer token is short-lived (minutes). It is cached and refreshed on
- *     expiry or on a 403, never fetched per call.
+ *   - The v1 bearer token is short-lived (minutes). It is cached and refreshed
+ *     on expiry or on a 403, never fetched per call.
  *
  *   - `transferId` IS the idempotency key. A repeated id is refused with 409
  *     rather than paid twice, which is the guarantee the RazorpayX path had via
@@ -24,12 +23,10 @@
  *     twice AND does not surface as a failure that tempts someone to try a
  *     third time under a new id.
  *
- *   - A beneficiary cannot be edited. If a partner changes their UPI id, the
- *     registered beneficiary still points at the OLD one, and addBeneficiary
- *     says 409 and leaves it that way. Sync therefore reads the beneficiary
- *     back, compares, and removes-then-re-adds on any difference. Without this a
- *     partner who updated their details keeps being paid to the account they
- *     left.
+ *   - A beneficiary cannot be edited, and v2 refuses a second beneficiary for
+ *     the same bank account. Beneficiary ids are therefore derived from the
+ *     destination (beneIdFor): a partner who changes their UPI ID or account
+ *     gets a new beneficiary, and nobody is ever paid to an account they left.
  *
  * MONEY: Cashfree takes rupees with two decimals. Callers pass rupees. Nothing
  * here converts to paise — the withdrawal amount is already a decimal string
@@ -42,7 +39,7 @@ import { employees, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../lib/logger';
 import crypto from 'crypto';
-import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS } from '../lib/cashfree-env';
+import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS, cashfreeDiagnostics } from '../lib/cashfree-env';
 
 type Employee = typeof employees.$inferSelect;
 
@@ -64,6 +61,8 @@ export interface CashfreeCheck {
     signed: boolean;
     v1: { ok: boolean; message: string; balance?: number | null; available?: number | null };
     v2: { ok: boolean; message: string };
+    /** Which keys the server is using (masked) — to compare with the Cashfree dashboard. */
+    using: ReturnType<typeof cashfreeDiagnostics>;
 }
 
 export interface PayoutResult {
@@ -216,9 +215,9 @@ export class CashfreeService {
         const { clientId, clientSecret } = this.credentials();
         const environment = cashfreeLive() ? 'PROD' : 'TEST';
         const signature = this.signature(clientId);
-        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' } };
+        const out: CashfreeCheck = { environment, signed: !!signature, v1: { ok: false, message: '' }, v2: { ok: false, message: '' }, using: cashfreeDiagnostics() };
 
-        // v1 — what payouts use today: sign in, then read the balance.
+        // v1 — sign-in and balance only (transfers moved to v2).
         try {
             await this.getAuthToken(true);
             const r = await this.call('get', '/getBalance');
@@ -229,24 +228,61 @@ export class CashfreeService {
             out.v1 = { ok: false, message: e?.message ?? 'Failed' };
         }
 
-        // v2 — what Cashfree is moving everyone to: look up a transfer that does
-        // not exist. "Not found" proves the keys and signature are accepted.
+        // v2 — what transfers use: look up a transfer that does not exist.
+        // "Not found" proves the keys and signature are accepted.
         try {
-            const base = environment === 'PROD' ? 'https://api.cashfree.com/payout' : 'https://sandbox.cashfree.com/payout';
-            const res = await axios.get(`${base}/transfers`, {
-                params: { transfer_id: 'uf_connection_probe' }, timeout: 20_000, validateStatus: () => true,
-                headers: { 'x-client-id': clientId, 'x-client-secret': clientSecret, 'x-api-version': '2024-01-01', ...(signature ? { 'x-cf-signature': signature } : {}) },
-            });
-            const d: any = res.data ?? {};
-            const reached = res.status === 200 || (res.status === 404 && d.type !== 'internal_error');
-            out.v2 = reached
-                ? { ok: true, message: 'Keys accepted.' }
-                : { ok: false, message: `HTTP ${res.status}: ${d.message ?? d.code ?? 'no message'}` };
+            const r = await this.v2('get', '/transfers', { params: { transfer_id: 'uf_connection_probe' } });
+            const d: any = r.data ?? {};
+            const reached = r.httpStatus === 200 || (r.httpStatus === 404 && d.type !== 'internal_error');
+            out.v2 = reached ? { ok: true, message: 'Keys accepted.' } : { ok: false, message: `HTTP ${r.httpStatus}: ${d.message ?? d.code ?? 'no message'}` };
         } catch (e: any) {
             out.v2 = { ok: false, message: e?.message ?? 'Failed' };
         }
 
         return out;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Payouts v2 (Cashfree retired v1 transfers: "The payout v1 and v1.2 APIs
+    // have been deprecated. Please use v2 APIs.")
+    //
+    //   - Every call carries x-client-id / x-client-secret / x-api-version and,
+    //     when a public key is set, a fresh x-cf-signature (valid 5 minutes).
+    //   - Answers use real HTTP statuses; errors are { type, code, message }.
+    //   - transfer_id allows letters, digits and underscores only, so ids made
+    //     elsewhere (WDRW-12, DEP-REF-5) are mapped to WDRW_12 / DEP_REF_5 —
+    //     the same mapping on the way in and when looking a transfer up.
+    // ──────────────────────────────────────────────────────────────────────
+
+    private static v2Base(): string {
+        if (!cashfreeEnvValid()) {
+            throw new Error(`CASHFREE_ENVIRONMENT must be PROD (or PRODUCTION) or TEST, got "${process.env.CASHFREE_ENVIRONMENT}".`);
+        }
+        return cashfreeLive() ? 'https://api.cashfree.com/payout' : 'https://sandbox.cashfree.com/payout';
+    }
+
+    private static async v2<T = any>(method: 'get' | 'post' | 'delete', path: string, opts: { params?: Record<string, string>; body?: unknown } = {}): Promise<{ httpStatus: number; data: T }> {
+        const { clientId, clientSecret } = this.credentials();
+        const signature = this.signature(clientId);
+        const res = await axios.request({
+            method, url: `${this.v2Base()}${path}`, params: opts.params, data: opts.body,
+            timeout: 20_000, validateStatus: () => true,
+            headers: {
+                'Content-Type': 'application/json', 'x-api-version': '2024-01-01',
+                'x-client-id': clientId, 'x-client-secret': clientSecret,
+                ...(signature ? { 'x-cf-signature': signature } : {}),
+            },
+        });
+        return { httpStatus: res.status, data: res.data as T };
+    }
+
+    private static v2Reason(data: any, httpStatus: number): string {
+        return data?.message || data?.code || `HTTP ${httpStatus}`;
+    }
+
+    /** Cashfree v2 transfer ids: letters, digits and underscores, up to 40. */
+    static v2TransferId(raw: string): string {
+        return String(raw).replace(/[^A-Za-z0-9_]/g, '_').slice(0, 40);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -267,40 +303,38 @@ export class CashfreeService {
     }
 
     /**
-     * GET /getBeneficiary/{beneId}. Null when Cashfree does not know the id.
-     * Used to detect a registered beneficiary whose details have since changed.
+     * The beneficiary id for a destination: the same bank account (or UPI ID)
+     * always maps to the same id, whoever is being paid. Cashfree v2 refuses a
+     * second beneficiary for an account it already has, and a beneficiary
+     * cannot be edited — so an id tied to the destination, not the person,
+     * never collides and never points at an account someone has left.
+     * Alphanumeric only: UFB… for bank, UFU… for UPI.
      */
-    static async getBeneficiary(beneId: string): Promise<{
-        bankAccount: string | null; ifsc: string | null; vpa: string | null;
-    } | null> {
-        const { httpStatus, data } = await this.call('get', `/getBeneficiary/${encodeURIComponent(beneId)}`);
-        if (httpStatus === 404 || String(data?.subCode) === '404') return null;
-        if (!this.ok(data)) {
-            throw new Error(`Cashfree getBeneficiary failed: ${this.reason(data, httpStatus)}`);
-        }
-        const b = data.data ?? {};
-        return {
-            bankAccount: b.bankAccount ?? null,
-            ifsc: b.ifsc ?? null,
-            vpa: b.vpa ?? null,
-        };
+    static beneIdFor(dest: { bankAccount?: string | null; ifsc?: string | null; vpa?: string | null }): string {
+        const bank = dest.bankAccount && dest.ifsc ? `${dest.bankAccount.replace(/\s+/g, '')}:${dest.ifsc.trim().toUpperCase()}` : null;
+        const key = bank ?? `upi:${String(dest.vpa ?? '').trim().toLowerCase()}`;
+        return `UF${bank ? 'B' : 'U'}${crypto.createHash('sha256').update(key).digest('hex').slice(0, 30).toUpperCase()}`;
     }
 
-    /** POST /removeBeneficiary. A missing beneficiary is not an error here. */
-    static async removeBeneficiary(beneId: string): Promise<void> {
-        const { httpStatus, data } = await this.call('post', '/removeBeneficiary', { beneId });
-        if (httpStatus === 404 || String(data?.subCode) === '404') return;
-        if (!this.ok(data)) {
-            throw new Error(`Cashfree removeBeneficiary failed: ${this.reason(data, httpStatus)}`);
-        }
+    /** GET /beneficiary?beneficiary_id=… — null when Cashfree does not know it. */
+    static async getBeneficiary(beneId: string): Promise<{ beneId: string; bankAccount: string | null; ifsc: string | null; vpa: string | null } | null> {
+        const { httpStatus, data } = await this.v2('get', '/beneficiary', { params: { beneficiary_id: beneId } });
+        if (httpStatus === 404) return null;
+        if (httpStatus !== 200) throw new Error(`Cashfree beneficiary lookup failed: ${this.v2Reason(data, httpStatus)}`);
+        const d: any = data ?? {};
+        const i = d.beneficiary_instrument_details ?? {};
+        return { beneId: d.beneficiary_id ?? beneId, bankAccount: i.bank_account_number ?? null, ifsc: i.bank_ifsc ?? null, vpa: i.vpa ?? null };
     }
 
     /**
-     * POST /addBeneficiary. Returns the beneId. A 409 "already exists" is
-     * success — the caller has already decided the registered details match.
+     * Make sure Cashfree has a beneficiary for this destination, and return
+     * the id to pay. The id comes from the destination (beneIdFor); any
+     * `beneId` passed in is ignored. When Cashfree already holds this bank
+     * account under another id (registered earlier, or by hand on the
+     * dashboard), that id is returned instead.
      */
     static async addBeneficiary(input: {
-        beneId: string;
+        beneId?: string;
         name: string;
         email: string;
         phone: string;
@@ -309,98 +343,74 @@ export class CashfreeService {
         vpa?: string;
         address1?: string;
     }): Promise<string> {
-        const payload: Record<string, string> = {
-            beneId: input.beneId,
-            name: this.beneName(input.name),
-            email: input.email,
-            phone: this.benePhone(input.phone),
-            // Mandatory in v1 even for UPI. Nobody is posting anything to it.
-            address1: (input.address1 || 'Uttara Kannada, Karnataka').slice(0, 150),
-        };
-        if (input.bankAccount && input.ifsc) {
-            payload.bankAccount = input.bankAccount.replace(/\s+/g, '');
-            payload.ifsc = input.ifsc.trim().toUpperCase();
-        } else if (input.vpa) {
-            payload.vpa = input.vpa.trim().toLowerCase();
-        } else {
-            throw new Error('A beneficiary needs a bank account and IFSC, or a UPI id.');
+        const bankAccount = input.bankAccount ? input.bankAccount.replace(/\s+/g, '') : '';
+        const ifsc = input.ifsc ? input.ifsc.trim().toUpperCase() : '';
+        const vpa = input.vpa ? input.vpa.trim().toLowerCase() : '';
+        if (!(bankAccount && ifsc) && !vpa) throw new Error('A beneficiary needs a bank account and IFSC, or a UPI id.');
+        const toBank = !!(bankAccount && ifsc);
+        const beneId = this.beneIdFor(toBank ? { bankAccount, ifsc } : { vpa });
+        const email = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email) ? input.email : 'payouts@unitefix.com';
+
+        const { httpStatus, data } = await this.v2('post', '/beneficiary', {
+            body: {
+                beneficiary_id: beneId,
+                beneficiary_name: this.beneName(input.name),
+                beneficiary_instrument_details: toBank ? { bank_account_number: bankAccount, bank_ifsc: ifsc } : { vpa },
+                beneficiary_contact_details: {
+                    beneficiary_email: email.slice(0, 200),
+                    beneficiary_phone: this.benePhone(input.phone),
+                    beneficiary_country_code: '+91',
+                    beneficiary_address: String(input.address1 || 'Uttara Kannada Karnataka').replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150),
+                },
+            },
+        });
+        if (httpStatus === 200 || httpStatus === 201) return beneId;
+
+        const code = String((data as any)?.code ?? '');
+        if (httpStatus === 409 && code === 'beneficiary_id_already_exists') return beneId;   // same destination, registered before
+        if (httpStatus === 409 && toBank) {
+            // This account is registered under another id — pay that one.
+            const r = await this.v2('get', '/beneficiary', { params: { bank_account_number: bankAccount, bank_ifsc: ifsc } });
+            const existing = (r.data as any)?.beneficiary_id;
+            if (r.httpStatus === 200 && existing) return String(existing);
         }
-
-        const { httpStatus, data } = await this.call('post', '/addBeneficiary', payload);
-
-        if (this.ok(data)) return input.beneId;
-        if (String(data?.subCode) === '409') return input.beneId;   // already registered
-
-        const why = this.reason(data, httpStatus);
-        logger.error(`[CASHFREE] addBeneficiary ${input.beneId} failed: ${why}`);
+        const why = this.v2Reason(data, httpStatus);
+        logger.error(`[CASHFREE] beneficiary ${beneId} not created: ${why}`);
+        if (httpStatus === 409) {
+            throw new Error(`Cashfree beneficiary setup failed: ${why}. This ${toBank ? 'account' : 'UPI ID'} is already registered in Cashfree under another beneficiary — remove it under Payouts → Beneficiaries in the Cashfree dashboard, then try again.`);
+        }
         throw new Error(`Cashfree beneficiary setup failed: ${why}`);
     }
 
     /**
-     * Make sure this partner has a Cashfree beneficiary that matches the payout
-     * details on their profile RIGHT NOW, and return its id.
-     *
-     * Called from two places: the moment a partner saves their UPI id, and the
-     * moment an admin approves a withdrawal. The second is a safety net for the
-     * first — if the profile sync failed or was skipped, the approval still
-     * cannot pay an unregistered partner.
-     *
-     * Bank account is preferred over UPI when both are present, matching the
-     * RazorpayX behaviour this replaces so nobody's payout route changes under
-     * them during the migration.
+     * The beneficiary for this partner's payout details as they are RIGHT NOW,
+     * and its id. Bank account is preferred over UPI when both are present.
+     * Called when a partner saves their UPI ID and again when a payout is
+     * approved, so an approval can never pay a partner who was not set up.
      */
     static async syncEmployeeForPayouts(employee: Employee): Promise<string> {
-        const beneId = `EMP-${employee.id}`;
-
         const hasBank = !!(employee.bankAccountNumber && employee.bankIfsc);
         const hasUpi = !!employee.upiId;
         if (!hasBank && !hasUpi) {
             throw new Error('No bank account or UPI id on file for this partner.');
         }
+        const [user] = await db.select({
+            email: users.email, phone: users.phone, username: users.username, homeAddress: users.homeAddress,
+        }).from(users).where(eq(users.id, employee.userId)).limit(1);
 
-        const wantBank = hasBank ? employee.bankAccountNumber!.replace(/\s+/g, '') : null;
-        const wantIfsc = hasBank ? employee.bankIfsc!.trim().toUpperCase() : null;
-        const wantVpa = !hasBank && hasUpi ? employee.upiId!.trim().toLowerCase() : null;
+        const beneId = await this.addBeneficiary({
+            name: employee.fullName || user?.username || 'Service Provider',
+            email: user?.email || `partner-${employee.id}@unitefix.in`,
+            phone: user?.phone || '',
+            ...(hasBank ? { bankAccount: employee.bankAccountNumber!, ifsc: employee.bankIfsc! } : { vpa: employee.upiId! }),
+            address1: user?.homeAddress ?? undefined,
+        });
 
-        // What Cashfree has for this partner, if anything.
-        const existing = await this.getBeneficiary(beneId);
-
-        const matches = !!existing && (wantBank
-            ? (existing.bankAccount ?? '') === wantBank && (existing.ifsc ?? '').toUpperCase() === wantIfsc
-            : (existing.vpa ?? '').toLowerCase() === wantVpa);
-
-        if (existing && !matches) {
-            // Details changed. Cashfree cannot edit a beneficiary, so it is
-            // remove-then-add or keep paying the old account forever.
-            logger.info(`[CASHFREE] Beneficiary ${beneId} details changed — re-registering`);
-            await this.removeBeneficiary(beneId);
-        }
-
-        if (!existing || !matches) {
-            const [user] = await db.select({
-                email: users.email, phone: users.phone, username: users.username, homeAddress: users.homeAddress,
-            }).from(users).where(eq(users.id, employee.userId)).limit(1);
-
-            await this.addBeneficiary({
-                beneId,
-                name: employee.fullName || user?.username || 'Service Provider',
-                email: user?.email || `partner-${employee.id}@unitefix.in`,
-                phone: user?.phone || '',
-                bankAccount: wantBank ?? undefined,
-                ifsc: wantIfsc ?? undefined,
-                vpa: wantVpa ?? undefined,
-                address1: user?.homeAddress ?? undefined,
-            });
-        }
-
-        // Registered and matching — or just made so. Record it if the column has
-        // not caught up, which also covers a beneficiary registered by hand.
         if (employee.cashfreeBeneId !== beneId) {
             await db.update(employees)
                 .set({ cashfreeBeneId: beneId, updatedAt: new Date() })
                 .where(eq(employees.id, employee.id));
         }
-
         return beneId;
     }
 
@@ -409,16 +419,17 @@ export class CashfreeService {
     // ──────────────────────────────────────────────────────────────────────
 
     /**
-     * POST /requestTransfer.
+     * POST /transfers.
      *
-     * `transferId` is the idempotency key. Cashfree refuses a repeat with 409,
-     * and that refusal is returned as a success carrying the ORIGINAL transfer,
-     * so a double-clicked or retried approval reports "already sent" instead of
-     * either paying twice or failing in a way that invites a third attempt.
+     * `transferId` is the idempotency key: a repeat is refused with 409, and
+     * that refusal returns the ORIGINAL transfer as "already sent", so a
+     * retried approval neither pays twice nor fails in a way that invites a
+     * third try. On a 5xx or a timeout Cashfree says not to send again; the
+     * transfer is looked up, and if Cashfree cannot say, it is reported as in
+     * progress — never as failed, because a "failed" refunds the wallet and
+     * the money may already be on its way.
      *
-     * Mode is IMPS for a bank beneficiary. A UPI-only beneficiary cannot take
-     * IMPS, so it goes out as `upi` — the mode follows what was registered, not
-     * what the caller asked for, because the caller has no way to know.
+     * Mode is UPI for a UPI beneficiary and IMPS for a bank one.
      */
     static async createPayout(
         beneId: string,
@@ -429,64 +440,85 @@ export class CashfreeService {
         if (!(amountInRupees >= 1)) {
             throw new Error(`Cashfree requires at least ₹1.00 per transfer (got ₹${amountInRupees}).`);
         }
+        const tid = this.v2TransferId(transferId);
 
-        const bene = await this.getBeneficiary(beneId);
-        if (!bene) {
-            throw new Error(`Beneficiary ${beneId} is not registered with Cashfree. Run payout setup for this partner first.`);
+        let mode: 'upi' | 'imps';
+        if (beneId.startsWith('UFU')) mode = 'upi';
+        else if (beneId.startsWith('UFB')) mode = 'imps';
+        else {
+            const bene = await this.getBeneficiary(beneId);
+            if (!bene) throw new Error(`Beneficiary ${beneId} is not registered with Cashfree. Run payout setup for this partner first.`);
+            mode = bene.bankAccount ? 'imps' : 'upi';
         }
-        const transferMode = bene.bankAccount ? 'imps' : 'upi';
 
-        const { httpStatus, data } = await this.call('post', '/requestTransfer', {
-            beneId,
-            amount: amountInRupees.toFixed(2),
-            transferId,
-            transferMode,
-            remarks: `UniteFix ${purpose}`.slice(0, 70),
+        const result = (raw: unknown, alreadyExisted: boolean, d: any = {}): PayoutResult => ({
+            id: tid, transferId: tid, referenceId: d.cf_transfer_id ? String(d.cf_transfer_id) : null,
+            utr: d.transfer_utr ?? null, alreadyExisted, raw,
         });
 
-        if (this.ok(data)) {
-            return {
-                id: transferId,
-                transferId,
-                referenceId: data.data?.referenceId ?? null,
-                utr: data.data?.utr ?? null,
-                alreadyExisted: false,
-                raw: data,
-            };
+        let httpStatus = 0, data: any = null;
+        try {
+            ({ httpStatus, data } = await this.v2('post', '/transfers', {
+                body: {
+                    transfer_id: tid,
+                    transfer_amount: Number(amountInRupees.toFixed(2)),
+                    transfer_currency: 'INR',
+                    transfer_mode: mode,
+                    beneficiary_details: { beneficiary_id: beneId },
+                    transfer_remarks: `UniteFix ${purpose}`.replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70),
+                },
+            }));
+        } catch (e: any) {
+            httpStatus = 0;   // timeout or network: treat like a 5xx below
+            logger.error(`[CASHFREE] transfer ${tid} request did not complete: ${e?.message}`);
         }
 
-        // Cashfree already has this transferId — the earlier attempt went through.
-        if (String(data?.subCode) === '409') {
-            logger.warn(`[CASHFREE] Transfer ${transferId} already exists — returning the original, not paying again`);
-            const status = await this.fetchPayoutStatus(transferId);
-            return {
-                id: transferId,
-                transferId,
-                referenceId: status.referenceId,
-                utr: status.utr,
-                alreadyExisted: true,
-                raw: status.raw,
-            };
+        if (httpStatus === 200 || httpStatus === 201) {
+            const st = String(data?.status ?? '').toUpperCase();
+            if (['FAILED', 'REJECTED', 'MANUALLY_REJECTED'].includes(st)) {
+                const why = data?.status_description || data?.status_code || st;
+                logger.error(`[CASHFREE] transfer ${tid} ${st}: ${why}`);
+                throw new Error(`Cashfree payout failed: ${why}`);
+            }
+            return result(data, false, data);
         }
 
-        const why = this.reason(data, httpStatus);
-        logger.error(`[CASHFREE] requestTransfer ${transferId} failed: ${why}`);
+        if (httpStatus === 409) {
+            logger.warn(`[CASHFREE] Transfer ${tid} already exists — returning the original, not paying again`);
+            const status = await this.fetchPayoutStatus(tid);
+            return { id: tid, transferId: tid, referenceId: status.referenceId, utr: status.utr, alreadyExisted: true, raw: status.raw };
+        }
+
+        if (httpStatus === 0 || httpStatus >= 500) {
+            try {
+                const status = await this.fetchPayoutStatus(tid);
+                if (status.status === 'failed') throw new Error(`Cashfree payout failed: ${status.failureReason ?? status.providerStatus}`);
+                return { id: tid, transferId: tid, referenceId: status.referenceId, utr: status.utr, alreadyExisted: false, raw: status.raw };
+            } catch (e: any) {
+                if (/payout failed/.test(e?.message ?? '')) throw e;
+                if (/not found/i.test(e?.message ?? '')) throw new Error(`Cashfree payout failed: Cashfree did not take the transfer (${this.v2Reason(data, httpStatus)}).`);
+                // Cashfree could not tell us either way — leave it in progress, never refund on a guess.
+                logger.error(`[CASHFREE] transfer ${tid}: outcome unknown after ${httpStatus || 'timeout'}; left in progress for a status check`);
+                return { id: tid, transferId: tid, referenceId: null, utr: null, alreadyExisted: false, raw: data };
+            }
+        }
+
+        const why = this.v2Reason(data, httpStatus);
+        logger.error(`[CASHFREE] transfer ${tid} refused (${httpStatus}): ${why}`);
         throw new Error(`Cashfree payout failed: ${why}`);
     }
 
     /**
-     * GET /getTransferStatus?transferId=…
+     * GET /transfers?transfer_id=…, mapped to the neutral set the withdrawal
+     * and settlement code understands:
      *
-     * The fallback when the webhook does not arrive. Cashfree's states are
-     * mapped to the neutral set the withdrawal routes already understand:
+     *   SUCCESS                                   → processed (money landed; UTR present)
+     *   RECEIVED | QUEUED | PENDING | APPROVAL_PENDING → processing
+     *   FAILED | REJECTED | MANUALLY_REJECTED     → failed    (nothing left the account)
+     *   REVERSED                                  → reversed  (left, then came back)
      *
-     *   SUCCESS                   → processed   (money landed; UTR present)
-     *   PENDING                   → processing  (in the banking rails)
-     *   FAILED | REJECTED | ERROR → failed      (nothing left the account)
-     *   REVERSED                  → reversed    (left, then came back — refund the wallet)
-     *
-     * `reversed` is kept distinct from `failed` because it means money moved
-     * twice, and a statement that says otherwise will not reconcile.
+     * APPROVAL_PENDING means Cashfree is holding it for approval on its
+     * dashboard (Payouts → Transfers → Approve) — the reason says so.
      */
     static async fetchPayoutStatus(transferId: string): Promise<{
         status: PayoutStatus;
@@ -496,35 +528,34 @@ export class CashfreeService {
         referenceId: string | null;
         raw: unknown;
     }> {
-        const { httpStatus, data } = await this.call(
-            'get', `/getTransferStatus?transferId=${encodeURIComponent(transferId)}`,
-        );
-
-        if (!this.ok(data)) {
-            const why = this.reason(data, httpStatus);
-            logger.error(`[CASHFREE] getTransferStatus ${transferId} failed: ${why}`);
+        const tid = this.v2TransferId(transferId);
+        const { httpStatus, data } = await this.v2('get', '/transfers', { params: { transfer_id: tid } });
+        if (httpStatus === 404) throw new Error(`Cashfree has no transfer ${tid} (not found).`);
+        if (httpStatus !== 200) {
+            const why = this.v2Reason(data, httpStatus);
+            logger.error(`[CASHFREE] transfer status ${tid} failed: ${why}`);
             throw new Error(`Cashfree status check failed: ${why}`);
         }
-
-        const t = data.data?.transfer ?? {};
-        const providerStatus: CashfreeTransferStatus = String(t.status ?? 'PENDING').toUpperCase();
-
+        const d: any = data ?? {};
+        const providerStatus: CashfreeTransferStatus = String(d.status ?? 'PENDING').toUpperCase();
         let status: PayoutStatus;
         switch (providerStatus) {
             case 'SUCCESS': status = 'processed'; break;
             case 'REVERSED': status = 'reversed'; break;
             case 'FAILED':
             case 'REJECTED':
-            case 'ERROR': status = 'failed'; break;
+            case 'MANUALLY_REJECTED': status = 'failed'; break;
             default: status = 'processing';
         }
-
+        const failureReason = providerStatus === 'APPROVAL_PENDING'
+            ? `Waiting for approval on the Cashfree dashboard (Payouts → Transfers → Approve)${d.status_code ? ` — ${d.status_code}` : ''}`
+            : (d.status_description || (status !== 'processed' && d.status_code && d.status_code !== providerStatus ? d.status_code : undefined) || undefined);
         return {
             status,
             providerStatus,
-            failureReason: t.reason || t.message || undefined,
-            utr: t.utr ?? null,
-            referenceId: t.referenceId ?? null,
+            failureReason,
+            utr: d.transfer_utr ?? null,
+            referenceId: d.cf_transfer_id ? String(d.cf_transfer_id) : null,
             raw: data,
         };
     }

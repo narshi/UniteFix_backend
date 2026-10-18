@@ -8,7 +8,7 @@
  */
 
 import crypto from 'crypto';
-import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys } from '../server/lib/cashfree-env';
+import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, cashfreeDiagnostics } from '../server/lib/cashfree-env';
 import { CashfreeService } from '../server/services/cashfree.service';
 
 const results: Array<{ name: string; pass: boolean }> = [];
@@ -55,6 +55,15 @@ process.env.CASHFREE_PUBLIC_KEY = other.publicKey.export({ type: 'spki', format:
 process.env.CASHFREE_PAYOUTS_PUBLIC_KEY = pem;
 const sig = CashfreeService.signature('PAY_ID', now)!;
 check('CASHFREE_PAYOUTS_PUBLIC_KEY wins over the older CASHFREE_PUBLIC_KEY', decrypt(sig) === `PAY_ID.${Math.floor(now / 1000)}`);
+{
+    const d = cashfreeDiagnostics();
+    check('a short Client ID is masked completely', d.clientId === '…', JSON.stringify(d));
+    check('…from the CASHFREE_PAYOUTS_ variables, with older ones listed', d.clientIdVar === 'CASHFREE_PAYOUTS_CLIENT_ID' && d.publicKeyVar === 'CASHFREE_PAYOUTS_PUBLIC_KEY' && d.oldNamesAlsoSet.includes('CASHFREE_PUBLIC_KEY'));
+    check('…and the public key ending matches the key file', d.publicKeyEnding === pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '').slice(-24));
+    process.env.CASHFREE_PAYOUTS_CLIENT_ID = 'CF1234567890ABCDEF9876';
+    const m = cashfreeDiagnostics();
+    check('a long Client ID shows only its first 6 and last 4 characters', m.clientId === 'CF1234…9876' && !JSON.stringify(m).includes('567890ABCDEF') && !JSON.stringify(m).includes('PAY_SECRET'));
+}
 clear();
 
 const failed = results.filter(r => !r.pass).length;
