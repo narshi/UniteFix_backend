@@ -504,8 +504,11 @@ export class CashfreeService {
         }
 
         const why = this.v2Reason(data, httpStatus);
-        logger.error(`[CASHFREE] transfer ${tid} refused (${httpStatus}): ${why}`);
-        throw new Error(`Cashfree payout failed: ${why}`);
+        const code = (data as any)?.code ? `, code ${(data as any).code}` : '';
+        const type = (data as any)?.type ? `, type ${(data as any).type}` : '';
+        logger.error(`[CASHFREE] transfer ${tid} refused (${httpStatus}): ${why}`, { response: data, url: `${this.v2Base()}/transfers`, apiVersion: '2024-01-01', mode });
+        // Exactly what Cashfree answered, so a refusal can be taken to Cashfree support as it is.
+        throw new Error(`Cashfree payout failed: ${why} [POST ${this.v2Base()}/transfers, x-api-version 2024-01-01 → HTTP ${httpStatus}${code}${type}]`);
     }
 
     /**
