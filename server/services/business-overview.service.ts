@@ -95,7 +95,9 @@ export class BusinessOverviewService {
             const v2 = s.snapshotVersion === 2;
             const gmv = v2 ? p(s.grossTotal) : p(j.total);
             // v2: the booking charge is carved out of the price and kept by UniteFix, like the platform fee.
-            const fee = v2 ? p(s.platformFee) + p(s.bookingFee) + p(s.platformPartsCost) : p(j.fee);
+            // Older catalog snapshots kept the ₹99 as UniteFix's; since it became the customer's
+            // advance (bookingFeeModel 'advance') it is part of the price, not extra revenue.
+            const fee = v2 ? p(s.platformFee) + (s.bookingFeeModel === 'advance' ? 0 : p(s.bookingFee)) + p(s.platformPartsCost) : p(j.fee);
             const gst = v2 ? p(s.gst) + p(s.partsGst) : 0;
             const earn = v2 ? p(s.technicianEarning) : Math.max(0, gmv - fee);
             const partnerJob = !!j.partner;

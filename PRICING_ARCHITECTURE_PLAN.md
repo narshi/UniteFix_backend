@@ -3,6 +3,13 @@
 _Source of truth: `CATALOG-1.xlsx` (7 categories, 42 services). This plan turns
 that spreadsheet into a dynamic, admin-editable pricing engine._
 
+> **Revised 2026-10-20 — the ₹99 booking fee is the customer's advance.** It is
+> credit towards the price `P`, not a deduction from the technician. The
+> technician earns `P − GST − platform fee`; the customer pays ₹99 when booking
+> and `P − 99` after the service. GST is extracted from the inclusive price
+> (`P × 18/118`). Bookings frozen before this keep their old split. The
+> sections below are updated to match; §8 records the change.
+
 ---
 
 ## 1. What the spreadsheet actually says
@@ -12,13 +19,19 @@ Every one of the 42 rows follows **one** formula. Given a per-service price `P`
 
 | Bucket | Formula | Who gets it |
 |--------|---------|-------------|
-| GST | `P × 18%` | Government (remitted) |
+| GST | `P × 18/118` (inside the price) | Government (remitted) |
 | Platform Fee (profit) | `P × 12%` | UniteFix |
-| Booking Charge | `₹99` flat | UniteFix (paid upfront) |
-| **Technician earning** | `P − GST − Fee − 99` = **`P × 0.70 − 99`** | Technician |
+| **Technician earning** | `P − GST − Fee` | Technician |
 
-The four buckets **sum exactly to `P`**. Verified against all 42 rows (e.g.
-`799 → 143.82 + 95.88 + 99 + 460.30`; `3499 → 629.82 + 419.88 + 99 + 2350.30`).
+The three buckets **sum exactly to `P`** (e.g. `799 → 121.88 + 95.88 + 581.24`).
+
+The **₹99 booking fee is not a bucket**: it is the customer's **advance** towards
+`P`, paid when booking. The customer pays ₹99 now and `P − 99` after the
+service; the technician's earning is untouched by it.
+
+_(The original sheet carved the ₹99 out for UniteFix and took GST as `P × 18%`:
+`799 → 143.82 + 95.88 + 99 + 460.30`. Both were changed — GST to the inclusive
+extraction, and the ₹99 to an advance on 2026-10-20.)_
 
 **This is materially different from the current system**, which is the crux of
 the work:
@@ -28,8 +41,8 @@ the work:
 | Price origin | Technician types parts+labor | Fixed per-service, set by admin |
 | GST / fee | Added **on top** of the charge | Carved **out** of the fixed price |
 | Platform fee | 15% | **12%** |
-| ₹99 booking | Prepaid **credit** to customer | **Deducted** from technician |
-| Technician gets | 100% of parts+labor | `P × 0.70 − 99` |
+| ₹99 booking | Prepaid **credit** to customer | Customer's **advance** towards `P` |
+| Technician gets | 100% of parts+labor | `P − GST − fee` |
 | Bill-entry step | Required | **Removed** for catalog jobs |
 
 ---
@@ -94,14 +107,15 @@ edited on the existing **Settings** page.
 total            = P
 gstPercent       = 18   (from config, frozen)
 feePercent       = 12   (from config, frozen)
-gst              = round2(P × gstPercent/100)
+gst              = round2(P × gstPercent/(100 + gstPercent))   -- inside P
 platformFee      = round2(P × feePercent/100)
-bookingCharge    = 99   (from config, frozen)
-technicianEarning= round2(P − gst − platformFee − bookingCharge)
+technicianEarning= round2(P − gst − platformFee)              -- full share
+bookingFee       = 99   (from config, frozen)                 -- customer's advance
 cgst             = round2(gst / 2)
 sgst             = round2(gst − cgst)
-upfrontDue       = bookingCharge          -- customer pays now
-finalDue         = P − bookingCharge      -- customer pays on completion
+upfrontDue       = bookingFee             -- customer pays now (advance)
+finalDue         = P − bookingFee         -- customer pays on completion
+bookingFeeModel  = 'advance'              -- marks the new split on the snapshot
 ```
 
 Frozen at booking creation so a later admin price edit **never** changes an
@@ -131,8 +145,16 @@ in-flight job — same immutability guarantee v1 already gives.
 - Customer pays `finalDue` (existing final-payment / QR / cash paths — only the
   amount source changes: snapshot + any approved parts line, instead of a full
   technician bill).
-- On completion: credit **`technicianEarning`** to `balance_hold`; existing hold
-  → available release job carries it the rest of the way. Unchanged mechanism.
+- **Online / QR:** on completion credit **`technicianEarning`** to
+  `balance_hold`; the hold → available release job carries it the rest of the way.
+- **Cash:** the technician holds `finalDue` in cash and UniteFix holds the ₹99
+  advance. The wallet is settled by `net = finalDue − technicianEarning`
+  (`= platformFee + GST − 99` with no parts):
+  - `net > 0` (most jobs) → debit `net` from the wallet as platform dues;
+  - `net < 0` (e.g. Visiting & Inspection ₹349: fee + GST = ₹95.12 < ₹99) →
+    **credit** `|net|` (₹3.88) to the wallet's hold.
+
+  Either way the technician ends with exactly `technicianEarning`.
 - Invoice generated from the **v2 snapshot** (extend `InvoiceGenerator` +
   `PaymentService.generateInvoice` to read v2 fields; v1 still works for old
   bookings).
@@ -165,8 +187,9 @@ in-flight job — same immutability guarantee v1 already gives.
 ## 6. Rounding & correctness rules
 
 - Compute each bucket with `round2()` (2 decimals) to match the sheet exactly.
-- `technicianEarning` is the **remainder** (`P − gst − fee − booking`) not an
-  independent 70%×P−99, so the four buckets always re-sum to `P` with zero drift.
+- `technicianEarning` is `P − gst − fee`, and `platformFee` is the balancing
+  remainder (`P − gst − technicianEarning`), so the three buckets always re-sum
+  to `P` with zero drift — including when a discount shrinks `P`.
 - `sgst` is `gst − cgst` (remainder) to avoid a 1-paise rounding loss on the
   invoice — same trick v1 already uses.
 
@@ -189,11 +212,13 @@ new Android build. Old in-flight v1 bookings keep working throughout.
 
 ## 8. Confirmed decisions (locked 2026-08-03)
 
-1. **Money model = the sheet, exactly.** Price `P` is the customer's **all-in,
-   GST-inclusive total**. GST (18%), platform fee (12%), and booking (₹99) are
-   carved **out** of `P`; the ₹99 is the **platform's** (not credited back).
-   Technician earns `P − GST − fee − 99 = P × 0.70 − 99`. _(Confirmed against the
-   worked ₹799 example: customer ₹799, technician ₹460.30, platform ₹194.88.)_
+1. **Money model.** Price `P` is the customer's **all-in, GST-inclusive total**.
+   GST and the platform fee (12%) are carved **out** of `P`.
+   **Revised 2026-10-20:** the ₹99 booking fee is the customer's **advance**
+   towards `P`, not the platform's — the technician earns `P − GST − fee`.
+   Worked ₹799: customer ₹99 + ₹700, GST ₹121.88, UniteFix ₹95.88, technician
+   ₹581.24. _(Originally, 2026-08-03: the ₹99 was the platform's and the technician
+   earned `P × 0.70 − 99` = ₹460.30.)_
 2. **Platform fee = 12%** (down from 15%).
 3. **Variable spare parts → technician adds a parts line the customer approves.**
    The fixed catalog price and its split are untouched; the approved parts amount

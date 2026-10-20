@@ -20,7 +20,7 @@ import { configService } from './config.service';
 
 export interface PricingSnapshot {
   // Frozen at booking creation
-  bookingFee: number;         // ₹99 — what customer pays upfront
+  bookingFee: number;         // ₹99 — customer's ADVANCE, paid upfront, credited against the total
   platformFeePercent: number; // 15 — from config at creation time
   gstPercent: number;         // 18 — from config at creation time
   discountPercent: number;    // 0  — promotional discount, frozen like the rates above
@@ -46,8 +46,9 @@ export interface PricingSnapshot {
 
   // ── v2 (fixed-price catalog) — frozen at booking creation ──────────
   // In v2 the whole bill is known up front from the service's catalog price,
-  // so there is no separate bill-submission step. GST, fee and the booking
-  // charge are carved OUT of basePrice (they are NOT added on top).
+  // so there is no separate bill-submission step. GST and the platform fee are
+  // carved OUT of basePrice (they are NOT added on top). The booking fee is not
+  // a bucket at all: it is the customer's advance towards basePrice.
   listPrice?: number;          // ₹799 — catalog price BEFORE discount (the "was" price)
   discountAmount?: number;     // ₹79.90 — listPrice × discountPercent%
   /**
@@ -58,7 +59,7 @@ export interface PricingSnapshot {
   platformSubsidised?: boolean;
   basePrice?: number;          // ₹719.10 — what the customer actually pays, all-in
   gst?: number;                // ₹143.82 — cgst + sgst (= P × gstPercent%)
-  technicianEarning?: number;  // ₹460.30 — P − gst − platformFee − bookingCharge
+  technicianEarning?: number;  // ₹581.24 — P − gst − platformFee (the booking fee is NOT taken from it)
   extraPartsCost?: number;     // parts the TECHNICIAN bought — passes through to them
   partsNote?: string;          // what the extra parts were for
   /**
@@ -78,6 +79,13 @@ export interface PricingSnapshot {
    * bookingFee stays 0: no booking charge is carved out of the technician's share.
    */
   prepaid?: boolean;
+  /**
+   * 'advance' on catalog snapshots made since the booking fee became the
+   * customer's advance towards the price (technicianEarning = P − gst − fee).
+   * Absent on older v2 snapshots, where the ₹99 was UniteFix's and was taken
+   * out of the technician's share — kept as they were frozen.
+   */
+  bookingFeeModel?: 'advance';
   prepaidAmount?: number;
   payeeType?: 'partner' | 'technician';
   payeePartnerId?: number;
@@ -215,16 +223,17 @@ export class BillingEngine {
    * customer picks a catalog service with a set price. The full bill is frozen
    * immediately; there is no later bill-submission step.
    *
-   * Formula (matches CATALOG-1.xlsx exactly), given catalog price P:
-   *   gst              = round2(P × gstPercent/100)     -- carved out of P
-   *   platformFee      = round2(P × feePercent/100)     -- carved out of P
-   *   bookingCharge    = bookingFee (₹99)               -- part of P, prepaid
-   *   serviceValue     = round2(P − gst − platformFee)  -- = 0.70P
-   *   technicianEarning= round2(serviceValue − bookingCharge)
-   *   finalTotal       = P − bookingCharge              -- customer pays after booking
+   * Formula, given catalog price P (GST-inclusive):
+   *   gst               = round2(P × gst%/(100 + gst%))  -- carved out of P
+   *   platformFee       = round2(P × fee%/100)           -- carved out of P
+   *   technicianEarning = round2(P − gst − platformFee)  -- the technician's full share
    *
-   * The four buckets (gst + platformFee + bookingCharge + technicianEarning)
-   * sum back to P. Verified: 799 → 143.82 + 95.88 + 99 + 460.30.
+   * THE BOOKING FEE IS THE CUSTOMER'S ADVANCE, NOT A DEDUCTION. The customer
+   * pays bookingFee (₹99) when booking and finalTotal = P − bookingFee after
+   * the service; the ₹99 is credit towards P, and none of it comes out of the
+   * technician's share. Three buckets sum back to P:
+   *   gst + platformFee + technicianEarning = P
+   * Verified: 799 → 121.88 + 95.88 + 581.24 (customer: 99 now + 700 after).
    */
 /**
    * A catalog booking for N units — 2 ACs, 4 CCTV cameras, 3 fan points.
@@ -290,16 +299,11 @@ export class BillingEngine {
     const gstOnList = round2(listPrice * gstPercent / (100 + gstPercent));
     const feeOnList = round2(listPrice * platformFeePercent / 100);
 
-    // THE BOOKING FEE IS DEDUCTED ONCE, NOT PER UNIT — and that is correct.
-    //
-    // It pays for one visit, and one visit services two air conditioners just
-    // as it services one. So a technician's earning is NOT Q x (single-unit
-    // earning): at qty 2 they keep Rs.99 more than double, at qty 3 Rs.198 more.
-    //
-    // Written down because it looks like a bug to anyone comparing the two
-    // numbers, and "fixing" it by scaling bookingFee with quantity would quietly
-    // cut technician pay by Rs.99 for every extra unit they service.
-    const technicianEarning = round2(listPrice - gstOnList - feeOnList - bookingFee);
+    // The technician keeps the whole price less tax and the platform fee. The
+    // booking fee is the customer's advance towards this same price — it is
+    // NOT taken from the technician (it once was; snapshots frozen then keep
+    // their old figures). One advance per booking, whatever the quantity.
+    const technicianEarning = round2(listPrice - gstOnList - feeOnList);
 
     // The customer-facing total stays a WHOLE RUPEE, as it was before discounts
     // existed — service_requests.total_amount is an integer column, and a price
@@ -315,15 +319,17 @@ export class BillingEngine {
     const cgst = round2(gst / 2);
     const sgst = round2(gst - cgst);
 
-    // Whatever is left after tax, the booking charge and the technician is the
-    // platform's. It shrinks by the discount less the tax saved, and it can go
-    // negative — that is a real loss-leader, flagged rather than hidden.
-    const platformFee = round2(P - gst - bookingFee - technicianEarning);
+    // Whatever is left after tax and the technician is the platform's
+    // (technicianEarning + platformFee + gst = P). It shrinks by the discount
+    // less the tax saved, and it can go negative — a real loss-leader, flagged
+    // rather than hidden.
+    const platformFee = round2(P - gst - technicianEarning);
     const platformSubsidised = platformFee < 0;
 
-    const serviceValue = round2(P - gst - platformFee);          // = technician + booking charge
+    const serviceValue = round2(P - gst - platformFee);          // = technicianEarning
     const taxableAmount = round2(P - gst);
-    const finalTotal = Math.max(0, round2(P - bookingFee));       // customer pays after the booking fee
+    // The booking fee was the customer's advance; the rest is due after the service.
+    const finalTotal = Math.max(0, round2(P - bookingFee));
 
     const now = new Date().toISOString();
     return {
@@ -352,6 +358,7 @@ export class BillingEngine {
 
       technicianEarning,
       employeeEarnings: technicianEarning, // v2 wallet credit uses the real earning
+      bookingFeeModel: 'advance',
 
       snapshotVersion: 2,
       createdAt: now,
@@ -474,13 +481,27 @@ export class BillingEngine {
   }
 
   /**
-   * Calculate the amount to DEBIT from employee wallet when customer pays cash.
-   * This is UniteFix's share: platformFee + CGST + SGST, plus — when the job
-   * used parts — the GST on those parts and the price of any part UniteFix
-   * supplied. The technician collected all of it in cash; only their own
-   * labour and their own purchases are theirs to keep.
+   * When the customer pays the rest in cash: what the technician owes UniteFix
+   * (positive → debit their wallet) or UniteFix owes the technician (negative
+   * → credit it), so the technician ends with exactly their earning.
+   *
+   * Catalog (v2) bookings:
+   *   net = finalTotal − technicianEarning
+   * The technician holds finalTotal in cash and is owed technicianEarning;
+   * UniteFix already holds whatever the customer paid online (the ₹99 advance,
+   * or the whole price on a prepaid booking). Equivalently, with no parts:
+   * (platformFee + gst) − bookingFee. Visiting & inspection at ₹349: cash ₹250,
+   * earning ₹253.88 → net −₹3.88, credited to the technician. Parts follow the
+   * same rule: their GST and any UniteFix-supplied part are UniteFix's, the
+   * technician's own purchases are already in their earning.
+   *
+   * Bill-submission (v1) bookings keep their own rule: UniteFix's share is
+   * platformFee + GST (+ parts GST and UniteFix parts).
    */
   static calculateCashDebitAmount(snapshot: PricingSnapshot): number {
+    if (snapshot.snapshotVersion === 2 && snapshot.technicianEarning != null) {
+      return Math.round(((snapshot.finalTotal ?? 0) - snapshot.technicianEarning) * 100) / 100;
+    }
     const platformFee = snapshot.platformFee ?? 0;
     const cgst = snapshot.cgst ?? 0;
     const sgst = snapshot.sgst ?? 0;

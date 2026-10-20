@@ -194,8 +194,10 @@ async function main() {
         const balAfterCash = await BusinessPartnerService.balancePaise(fs.id);
         const [cashRow] = await db.select().from(businessPartnerLedger).where(and(eq(businessPartnerLedger.businessPartnerId, fs.id), eq(businessPartnerLedger.entryType, 'cash_collected' as any)));
         const [earn2] = await db.select().from(partnerJobEarnings).where(eq(partnerJobEarnings.serviceRequestId, sr2.id));
-        const debit2 = Math.round((snap2.platformFee + snap2.cgst + snap2.sgst) * 100);
-        check('cash job: partner is charged the cash, and the value is held for it', !!cashRow && cashRow.amountPaise === Math.round(snap2.technicianEarning * 100) + debit2 && earn2?.amountPaise === Math.round(snap2.technicianEarning * 100), JSON.stringify({ cash: cashRow?.amountPaise, earn: earn2?.amountPaise, debit2 }));
+        // UniteFix's part of the cash: its fee + GST, less the ₹99 advance it already holds
+        // (the booking fee is the customer's advance, not taken from the earning).
+        const debit2 = Math.round(snap2.finalTotal * 100) - Math.round(snap2.technicianEarning * 100);
+        check('cash job: partner is charged the cash, and the value is held for it', !!cashRow && cashRow.amountPaise === Math.round(snap2.finalTotal * 100) && debit2 === Math.round((snap2.platformFee + snap2.cgst + snap2.sgst - snap2.bookingFee) * 100) && earn2?.amountPaise === Math.round(snap2.technicianEarning * 100), JSON.stringify({ cash: cashRow?.amountPaise, earn: earn2?.amountPaise, debit2 }));
 
         // ── release and settlement ────────────────────────────────────────
         await db.update(partnerJobEarnings).set({ releaseAt: new Date(Date.now() - 1000) }).where(inArray(partnerJobEarnings.serviceRequestId, [sr1.id, sr2.id]));

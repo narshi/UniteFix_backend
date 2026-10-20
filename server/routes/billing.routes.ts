@@ -623,7 +623,11 @@ export function registerBillingRoutes(app: Express) {
      * Gate: Booking must be in PENDING_PAYMENT state.
      * Actions:
      *   1. Validate amountCollected matches finalTotal (±₹1 tolerance)
-     *   2. Debit UniteFix's share (platformFee + GST) from employee wallet
+     *   2. Settle the wallet so the technician ends with exactly their earning:
+     *      catalog bookings net = finalTotal − technicianEarning (UniteFix already
+     *      holds the ₹99 advance). Positive → debit it as platform dues; negative
+     *      (e.g. ₹349 inspection: −₹3.88) → credit the difference. Bill-submission
+     *      bookings debit platformFee + GST as before.
      *   3. Transition → COMPLETED with paymentMethod = 'cash'
      *   4. Generate invoice
      *   5. Record to audit trail
@@ -690,8 +694,10 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
-            // Calculate UniteFix's share to debit from employee wallet
-            const platformDebit = BillingEngine.calculateCashDebitAmount(snapshot);
+            // What the technician owes UniteFix (positive) or is owed (negative).
+            const net = BillingEngine.calculateCashDebitAmount(snapshot);
+            const platformDebit = Math.max(0, net);
+            const advanceCredit = Math.max(0, Math.round(-net * 100) / 100);
 
             // Debit employee wallet (allow negative — recovered from future earnings).
             //
@@ -707,7 +713,8 @@ export function registerBillingRoutes(app: Express) {
                 const employerId = await PartnerFieldService.employerOf(partnerId);
                 if (employerId) {
                     const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
-                    walletTransaction = await PartnerFieldService.bookCashCollected(employerId, { serviceRequestId: bookingId, serviceId: booking.serviceId, amountRupees: value + platformDebit });
+                    // value + net = exactly the cash the technician collected.
+                    walletTransaction = await PartnerFieldService.bookCashCollected(employerId, { serviceRequestId: bookingId, serviceId: booking.serviceId, amountRupees: Math.round((value + net) * 100) / 100 });
                     const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
                     await PartnerFieldService.holdJobValue(db, employerId, {
                         serviceRequestId: bookingId, employeeId: partnerId, amountRupees: value,
@@ -715,12 +722,26 @@ export function registerBillingRoutes(app: Express) {
                     });
                 } else {
                 const { storage } = await import('../storage');
-                walletTransaction = await storage.deductProviderWallet(
-                    partnerId,
-                    platformDebit,
-                    `Platform fee — cash payment booking #${booking.serviceId}`,
-                    true // allowNegative: UniteFix always recovers its share
-                );
+                if (platformDebit > 0) {
+                    walletTransaction = await storage.deductProviderWallet(
+                        partnerId,
+                        platformDebit,
+                        `Platform fee — cash payment booking #${booking.serviceId}`,
+                        true // allowNegative: UniteFix always recovers its share
+                    );
+                } else if (advanceCredit > 0) {
+                    // The ₹99 advance UniteFix holds is more than its fee + GST:
+                    // the rest is the technician's, held like any other earning.
+                    const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
+                    walletTransaction = await storage.creditWalletOnHold(
+                        partnerId,
+                        bookingId,
+                        advanceCredit,
+                        new Date(Date.now() + holdDays * 86_400_000),
+                        undefined,
+                        { description: `Balance of booking advance — cash payment booking #${booking.serviceId}`, countService: false },
+                    );
+                }
                 }
             } catch (walletErr: any) {
                 logger.error(`[CASH] Wallet debit failed for booking ${bookingId}:`, walletErr.message);
@@ -753,7 +774,7 @@ export function registerBillingRoutes(app: Express) {
                 logger.warn(`[CASH] Invoice generation failed for booking ${bookingId}:`, invErr.message);
             }
 
-            logger.info(`[CASH] Cash collected for booking ${bookingId}: amount=₹${amountCollected}, platformDebit=₹${platformDebit}, employee=${partnerId}`);
+            logger.info(`[CASH] Cash collected for booking ${bookingId}: amount=₹${amountCollected}, platformDebit=₹${platformDebit}, advanceCredit=₹${advanceCredit}, employee=${partnerId}`);
 
             void BookingNotifications.paymentReceived(bookingId, amountCollected, 'cash');
             void BookingNotifications.serviceCompleted(bookingId, snapshot.employeeEarnings);
@@ -767,6 +788,7 @@ export function registerBillingRoutes(app: Express) {
                     paymentMethod: 'cash',
                     amountCollected,
                     platformFeeDeducted: platformDebit,
+                    walletCredited: advanceCredit,
                     employeeEarnings: snapshot.employeeEarnings,
                     invoiceId,
                     walletTransaction: walletTransaction ? {

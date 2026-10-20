@@ -15,13 +15,17 @@ import { useToast } from "@/hooks/use-toast";
 // Fixed-price breakdown — the same carve-out the billing engine applies. GST,
 // platform fee and the booking charge come OUT of the price; the technician
 // gets the remainder. Percentages are the admin's live config values.
+/**
+ * Same split as the billing engine: GST is inside the price (r/(100+r)), the
+ * platform fee is a share of it, and the technician keeps the rest. The booking
+ * charge is the customer's advance towards the price, not a deduction.
+ */
 function priceBreakdown(P: number, gstPct: number, feePct: number, booking: number) {
   const r2 = (x: number) => Math.round(x * 100) / 100;
-  const gst = r2((P * gstPct) / 100);
+  const gst = r2((P * gstPct) / (100 + gstPct));
   const fee = r2((P * feePct) / 100);
-  const service = r2(P - gst - fee);
-  const technician = r2(service - booking);
-  return { gst, fee, booking, technician, sum: r2(gst + fee + booking + technician) };
+  const technician = r2(P - gst - fee);
+  return { gst, fee, booking, technician, sum: r2(gst + fee + technician) };
 }
 
 export default function ServiceCatalogPage() {
@@ -491,10 +495,9 @@ export default function ServiceCatalogPage() {
                   <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 text-sm space-y-1.5">
                     <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>GST ({gstPct}%)</span><span className="font-mono">₹{breakdown.gst.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Platform fee ({feePct}%)</span><span className="font-mono">₹{breakdown.fee.toFixed(2)}</span></div>
-                    <div className="flex justify-between text-[hsl(215,20%,70%)]"><span>Booking charge (upfront)</span><span className="font-mono">₹{breakdown.booking.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(160,84%,65%)] font-semibold border-t border-[rgba(255,255,255,0.06)] pt-1.5"><span>Service Expert earns</span><span className="font-mono">₹{breakdown.technician.toFixed(2)}</span></div>
                     <div className="flex justify-between text-[hsl(215,20%,55%)] text-xs pt-1">
-                      <span>Customer pays ₹{bookingCharge} now, ₹{(Number(priceInput) - bookingCharge).toFixed(0)} after</span>
+                      <span>Customer pays ₹{bookingCharge} advance now, ₹{Math.max(0, Number(priceInput) - bookingCharge).toFixed(0)} after</span>
                       <span>Σ ₹{breakdown.sum.toFixed(2)}</span>
                     </div>
                     {breakdown.technician < 0 && (

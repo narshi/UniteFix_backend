@@ -666,7 +666,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                                             if (data?.success) {
                                                                 Alert.alert(
                                                                     '✅ Cash Payment Recorded',
-                                                                    `Service completed! ₹${data.data?.platformFeeDeducted || 0} platform fee deducted from wallet.`,
+                                                                    Number(data.data?.walletCredited) > 0
+                                                                        ? `Service completed! ₹${Number(data.data.walletCredited).toFixed(2)} added to your wallet — the rest of the customer's booking advance.`
+                                                                        : `Service completed! ₹${Number(data.data?.platformFeeDeducted || 0).toFixed(2)} platform fee deducted from wallet.`,
                                                                     [{ text: 'OK', onPress: () => navigation.goBack() }]
                                                                 );
                                                             }

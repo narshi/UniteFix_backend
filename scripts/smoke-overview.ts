@@ -53,23 +53,27 @@ async function main() {
         const viaPartner = await complete(bp.id);
         await db.insert(partnerPayLinks).values({ businessPartnerId: bp.id, token: crypto.randomBytes(18).toString('base64url'), kind: 'invoice', refId: 0, description: 'QA', amountPaise: 100000, status: 'paid', paidAt: new Date(), feePaise: 2000, feeGstPaise: 360 });
 
+        // UniteFix's revenue on a catalog job: its platform fee. The booking fee is the
+        // customer's advance towards the price (bookingFeeModel 'advance'); only bookings
+        // frozen before that counted the ₹99 as UniteFix's.
+        const uf = (snap: any) => snap.platformFee + (snap.bookingFeeModel === 'advance' ? 0 : snap.bookingFee);
         const after = await get();
         const d = (key: string, col: string) => (after.streams.find((s: any) => s.key === key)?.[col] ?? 0) - (before.streams.find((s: any) => s.key === key)?.[col] ?? 0);
         check('UniteFix-expert job: customer total is volume, the platform fee is UniteFix revenue, the rest is the expert\'s',
-            near(d('services_direct', 'gmv'), direct.grossTotal) && near(d('services_direct', 'unitefix'), direct.platformFee + direct.bookingFee) && near(d('services_direct', 'expert'), direct.technicianEarning) && near(d('services_direct', 'partner'), 0),
+            near(d('services_direct', 'gmv'), direct.grossTotal) && near(d('services_direct', 'unitefix'), uf(direct)) && near(d('services_direct', 'expert'), direct.technicianEarning) && near(d('services_direct', 'partner'), 0),
             JSON.stringify({ gmv: d('services_direct', 'gmv'), uf: d('services_direct', 'unitefix'), ex: d('services_direct', 'expert'), snap: [direct.grossTotal, direct.platformFee, direct.bookingFee, direct.technicianEarning] }));
         check('partner job: kept apart — the technician\'s share is the partner\'s earning, not an expert\'s',
-            near(d('services_partner', 'gmv'), viaPartner.grossTotal) && near(d('services_partner', 'unitefix'), viaPartner.platformFee + viaPartner.bookingFee) && near(d('services_partner', 'partner'), viaPartner.technicianEarning) && near(d('services_partner', 'expert'), 0));
+            near(d('services_partner', 'gmv'), viaPartner.grossTotal) && near(d('services_partner', 'unitefix'), uf(viaPartner)) && near(d('services_partner', 'partner'), viaPartner.technicianEarning) && near(d('services_partner', 'expert'), 0));
         check('payment link: ₹1,000 paid, UniteFix keeps the ₹20 fee, the partner ₹976.40',
             near(d('paylinks', 'gmv'), 1000) && near(d('paylinks', 'unitefix'), 20) && near(d('paylinks', 'partner'), 976.4));
         const dt = (col: string) => after.totals.current[col] - before.totals.current[col];
         check('totals are the sum of the streams, GST kept separate',
-            near(dt('unitefix'), direct.platformFee + direct.bookingFee + viaPartner.platformFee + viaPartner.bookingFee + 20) && near(dt('gst'), direct.gst + viaPartner.gst) && dt('jobs') === 2);
+            near(dt('unitefix'), uf(direct) + uf(viaPartner) + 20) && near(dt('gst'), direct.gst + viaPartner.gst) && dt('jobs') === 2);
         check('volume = UniteFix + partners + experts + GST for these jobs',
             near(d('services_direct', 'gmv'), d('services_direct', 'unitefix') + d('services_direct', 'expert') + d('services_direct', 'gst')) && near(d('services_partner', 'gmv'), d('services_partner', 'unitefix') + d('services_partner', 'partner') + d('services_partner', 'gst')));
         const lastBar = after.series[after.series.length - 1], lastBefore = before.series[before.series.length - 1];
         check('today\'s bar carries the new revenue, split by stream',
-            near(lastBar.unitefix - lastBefore.unitefix, dt('unitefix')) && near(lastBar.services_partner - lastBefore.services_partner, viaPartner.platformFee + viaPartner.bookingFee));
+            near(lastBar.unitefix - lastBefore.unitefix, dt('unitefix')) && near(lastBar.services_partner - lastBefore.services_partner, uf(viaPartner)));
         check('take rate is UniteFix revenue over volume', near(after.totals.current.takeRate, Math.round(after.totals.current.unitefix / after.totals.current.gmv * 1000) / 10));
         check('operations and the staff to-do list come with it', Array.isArray(after.operations?.pipeline) && after.operations.pipeline.length === 4 && Array.isArray(after.attention) && after.operations.network.partners >= 1);
     } finally {

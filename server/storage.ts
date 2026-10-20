@@ -2559,7 +2559,9 @@ export class DatabaseStorage implements IStorage {
     serviceRequestId: number,
     amount: number,
     releaseDate: Date,
-    tx?: any
+    tx?: any,
+    /** description: the wallet line; countService false when this is not the job's completion credit. */
+    opts: { description?: string; countService?: boolean } = {},
   ): Promise<WalletTransactionV2> {
     const dbCtx = tx || db;
 
@@ -2613,7 +2615,7 @@ export class DatabaseStorage implements IStorage {
         balanceAvailableAfter: wallet.balanceAvailable,
         releaseDate,
         isReleased: false,
-        description: `Earnings held for service completion`,
+        description: opts.description ?? `Earnings held for service completion`,
         metadata: { serviceRequestId, releaseDate: releaseDate.toISOString() },
       })
       .returning();
@@ -2628,7 +2630,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(partnerWallets.partnerId, partnerId));
 
     // Atomically increment the completed services counter on employee
-    await dbCtx
+    if (opts.countService !== false) await dbCtx
       .update(employees)
       .set({
         totalServicesCompleted: sql`COALESCE(${employees.totalServicesCompleted}, 0) + 1`,
