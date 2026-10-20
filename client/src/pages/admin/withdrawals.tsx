@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,7 +60,7 @@ type Withdrawal = {
 export default function WithdrawalsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'reject' | 'approveManual'; request: Withdrawal | null }>({
+  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'reject' | 'approveManual' | 'payCashfree'; request: Withdrawal | null }>({
     isOpen: false,
     type: 'approveManual',
     request: null
@@ -130,6 +130,20 @@ export default function WithdrawalsPage() {
     }
   });
 
+  /** Send the money through Cashfree Payouts — UPI or bank, as the expert asked. */
+  const payCashfreeMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/admin/withdrawals/${id}/approve`, {}),
+    onSuccess: (r: any) => {
+      toast({ title: "Sent to Cashfree", description: r?.message ?? "Payout processing via Cashfree. Use “Sync with Cashfree” to see when it lands." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      closeDialog();
+    },
+    onError: (error: any) => {
+      toast({ title: "Not sent", description: apiErrorMessage(error), variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+    },
+  });
+
   const rejectMutation = useMutation({
     mutationFn: async (id: number) => {
       // apiRequest resolves to the parsed body already; a non-2xx throws.
@@ -175,7 +189,9 @@ export default function WithdrawalsPage() {
 
   const handleAction = () => {
     if (!actionDialog.request) return;
-    if (actionDialog.type === 'approveManual') {
+    if (actionDialog.type === 'payCashfree') {
+      payCashfreeMutation.mutate(actionDialog.request.request.id);
+    } else if (actionDialog.type === 'approveManual') {
       if (!proofFile) return; // guarded again in the dialog button
       approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile });
     } else {
@@ -194,7 +210,7 @@ export default function WithdrawalsPage() {
         <div>
           <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Withdrawals</h1>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">
-            Pay partners via UPI/bank, then approve with a payment-proof screenshot.
+            Pay partners through Cashfree (UPI or bank, as they asked), or mark one paid manually with a payment-proof screenshot.
           </p>
         </div>
       </div>
@@ -313,14 +329,23 @@ export default function WithdrawalsPage() {
                       </TableCell>
                       <TableCell className="text-right space-x-2">
                         {w.request.status === 'pending' && (
-                          <div className="space-x-2">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              size="sm"
+                              className="bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white"
+                              onClick={() => setActionDialog({ isOpen: true, type: 'payCashfree', request: w })}
+                              title={`Send ₹${w.request.amount} through Cashfree to the expert's ${w.request.method === 'bank' ? 'bank account' : 'UPI ID'}`}
+                            >
+                              Pay via Cashfree
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
                               className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
                               onClick={() => { setProofFile(null); setActionDialog({ isOpen: true, type: 'approveManual', request: w }); }}
+                              title="You paid outside UniteFix: attach the proof"
                             >
-                              Approve &amp; Mark Paid
+                              Paid manually
                             </Button>
                             <Button
                               size="sm"
@@ -390,11 +415,13 @@ export default function WithdrawalsPage() {
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {actionDialog.type === 'approveManual' ? 'Approve & Mark Paid?' : 'Reject Withdrawal?'}
+              {actionDialog.type === 'payCashfree' ? `Pay ₹${actionDialog.request?.request.amount} via Cashfree?` : actionDialog.type === 'approveManual' ? 'Mark as paid manually?' : 'Reject Withdrawal?'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
-              {actionDialog.type === 'approveManual'
-                ? `Transfer ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} via UPI/Bank first, then attach the payment screenshot below as proof. This completes the redemption.`
+              {actionDialog.type === 'payCashfree'
+                ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${actionDialog.request?.request.method === 'bank' ? 'IMPS to their bank account' : 'UPI'}, from your Cashfree Payouts balance. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
+                : actionDialog.type === 'approveManual'
+                ? `Only if you have already paid ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} outside UniteFix: attach the payment screenshot below as proof. This completes the redemption.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
               }
             </AlertDialogDescription>
@@ -404,7 +431,7 @@ export default function WithdrawalsPage() {
               after it fails — and the unverified case is called out, because a
               UPI id nobody has checked is exactly how a manual payout reaches
               the wrong person. */}
-          {actionDialog.type === 'approveManual' && (
+          {(actionDialog.type === 'approveManual' || actionDialog.type === 'payCashfree') && (
             <div
               className={`rounded-lg border p-3 text-sm ${
                 actionDialog.request?.employee.upiVerifiedAt
@@ -413,9 +440,10 @@ export default function WithdrawalsPage() {
               }`}
             >
               <p className="font-mono text-white">
-                {actionDialog.request?.employee.upiId
-                  || actionDialog.request?.employee.bankAccountNumber
-                  || "No payout destination on file"}
+                {(actionDialog.request?.request.method === 'bank'
+                  ? actionDialog.request?.employee.bankAccountNumber
+                  : actionDialog.request?.employee.upiId)
+                  || (actionDialog.request?.request.method === 'bank' ? "No bank account on file" : "No UPI ID on file")}
               </p>
               {actionDialog.request?.employee.upiVerifiedAt ? (
                 <p className="text-[hsl(160,84%,65%)] mt-1">
@@ -463,6 +491,12 @@ export default function WithdrawalsPage() {
             <AlertDialogCancel className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
+                if (actionDialog.type === 'payCashfree') {
+                  // Keep the dialog open while Cashfree answers; onSuccess closes it.
+                  e.preventDefault();
+                  if (!payCashfreeMutation.isPending) handleAction();
+                  return;
+                }
                 if (actionDialog.type === 'approveManual') {
                   if (!proofFile) {
                     e.preventDefault();
@@ -476,9 +510,12 @@ export default function WithdrawalsPage() {
                 }
                 handleAction();
               }}
+              disabled={payCashfreeMutation.isPending}
               className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
-              {actionDialog.type === 'approveManual'
+              {actionDialog.type === 'payCashfree'
+                ? (payCashfreeMutation.isPending ? "Sending…" : `Send ₹${actionDialog.request?.request.amount}`)
+                : actionDialog.type === 'approveManual'
                 ? (approveManualMutation.isPending ? "Uploading proof..." : "Yes, Mark as Paid")
                 : (rejectMutation.isPending ? "Rejecting..." : "Yes, Reject")
               }

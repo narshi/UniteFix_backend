@@ -28,6 +28,8 @@ const transfers = new Map<string, any>();
 const log: Array<{ method: string; path: string; headers: http.IncomingHttpHeaders; body: any }> = [];
 let transferFault: null | '500_recorded' | '500_lost' | '500_and_status_down' | '422' = null;
 let statusDown = false;
+let dupWording: null | 'plain' = null; // Cashfree's other wording for "this id exists"
+let beneLookupDown = false;
 
 const fake = http.createServer((req, res) => {
     let raw = '';
@@ -42,7 +44,9 @@ const fake = http.createServer((req, res) => {
         if (url.pathname === '/payout/beneficiary' && req.method === 'POST') {
             const id = body.beneficiary_id;
             if (!/^[A-Za-z0-9]{1,50}$/.test(id)) return send(400, { type: 'invalid_request_error', code: 'beneficiary_id_invalid', message: 'beneficiary_id : invalid' });
-            if (benes.has(id)) return send(409, { type: 'invalid_request_error', code: 'beneficiary_id_already_exists', message: 'Beneficiary already exists with the given beneficiary_id' });
+            if (benes.has(id)) return dupWording === 'plain'
+                ? send(409, { type: 'invalid_request_error', code: 'beneficiary_already_exists', message: 'beneficiary_id already exists' })
+                : send(409, { type: 'invalid_request_error', code: 'beneficiary_id_already_exists', message: 'Beneficiary already exists with the given beneficiary_id' });
             const i = body.beneficiary_instrument_details ?? {};
             for (const b of benes.values()) {
                 const j = b.beneficiary_instrument_details;
@@ -52,6 +56,7 @@ const fake = http.createServer((req, res) => {
             return send(201, { ...benes.get(id), beneficiary_status: 'VERIFIED' });
         }
         if (url.pathname === '/payout/beneficiary' && req.method === 'GET') {
+            if (beneLookupDown) return send(500, { type: 'api_error', message: 'something went wrong' });
             const id = url.searchParams.get('beneficiary_id');
             const acc = url.searchParams.get('bank_account_number'), ifsc = url.searchParams.get('bank_ifsc');
             const b = id ? benes.get(id) : [...benes.values()].find(x => x.beneficiary_instrument_details.bank_account_number === acc && x.beneficiary_instrument_details.bank_ifsc === ifsc);
@@ -106,6 +111,19 @@ async function main() {
     check('a bank account Cashfree already holds under another id: that id is used', b1 === 'OLDBENE1');
     const b2 = await CashfreeService.addBeneficiary({ name: 'Mohan', email: 'm@example.com', phone: '9876511111', bankAccount: '50100012345678', ifsc: 'HDFC0001234' });
     check('a new bank account gets a UFB… id', /^UFB[0-9A-F]{30}$/.test(b2));
+    // The go-live error: "beneficiary_id already exists" for a UPI ID paid before.
+    dupWording = 'plain';
+    check('"beneficiary_id already exists" (Cashfree’s other wording) for our own UPI beneficiary: reused, no error', (await CashfreeService.addBeneficiary({ name: 'Ravi Kumar', email: 'x', phone: '', vpa: 'ravi@okhdfcbank' }).catch(e => e.message)) === u1);
+    beneLookupDown = true;
+    check('…and when Cashfree’s beneficiary lookup is failing too (the id is a hash of the UPI ID, so it is ours)', (await CashfreeService.addBeneficiary({ name: 'Ravi Kumar', email: 'x', phone: '', vpa: 'ravi@okhdfcbank' }).catch(e => e.message)) === u1);
+    beneLookupDown = false;
+    const maskedId = CashfreeService.beneIdFor({ vpa: 'masked@okicici' } as any);
+    benes.set(maskedId, { beneficiary_id: maskedId, beneficiary_name: 'M', beneficiary_instrument_details: { vpa: 'ma****@okicici' } });
+    check('…a lookup that shows the UPI ID masked: still reused', (await CashfreeService.addBeneficiary({ name: 'M', email: 'x', phone: '', vpa: 'masked@okicici' }).catch(e => e.message)) === maskedId);
+    const takenId = CashfreeService.beneIdFor({ vpa: 'zed@okaxis' } as any);
+    benes.set(takenId, { beneficiary_id: takenId, beneficiary_name: 'Z', beneficiary_instrument_details: { vpa: 'someone.else@okaxis' } });
+    check('…but our id holding a different UPI ID: refused, never paid to the wrong person', await CashfreeService.addBeneficiary({ name: 'Z', email: 'x', phone: '', vpa: 'zed@okaxis' }).then(() => false, e => /already registered in Cashfree/.test(e.message)));
+    dupWording = null;
     check('no bank account and no UPI ID: refused before calling Cashfree', await CashfreeService.addBeneficiary({ name: 'X', email: 'x', phone: '' }).then(() => false, e => /needs a bank account/.test(e.message)));
 
     // ── transfers ──
@@ -184,8 +202,31 @@ async function main() {
         const [wal2] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp.id));
         check('…syncing again does not refund twice', wal2.balanceAvailable === wal1.balanceAvailable);
 
+        // An expert with both a UPI ID and a bank account is paid the way they asked.
+        const [u2] = await db.insert(users).values({ phone: `8${String(Date.now()).slice(-9)}`, username: 'QA Payout Expert', role: 'serviceman', isActive: true, email: 'qa.payout2@example.test' } as any).returning();
+        userIds.push(u2.id);
+        const [emp2] = await db.insert(employees).values({ userId: u2.id, fullName: 'QA Payout Expert', upiId: 'qa.both@okicici', bankAccountNumber: '50100099887766', bankIfsc: 'HDFC0004321' } as any).returning();
+        await db.insert(partnerWallets).values({ partnerId: emp2.id, balanceAvailable: '0.00', balanceHold: '0.00', totalEarned: '9.00' } as any);
+        const [wu] = await db.insert(withdrawalRequests).values({ partnerId: emp2.id, amount: '4.00', method: 'upi', status: 'pending' } as any).returning();
+        const apu = await api.post(`/api/admin/withdrawals/${wu.id}/approve`, {}, S);
+        const tu = transfers.get(`WDRW_${wu.id}`);
+        check('a UPI withdrawal from an expert who also has a bank account: paid by UPI to their UPI ID, not the bank', apu.status === 200 && tu?.transfer_mode === 'upi' && benes.get(tu?.beneficiary_details?.beneficiary_id)?.beneficiary_instrument_details?.vpa === 'qa.both@okicici', JSON.stringify(apu.body).slice(0, 200));
+        const [wb] = await db.insert(withdrawalRequests).values({ partnerId: emp2.id, amount: '5.00', method: 'bank', status: 'pending' } as any).returning();
+        const apb = await api.post(`/api/admin/withdrawals/${wb.id}/approve`, {}, S);
+        const tb = transfers.get(`WDRW_${wb.id}`);
+        check('a bank withdrawal from the same expert: IMPS to their bank account', apb.status === 200 && tb?.transfer_mode === 'imps' && benes.get(tb?.beneficiary_details?.beneficiary_id)?.beneficiary_instrument_details?.bank_account_number === '50100099887766', JSON.stringify(apb.body).slice(0, 200));
+        const [wn] = await db.insert(withdrawalRequests).values({ partnerId: emp.id, amount: '1.00', method: 'bank', status: 'pending' } as any).returning();
+        const sentBefore = transfers.size;
+        const apn = await api.post(`/api/admin/withdrawals/${wn.id}/approve`, {}, S);
+        const [wn2] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, wn.id));
+        check('a bank withdrawal from an expert with only a UPI ID: refused with why, nothing sent, still pending', apn.status === 400 && /no bank account/i.test(apn.body?.error ?? '') && transfers.size === sentBefore && wn2.status === 'pending', JSON.stringify(apn.body).slice(0, 200));
+
         // Test payout tool, now on v2.
         const tp = await api.post('/api/admin/withdrawals/cashfree-test-payout', { name: 'Ravi Kumar', upiId: 'ravi@okhdfcbank', amount: 1 }, S);
+        dupWording = 'plain';
+        const tp2 = await api.post('/api/admin/withdrawals/cashfree-test-payout', { name: 'Ravi Kumar', upiId: 'ravi@okhdfcbank', amount: 1 }, S);
+        dupWording = null;
+        check('…and again with Cashfree saying "beneficiary_id already exists": sent, not refused', tp2.status === 200 && transfers.get(tp2.body?.data?.transferId)?.beneficiary_details?.beneficiary_id === u1, JSON.stringify(tp2.body).slice(0, 200));
         check('the go-live ₹1 test payout goes through v2 to the same beneficiary', tp.status === 200 && /^UFTEST_/.test(tp.body.data.transferId) && transfers.get(tp.body.data.transferId)?.beneficiary_details?.beneficiary_id === u1, JSON.stringify(tp.body).slice(0, 200));
     } finally {
         await close();

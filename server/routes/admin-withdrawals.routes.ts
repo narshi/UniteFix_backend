@@ -226,7 +226,8 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             // details matching their profile as it stands now.
             let beneId: string;
             try {
-                beneId = await CashfreeService.syncEmployeeForPayouts(employee);
+                // Pay the way the expert asked: their UPI ID or their bank account.
+                beneId = await CashfreeService.syncEmployeeForPayouts(employee, withdrawal.method);
             } catch (syncError: any) {
                 // No payout was attempted — release the claim so it can be retried.
                 await db.update(withdrawalRequests)

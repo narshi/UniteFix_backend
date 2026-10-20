@@ -374,8 +374,24 @@ export class CashfreeService {
         });
         if (httpStatus === 200 || httpStatus === 201) return beneId;
 
-        const code = String((data as any)?.code ?? '');
-        if (httpStatus === 409 && code === 'beneficiary_id_already_exists') return beneId;   // same destination, registered before
+        if (httpStatus === 409) {
+            // Already registered. The id is a hash of the destination, so a
+            // beneficiary with OUR id is this same UPI ID / account from an
+            // earlier payout (or test payout) — reuse it. Decided by looking it
+            // up and by the error naming the id, not by one exact error code,
+            // which Cashfree does not keep consistent. Refused only when the
+            // lookup shows a clearly different destination under that id.
+            const mine = await this.getBeneficiary(beneId).catch(() => undefined);
+            const idTaken = !!mine || /beneficiary[_ ]?id/i.test(`${(data as any)?.code ?? ''} ${(data as any)?.message ?? ''}`);
+            if (idTaken) {
+                const shown = (v: string | null | undefined) => (v && !/[*xX]{3,}/.test(v) ? v : null); // Cashfree may mask
+                const differs = !!mine && (toBank
+                    ? (!!shown(mine.bankAccount) && mine.bankAccount!.replace(/\s+/g, '') !== bankAccount) || (!!mine.ifsc && mine.ifsc.toUpperCase() !== ifsc)
+                    : !!shown(mine.vpa) && mine.vpa!.trim().toLowerCase() !== vpa);
+                if (!differs) return beneId;
+                logger.error(`[CASHFREE] beneficiary ${beneId} exists with different details`);
+            }
+        }
         if (httpStatus === 409 && toBank) {
             // This account is registered under another id — pay that one.
             const r = await this.v2('get', '/beneficiary', { params: { bank_account_number: bankAccount, bank_ifsc: ifsc } });
@@ -392,16 +408,22 @@ export class CashfreeService {
 
     /**
      * The beneficiary for this partner's payout details as they are RIGHT NOW,
-     * and its id. Bank account is preferred over UPI when both are present.
+     * and its id. A withdrawal pays the way the expert asked (`prefer`: their
+     * UPI ID or their bank account) and refuses if that one is not on file,
+     * rather than paying somewhere they did not choose. Without `prefer`
+     * (profile sync, refunds), the bank account wins when both are present.
      * Called when a partner saves their UPI ID and again when a payout is
      * approved, so an approval can never pay a partner who was not set up.
      */
-    static async syncEmployeeForPayouts(employee: Employee): Promise<string> {
+    static async syncEmployeeForPayouts(employee: Employee, prefer?: 'upi' | 'bank' | string | null): Promise<string> {
         const hasBank = !!(employee.bankAccountNumber && employee.bankIfsc);
         const hasUpi = !!employee.upiId;
         if (!hasBank && !hasUpi) {
             throw new Error('No bank account or UPI id on file for this partner.');
         }
+        if (prefer === 'upi' && !hasUpi) throw new Error('This withdrawal asked for UPI, but no UPI ID is on file for this partner.');
+        if (prefer === 'bank' && !hasBank) throw new Error('This withdrawal asked for a bank transfer, but no bank account and IFSC are on file for this partner.');
+        const useBank = prefer === 'upi' ? false : prefer === 'bank' ? true : hasBank;
         const [user] = await db.select({
             email: users.email, phone: users.phone, username: users.username, homeAddress: users.homeAddress,
         }).from(users).where(eq(users.id, employee.userId)).limit(1);
@@ -410,7 +432,7 @@ export class CashfreeService {
             name: employee.fullName || user?.username || 'Service Provider',
             email: user?.email || `partner-${employee.id}@unitefix.in`,
             phone: user?.phone || '',
-            ...(hasBank ? { bankAccount: employee.bankAccountNumber!, ifsc: employee.bankIfsc! } : { vpa: employee.upiId! }),
+            ...(useBank ? { bankAccount: employee.bankAccountNumber!, ifsc: employee.bankIfsc! } : { vpa: employee.upiId! }),
             address1: user?.homeAddress ?? undefined,
         });
 
