@@ -102,6 +102,33 @@ async function main() {
             c2.status === 200 && near(c2.body.data.platformFeeDeducted, dues) && c2.body.data.walletCredited === 0 && near(before - after, dues) && near(dues, r2(b.snap.platformFee! + b.snap.gst! - 99)),
             JSON.stringify({ status: c2.status, body: c2.body?.data, before, after }));
         check('…cash in hand − debit = the technician\'s earning', near(b.snap.finalTotal! - dues, b.snap.technicianEarning!));
+
+        // ── a technician with no wallet record yet ──
+        const [tu2] = await db.insert(users).values({ phone: `9${n()}`, username: 'QA Adv New Tech', role: 'serviceman', homeAddress: 'Sirsi', pinCode: '581401' } as any).returning(); userIds.push(tu2.id);
+        const [emp2] = await db.insert(employees).values({ userId: tu2.id, fullName: 'QA Adv New Tech', isActive: true, documentVerificationStatus: 'verified' as any } as any).returning();
+        const tt2 = jwt.sign({ userId: tu2.id, role: 'serviceman' }, SECRET, { expiresIn: '1h' });
+        check('the new technician has no wallet record yet', (await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp2.id))).length === 0);
+        const bk = await api.post('/api/services/create', { serviceType: 'QA', description: 'QA', address: 'Main road, Sirsi 581401', pinCode: '581401', catalogServiceId: dear.id }, ct);
+        await db.update(serviceRequests).set({ providerId: emp2.id, status: 'pending_payment' as any }).where(eq(serviceRequests.id, bk.body.data.id));
+        const [sr3] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, bk.body.data.id));
+        const snap3 = sr3.pricingSnapshot as PricingSnapshot;
+        const dues3 = r2(snap3.finalTotal! - snap3.technicianEarning!);
+        const c3 = await api.post(`/api/bookings/${sr3.id}/cash-collected`, { amountCollected: snap3.finalTotal }, tt2);
+        const [w3] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp2.id));
+        const tx3 = await db.select().from(walletTransactionsV2).where(eq(walletTransactionsV2.partnerId, emp2.id));
+        const [e3] = await db.select().from(employees).where(eq(employees.id, emp2.id));
+        check('their first cash job creates the wallet payouts read, and the dues are in it', c3.status === 200 && !!w3 && near(Number(w3.balanceAvailable), -dues3), JSON.stringify({ status: c3.status, w3 }));
+        check('…recorded as platform dues (commission_deduction), not a bank withdrawal', tx3.length === 1 && tx3[0].transactionType === 'commission_deduction' && near(Number(tx3[0].amount), dues3));
+        check('…and the older balance column is kept in step', near(Number(e3.walletBalance), -dues3));
+
+        // Manual admin deduction: checked against the wallet payouts read.
+        const { storage } = await import('../server/storage');
+        check('an admin deduction larger than the wallet is refused', await storage.deductProviderWallet(emp2.id, 5, 'QA manual').then(() => false, (e: any) => /Insufficient wallet balance/.test(e.message)));
+        await db.update(partnerWallets).set({ balanceAvailable: '50.00' }).where(eq(partnerWallets.partnerId, emp2.id));
+        await storage.deductProviderWallet(emp2.id, 20, 'QA manual');
+        const [w4] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp2.id));
+        const tx4 = await db.select().from(walletTransactionsV2).where(and(eq(walletTransactionsV2.partnerId, emp2.id), eq(walletTransactionsV2.transactionType, 'adjustment')));
+        check('…one within it is taken from the wallet and recorded as an adjustment', near(Number(w4.balanceAvailable), 30) && tx4.length === 1);
     } finally {
         await close();
     }

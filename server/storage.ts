@@ -1624,22 +1624,24 @@ export class DatabaseStorage implements IStorage {
         throw new Error('Employee not found');
       }
 
-      // Read V2 Wallet for actual balance check if available
-      const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, providerId));
-      const v2Balance = wallet ? parseFloat(wallet.balanceAvailable) : 0;
-      
+      // The wallet payouts read (partner_wallets). Created here when the
+      // technician has none yet — otherwise a first cash job's platform dues
+      // landed only in the old employees.wallet_balance column, invisible to
+      // payouts, and could be withdrawn past.
+      const wallet = await this.getOrCreatePartnerWallet(providerId, tx);
+      const v2Balance = parseFloat(wallet.balanceAvailable);
+
       const currentBalance = parseFloat(employee.walletBalance || '0');
 
-      // Block negative balance for regular deductions (withdrawals).
-      // Check V2 balance instead of V1 if wallet exists, otherwise fallback to V1
-      const effectiveBalance = wallet ? v2Balance : currentBalance;
-      if (!allowNegative && effectiveBalance < amount) {
-        throw new Error(`Insufficient wallet balance. Available: ₹${effectiveBalance.toFixed(2)}`);
+      // Block negative balance for regular (admin) deductions; platform dues
+      // from a cash job may take it negative and are recovered from earnings.
+      if (!allowNegative && v2Balance < amount) {
+        throw new Error(`Insufficient wallet balance. Available: ₹${v2Balance.toFixed(2)}`);
       }
 
       const newBalance = currentBalance - amount;
       const v2NewAvailable = v2Balance - amount;
-      const isNegativeDebt = (wallet ? v2NewAvailable : newBalance) <= -250;
+      const isNegativeDebt = v2NewAvailable <= -250;
 
       // Update V1 & negativeBalanceFlag
       await tx
@@ -1663,25 +1665,25 @@ export class DatabaseStorage implements IStorage {
         })
         .returning();
 
-      // Update V2
-      if (wallet) {
-        await tx.update(partnerWallets).set({
-          balanceAvailable: v2NewAvailable.toFixed(2),
-          updatedAt: new Date()
-        }).where(eq(partnerWallets.partnerId, providerId));
+      // Update V2 (the wallet payouts read)
+      await tx.update(partnerWallets).set({
+        balanceAvailable: v2NewAvailable.toFixed(2),
+        updatedAt: new Date()
+      }).where(eq(partnerWallets.partnerId, providerId));
 
-        await tx.insert(walletTransactionsV2).values({
-          transactionId: `WDED-${providerId}-${Date.now()}`,
-          partnerId: providerId,
-          transactionType: 'withdraw_bank', // Best fit for generic deduction
-          amount: amount.toFixed(2),
-          balanceAvailableBefore: wallet.balanceAvailable,
-          balanceAvailableAfter: v2NewAvailable.toFixed(2),
-          balanceHoldBefore: wallet.balanceHold,
-          balanceHoldAfter: wallet.balanceHold,
-          description: description || 'Admin Deduction / Platform Fee',
-        });
-      }
+      await tx.insert(walletTransactionsV2).values({
+        transactionId: `WDED-${providerId}-${Date.now()}`,
+        partnerId: providerId,
+        // Platform dues from a cash job vs. a manual admin deduction — not a
+        // bank withdrawal, which is what these were recorded as before.
+        transactionType: allowNegative ? 'commission_deduction' : 'adjustment',
+        amount: amount.toFixed(2),
+        balanceAvailableBefore: wallet.balanceAvailable,
+        balanceAvailableAfter: v2NewAvailable.toFixed(2),
+        balanceHoldBefore: wallet.balanceHold,
+        balanceHoldAfter: wallet.balanceHold,
+        description: description || 'Admin Deduction / Platform Fee',
+      });
 
       return transaction;
     });

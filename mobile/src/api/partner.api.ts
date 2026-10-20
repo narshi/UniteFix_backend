@@ -341,8 +341,11 @@ export const partnerApi = {
                     : null,
                 completedJobs: walletData.completedJobs || 0,
                 recentTransactions: txData.map((tx: any) => {
-                    // Map V2 transaction types to credit/debit
-                    const isCredit = tx.transactionType === 'release' || tx.transactionType === 'hold_credit' || parseFloat(tx.amount) > 0;
+                    // By type: amounts are stored positive whichever way money moves,
+                    // so the sign cannot tell a withdrawal or platform dues from an
+                    // earning. Money in: earnings held, released, and refunds of a
+                    // failed/rejected withdrawal. Everything else is money out.
+                    const isCredit = tx.transactionType === 'release' || tx.transactionType === 'hold_credit' || tx.transactionType === 'refund';
                     return {
                         id: tx.id,
                         amount: parseFloat(tx.amount || '0'),
