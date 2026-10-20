@@ -1996,6 +1996,27 @@ export const ftthConnections = pgTable("ftth_connections", {
   validTillIdx: index("ftth_conn_valid_till_idx").on(table.validTill),
 }));
 
+/**
+ * Every mobile number a broadband subscriber has had. The connection — its
+ * ISP id, recharges and history — never changes; only which number (and so
+ * which UniteFix member) it belongs to. A number is never deleted: when it is
+ * replaced or suspended its row is closed with when, why and by whom.
+ */
+export const ftthConnectionPhones = pgTable("ftth_connection_phones", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull().references(() => ftthConnections.id, { onDelete: 'cascade' }),
+  phone: text("phone").notNull(),                       // 10 digits
+  userId: integer("user_id").references(() => users.id),
+  status: text("status").notNull().default('active'),   // active | suspended
+  reason: text("reason"),                               // why it was added
+  addedByAdminId: integer("added_by_admin_id"),
+  endedAt: timestamp("ended_at"),
+  endedReason: text("ended_reason"),                    // changed | suspended | … free text
+  endedByAdminId: integer("ended_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ connIdx: index("ftth_conn_phones_conn_idx").on(t.connectionId) }));
+export type FtthConnectionPhone = typeof ftthConnectionPhones.$inferSelect;
+
 /** "I'm already a customer" — map an existing ISP account to a UniteFix login. */
 export const ftthIdRequests = pgTable("ftth_id_requests", {
   id: serial("id").primaryKey(),

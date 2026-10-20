@@ -949,8 +949,8 @@ export class FtthService {
             throw new Error('Operator not found');
         }
 
-        // Fetch all registered users with phones for auto-linking
-        const registeredUsers = await db.select({ id: users.id, phone: users.phone }).from(users);
+        // Registered members with phones, for auto-linking (closed accounts excluded).
+        const registeredUsers = await db.select({ id: users.id, phone: users.phone }).from(users).where(isNull(users.deletedAt));
         const phoneToUserId = new Map<string, number>();
         for (const u of registeredUsers) {
             if (u.phone) {
@@ -963,6 +963,10 @@ export class FtthService {
         let updated = 0;
         let autoLinkedUsers = 0;
         const errors: Array<{ row: number; error: string; data?: any }> = [];
+        // Rows whose number differs from the one on file: the import does not
+        // change a number (that moves the app link and keeps history — Manage
+        // numbers does it), so they are listed for the partner instead.
+        const numberChangesSkipped: Array<{ row: number; ispConnectionId: string }> = [];
 
         return await withTransaction(async (tx) => {
             for (let i = 0; i < rows.length; i++) {
@@ -987,14 +991,15 @@ export class FtthService {
 
                 let parsedValidTill: Date | null = null;
                 if (rawValidTill) {
-                    const d = new Date(rawValidTill);
+                    // A bare date means the end of that day in India, as in the edit form.
+                    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(rawValidTill).trim()) ? new Date(`${String(rawValidTill).trim()}T23:59:59+05:30`) : new Date(rawValidTill);
                     if (!isNaN(d.getTime())) parsedValidTill = d;
                 }
 
                 const matchedUserId = cleanPhone.length === 10 ? phoneToUserId.get(cleanPhone) ?? null : null;
                 if (matchedUserId) autoLinkedUsers++;
 
-                const [existing] = await tx.select({ id: ftthConnections.id, userId: ftthConnections.userId })
+                const [existing] = await tx.select({ id: ftthConnections.id, userId: ftthConnections.userId, customerPhone: ftthConnections.customerPhone, status: ftthConnections.status })
                     .from(ftthConnections)
                     .where(and(
                         eq(ftthConnections.operatorId, operatorId),
@@ -1003,21 +1008,32 @@ export class FtthService {
                     .limit(1);
 
                 if (existing) {
+                    const phone10 = cleanPhone.length === 10 ? cleanPhone : '';
+                    const differs = !!phone10 && !!existing.customerPhone && phone10 !== existing.customerPhone;
+                    if (differs) numberChangesSkipped.push({ row: i + 1, ispConnectionId });
+                    const firstNumber = !!phone10 && !existing.customerPhone;
+                    const userId = existing.userId ?? (firstNumber ? matchedUserId : null);
                     await tx.update(ftthConnections)
                         .set({
                             customerName: customerName || undefined,
-                            customerPhone: cleanPhone || undefined,
+                            // Only a first number is set here; a different one is left for Manage numbers.
+                            customerPhone: firstNumber ? phone10 : undefined,
                             customerEmail: customerEmail || undefined,
                             installationAddress: installationAddress || undefined,
                             validTill: parsedValidTill || undefined,
-                            userId: existing.userId ?? matchedUserId,
-                            status: 'active',
+                            userId,
+                            // An import never reopens a closed subscriber or lifts a suspension.
+                            ...(existing.status === 'pending_id' ? { status: 'active' as const } : {}),
                             updatedAt: new Date(),
                         })
                         .where(eq(ftthConnections.id, existing.id));
+                    if (firstNumber) {
+                        const { FtthPhoneService } = await import('./ftth-phones.service');
+                        await FtthPhoneService.recordInitial(tx, existing.id, phone10, userId, null);
+                    }
                     updated++;
                 } else {
-                    await tx.insert(ftthConnections).values({
+                    const [created] = await tx.insert(ftthConnections).values({
                         operatorId,
                         ispConnectionId,
                         customerName: customerName || ispConnectionId,
@@ -1029,7 +1045,11 @@ export class FtthService {
                         status: 'active',
                         createdAt: new Date(),
                         updatedAt: new Date(),
-                    });
+                    }).returning({ id: ftthConnections.id });
+                    if (cleanPhone.length === 10) {
+                        const { FtthPhoneService } = await import('./ftth-phones.service');
+                        await FtthPhoneService.recordInitial(tx, created.id, cleanPhone, matchedUserId, null);
+                    }
                     inserted++;
                 }
             }
@@ -1041,6 +1061,7 @@ export class FtthService {
                 updated,
                 autoLinkedUsers,
                 errors,
+                numberChangesSkipped,
             };
         });
     }

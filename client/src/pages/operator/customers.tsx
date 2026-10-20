@@ -16,9 +16,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { format } from "date-fns";
-import { FileSpreadsheet, UserPlus, Pencil, Trash2 } from "lucide-react";
+import { FileSpreadsheet, UserPlus, Pencil, Trash2, Phone } from "lucide-react";
+import { SubscriberNumbers } from "@/components/ftth/SubscriberNumbers";
 import { BulkCustomerImporter } from "@/components/ftth/BulkCustomerImporter";
 import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
 
@@ -36,7 +37,13 @@ interface ConnectionRow {
   speedMbps: number | null;
   userPhone: string | null;
   userName: string | null;
+  linked: boolean;
+  rechargeCount: number;
 }
+
+/** The date the partner sees for an expiry, in India (the list and the form must agree). */
+const istDate = (iso: string) => new Date(new Date(iso).getTime() + 330 * 60_000).toISOString().slice(0, 10);
+const last10 = (p: string | null | undefined) => (p ?? "").replace(/\D/g, "").slice(-10);
 
 interface IdRequestRow {
   id: number;
@@ -70,6 +77,7 @@ const FILTERS = [
   { key: "pending", label: "Awaiting ID" },
   { key: "expiring", label: "Expiring soon" },
   { key: "suspended", label: "Suspended" },
+  { key: "closed", label: "Closed" },
 ];
 
 export default function OperatorCustomers() {
@@ -85,7 +93,9 @@ export default function OperatorCustomers() {
   // One customer at a time: the walk-in, the correction, the closed account.
   type CustomerForm = { ispConnectionId: string; customerName: string; customerPhone: string; customerEmail: string; installationAddress: string; validTill: string; currentPlanId: string };
   const EMPTY_FORM: CustomerForm = { ispConnectionId: "", customerName: "", customerPhone: "", customerEmail: "", installationAddress: "", validTill: "", currentPlanId: "" };
-  const [editing, setEditing] = useState<{ id: number | null; form: CustomerForm } | null>(null);
+  const [editing, setEditing] = useState<{ id: number | null; form: CustomerForm; initialValidTill?: string; initialPhone?: string } | null>(null);
+  const [numbersFor, setNumbersFor] = useState<ConnectionRow | null>(null);
+  const [removing, setRemoving] = useState<ConnectionRow | null>(null);
   const { data: planData } = useQuery<{ data: Array<{ id: number; name: string; speedMbps: number; durationMonths: number; isActive: boolean }> }>({
     queryKey: ["/api/ftth/admin/plans"],
   });
@@ -125,58 +135,63 @@ export default function OperatorCustomers() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: async (vars: { id: number; action: "suspend" | "reactivate" }) =>
+    mutationFn: async (vars: { id: number; action: "suspend" | "reactivate" | "reopen" }) =>
       apiRequest("POST", `/api/ftth/admin/connections/${vars.id}/status`, { action: vars.action }),
     onSuccess: (r: any) => { refresh(); toast({ title: "Updated", description: r?.message }); },
-    onError: (e: Error) => toast({ title: "Could not update", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not update", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const saveCustomer = useMutation({
     mutationFn: async () => {
       if (!editing) return;
       const f = editing.form;
-      const body = {
+      const isNew = editing.id === null;
+      const body: Record<string, unknown> = {
         ispConnectionId: f.ispConnectionId.trim(),
         customerName: f.customerName.trim(),
-        customerPhone: f.customerPhone.trim() || null,
         customerEmail: f.customerEmail.trim() || null,
         installationAddress: f.installationAddress.trim() || null,
-        validTill: f.validTill || null,
         currentPlanId: f.currentPlanId ? Number(f.currentPlanId) : null,
       };
+      // The number is set when adding; afterwards it changes only through
+      // Manage numbers (unless none is on file yet).
+      if (isNew || !editing.initialPhone) body.customerPhone = f.customerPhone.trim() || null;
+      // Validity is sent only when the partner changed it, so an edit to the
+      // name or plan can never move a paid expiry.
+      if (isNew || f.validTill !== editing.initialValidTill) body.validTill = f.validTill || null;
       return editing.id === null
         ? apiRequest("POST", "/api/ftth/admin/connections", body)
         : apiRequest("PATCH", `/api/ftth/admin/connections/${editing.id}`, body);
     },
     onSuccess: (r: any) => { refresh(); setEditing(null); toast({ title: editing?.id === null ? "Customer added" : "Customer updated", description: r?.message }); },
-    onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not save", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const deleteCustomer = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/ftth/admin/connections/${id}`),
     onSuccess: (r: any) => { refresh(); toast({ title: "Done", description: r?.message }); },
-    onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Could not remove", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
   const openNew = () => setEditing({ id: null, form: EMPTY_FORM });
-  const openEdit = (c: ConnectionRow) => setEditing({
-    id: c.id,
-    form: {
-      ispConnectionId: c.ispConnectionId ?? "",
-      customerName: c.customerName ?? c.userName ?? "",
-      customerPhone: c.customerPhone ?? c.userPhone ?? "",
-      customerEmail: c.customerEmail ?? "",
-      installationAddress: c.installationAddress ?? "",
-      validTill: c.validTill ? c.validTill.slice(0, 10) : "",
-      currentPlanId: c.currentPlanId ? String(c.currentPlanId) : "",
-    },
-  });
-  const confirmDelete = (c: ConnectionRow) => {
-    const who = c.customerName ?? c.ispConnectionId ?? `#${c.id}`;
-    if (window.confirm(`Remove ${who}?\n\nIf they have recharged through UniteFix the account is closed and the history kept; otherwise it is deleted.`)) {
-      deleteCustomer.mutate(c.id);
-    }
+  const openEdit = (c: ConnectionRow) => {
+    const validTill = c.validTill ? istDate(c.validTill) : "";
+    setEditing({
+      id: c.id,
+      initialValidTill: validTill,
+      initialPhone: c.customerPhone ?? "",
+      form: {
+        ispConnectionId: c.ispConnectionId ?? "",
+        customerName: c.customerName ?? c.userName ?? "",
+        customerPhone: c.customerPhone ?? "",
+        customerEmail: c.customerEmail ?? "",
+        installationAddress: c.installationAddress ?? "",
+        validTill,
+        currentPlanId: c.currentPlanId ? String(c.currentPlanId) : "",
+      },
+    });
   };
+  const confirmDelete = (c: ConnectionRow) => setRemoving(c);
 
   const fulfilMutation = useMutation({
     mutationFn: async (id: number) => apiRequest("POST", `/api/ftth/admin/recharges/${id}/fulfil`, {}),
@@ -329,7 +344,10 @@ export default function OperatorCustomers() {
                         </Badge>
                       </div>
                       <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">
-                        {c.customerName ?? c.userName ?? "—"} · {c.userPhone ?? "—"}
+                        {c.customerName ?? c.userName ?? "—"} · {c.customerPhone ?? (c.userPhone ? last10(c.userPhone) : "no number")}
+                        {c.linked
+                          ? (c.userPhone && c.customerPhone && last10(c.userPhone) !== c.customerPhone ? ` · app login ${last10(c.userPhone)}` : " · on the app")
+                          : (c.customerPhone ? " · not on the app" : "")}
                         {c.planName ? ` · ${c.planName}` : ""}
                         {c.validTill
                           ? ` · expires ${format(new Date(c.validTill), "d MMM yyyy")}${days !== null && days >= 0 ? ` (${days}d)` : " (expired)"}`
@@ -337,19 +355,28 @@ export default function OperatorCustomers() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Button size="sm" variant="outline" onClick={() => openEdit(c)} title="Edit customer">
+                      <Button size="sm" variant="outline" onClick={() => openEdit(c)} disabled={c.status === "closed"} title={c.status === "closed" ? "Reopen to edit" : "Edit customer"}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={statusMutation.isPending || c.status === "closed"}
-                        onClick={() => statusMutation.mutate({
-                          id: c.id, action: c.status === "suspended" ? "reactivate" : "suspend",
-                        })}
-                      >
-                        {c.status === "suspended" ? "Reactivate" : "Suspend"}
+                      <Button size="sm" variant="outline" onClick={() => setNumbersFor(c)} title="Manage mobile numbers">
+                        <Phone className="h-3.5 w-3.5" />
                       </Button>
+                      {c.status === "closed" ? (
+                        <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => statusMutation.mutate({ id: c.id, action: "reopen" })}>
+                          Reopen
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={statusMutation.isPending}
+                          onClick={() => statusMutation.mutate({
+                            id: c.id, action: c.status === "suspended" ? "reactivate" : "suspend",
+                          })}
+                        >
+                          {c.status === "suspended" ? "Reactivate" : "Suspend"}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" className="text-rose-400 hover:text-rose-300" disabled={deleteCustomer.isPending || c.status === "closed"} onClick={() => confirmDelete(c)} title="Remove customer">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -369,14 +396,23 @@ export default function OperatorCustomers() {
             <DialogDescription>
               {editing?.id === null
                 ? "Their ID from your own system, and the number they use. If they already have the UniteFix app on that number, they are linked at once and can recharge."
-                : "Changing the phone does not unlink an app account that is already connected."}
+                : "To change the mobile number, use Manage numbers — the app link moves to the new number and the old one stays in the history."}
             </DialogDescription>
           </DialogHeader>
           {editing && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div><Label>Customer ID (your system) *</Label><Input value={editing.form.ispConnectionId} onChange={e => setEditing({ ...editing, form: { ...editing.form, ispConnectionId: e.target.value } })} placeholder="e.g. POORVI-9912" /></div>
               <div><Label>Name *</Label><Input value={editing.form.customerName} onChange={e => setEditing({ ...editing, form: { ...editing.form, customerName: e.target.value } })} /></div>
-              <div><Label>Mobile</Label><Input inputMode="tel" value={editing.form.customerPhone} onChange={e => setEditing({ ...editing, form: { ...editing.form, customerPhone: e.target.value } })} placeholder="10 digits" /></div>
+              <div><Label>Mobile</Label>
+                {editing.id !== null && editing.initialPhone ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input value={editing.form.customerPhone} readOnly aria-readonly="true" className="opacity-70" />
+                    <Button type="button" size="sm" variant="outline" onClick={() => { const row = connections.find(x => x.id === editing.id); setEditing(null); if (row) setNumbersFor(row); }}>Change</Button>
+                  </div>
+                ) : (
+                  <Input inputMode="tel" value={editing.form.customerPhone} onChange={e => setEditing({ ...editing, form: { ...editing.form, customerPhone: e.target.value } })} placeholder="10 digits" />
+                )}
+              </div>
               <div><Label>Email</Label><Input inputMode="email" value={editing.form.customerEmail} onChange={e => setEditing({ ...editing, form: { ...editing.form, customerEmail: e.target.value } })} /></div>
               <div className="sm:col-span-2"><Label>Installation address</Label><Input value={editing.form.installationAddress} onChange={e => setEditing({ ...editing, form: { ...editing.form, installationAddress: e.target.value } })} /></div>
               <div><Label>Current plan</Label>
@@ -385,7 +421,9 @@ export default function OperatorCustomers() {
                   {plans.map(p => <option key={p.id} value={String(p.id)}>{p.name} · {p.speedMbps} Mbps · {p.durationMonths} mo{p.isActive ? "" : " (hidden)"}</option>)}
                 </select>
               </div>
-              <div><Label>Valid till</Label><Input type="date" value={editing.form.validTill} onChange={e => setEditing({ ...editing, form: { ...editing.form, validTill: e.target.value } })} /></div>
+              <div><Label>Valid till</Label><Input type="date" value={editing.form.validTill} onChange={e => setEditing({ ...editing, form: { ...editing.form, validTill: e.target.value } })} />
+                <p className="mt-1 text-[11px] text-[hsl(215,20%,55%)]">Valid to the end of this day. Left alone, it is not changed.</p>
+              </div>
             </div>
           )}
           <DialogFooter>
@@ -396,6 +434,34 @@ export default function OperatorCustomers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove {removing?.customerName ?? removing?.ispConnectionId ?? "this customer"}?</DialogTitle>
+            <DialogDescription>
+              {removing && removing.rechargeCount > 0
+                ? `They have ${removing.rechargeCount} recharge${removing.rechargeCount === 1 ? "" : "s"} through UniteFix, so they will be closed, not deleted — their ID and history stay, and you can reopen them later. To change their mobile number, use Manage numbers instead.`
+                : "They have never recharged through UniteFix, so they will be deleted. To change their mobile number, use Manage numbers instead."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoving(null)}>Keep them</Button>
+            <Button variant="destructive" disabled={deleteCustomer.isPending} onClick={() => { if (removing) deleteCustomer.mutate(removing.id); setRemoving(null); }}>
+              {removing && removing.rechargeCount > 0 ? "Close customer" : "Delete customer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {numbersFor && (
+        <SubscriberNumbers
+          connectionId={numbersFor.id}
+          title={numbersFor.customerName ?? numbersFor.ispConnectionId ?? `#${numbersFor.id}`}
+          onClose={() => setNumbersFor(null)}
+          onChanged={refresh}
+        />
+      )}
 
       <Dialog open={assigning !== null} onOpenChange={(o) => !o && setAssigning(null)}>
         <DialogContent>

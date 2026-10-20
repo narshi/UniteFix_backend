@@ -109,6 +109,7 @@ export function BulkCustomerImporter({
     updated: number;
     autoLinkedUsers: number;
     errors: Array<{ row: number; error: string }>;
+    numberChangesSkipped?: Array<{ row: number; ispConnectionId: string }>;
   } | null>(null);
 
   const reset = () => {
@@ -451,6 +452,22 @@ export function BulkCustomerImporter({
                 </p>
               </div>
             </div>
+
+            {/* Numbers the import did not change */}
+            {(importResult.numberChangesSkipped?.length ?? 0) > 0 && (
+              <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/20 space-y-2">
+                <div className="flex items-center gap-2 text-sky-300 text-xs font-semibold">
+                  <AlertTriangle className="w-4 h-4" />
+                  {importResult.numberChangesSkipped!.length} subscriber(s) have a different mobile number in the file — not changed
+                </div>
+                <p className="text-[11px] text-[hsl(215,20%,65%)]">An import never changes a number already on file. Use <b>Manage numbers</b> on each subscriber, so the app link moves to the new number and the old one stays in their history.</p>
+                <ul className="text-[11px] text-[hsl(215,20%,65%)] list-disc pl-4 space-y-0.5 max-h-24 overflow-y-auto">
+                  {importResult.numberChangesSkipped!.map((e, idx) => (
+                    <li key={idx}>Row {e.row}: {e.ispConnectionId}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Error / Skipped rows if any */}
             {importResult.errors.length > 0 && (

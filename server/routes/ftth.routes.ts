@@ -47,6 +47,7 @@ import {
 import { validateBody } from "../middleware/validate";
 import { withTransaction } from "../lib/transaction";
 import { recordAudit } from "../lib/audit";
+import { FtthPhoneService, PhoneChangeError } from "../services/ftth-phones.service";
 import { operatorApplyLimiter, mobileLimiter } from "../middleware/rate-limit";
 import { FtthService, paiseToRupees, resolveAddon, AddonSelectionError } from "../services/ftth.service";
 import { configService } from "../services/config.service";
@@ -245,7 +246,7 @@ const convertLeadSchema = z.object({
 });
 
 const connectionStatusSchema = z.object({
-    action: z.enum(['suspend', 'reactivate']),
+    action: z.enum(['suspend', 'reactivate', 'reopen']),
     reason: z.string().trim().max(500).optional(),
 });
 
@@ -1352,6 +1353,7 @@ export function registerFtthRoutes(app: Express) {
             if (filter === 'active') conditions.push(eq(ftthConnections.status, 'active'));
             if (filter === 'pending') conditions.push(eq(ftthConnections.status, 'pending_id'));
             if (filter === 'suspended') conditions.push(eq(ftthConnections.status, 'suspended'));
+            if (filter === 'closed') conditions.push(eq(ftthConnections.status, 'closed'));
             if (filter === 'expiring') {
                 conditions.push(eq(ftthConnections.status, 'active'));
                 conditions.push(lte(ftthConnections.validTill, soon));
@@ -1372,6 +1374,9 @@ export function registerFtthRoutes(app: Express) {
                 speedMbps: ftthPlans.speedMbps,
                 userPhone: users.phone,
                 userName: users.username,
+                linked: sql<boolean>`${ftthConnections.userId} is not null`,
+                // So "Remove" can say whether it will delete or close.
+                rechargeCount: sql<number>`(select count(*)::int from ftth_recharges r where r.connection_id = ${ftthConnections.id})`,
             })
                 .from(ftthConnections)
                 .leftJoin(ftthPlans, eq(ftthPlans.id, ftthConnections.currentPlanId))
@@ -1404,9 +1409,13 @@ export function registerFtthRoutes(app: Express) {
                 if (dupe) return res.status(409).json({ success: false, message: `Customer ID ${fields.ispConnectionId} already exists.` });
 
                 const userId = fields.customerPhone ? await userIdByPhone(fields.customerPhone) : null;
-                const [row] = await db.insert(ftthConnections).values({
-                    operatorId, ...fields, userId, status: 'active', createdAt: new Date(), updatedAt: new Date(),
-                }).returning();
+                const row = await withTransaction(async (tx) => {
+                    const [r] = await tx.insert(ftthConnections).values({
+                        operatorId, ...fields, userId, status: 'active', createdAt: new Date(), updatedAt: new Date(),
+                    }).returning();
+                    await FtthPhoneService.recordInitial(tx, r.id, fields.customerPhone, userId, adminUserId ?? null);
+                    return r;
+                });
 
                 await recordAudit({ entityType: 'ftth_connection', entityId: row.id, action: 'ftth_connection_created', changedBy: adminUserId, metadata: { operatorId, ispConnectionId: row.ispConnectionId, linkedUserId: userId } });
                 res.status(201).json({
@@ -1426,8 +1435,15 @@ export function registerFtthRoutes(app: Express) {
                 const [conn] = await db.select().from(ftthConnections)
                     .where(and(eq(ftthConnections.id, id), eq(ftthConnections.operatorId, operatorId))).limit(1);
                 if (!conn) return res.status(404).json({ success: false, message: 'Customer not found' });
+                if (conn.status === 'closed') return res.status(409).json({ success: false, code: 'CLOSED', message: 'This subscriber is closed. Reopen them first, then edit.' });
 
                 const b = req.body as Partial<z.infer<typeof connectionUpsertSchema>>;
+                // The mobile number has its own process (Manage numbers): it moves
+                // the app link, checks the new number is a UniteFix member, and
+                // keeps the old one in the history. An edit cannot change it.
+                if (b.customerPhone !== undefined && conn.customerPhone && tenDigits(b.customerPhone ?? '') !== conn.customerPhone) {
+                    return res.status(409).json({ success: false, code: 'USE_CHANGE_NUMBER', message: 'Change the mobile number with "Manage numbers", so the app link moves and the old number stays in the history.' });
+                }
                 const fields = await normaliseConnectionInput({
                     ispConnectionId: b.ispConnectionId ?? conn.ispConnectionId ?? '',
                     customerName: b.customerName ?? conn.customerName ?? '',
@@ -1445,16 +1461,20 @@ export function registerFtthRoutes(app: Express) {
                     if (dupe) return res.status(409).json({ success: false, message: `Customer ID ${fields.ispConnectionId} is already used by another customer.` });
                 }
 
-                // A login already linked stays linked — the phone on file is the
-                // operator's record, not the app account. An unlinked row gets a
-                // fresh chance to link on the new number.
+                // A number first entered here (none on file before) links like a
+                // new subscriber's; a linked number only changes via Manage numbers.
                 const userId = conn.userId ?? (fields.customerPhone ? await userIdByPhone(fields.customerPhone) : null);
+                const firstNumber = !conn.customerPhone && fields.customerPhone;
                 // Assigning an ID to a row that was waiting for one activates it.
                 const status = conn.status === 'pending_id' && fields.ispConnectionId ? 'active' : conn.status;
 
-                const [row] = await db.update(ftthConnections)
-                    .set({ ...fields, userId, status: status as any, updatedAt: new Date() })
-                    .where(eq(ftthConnections.id, id)).returning();
+                const row = await withTransaction(async (tx) => {
+                    const [r] = await tx.update(ftthConnections)
+                        .set({ ...fields, userId, status: status as any, updatedAt: new Date() })
+                        .where(eq(ftthConnections.id, id)).returning();
+                    if (firstNumber) await FtthPhoneService.recordInitial(tx, id, fields.customerPhone, userId, adminUserId ?? null);
+                    return r;
+                });
                 await recordAudit({ entityType: 'ftth_connection', entityId: id, action: 'ftth_connection_updated', changedBy: adminUserId, metadata: { operatorId, changed: Object.keys(b) } });
                 res.json({ success: true, message: 'Customer updated.', data: row });
             } catch (error) { next(error); }
@@ -1509,6 +1529,11 @@ export function registerFtthRoutes(app: Express) {
                     ? Math.max(0, Math.ceil((conn.validTill.getTime() - Date.now()) / 86_400_000))
                     : 0;
 
+                // Closed (removed with recharge history) is its own state: only
+                // "reopen" brings it back, and only a closed subscriber reopens.
+                if (action === 'reopen' && conn.status !== 'closed') return res.status(409).json({ success: false, message: 'Only a closed subscriber can be reopened.' });
+                if (action !== 'reopen' && conn.status === 'closed') return res.status(409).json({ success: false, message: 'This subscriber is closed. Reopen them first.' });
+
                 const nextStatus = action === 'suspend'
                     ? 'suspended'
                     : (conn.ispConnectionId ? 'active' : 'pending_id');
@@ -1520,7 +1545,7 @@ export function registerFtthRoutes(app: Express) {
                 await recordAudit({
                     entityType: 'ftth_connection',
                     entityId: id,
-                    action: action === 'suspend' ? 'ftth_connection_suspended' : 'ftth_connection_reactivated',
+                    action: action === 'suspend' ? 'ftth_connection_suspended' : action === 'reopen' ? 'ftth_connection_reopened' : 'ftth_connection_reactivated',
                     fromState: conn.status,
                     toState: nextStatus,
                     changedBy: adminUserId,
@@ -1533,11 +1558,40 @@ export function registerFtthRoutes(app: Express) {
                         ? (daysRemaining > 0
                             ? `Suspended with ${daysRemaining} paid day(s) remaining.`
                             : 'Connection suspended.')
-                        : 'Connection reactivated.',
+                        : action === 'reopen' ? 'Subscriber reopened. Their history is as it was.' : 'Connection reactivated.',
                     data: { paidDaysRemaining: daysRemaining },
                 });
             } catch (error) { next(error); }
         });
+
+    // ── A subscriber's mobile numbers (history kept; the new one must be a UniteFix member) ──
+    const phoneFail = (e: any, res: Response, next: NextFunction) => e instanceof PhoneChangeError ? res.status(e.status).json({ success: false, code: e.code, message: e.message }) : next(e);
+    const actorOf = (req: Request) => { const o = (req as any).operator; return { operatorId: o.operatorId, adminUserId: o.adminUserId ?? null }; };
+
+    /** GET /api/ftth/admin/connections/:id/phones — current number and every earlier one. */
+    app.get("/api/ftth/admin/connections/:id/phones", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try { res.json({ success: true, data: await FtthPhoneService.list(actorOf(req), Number(req.params.id)) }); }
+        catch (e) { phoneFail(e, res, next); }
+    });
+    /** POST /api/ftth/admin/connections/:id/phone — { phone, reason }: change the number. */
+    app.post("/api/ftth/admin/connections/:id/phone", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const r = await FtthPhoneService.change(actorOf(req), Number(req.params.id), req.body?.phone, req.body?.reason);
+            res.json({ success: true, message: `Number changed. The connection is now on ${r.memberName ?? 'the member'}'s UniteFix account; the old number stays in the history.`, data: r });
+        } catch (e) { phoneFail(e, res, next); }
+    });
+    /** POST /api/ftth/admin/connections/:id/phone/suspend — { reason }: the current number loses the connection. */
+    app.post("/api/ftth/admin/connections/:id/phone/suspend", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try { res.json({ success: true, message: 'Number suspended. Add a new number to give the customer app access again.', data: await FtthPhoneService.suspend(actorOf(req), Number(req.params.id), req.body?.reason) }); }
+        catch (e) { phoneFail(e, res, next); }
+    });
+    /** POST /api/ftth/admin/connections/:id/phones/:phoneId/reactivate — a previous number becomes current. */
+    app.post("/api/ftth/admin/connections/:id/phones/:phoneId/reactivate", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const r = await FtthPhoneService.reactivate(actorOf(req), Number(req.params.id), Number(req.params.phoneId), req.body?.reason);
+            res.json({ success: true, message: 'Previous number is current again.', data: r });
+        } catch (e) { phoneFail(e, res, next); }
+    });
 
     /** GET /api/ftth/admin/id-requests */
     app.get("/api/ftth/admin/id-requests", authenticateOperator, async (req: Request, res: Response, next: NextFunction) => {
@@ -2999,7 +3053,9 @@ async function normaliseConnectionInput(
     if (b.customerPhone && !customerPhone) return { error: 'Phone must be a 10-digit mobile number.' } as const;
     let validTill: Date | null = null;
     if (b.validTill) {
-        const d = new Date(b.validTill);
+        // "2026-11-20" from the date box means the end of 20 Nov in India —
+        // not midnight UTC (5:30 AM IST), which cut hours off paid validity.
+        const d = /^\d{4}-\d{2}-\d{2}$/.test(String(b.validTill)) ? new Date(`${b.validTill}T23:59:59+05:30`) : new Date(b.validTill);
         if (isNaN(d.getTime())) return { error: 'Valid-till is not a date.' } as const;
         validTill = d;
     }

@@ -31,13 +31,27 @@ const HARD_BLOCK = /\b(drop\s+database|drop\s+schema|create\s+database)\b/i;
 // needs explicit confirmation.
 const READ_KEYWORDS = new Set(["select", "with", "explain", "show", "table", "values"]);
 
-function classify(sqlText: string): { first: string; readOnly: boolean } {
-    // Strip leading line/block comments so "/* note */ delete ..." is not seen as a read.
+// Words that change data or schema. A statement containing any of them (outside
+// quotes and comments) is a write, whatever it starts with: "WITH … UPDATE",
+// "EXPLAIN ANALYZE DELETE …" (which runs the delete) and "SELECT … INTO t" all
+// begin with a read keyword.
+const WRITE_WORDS = /\b(insert|update|delete|merge|truncate|alter|drop|create|grant|revoke|copy|call|do|vacuum|reindex|cluster|refresh|lock|comment|into|analyze|set|reset)\b/i;
+
+export function classify(sqlText: string): { first: string; readOnly: boolean } {
+    // Strip comments and quoted text first, so "/* note */ delete …" is not seen
+    // as a read and a value like 'update' in a WHERE is not seen as a write.
     const cleaned = sqlText
-        .replace(/^\s*(--[^\n]*\n|\/\*[\s\S]*?\*\/)\s*/g, "")
+        .replace(/--[^\n]*/g, " ")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/'(?:[^']|'')*'/g, "''")
+        .replace(/"(?:[^"]|"")*"/g, '""')
+        .replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, "''")
         .trim();
     const first = (cleaned.split(/[\s(;]+/)[0] || "").toLowerCase();
-    return { first, readOnly: READ_KEYWORDS.has(first) };
+    // More than one statement ("SELECT 1; DELETE …") is never a pure read.
+    const statements = cleaned.split(";").map(x => x.trim()).filter(Boolean);
+    const readOnly = READ_KEYWORDS.has(first) && statements.length === 1 && !WRITE_WORDS.test(cleaned);
+    return { first, readOnly };
 }
 
 export function registerAdminDbConsoleRoutes(app: Express) {

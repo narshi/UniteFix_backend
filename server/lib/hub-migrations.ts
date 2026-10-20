@@ -1097,6 +1097,23 @@ const BLOCKS: Array<[string, string]> = [
       );
     `],
     ['celebrations: ledger types booking_commission', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'booking_commission';`],
+    ['ftth: connection phone numbers', `
+      CREATE TABLE IF NOT EXISTS ftth_connection_phones (
+        id SERIAL PRIMARY KEY,
+        connection_id INTEGER NOT NULL REFERENCES ftth_connections(id) ON DELETE CASCADE,
+        phone TEXT NOT NULL,
+        user_id INTEGER REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'active',
+        reason TEXT,
+        added_by_admin_id INTEGER,
+        ended_at TIMESTAMP,
+        ended_reason TEXT,
+        ended_by_admin_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS ftth_conn_phones_conn_idx ON ftth_connection_phones (connection_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS ftth_conn_phones_one_active_idx ON ftth_connection_phones (connection_id) WHERE status = 'active';
+    `],
     ['news: vertical', `
       INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
         ('media', 'Newspapers & Media', 'Local newspapers and news publishers', 90)
