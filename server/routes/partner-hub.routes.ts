@@ -22,6 +22,7 @@ import { PartnerHubService, HubError } from '../services/partner-hub.service';
 import { BusinessPartnerService } from '../services/business-partner.service';
 import { uploadDocumentBuffer } from '../services/cloudinary.service';
 import { recordAudit } from '../lib/audit';
+import logger from '../lib/logger';
 import { hubSummary } from '../services/hub-summary';
 
 const applySchema = z.object({
@@ -107,6 +108,13 @@ export function registerPartnerHubRoutes(app: Express) {
     app.get('/api/hub/me', pending, async (req, res, next) => {
         try {
             const ctx = (req as HubRequest).hub!;
+            // A broadband partner created by staff (or switched to broadband)
+            // before operators were set up at creation: set it up now, so its
+            // Broadband pages open. Only creates when missing; never blocks the Hub.
+            if (ctx.status === 'active' && ctx.verticals.includes('isp') && !ctx.ftthOperatorId) {
+                ctx.ftthOperatorId = await PartnerHubService.ensureFtthOperator(ctx.businessPartnerId, null)
+                    .catch(e => { logger.error(`[HUB] FTTH operator set-up for partner #${ctx.businessPartnerId} failed: ${e?.message}`); return null; });
+            }
             const bp = await BusinessPartnerService.byId(ctx.businessPartnerId);
             const onboarding = await PartnerHubService.onboarding(ctx.businessPartnerId);
             res.json({

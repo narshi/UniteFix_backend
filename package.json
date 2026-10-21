@@ -65,7 +65,8 @@
     "smoke:test-payout": "tsx scripts/smoke-test-payout.ts",
     "smoke:cashfree-v2": "tsx scripts/smoke-cashfree-v2.ts",
     "smoke:booking-advance": "tsx scripts/smoke-booking-advance.ts",
-    "smoke:ftth-phones": "tsx scripts/smoke-ftth-phones.ts"
+    "smoke:ftth-phones": "tsx scripts/smoke-ftth-phones.ts",
+    "smoke:partner-setup": "tsx scripts/smoke-partner-setup.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

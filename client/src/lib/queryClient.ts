@@ -24,22 +24,29 @@ function isDashboardCall(url: string): boolean {
 /**
  * Is this response the admin session ending?
  *
- * The middleware now returns 401 for an EXPIRED admin token and keeps 403 for a
- * malformed or revoked one. Both mean the dashboard has to send the user back
- * to the login screen, and both used to be treated as ordinary errors on the
- * 403 path — leaving an expired admin staring at failing pages with a dead
- * token still in localStorage.
+ * 401 always is: the token is missing or expired.
  *
- * One exception on the operator side: a 403 carrying OPERATOR_NOT_ACTIVE means
- * "your credentials are fine, but UniteFix has paused your account". Clearing
- * the token and reloading would show that operator a login screen, i.e. tell
- * them their password is wrong. Let it through as an ordinary error so the
- * portal can say what actually happened.
+ * 403 is two different things. The middleware answers 403 for a malformed or
+ * revoked token and for an account that was removed or deactivated — the
+ * session is over and the user goes back to the login screen. But a 403 also
+ * means "signed in, not allowed THIS": a Hub page for a module the business
+ * does not run yet, a super-admin-only action, a capability the role lacks.
+ * Signing out on those threw a working user out of the dashboard the moment
+ * one page asked for something they could not have (a new broadband partner
+ * opening Broadband before its operator existed was signed out on every
+ * visit). So a 403 ends the session only when it says the token or the
+ * account is gone; any other 403 is an ordinary error the page can show.
+ *
+ * OPERATOR_NOT_ACTIVE ("UniteFix has paused your account") is deliberately not
+ * one of them: a login screen would tell that operator their password is wrong.
  */
+const SESSION_GONE_403 = /invalid or expired (admin )?token|account has been (removed|deactivated|closed)|account is deactivated|admin account has been deactivated/i;
+
 function isAdminSessionOver(status: number, url: string, body: string): boolean {
     if (!isDashboardCall(url)) return false;
-    if (status !== 401 && status !== 403) return false;
-    return !body.includes("OPERATOR_NOT_ACTIVE");
+    if (status === 401) return true;
+    if (status !== 403 || body.includes("OPERATOR_NOT_ACTIVE")) return false;
+    return SESSION_GONE_403.test(body);
 }
 
 function endAdminSession(): void {

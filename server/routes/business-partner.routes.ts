@@ -189,6 +189,9 @@ export function registerBusinessPartnerRoutes(app: Express) {
                     creditLimitPaise: body.creditLimitRupees !== undefined ? rupeesToPaise(body.creditLimitRupees) : 0,
                     approvedByAdminId: admin.userId,
                 });
+                // Approved on creation, so set up what approval would have: a
+                // broadband partner's Broadband pages need its FTTH operator.
+                await (await import('../services/partner-hub.service')).PartnerHubService.ensureFtthOperator(bp.id, admin.userId);
                 await recordAudit({
                     entityType: 'business_partner', entityId: bp.id, action: 'business_partner_created',
                     changedBy: admin.userId, metadata: { partnerCode: bp.partnerCode, verticals: body.verticalCodes },
@@ -238,7 +241,11 @@ export function registerBusinessPartnerRoutes(app: Express) {
                     updatedAt: new Date(),
                 }).where(eq(businessPartners.id, id)).returning();
 
-                if (body.verticalCodes) await BusinessPartnerService.setVerticals(id, body.verticalCodes);
+                if (body.verticalCodes) {
+                    await BusinessPartnerService.setVerticals(id, body.verticalCodes);
+                    // Switched to broadband: its pages need an FTTH operator.
+                    await (await import('../services/partner-hub.service')).PartnerHubService.ensureFtthOperator(id, admin.userId);
+                }
 
                 await recordAudit({
                     entityType: 'business_partner', entityId: id, action: 'business_partner_updated',

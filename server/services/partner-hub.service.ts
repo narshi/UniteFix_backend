@@ -458,24 +458,59 @@ export class PartnerHubService {
                 ftthOperatorId = existing.id;
                 await db.update(ftthOperators).set({ status: 'active', updatedAt: new Date() }).where(eq(ftthOperators.id, existing.id));
             } else {
-                const wanted = bp.coveragePincodes ?? [];
-                const known = wanted.length
-                    ? (await db.select({ p: serviceablePincodes.pincode }).from(serviceablePincodes).where(inArray(serviceablePincodes.pincode, wanted))).map(r => r.p)
-                    : [];
-                const [op] = await db.insert(ftthOperators).values({
-                    companyName: bp.displayName, legalName: bp.legalName, gstin: bp.gstin,
-                    contactName: bp.contactName, contactEmail: bp.contactEmail ?? `${bp.partnerCode.toLowerCase()}@partners.unitefix.local`,
-                    contactPhone: bp.contactPhone, status: 'active',
-                    // The owner's login IS the operator login — FTTH routes resolve by it.
-                    adminUserId: bp.adminUserId, approvedByAdminId: adminId, approvedAt: new Date(),
-                    businessPartnerId: bpId,
-                } as any).returning();
-                ftthOperatorId = op.id;
-                if (known.length) await db.insert(ftthOperatorPincodes).values(known.map(pincode => ({ operatorId: op.id, pincode }))).onConflictDoNothing();
-                logger.info(`[HUB] ${bp.partnerCode}: FTTH operator #${op.id} created with ${known.length}/${wanted.length} pincodes`);
+                ftthOperatorId = await this.ensureFtthOperator(bpId, adminId);
             }
         }
         return { ftthOperatorId };
+    }
+
+    /**
+     * The FTTH operator a broadband (isp) partner's Broadband pages run on —
+     * created if the partner has none. Approval did this, but a partner
+     * created by staff (approved on creation) or switched to broadband later
+     * never went through approval: every Broadband page was refused for want
+     * of an operator. Called on staff create, on a vertical change, and when
+     * the Hub loads, so such partners are set up on their next visit.
+     *
+     * Only creates. An existing operator is left as it is — a paused one stays
+     * paused (approval is what re-activates). Only for an active partner with
+     * the isp vertical; returns the operator id, or null.
+     */
+    static async ensureFtthOperator(bpId: number, adminId: number | null): Promise<number | null> {
+        const bp = await BusinessPartnerService.byId(bpId);
+        if (!bp || bp.status !== 'active') return null;
+        const [existing] = await db.select({ id: ftthOperators.id }).from(ftthOperators).where(eq(ftthOperators.businessPartnerId, bpId)).limit(1);
+        if (existing) return existing.id;
+        if (!(await BusinessPartnerService.verticalCodesOf(bpId)).includes('isp')) return null;
+        // An operator already signed in with the owner's login (one login, one
+        // operator) is theirs; FTTH routes already find it, so do not make another.
+        if (bp.adminUserId) {
+            const [byLogin] = await db.select({ id: ftthOperators.id }).from(ftthOperators).where(eq(ftthOperators.adminUserId, bp.adminUserId)).limit(1);
+            if (byLogin) return byLogin.id;
+        }
+        const wanted = bp.coveragePincodes ?? [];
+        const known = wanted.length
+            ? (await db.select({ p: serviceablePincodes.pincode }).from(serviceablePincodes).where(inArray(serviceablePincodes.pincode, wanted))).map(r => r.p)
+            : [];
+        // A unique index on business_partner_id is not guaranteed, so two Hub
+        // loads at once are serialised on the partner row.
+        return withTransaction(async (tx) => {
+            await tx.execute(sql`SELECT id FROM business_partners WHERE id = ${bpId} FOR UPDATE`);
+            const [again] = await tx.select({ id: ftthOperators.id }).from(ftthOperators).where(eq(ftthOperators.businessPartnerId, bpId)).limit(1);
+            if (again) return again.id;
+            const [op] = await tx.insert(ftthOperators).values({
+                companyName: bp.displayName, legalName: bp.legalName, gstin: bp.gstin,
+                contactName: bp.contactName, contactEmail: bp.contactEmail ?? `${bp.partnerCode.toLowerCase()}@partners.unitefix.local`,
+                contactPhone: bp.contactPhone, status: 'active',
+                // The owner's login IS the operator login — FTTH routes resolve by
+                // it, or through partner_users when there is none yet.
+                adminUserId: bp.adminUserId, approvedByAdminId: adminId ?? bp.approvedByAdminId ?? null, approvedAt: new Date(),
+                businessPartnerId: bpId,
+            } as any).returning();
+            if (known.length) await tx.insert(ftthOperatorPincodes).values(known.map(pincode => ({ operatorId: op.id, pincode }))).onConflictDoNothing();
+            logger.info(`[HUB] ${bp.partnerCode}: FTTH operator #${op.id} created with ${known.length}/${wanted.length} pincodes`);
+            return op.id as number;
+        });
     }
 
     static async setModule(bpId: number, module: string, enabled: boolean | null, adminId: number) {
