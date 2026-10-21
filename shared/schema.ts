@@ -658,6 +658,10 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   payoutReference: text("payout_reference"),
   paidByAdminId: integer("paid_by_admin_id"),
   paidAt: timestamp("paid_at"),
+  // 1 for the first payout; each Retry of a failed request adds one, and the
+  // Cashfree transfer id carries it (WDRW_12, then WDRW_12_2) — Cashfree
+  // refuses a transfer id it has seen, so a retry needs a new one.
+  payoutAttempt: integer("payout_attempt").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

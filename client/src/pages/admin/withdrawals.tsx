@@ -98,7 +98,7 @@ function CopyRow({ label, value, onCopied }: { label: string; value: string | nu
 export default function WithdrawalsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'reject' | 'approveManual' | 'payCashfree'; request: Withdrawal | null }>({
+  const [actionDialog, setActionDialog] = useState<{ isOpen: boolean; type: 'reject' | 'approveManual' | 'payCashfree' | 'retry'; request: Withdrawal | null }>({
     isOpen: false,
     type: 'approveManual',
     request: null
@@ -211,6 +211,20 @@ export default function WithdrawalsPage() {
     },
   });
 
+  /** A failed payout: take the amount from the wallet again and put it back to pending. */
+  const retryMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/admin/withdrawals/${id}/retry`, {}),
+    onSuccess: (r: any) => {
+      toast({ title: "Back to pending", description: r?.message ?? "Pay it through Cashfree or manually." });
+      refreshList();
+      closeDialog();
+    },
+    onError: (error: any) => {
+      toast({ title: "Not retried", description: apiErrorMessage(error), variant: "destructive" });
+      refreshList();
+    },
+  });
+
   const rejectMutation = useMutation({
     mutationFn: async (id: number) => {
       // apiRequest resolves to the parsed body already; a non-2xx throws.
@@ -258,6 +272,8 @@ export default function WithdrawalsPage() {
     if (!actionDialog.request) return;
     if (actionDialog.type === 'payCashfree') {
       payCashfreeMutation.mutate(actionDialog.request.request.id);
+    } else if (actionDialog.type === 'retry') {
+      retryMutation.mutate(actionDialog.request.request.id);
     } else if (actionDialog.type === 'approveManual') {
       if (!proofFile) return; // guarded again in the dialog button
       approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile, mode: manualMode, reference: cleanReference(reference) });
@@ -424,6 +440,19 @@ export default function WithdrawalsPage() {
                             </Button>
                           </div>
                         )}
+                        {/* A failed payout returned the money to the wallet; Retry
+                            takes it again and reopens the request for payment. */}
+                        {w.request.status === 'failed' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-[hsla(38,92%,50%,0.1)] text-[hsl(38,92%,65%)] hover:bg-[hsla(38,92%,50%,0.2)] border-[hsla(38,92%,50%,0.35)] transition-colors"
+                            onClick={() => setActionDialog({ isOpen: true, type: 'retry', request: w })}
+                            title="Take the amount from the wallet again and reopen the request"
+                          >
+                            Retry payout
+                          </Button>
+                        )}
                         {/* Stuck in 'processing' means the payout fired but the
                             webhook never confirmed the outcome. */}
                         {w.request.status === 'processing' && (
@@ -486,11 +515,13 @@ export default function WithdrawalsPage() {
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {actionDialog.type === 'payCashfree' ? `Pay ₹${actionDialog.request?.request.amount} via Cashfree?` : actionDialog.type === 'approveManual' ? `Pay ₹${actionDialog.request?.request.amount} yourself` : 'Reject Withdrawal?'}
+              {actionDialog.type === 'payCashfree' ? `Pay ₹${actionDialog.request?.request.amount} via Cashfree?` : actionDialog.type === 'approveManual' ? `Pay ₹${actionDialog.request?.request.amount} yourself` : actionDialog.type === 'retry' ? `Retry ₹${actionDialog.request?.request.amount} for ${actionDialog.request?.employee.fullName}?` : 'Reject Withdrawal?'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
               {actionDialog.type === 'payCashfree'
                 ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${actionDialog.request?.request.method === 'bank' ? 'IMPS to their bank account' : 'UPI'}, from your Cashfree Payouts balance. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
+                : actionDialog.type === 'retry'
+                ? `When this payout failed, ₹${actionDialog.request?.request.amount} went back to their wallet${actionDialog.request?.request.failureReason ? ` (${actionDialog.request.request.failureReason})` : ''}. Retry takes it from the wallet again and puts the request back to pending, so you can pay it through Cashfree or manually, or reject it. If they no longer have that much available, nothing changes.`
                 : actionDialog.type === 'approveManual'
                 ? `Send ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} from your own bank or UPI app using the details below, then record the transfer here. This completes the withdrawal.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
@@ -657,6 +688,11 @@ export default function WithdrawalsPage() {
                   if (!payCashfreeMutation.isPending) handleAction();
                   return;
                 }
+                if (actionDialog.type === 'retry') {
+                  e.preventDefault();
+                  if (!retryMutation.isPending) handleAction();
+                  return;
+                }
                 if (actionDialog.type === 'approveManual') {
                   const ref = cleanReference(reference);
                   if (manualMode !== 'upi' && !REFERENCE_OK.test(ref)) {
@@ -681,11 +717,13 @@ export default function WithdrawalsPage() {
                 }
                 handleAction();
               }}
-              disabled={payCashfreeMutation.isPending}
+              disabled={payCashfreeMutation.isPending || retryMutation.isPending}
               className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
               {actionDialog.type === 'payCashfree'
                 ? (payCashfreeMutation.isPending ? "Sending…" : `Send ₹${actionDialog.request?.request.amount}`)
+                : actionDialog.type === 'retry'
+                ? (retryMutation.isPending ? "Reopening…" : "Retry payout")
                 : actionDialog.type === 'approveManual'
                 ? (approveManualMutation.isPending ? "Saving…" : "Record payment")
                 : (rejectMutation.isPending ? "Rejecting..." : "Yes, Reject")

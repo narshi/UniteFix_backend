@@ -246,10 +246,13 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 // slipped past the claim above, Cashfree refuses a repeated id and
                 // the service hands back the ORIGINAL transfer instead of paying
                 // twice.
+                // A retried request gets a new transfer id: Cashfree refuses one
+                // it has seen, and createPayout would read that as "already sent".
+                const attempt = withdrawal.payoutAttempt ?? 1;
                 const payoutData = await CashfreeService.createPayout(
                     beneId,
                     amountFloat,
-                    `WDRW-${withdrawal.id}`,
+                    attempt > 1 ? `WDRW-${withdrawal.id}-${attempt}` : `WDRW-${withdrawal.id}`,
                     'payout',
                 );
 
@@ -348,6 +351,75 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 return res.status(500).json({ error: "Payout failed immediately: " + payoutError.message });
             }
 
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    /**
+     * POST /api/admin/withdrawals/:id/retry
+     *
+     * A failed payout put the money back in the expert's wallet and ended the
+     * request — leaving staff no way to pay it. Retry takes the amount from
+     * the wallet again (only if it is still there: they may have spent it or
+     * asked for it again) and puts the request back to pending, where it is
+     * paid through Cashfree, paid manually or rejected as usual. One
+     * transaction, rows locked, so a double click cannot debit twice.
+     */
+    app.post("/api/admin/withdrawals/:id/retry", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const requestId = parseInt(req.params.id);
+            if (isNaN(requestId)) return res.status(400).json({ error: "Invalid ID" });
+
+            const result = await db.transaction(async (tx) => {
+                await tx.execute(sql`SELECT id FROM withdrawal_requests WHERE id = ${requestId} FOR UPDATE`);
+                const [w] = await tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, requestId)).limit(1);
+                if (!w) return { status: 404, body: { error: "Withdrawal request not found" } };
+                if (w.status !== 'failed') return { status: 409, body: { error: `Only a failed withdrawal can be retried; this one is ${w.status}.` } };
+
+                await tx.execute(sql`SELECT id FROM partner_wallets WHERE partner_id = ${w.partnerId} FOR UPDATE`);
+                const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, w.partnerId)).limit(1);
+                const amount = parseFloat(w.amount as any);
+                const available = parseFloat((wallet?.balanceAvailable as any) ?? '0');
+                if (!wallet || available + 1e-9 < amount) {
+                    return { status: 409, body: { error: `The expert has ₹${available.toFixed(2)} available now, less than this ₹${amount.toFixed(2)} request — the refunded money was used or withdrawn again. Ask them to make a new request instead.` } };
+                }
+                const after = (available - amount).toFixed(2);
+                const [txn] = await tx.insert(walletTransactionsV2).values({
+                    transactionId: `WDRW-RETRY-${w.id}-${Date.now()}`,
+                    partnerId: w.partnerId,
+                    transactionType: (w.method === 'bank' ? 'withdraw_bank' : 'withdraw_upi') as any,
+                    amount: amount.toFixed(2),
+                    balanceAvailableBefore: wallet.balanceAvailable,
+                    balanceAvailableAfter: after,
+                    balanceHoldBefore: wallet.balanceHold,
+                    balanceHoldAfter: wallet.balanceHold,
+                    description: `Withdrawal #${w.id} retried after a failed payout`,
+                    metadata: { method: w.method, retryOf: w.id, previousFailure: w.failureReason },
+                }).returning();
+                await tx.update(partnerWallets).set({ balanceAvailable: after, updatedAt: new Date() }).where(eq(partnerWallets.partnerId, w.partnerId));
+                await tx.update(withdrawalRequests).set({
+                    status: 'pending',
+                    failureReason: null,
+                    razorpayPayoutId: null,
+                    walletTransactionId: txn.id,
+                    payoutAttempt: (w.payoutAttempt ?? 1) + 1,
+                    updatedAt: new Date(),
+                }).where(eq(withdrawalRequests.id, w.id));
+                return { status: 200, w, amount };
+            });
+            if (result.status !== 200) return res.status(result.status).json(result.body);
+
+            await recordAudit({
+                entityType: 'withdrawal',
+                entityId: requestId,
+                action: 'withdrawal_retried',
+                changedBy: (req as any).admin?.userId,
+                fromState: 'failed',
+                toState: 'pending',
+                metadata: { amount: result.amount, partnerId: result.w!.partnerId, previousFailure: result.w!.failureReason, previousPayoutId: result.w!.razorpayPayoutId, attempt: (result.w!.payoutAttempt ?? 1) + 1 },
+            });
+            res.json({ success: true, message: `₹${result.amount!.toFixed(2)} taken from the wallet again. The request is pending — pay it through Cashfree or manually.` });
         } catch (error) {
             next(error);
         }

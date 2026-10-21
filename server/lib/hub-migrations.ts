@@ -1213,6 +1213,9 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
       CREATE UNIQUE INDEX IF NOT EXISTS withdrawal_requests_payout_reference_idx ON withdrawal_requests (upper(payout_reference)) WHERE payout_reference IS NOT NULL;
     `],
+    ['withdrawals: payout attempt', `
+      ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_attempt INTEGER NOT NULL DEFAULT 1;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

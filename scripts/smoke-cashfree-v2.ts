@@ -210,6 +210,22 @@ async function main() {
         const [wal2] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp.id));
         check('…syncing again does not refund twice', wal2.balanceAvailable === wal1.balanceAvailable);
 
+        // Retry: the failed request is paid again, from the wallet it was refunded to.
+        const rt = await api.post(`/api/admin/withdrawals/${wf.id}/retry`, {}, S);
+        const [wf3] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, wf.id));
+        const [wal3] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp.id));
+        check('Retry on a failed withdrawal: ₹3 taken from the wallet again, back to pending, attempt 2', rt.status === 200 && wf3.status === 'pending' && wf3.payoutAttempt === 2 && !wf3.failureReason && !wf3.razorpayPayoutId && Number(wal2.balanceAvailable) - Number(wal3.balanceAvailable) === 3, `${rt.status} ${JSON.stringify(rt.body)} ${wf3.status} ${wal2.balanceAvailable}→${wal3.balanceAvailable}`);
+        check('…a second Retry is refused (it is no longer failed), and nothing more is taken', (await api.post(`/api/admin/withdrawals/${wf.id}/retry`, {}, S)).status === 409 && (await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp.id)))[0].balanceAvailable === wal3.balanceAvailable);
+        const ap2 = await api.post(`/api/admin/withdrawals/${wf.id}/approve`, {}, S);
+        check('…paying it again through Cashfree uses a new transfer id (WDRW_<id>_2), so Cashfree really sends it', ap2.status === 200 && transfers.has(`WDRW_${wf.id}_2`) && transfers.get(`WDRW_${wf.id}_2`)?.transfer_amount === 3 && !ap2.body?.payout?.alreadyExisted, JSON.stringify(ap2.body).slice(0, 200));
+        setStatus(`WDRW_${wf.id}_2`, 'FAILED', { status_description: 'Beneficiary VPA invalid' });
+        await api.post(`/api/admin/withdrawals/${wf.id}/sync`, {}, S);
+        const [wal4] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, emp.id));
+        check('…and if that fails too, the ₹3 goes back to the wallet again', Number(wal4.balanceAvailable) - Number(wal3.balanceAvailable) === 3 && (await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, wf.id)))[0].status === 'failed');
+        await db.update(partnerWallets).set({ balanceAvailable: '1.00' } as any).where(eq(partnerWallets.partnerId, emp.id));
+        const poor = await api.post(`/api/admin/withdrawals/${wf.id}/retry`, {}, S);
+        check('Retry when the expert no longer has the money: refused with what they have, nothing changes', poor.status === 409 && /₹1\.00 available/.test(poor.body?.error ?? '') && (await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, wf.id)))[0].status === 'failed', JSON.stringify(poor.body));
+
         // An expert with both a UPI ID and a bank account is paid the way they asked.
         const [u2] = await db.insert(users).values({ phone: `8${String(Date.now()).slice(-9)}`, username: 'QA Payout Expert', role: 'serviceman', isActive: true, email: 'qa.payout2@example.test' } as any).returning();
         userIds.push(u2.id);
