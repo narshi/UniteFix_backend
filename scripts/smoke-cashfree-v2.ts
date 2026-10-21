@@ -165,7 +165,7 @@ async function main() {
         check(`${st} → ${want}`, s.status === want, s.status);
     }
     setStatus('WDRW_15', 'FAILED', { status_code: 'INVALID_BENE_VPA', status_description: 'Invalid beneficiary VPA' });
-    check('…a failure carries Cashfree\'s description', (await CashfreeService.fetchPayoutStatus('WDRW_15')).failureReason === 'Invalid beneficiary VPA');
+    check('…a failure carries Cashfree\'s description and its status code', (await CashfreeService.fetchPayoutStatus('WDRW_15')).failureReason === 'Invalid beneficiary VPA [INVALID_BENE_VPA]');
     check('an unknown transfer: "not found"', await CashfreeService.fetchPayoutStatus('NOPE-1').then(() => false, e => /not found/.test(e.message)));
 
     // ── a whole expert withdrawal through the admin routes ──

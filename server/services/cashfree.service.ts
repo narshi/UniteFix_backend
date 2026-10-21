@@ -284,6 +284,19 @@ export class CashfreeService {
         return { httpStatus: res.status, data: res.data as T };
     }
 
+    /**
+     * Cashfree's description of a transfer's outcome with its status code
+     * appended (e.g. "… [ERROR_SELECTING_FUND_SOURCE]") — the code is what
+     * Cashfree support needs, and the description alone does not name it.
+     */
+    private static transferReason(d: any, fallback?: string): string | undefined {
+        const desc = d?.status_description ? String(d.status_description) : '';
+        const code = d?.status_code ? String(d.status_code) : '';
+        const st = String(d?.status ?? '').toUpperCase();
+        if (desc && code && code !== st && !desc.includes(code)) return `${desc} [${code}]`;
+        return desc || (code && code !== st ? code : '') || fallback;
+    }
+
     private static v2Reason(data: any, httpStatus: number): string {
         return data?.message || data?.code || `HTTP ${httpStatus}`;
     }
@@ -506,7 +519,7 @@ export class CashfreeService {
         if (httpStatus === 200 || httpStatus === 201) {
             const st = String(data?.status ?? '').toUpperCase();
             if (['FAILED', 'REJECTED', 'MANUALLY_REJECTED'].includes(st)) {
-                const why = data?.status_description || data?.status_code || st;
+                const why = this.transferReason(data, st)!;
                 logger.error(`[CASHFREE] transfer ${tid} ${st}: ${why}`);
                 throw new Error(`Cashfree payout failed: ${why}`);
             }
@@ -582,7 +595,7 @@ export class CashfreeService {
         }
         const failureReason = providerStatus === 'APPROVAL_PENDING'
             ? `Waiting for approval on the Cashfree dashboard (Payouts → Transfers → Approve)${d.status_code ? ` — ${d.status_code}` : ''}`
-            : (d.status_description || (status !== 'processed' && d.status_code && d.status_code !== providerStatus ? d.status_code : undefined) || undefined);
+            : status === 'processed' ? (d.status_description || undefined) : this.transferReason(d);
         return {
             status,
             providerStatus,
