@@ -421,12 +421,12 @@ export class BookingNotifications {
         );
     }
 
-    static async withdrawalApproved(employeeId: number, amount: number | string, reference?: string) {
+    static async withdrawalApproved(employeeId: number, amount: number | string, reference?: string, to: 'bank' | 'upi' = 'bank') {
         const expertUserId = await getExpertUserId(employeeId);
         NotificationService.notify(
             expertUserId,
             "Withdrawal approved",
-            `${inr(amount)} is on its way to your bank account${reference ? ` (ref ${reference})` : ""}.`,
+            `${inr(amount)} is on its way to your ${to === 'upi' ? 'UPI ID' : 'bank account'}${reference ? ` (ref ${reference})` : ""}.`,
             "withdrawal_approved",
             { role: "expert", amount: String(amount) }
         );

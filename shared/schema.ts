@@ -651,6 +651,13 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   failureReason: text("failure_reason"),
   paymentProofUrl: text("payment_proof_url"), // screenshot proof for manual payouts
   walletTransactionId: integer("wallet_transaction_id").references((): any => walletTransactionsV2.id),
+  // A payout staff made themselves (outside Cashfree): how it was sent and the
+  // bank's reference (UTR / UPI transaction id), so it can be traced and the
+  // same transfer cannot be recorded against two requests.
+  payoutMode: text("payout_mode"),             // imps | neft | rtgs | upi
+  payoutReference: text("payout_reference"),
+  paidByAdminId: integer("paid_by_admin_id"),
+  paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

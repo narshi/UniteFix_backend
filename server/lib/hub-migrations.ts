@@ -1206,6 +1206,13 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS account_deletion_requests_user_idx ON account_deletion_requests (user_id, status);
       CREATE UNIQUE INDEX IF NOT EXISTS account_deletion_requests_one_open_idx ON account_deletion_requests (user_id) WHERE status = 'pending';
     `],
+    ['withdrawals: manual payout mode and reference', `
+      ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_mode TEXT;
+      ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_reference TEXT;
+      ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS paid_by_admin_id INTEGER;
+      ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+      CREATE UNIQUE INDEX IF NOT EXISTS withdrawal_requests_payout_reference_idx ON withdrawal_requests (upper(payout_reference)) WHERE payout_reference IS NOT NULL;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

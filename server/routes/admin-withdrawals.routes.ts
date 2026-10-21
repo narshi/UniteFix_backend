@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { db } from "../db";
-import { eq, desc, and, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, sql } from "drizzle-orm";
 import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, users } from "@shared/schema";
 import { CashfreeService } from "../services/cashfree.service";
 import { uploadImageBuffer } from "../services/cloudinary.service";
@@ -149,6 +149,9 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     id: employees.id,
                     fullName: employees.fullName,
                     bankAccountNumber: employees.bankAccountNumber,
+                    // The rest of what a manual bank transfer needs.
+                    bankIfsc: employees.bankIfsc,
+                    bankName: employees.bankName,
                     upiId: employees.upiId,
                     // So the approval dialog can warn before money is sent to a
                     // UPI id nobody ever checked exists. Null means unchecked,
@@ -356,7 +359,12 @@ export function registerAdminWithdrawalRoutes(app: Express) {
      * the platform. A payment-proof screenshot is REQUIRED — it is stored on
      * the withdrawal so the payout is always auditable.
      *
-     * Body: multipart/form-data with a single "proof" image.
+     * Body: multipart/form-data with a single "proof" image, plus
+     *   mode       imps | neft | rtgs (a bank transfer) or upi — how staff paid.
+     *   reference  the bank's UTR, or the UPI transaction id. Required for a
+     *              bank transfer; a reference already recorded on another
+     *              request is refused, so one transfer cannot settle two.
+     * Without `mode` (older clients) it behaves as before: proof only.
      */
     app.post("/api/admin/withdrawals/:id/approve-manual", authenticateAdmin, proofUpload.single('proof'), async (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -371,6 +379,36 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             if (!existing) return res.status(404).json({ error: "Withdrawal request not found" });
             if (existing.status !== 'pending') {
                 return res.status(400).json({ error: `Withdrawal is ${existing.status}, cannot approve manually.` });
+            }
+
+            const mode = String(req.body?.mode ?? '').trim().toLowerCase() || null;
+            if (mode && !['imps', 'neft', 'rtgs', 'upi'].includes(mode)) {
+                return res.status(400).json({ error: "Choose how you paid: IMPS, NEFT, RTGS or UPI." });
+            }
+            const reference = String(req.body?.reference ?? '').replace(/\s+/g, '').toUpperCase() || null;
+            const toBank = !!mode && mode !== 'upi';
+            if (toBank && !reference) {
+                return res.status(400).json({ error: "Enter the UTR (bank reference) of the transfer." });
+            }
+            if (reference && !/^[A-Z0-9]{6,30}$/.test(reference)) {
+                return res.status(400).json({ error: "The reference should be 6 to 30 letters and digits, as your bank shows it (e.g. a 12-digit IMPS UTR)." });
+            }
+            if (mode) {
+                const [emp] = await db.select({ bankAccountNumber: employees.bankAccountNumber, bankIfsc: employees.bankIfsc, upiId: employees.upiId })
+                    .from(employees).where(eq(employees.id, existing.partnerId)).limit(1);
+                if (toBank && !(emp?.bankAccountNumber && emp?.bankIfsc)) {
+                    return res.status(400).json({ error: "This partner has no bank account and IFSC on file, so a bank transfer cannot be recorded." });
+                }
+                if (!toBank && !emp?.upiId) {
+                    return res.status(400).json({ error: "This partner has no UPI ID on file, so a UPI payment cannot be recorded." });
+                }
+            }
+            if (reference) {
+                const [used] = await db.select({ id: withdrawalRequests.id }).from(withdrawalRequests)
+                    .where(sql`upper(${withdrawalRequests.payoutReference}) = ${reference}`).limit(1);
+                if (used) {
+                    return res.status(409).json({ error: `Reference ${reference} is already recorded on withdrawal #${used.id}. Check the UTR: one transfer cannot settle two requests.` });
+                }
             }
 
             // Store the proof BEFORE flipping any state: an upload failure here
@@ -390,18 +428,31 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             // ATOMIC CLAIM — same guard as the automated path: flip pending ->
             // completed in one conditional statement so a double-click or two
             // admins can't both mark (and pay) the same request.
-            const [withdrawal] = await db.update(withdrawalRequests)
-                .set({
-                    status: 'completed',
-                    paymentProofUrl: proofUrl,
-                    razorpayPayoutId: `manual_txn_${Date.now()}`,
-                    updatedAt: new Date(),
-                })
-                .where(and(
-                    eq(withdrawalRequests.id, requestId),
-                    eq(withdrawalRequests.status, 'pending'),
-                ))
-                .returning();
+            let withdrawal: typeof withdrawalRequests.$inferSelect | undefined;
+            try {
+                [withdrawal] = await db.update(withdrawalRequests)
+                    .set({
+                        status: 'completed',
+                        paymentProofUrl: proofUrl,
+                        razorpayPayoutId: `manual_txn_${Date.now()}`,
+                        payoutMode: mode,
+                        payoutReference: reference,
+                        paidByAdminId: (req as any).admin?.userId ?? null,
+                        paidAt: new Date(),
+                        updatedAt: new Date(),
+                    })
+                    .where(and(
+                        eq(withdrawalRequests.id, requestId),
+                        eq(withdrawalRequests.status, 'pending'),
+                    ))
+                    .returning();
+            } catch (e: any) {
+                // The same reference recorded at the same moment on another request.
+                if (e?.code === '23505') {
+                    return res.status(409).json({ error: `Reference ${reference} is already recorded on another withdrawal. Check the UTR: one transfer cannot settle two requests.` });
+                }
+                throw e;
+            }
 
             if (!withdrawal) {
                 logger.warn(`[WITHDRAWAL] Concurrent manual approval blocked for request ${requestId}`);
@@ -421,6 +472,8 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     amount: parseFloat(withdrawal.amount as any),
                     partnerId: withdrawal.partnerId,
                     method: 'manual',
+                    payoutMode: mode,
+                    payoutReference: reference,
                     paymentProofUrl: proofUrl,
                 },
             });
@@ -429,9 +482,11 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             void BookingNotifications.withdrawalApproved(
                 withdrawal.partnerId,
                 parseFloat(withdrawal.amount as any),
+                reference ?? undefined,
+                mode ? (toBank ? 'bank' : 'upi') : (withdrawal.method === 'upi' ? 'upi' : 'bank'),
             );
 
-            res.json({ success: true, message: "Withdrawal marked as manually paid successfully." });
+            res.json({ success: true, message: reference ? `Marked as paid (${mode!.toUpperCase()}, ref ${reference}).` : "Withdrawal marked as manually paid successfully." });
         } catch (error) {
             next(error);
         }

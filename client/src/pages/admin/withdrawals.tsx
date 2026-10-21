@@ -42,6 +42,9 @@ type Withdrawal = {
     failureReason: string | null;
     razorpayPayoutId: string | null;
     paymentProofUrl: string | null;
+    /** Set when staff paid it themselves: imps | neft | rtgs | upi, and the bank's reference. */
+    payoutMode: string | null;
+    payoutReference: string | null;
   };
   employee: {
     fullName: string;
@@ -49,6 +52,8 @@ type Withdrawal = {
     upiVerifiedAt: string | null;
     upiVerifiedName: string | null;
     bankAccountNumber: string | null;
+    bankIfsc: string | null;
+    bankName: string | null;
     upiId: string | null;
   };
   user: {
@@ -56,6 +61,39 @@ type Withdrawal = {
     email: string | null;
   };
 };
+
+type ManualMode = 'imps' | 'neft' | 'rtgs' | 'upi';
+const BANK_MODES: Array<{ value: ManualMode; label: string; hint: string }> = [
+  { value: 'imps', label: 'IMPS', hint: 'Instant, any time, up to ₹5 lakh' },
+  { value: 'neft', label: 'NEFT', hint: 'Within a couple of hours' },
+  { value: 'rtgs', label: 'RTGS', hint: '₹2 lakh and above' },
+];
+/** What a bank shows as the transfer reference: letters and digits, 6–30 long. */
+const REFERENCE_OK = /^[A-Z0-9]{6,30}$/;
+const cleanReference = (v: string) => v.replace(/\s+/g, '').toUpperCase();
+const hasBank = (w: Withdrawal | null) => !!(w?.employee.bankAccountNumber && w?.employee.bankIfsc);
+const hasUpi = (w: Withdrawal | null) => !!w?.employee.upiId;
+
+/** One detail to type into a banking app, with a copy button. */
+function CopyRow({ label, value, onCopied }: { label: string; value: string | null | undefined; onCopied: (label: string) => void }) {
+  const copy = async () => {
+    if (!value) return;
+    try { await navigator.clipboard.writeText(value); onCopied(label); } catch { /* clipboard refused: the value is still selectable */ }
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <div className="min-w-0">
+        <p className="text-[11px] uppercase tracking-wide text-[hsl(215,20%,55%)]">{label}</p>
+        <p className="font-mono text-sm text-white break-all select-all">{value || "—"}</p>
+      </div>
+      {value && (
+        <button type="button" onClick={copy} className="shrink-0 text-xs px-2 py-1 rounded-md border border-[rgba(255,255,255,0.12)] text-[hsl(210,20%,80%)] hover:bg-[rgba(255,255,255,0.06)]">
+          Copy
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function WithdrawalsPage() {
   const { toast } = useToast();
@@ -69,6 +107,18 @@ export default function WithdrawalsPage() {
   // Payment-proof screenshot — mandatory for manual approval.
   const [proofFile, setProofFile] = useState<File | null>(null);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
+  // Manual payout: how staff paid, and the bank's reference for it.
+  const [manualMode, setManualMode] = useState<ManualMode>('imps');
+  const [reference, setReference] = useState("");
+
+  const openManual = (w: Withdrawal) => {
+    setProofFile(null);
+    setReference("");
+    // Pay the way the expert asked when their details allow it.
+    setManualMode(w.request.method === 'upi' ? (hasUpi(w) ? 'upi' : 'imps') : (hasBank(w) ? 'imps' : 'upi'));
+    setActionDialog({ isOpen: true, type: 'approveManual', request: w });
+  };
+  const copied = (label: string) => toast({ title: `${label} copied` });
 
   const query = useTableQuery("/api/admin/withdrawals", {
     defaultSort: "createdAt",
@@ -90,22 +140,39 @@ export default function WithdrawalsPage() {
       { header: "Method", value: (w: any) => w.request.method },
       { header: "UPI", value: (w: any) => w.employee.upiId },
       { header: "Bank account", value: (w: any) => w.employee.bankAccountNumber },
+      { header: "IFSC", value: (w: any) => w.employee.bankIfsc },
+      { header: "Bank", value: (w: any) => w.employee.bankName },
+      { header: "Paid by", value: (w: any) => w.request.payoutMode },
+      { header: "UTR / reference", value: (w: any) => w.request.payoutReference },
       { header: "Status", value: (w: any) => w.request.status },
       { header: "Payout ref", value: (w: any) => w.request.razorpayPayoutId },
     ]);
     toast({ title: "Exported " + selection.count + " withdrawal(s)" });
   };
 
+  /**
+   * The list is cached under its full URL ("/api/admin/withdrawals?page=1&…"),
+   * so invalidating ["/api/admin/withdrawals"] matched nothing and a request
+   * stayed "pending" on screen after it was paid. Match on the path instead.
+   */
+  const refreshList = () =>
+    queryClient.invalidateQueries({
+      predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/admin/withdrawals"),
+    });
+
   const closeDialog = () => {
     setActionDialog({ isOpen: false, type: 'approveManual', request: null });
     setProofFile(null);
+    setReference("");
   };
 
   const approveManualMutation = useMutation({
-    mutationFn: async ({ id, proof }: { id: number; proof: File }) => {
+    mutationFn: async ({ id, proof, mode, reference }: { id: number; proof: File; mode: ManualMode; reference: string }) => {
       // apiRequest is JSON-only; the proof photo needs multipart/form-data.
       const formData = new FormData();
       formData.append('proof', proof);
+      formData.append('mode', mode);
+      if (reference) formData.append('reference', reference);
 
       const adminToken = localStorage.getItem("adminToken");
       const res = await fetch(`/api/admin/withdrawals/${id}/approve-manual`, {
@@ -120,9 +187,9 @@ export default function WithdrawalsPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Approved", description: "Withdrawal marked as paid with proof attached." });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+    onSuccess: (r: any) => {
+      toast({ title: "Marked as paid", description: r?.message ?? "Withdrawal marked as paid with proof attached." });
+      refreshList();
       closeDialog();
     },
     onError: (error: any) => {
@@ -135,12 +202,12 @@ export default function WithdrawalsPage() {
     mutationFn: async (id: number) => apiRequest("POST", `/api/admin/withdrawals/${id}/approve`, {}),
     onSuccess: (r: any) => {
       toast({ title: "Sent to Cashfree", description: r?.message ?? "Payout processing via Cashfree. Use “Sync with Cashfree” to see when it lands." });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      refreshList();
       closeDialog();
     },
     onError: (error: any) => {
       toast({ title: "Not sent", description: apiErrorMessage(error), variant: "destructive" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      refreshList();
     },
   });
 
@@ -151,7 +218,7 @@ export default function WithdrawalsPage() {
     },
     onSuccess: () => {
       toast({ title: "Rejected", description: "Withdrawal rejected and refunded." });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      refreshList();
       closeDialog();
     },
     onError: (error: any) => {
@@ -179,7 +246,7 @@ export default function WithdrawalsPage() {
         description: d.message,
         variant: d.localStatus === 'failed' ? "destructive" : undefined,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
+      refreshList();
     },
     onError: (error: any) => {
       toast({ title: "Sync failed", description: error.message, variant: "destructive" });
@@ -193,7 +260,7 @@ export default function WithdrawalsPage() {
       payCashfreeMutation.mutate(actionDialog.request.request.id);
     } else if (actionDialog.type === 'approveManual') {
       if (!proofFile) return; // guarded again in the dialog button
-      approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile });
+      approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile, mode: manualMode, reference: cleanReference(reference) });
     } else {
       rejectMutation.mutate(actionDialog.request.request.id);
     }
@@ -210,7 +277,7 @@ export default function WithdrawalsPage() {
         <div>
           <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Withdrawals</h1>
           <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">
-            Pay partners through Cashfree (UPI or bank, as they asked), or mark one paid manually with a payment-proof screenshot.
+            Pay partners through Cashfree, or pay one yourself by bank transfer (IMPS / NEFT / RTGS) or UPI and record the UTR with a proof screenshot.
           </p>
         </div>
       </div>
@@ -342,8 +409,8 @@ export default function WithdrawalsPage() {
                               size="sm"
                               variant="outline"
                               className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)] transition-colors"
-                              onClick={() => { setProofFile(null); setActionDialog({ isOpen: true, type: 'approveManual', request: w }); }}
-                              title="You paid outside UniteFix: attach the proof"
+                              onClick={() => openManual(w)}
+                              title="Pay by your own bank transfer or UPI, then record the UTR and proof"
                             >
                               Paid manually
                             </Button>
@@ -386,7 +453,11 @@ export default function WithdrawalsPage() {
                             View payment proof
                           </a>
                         )}
-                        {w.request.razorpayPayoutId && (
+                        {w.request.payoutReference ? (
+                          <span className="text-xs text-[hsl(215,20%,65%)] font-mono block mt-1">
+                            {(w.request.payoutMode ?? 'manual').toUpperCase()} · UTR {w.request.payoutReference}
+                          </span>
+                        ) : w.request.razorpayPayoutId && (
                           <span className="text-xs text-[hsl(215,20%,65%)] font-mono block mt-1">ID: {w.request.razorpayPayoutId}</span>
                         )}
                       </TableCell>
@@ -415,13 +486,13 @@ export default function WithdrawalsPage() {
         <AlertDialogContent className="glass-panel border-[rgba(255,255,255,0.1)]">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-white">
-              {actionDialog.type === 'payCashfree' ? `Pay ₹${actionDialog.request?.request.amount} via Cashfree?` : actionDialog.type === 'approveManual' ? 'Mark as paid manually?' : 'Reject Withdrawal?'}
+              {actionDialog.type === 'payCashfree' ? `Pay ₹${actionDialog.request?.request.amount} via Cashfree?` : actionDialog.type === 'approveManual' ? `Pay ₹${actionDialog.request?.request.amount} yourself` : 'Reject Withdrawal?'}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
               {actionDialog.type === 'payCashfree'
                 ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${actionDialog.request?.request.method === 'bank' ? 'IMPS to their bank account' : 'UPI'}, from your Cashfree Payouts balance. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
                 : actionDialog.type === 'approveManual'
-                ? `Only if you have already paid ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} outside UniteFix: attach the payment screenshot below as proof. This completes the redemption.`
+                ? `Send ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} from your own bank or UPI app using the details below, then record the transfer here. This completes the withdrawal.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
               }
             </AlertDialogDescription>
@@ -431,21 +502,26 @@ export default function WithdrawalsPage() {
               after it fails — and the unverified case is called out, because a
               UPI id nobody has checked is exactly how a manual payout reaches
               the wrong person. */}
-          {(actionDialog.type === 'approveManual' || actionDialog.type === 'payCashfree') && (
+          {actionDialog.type === 'payCashfree' && (
             <div
               className={`rounded-lg border p-3 text-sm ${
-                actionDialog.request?.employee.upiVerifiedAt
+                actionDialog.request?.request.method === 'bank' || actionDialog.request?.employee.upiVerifiedAt
                   ? "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)]"
                   : "border-[hsla(38,92%,50%,0.35)] bg-[hsla(38,92%,50%,0.1)]"
               }`}
             >
               <p className="font-mono text-white">
-                {(actionDialog.request?.request.method === 'bank'
-                  ? actionDialog.request?.employee.bankAccountNumber
-                  : actionDialog.request?.employee.upiId)
-                  || (actionDialog.request?.request.method === 'bank' ? "No bank account on file" : "No UPI ID on file")}
+                {actionDialog.request?.request.method === 'bank'
+                  ? (hasBank(actionDialog.request)
+                      ? `${actionDialog.request?.employee.bankAccountNumber} · ${actionDialog.request?.employee.bankIfsc}`
+                      : "No bank account and IFSC on file")
+                  : (actionDialog.request?.employee.upiId || "No UPI ID on file")}
               </p>
-              {actionDialog.request?.employee.upiVerifiedAt ? (
+              {actionDialog.request?.request.method === 'bank' ? (
+                <p className="text-[hsl(215,20%,70%)] mt-1">
+                  Bank account{actionDialog.request?.employee.bankName ? ` at ${actionDialog.request.employee.bankName}` : ""}, in the name of {actionDialog.request?.employee.fullName}.
+                </p>
+              ) : actionDialog.request?.employee.upiVerifiedAt ? (
                 <p className="text-[hsl(160,84%,65%)] mt-1">
                   Verified
                   {actionDialog.request?.employee.upiVerifiedName
@@ -461,8 +537,92 @@ export default function WithdrawalsPage() {
             </div>
           )}
 
-          {actionDialog.type === 'approveManual' && (
-            <div className="space-y-2">
+          {actionDialog.type === 'approveManual' && actionDialog.request && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium text-white mb-1.5">Pay by</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['bank', 'Bank transfer', hasBank(actionDialog.request)], ['upi', 'UPI', hasUpi(actionDialog.request)]] as const).map(([k, label, ok]) => {
+                    const on = k === 'upi' ? manualMode === 'upi' : manualMode !== 'upi';
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        disabled={!ok}
+                        onClick={() => setManualMode(k === 'upi' ? 'upi' : 'imps')}
+                        className={`rounded-lg border px-3 py-2 text-sm text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${on ? "border-[hsla(160,84%,39%,0.6)] bg-[hsla(160,84%,39%,0.12)] text-white" : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] hover:bg-[rgba(255,255,255,0.04)]"}`}
+                      >
+                        {label}
+                        <span className="block text-[11px] text-[hsl(215,20%,55%)]">
+                          {!ok ? (k === 'upi' ? 'No UPI ID on file' : 'No bank account / IFSC on file') : (actionDialog.request!.request.method === (k === 'upi' ? 'upi' : 'bank') ? 'What they asked for' : 'They asked for the other one')}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {manualMode !== 'upi' ? (
+                <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.03)] px-3 py-1.5 divide-y divide-[rgba(255,255,255,0.06)]">
+                  <CopyRow label="Account holder" value={actionDialog.request.employee.fullName} onCopied={copied} />
+                  <CopyRow label="Account number" value={actionDialog.request.employee.bankAccountNumber} onCopied={copied} />
+                  <CopyRow label="IFSC" value={actionDialog.request.employee.bankIfsc} onCopied={copied} />
+                  {actionDialog.request.employee.bankName && <CopyRow label="Bank" value={actionDialog.request.employee.bankName} onCopied={copied} />}
+                  <CopyRow label="Amount (₹)" value={actionDialog.request.request.amount} onCopied={copied} />
+                  <p className="text-xs text-[hsl(38,92%,65%)] py-2">
+                    UniteFix has not verified this account. When you add the payee, the name your bank shows should be {actionDialog.request.employee.fullName}; if it is not, stop and check with the partner.
+                  </p>
+                </div>
+              ) : (
+                <div className={`rounded-lg border px-3 py-1.5 ${actionDialog.request.employee.upiVerifiedAt ? "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)]" : "border-[hsla(38,92%,50%,0.35)] bg-[hsla(38,92%,50%,0.1)]"}`}>
+                  <CopyRow label="UPI ID" value={actionDialog.request.employee.upiId} onCopied={copied} />
+                  <CopyRow label="Amount (₹)" value={actionDialog.request.request.amount} onCopied={copied} />
+                  <p className={`text-xs py-2 ${actionDialog.request.employee.upiVerifiedAt ? "text-[hsl(160,84%,65%)]" : "text-[hsl(38,92%,65%)]"}`}>
+                    {actionDialog.request.employee.upiVerifiedAt
+                      ? `Verified${actionDialog.request.employee.upiVerifiedName ? ` — registered to ${actionDialog.request.employee.upiVerifiedName}` : ""}.`
+                      : "Not verified — nobody has confirmed this UPI ID exists. Check the name your UPI app shows before paying."}
+                  </p>
+                </div>
+              )}
+
+              {manualMode !== 'upi' && (
+                <div>
+                  <p className="text-sm font-medium text-white mb-1.5">Sent as</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {BANK_MODES.map(m => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => setManualMode(m.value)}
+                        title={m.hint}
+                        className={`rounded-lg border px-2 py-1.5 text-sm transition-colors ${manualMode === m.value ? "border-[hsla(160,84%,39%,0.6)] bg-[hsla(160,84%,39%,0.12)] text-white" : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] hover:bg-[rgba(255,255,255,0.04)]"}`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-[hsl(215,20%,55%)] mt-1">{BANK_MODES.find(m => m.value === manualMode)?.hint}</p>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="manual-reference" className="text-sm font-medium text-white block mb-1.5">
+                  {manualMode === 'upi' ? 'UPI transaction ID' : 'UTR / bank reference'}
+                  {manualMode !== 'upi' ? <span className="text-[hsl(347,77%,60%)]"> *</span> : <span className="text-[hsl(215,20%,55%)] font-normal"> (optional)</span>}
+                </label>
+                <input
+                  id="manual-reference"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder={manualMode === 'upi' ? 'e.g. 412345678901' : manualMode === 'imps' ? 'e.g. 412345678901 (12 digits)' : 'As shown in your bank statement'}
+                  autoComplete="off"
+                  className="w-full rounded-md border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] px-3 py-2 font-mono text-sm text-white placeholder:text-[hsl(215,20%,45%)] focus:outline-none focus:border-[hsla(160,84%,39%,0.6)]"
+                />
+                {reference && !REFERENCE_OK.test(cleanReference(reference)) && (
+                  <p className="text-xs text-[hsl(347,77%,65%)] mt-1">6 to 30 letters and digits, exactly as your bank shows it.</p>
+                )}
+              </div>
+
               <label className="text-sm font-medium text-white block">
                 Payment proof <span className="text-[hsl(347,77%,60%)]">*</span>
               </label>
@@ -498,6 +658,17 @@ export default function WithdrawalsPage() {
                   return;
                 }
                 if (actionDialog.type === 'approveManual') {
+                  const ref = cleanReference(reference);
+                  if (manualMode !== 'upi' && !REFERENCE_OK.test(ref)) {
+                    e.preventDefault();
+                    toast({ title: "UTR required", description: "Enter the UTR (bank reference) of the transfer.", variant: "destructive" });
+                    return;
+                  }
+                  if (ref && !REFERENCE_OK.test(ref)) {
+                    e.preventDefault();
+                    toast({ title: "Check the reference", description: "6 to 30 letters and digits, exactly as your app shows it.", variant: "destructive" });
+                    return;
+                  }
                   if (!proofFile) {
                     e.preventDefault();
                     toast({ title: "Proof required", description: "Attach the payment screenshot before approving.", variant: "destructive" });
@@ -516,7 +687,7 @@ export default function WithdrawalsPage() {
               {actionDialog.type === 'payCashfree'
                 ? (payCashfreeMutation.isPending ? "Sending…" : `Send ₹${actionDialog.request?.request.amount}`)
                 : actionDialog.type === 'approveManual'
-                ? (approveManualMutation.isPending ? "Uploading proof..." : "Yes, Mark as Paid")
+                ? (approveManualMutation.isPending ? "Saving…" : "Record payment")
                 : (rejectMutation.isPending ? "Rejecting..." : "Yes, Reject")
               }
             </AlertDialogAction>
