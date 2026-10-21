@@ -39,7 +39,7 @@ import { employees, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../lib/logger';
 import crypto from 'crypto';
-import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS, cashfreeDiagnostics } from '../lib/cashfree-env';
+import { cashfreeLive, cashfreeEnvValid, cashfreePublicKey, cashfreeKeys, CASHFREE_VARS, cashfreeDiagnostics, cashfreeFundsourceId } from '../lib/cashfree-env';
 
 type Employee = typeof employees.$inferSelect;
 
@@ -508,6 +508,7 @@ export class CashfreeService {
                     transfer_currency: 'INR',
                     transfer_mode: mode,
                     beneficiary_details: { beneficiary_id: beneId },
+                    ...(cashfreeFundsourceId() ? { fundsource_id: cashfreeFundsourceId() } : {}),
                     transfer_remarks: `UniteFix ${purpose}`.replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70),
                 },
             }));

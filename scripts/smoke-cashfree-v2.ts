@@ -136,6 +136,14 @@ async function main() {
     check('a bank payout goes by IMPS, amount to the paisa', lastTo('/payout/transfers').body.transfer_mode === 'imps' && lastTo('/payout/transfers').body.transfer_amount === 250.5 && transfers.has('DEP_REF_5'));
     await CashfreeService.createPayout('OLDBENE1', 10, 'SR-2026-10-0001', 'settlement');
     check('a beneficiary registered elsewhere: its account decides the mode (IMPS)', lastTo('/payout/transfers').body.transfer_mode === 'imps');
+    check('no fund source set: none sent, Cashfree picks', !('fundsource_id' in lastTo('/payout/transfers').body));
+    process.env.CASHFREE_PAYOUTS_FUNDSOURCE_ID = ' CF_Wallet ';
+    await CashfreeService.createPayout(u1, 2, 'FS-1', 'payout');
+    check('CASHFREE_PAYOUTS_FUNDSOURCE_ID set: every transfer names that fund source (trimmed)', lastTo('/payout/transfers').body.fundsource_id === 'CF_Wallet');
+    process.env.CASHFREE_PAYOUTS_FUNDSOURCE_ID = 'CF Wallet!';
+    await CashfreeService.createPayout(u1, 2, 'FS-2', 'payout');
+    check('…a malformed value is ignored rather than sent', !('fundsource_id' in lastTo('/payout/transfers').body));
+    delete process.env.CASHFREE_PAYOUTS_FUNDSOURCE_ID;
     const before = transfers.size;
     const again = await CashfreeService.createPayout(u1, 1, 'WDRW-12', 'payout');
     check('the same withdrawal approved twice: "already sent", never paid twice', again.alreadyExisted && transfers.size === before);

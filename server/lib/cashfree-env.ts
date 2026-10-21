@@ -44,6 +44,18 @@ export function cashfreePublicKey(): string | null {
 }
 
 /**
+ * The fund source every payout is debited from, when set
+ * (CASHFREE_PAYOUTS_FUNDSOURCE_ID — the id shown under Payouts → Fund
+ * Sources, e.g. CF_Wallet). Unset, Cashfree picks one by the account's
+ * routing; when that picking fails it rejects transfers with
+ * ERROR_SELECTING_FUND_SOURCE, and naming the source avoids it.
+ */
+export function cashfreeFundsourceId(): string | null {
+    const v = (process.env.CASHFREE_PAYOUTS_FUNDSOURCE_ID ?? '').trim();
+    return /^[A-Za-z0-9_.-]{1,64}$/.test(v) ? v : null;
+}
+
+/**
  * What the server is actually using, safe to show staff: which variables were
  * read, the Client ID with its middle masked, and the ending of the public key
  * (public keys all begin the same way; the ending is what tells two apart).
@@ -62,6 +74,8 @@ export function cashfreeDiagnostics() {
         clientIdLooksTest: /^TEST/i.test(id),
         publicKeyVar: keyVar,
         publicKeyEnding: body ? body.slice(-24) : null,
+        fundsourceId: cashfreeFundsourceId(),
+        fundsourceIdInvalid: !!(process.env.CASHFREE_PAYOUTS_FUNDSOURCE_ID ?? '').trim() && !cashfreeFundsourceId(),
         oldNamesAlsoSet: ['CASHFREE_CLIENT_ID', 'CASHFREE_CLIENT_SECRET', 'CASHFREE_PUBLIC_KEY'].filter(n => (process.env[n] ?? '').trim()),
     };
 }
