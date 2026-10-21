@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
 import { HUB_ENTRIES, HUB_GROUP_ORDER, type HubEntry } from "@/components/hub/registry";
 import { useHubMe, hubCan, hubHas, signOut, type HubMe } from "@/lib/hub";
+import { apiErrorMessage } from "@/lib/queryClient";
 import { HUB_ROLE_LABEL, PLAN_LABEL } from "@shared/hub";
 import NotFound from "@/pages/not-found";
 import { AlertBell } from "@/components/hub/AlertBell";
@@ -120,6 +121,10 @@ export default function PartnerHubLayout() {
   if (!me) {
     const msg = error?.message ?? "";
     const paused = msg.includes("PARTNER_NOT_ACTIVE") || msg.includes("LOGIN_DISABLED");
+    // The server's own reason and status, so the person (and UniteFix support)
+    // can tell "not linked to a business" from a server fault.
+    const status = msg.match(/^(\d{3}):/)?.[1] ?? null;
+    const reason = error ? apiErrorMessage(error, "") : "";
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-0 noise-overlay p-8">
         <div className="glass-card border border-[rgba(255,255,255,0.08)] rounded-xl p-8 max-w-md text-center">
@@ -128,6 +133,11 @@ export default function PartnerHubLayout() {
           <p className="text-sm text-[hsl(215,20%,65%)] mt-2">
             {paused ? "This login or business is not active right now. Ask the business owner, or contact UniteFix." : "Sign in again. If it keeps happening, contact UniteFix."}
           </p>
+          {!paused && reason && (
+            <p className="text-xs text-[hsl(38,92%,70%)] mt-3 break-words">
+              {reason}{status ? ` (error ${status})` : ""}
+            </p>
+          )}
           <button onClick={signOut} className="mt-5 text-sm text-[hsl(210,20%,75%)] hover:text-white underline underline-offset-4">Sign out</button>
         </div>
       </div>
