@@ -1195,17 +1195,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // invisible in the directory and the Edit dialog opened blank.
           homeAddress: users.homeAddress,
           pinCode: users.pinCode,
+          // The wallet earnings, holds and payouts actually use. The list
+          // showed employees.wallet_balance, an older column that earnings no
+          // longer touch — so it read ₹0 for experts with money to withdraw.
+          walletAvailable: partnerWallets.balanceAvailable,
+          walletOnHold: partnerWallets.balanceHold,
         })
         .from(employees)
         .leftJoin(users, eq(users.id, employees.userId))
+        .leftJoin(partnerWallets, eq(partnerWallets.partnerId, employees.id))
         .where(where as any)
         .orderBy(buildOrderBy(params, listOptions))
         .limit(params.limit)
         .offset(params.offset);
 
       // Field aliases kept for admin dashboard backward compat.
-      const data = rows.map(({ employee: p, userEmail, userPhone, username, homeAddress, pinCode }) => ({
+      const data = rows.map(({ employee: p, userEmail, userPhone, username, homeAddress, pinCode, walletAvailable, walletOnHold }) => ({
         ...p,
+        walletBalance: walletAvailable ?? '0.00',
+        walletOnHold: walletOnHold ?? '0.00',
+        legacyWalletBalance: p.walletBalance,
         partnerName: p.fullName || username || 'Unknown',
         verificationStatus: p.documentVerificationStatus || 'pending',
         email: userEmail || '',
@@ -1822,12 +1831,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * PUT /api/admin/servicemen/:id/bank — staff add or change an expert's bank
+   * account, so a payout can go by IMPS / NEFT (until now only the expert
+   * could, from the app, and a UPI-only expert could not be paid by bank).
+   *
+   * Super admin only: this decides where an expert's money goes. When bank
+   * verification is configured the account is checked first — refused if the
+   * bank says it is not valid, and the name at the bank is returned so staff
+   * can compare it. The Cashfree beneficiary is cleared (the next payout
+   * registers the new account), the change is audited with the old and new
+   * last four digits, and the expert is told.
+   */
+  app.put("/api/admin/servicemen/:id/bank", requireSuperAdmin, async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ success: false, message: "Invalid ID" });
+      const account = String(req.body?.bankAccountNumber ?? '').replace(/\s+/g, '');
+      const ifsc = String(req.body?.bankIfsc ?? '').trim().toUpperCase();
+      const bankName = String(req.body?.bankName ?? '').trim().slice(0, 80) || null;
+      if (!/^\d{9,18}$/.test(account)) return res.status(400).json({ success: false, message: "Account number must be 9 to 18 digits." });
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) return res.status(400).json({ success: false, message: "IFSC must be 4 letters, a zero, then 6 letters or digits (e.g. HDFC0001234)." });
+
+      const [emp] = await db.select({ id: employees.id, userId: employees.userId, fullName: employees.fullName, bankAccountNumber: employees.bankAccountNumber, bankIfsc: employees.bankIfsc })
+        .from(employees).where(eq(employees.id, id)).limit(1);
+      if (!emp) return res.status(404).json({ success: false, message: "Expert not found" });
+
+      const { verifyBankAccount } = await import("./services/kyc.service");
+      const check = await verifyBankAccount({ accountNumber: account, ifsc, name: emp.fullName });
+      if (check.status === 'failed') {
+        return res.status(422).json({ success: false, message: `The bank did not confirm this account: ${check.reason ?? 'not valid'}. Check the number and IFSC with the expert.` });
+      }
+
+      await db.update(employees).set({
+        bankAccountNumber: account, bankIfsc: ifsc, bankName,
+        // The next Cashfree payout registers this account afresh.
+        cashfreeBeneId: null,
+        updatedAt: new Date(),
+      } as any).where(eq(employees.id, id));
+
+      const admin = (req as any).admin as { userId: number; username?: string } | undefined;
+      await recordAudit({
+        entityType: 'employee', entityId: id, action: 'employee_bank_changed', changedBy: admin?.userId ?? null,
+        metadata: {
+          from: emp.bankAccountNumber ? `…${emp.bankAccountNumber.slice(-4)} ${emp.bankIfsc ?? ''}`.trim() : null,
+          to: `…${account.slice(-4)} ${ifsc}`,
+          verification: check.status, nameAtBank: (check as any).nameAtBank ?? null,
+        },
+      });
+      if (emp.userId) {
+        void NotificationService.sendToUser(emp.userId, 'Payout bank account updated',
+          `UniteFix set your payout bank account to the one ending ${account.slice(-4)} (${ifsc}). If you did not ask for this, contact support.`,
+          'payout_account_changed', { employeeId: id }).catch(() => {});
+      }
+      res.json({
+        success: true,
+        message: check.status === 'verified'
+          ? `Bank account saved and confirmed by the bank${(check as any).nameAtBank ? ` — the name there is ${(check as any).nameAtBank}` : ''}.`
+          : 'Bank account saved. It was not checked with the bank, so confirm the name when you add the payee.',
+        data: { bankAccountNumber: account, bankIfsc: ifsc, bankName, verification: check.status, nameAtBank: (check as any).nameAtBank ?? null },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Get provider wallet transactions
   app.get("/api/admin/servicemen/:id/transactions", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
-      const transactions = await storage.getProviderWalletTransactions(id);
-      res.json({ success: true, data: transactions });
+      // The wallet payouts read. The old table holds only manual top-ups and
+      // deductions (and history from before this wallet existed), so earnings,
+      // holds and withdrawals never showed here. It is used only when the
+      // expert has nothing in the current one.
+      const v2 = await db.select().from(walletTransactionsV2)
+        .where(eq(walletTransactionsV2.partnerId, id))
+        .orderBy(desc(walletTransactionsV2.id))
+        .limit(300);
+      if (!v2.length) {
+        const transactions = await storage.getProviderWalletTransactions(id);
+        return res.json({ success: true, data: transactions });
+      }
+      const LABEL: Record<string, string> = {
+        hold_credit: 'earned (on hold)', release: 'released', refund: 'refund', adjustment: 'deduction',
+        commission_deduction: 'platform dues', withdraw_bank: 'withdrawal (bank)', withdraw_upi: 'withdrawal (UPI)',
+      };
+      const n = (v: unknown) => parseFloat(String(v ?? '0')) || 0;
+      res.json({
+        success: true,
+        data: v2.map(t => {
+          const availDelta = n(t.balanceAvailableAfter) - n(t.balanceAvailableBefore);
+          const holdDelta = n(t.balanceHoldAfter) - n(t.balanceHoldBefore);
+          const delta = Math.abs(availDelta) > 0.0001 ? availDelta : holdDelta;
+          const isTopUp = t.transactionType === 'release' && String(t.transactionId).startsWith('WTOP-');
+          return {
+            id: t.id,
+            createdAt: t.createdAt,
+            type: isTopUp ? 'topup' : (LABEL[t.transactionType as string] ?? String(t.transactionType)),
+            description: t.description,
+            amount: (Math.abs(delta) > 0.0001 ? delta : n(t.amount)).toFixed(2),
+            balanceAfter: n(t.balanceAvailableAfter).toFixed(2),
+            onHoldAfter: n(t.balanceHoldAfter).toFixed(2),
+          };
+        }),
+      });
     } catch (error) {
       next(error);
     }

@@ -17,6 +17,8 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const utr = (n: number) => `4${String(Date.now()).slice(-10)}${n}`;
 
 async function main() {
+    // No bank-check calls from tests.
+    for (const k of ['CASHFREE_VERIFICATION_CLIENT_ID', 'CASHFREE_VERIFICATION_CLIENT_SECRET']) delete process.env[k];
     const { base, close } = await bootServer();
     const api = client(base);
     try {
@@ -80,6 +82,34 @@ async function main() {
         const legacy = await pay(w5.id, {});
         check('an older client sending only the proof: still works as before', legacy.status === 200 && (await row(w5.id)).status === 'completed' && (await row(w5.id)).payoutMode === null);
 
+        // Staff add a bank account for a UPI-only expert, then pay them by IMPS.
+        const bad = await api.put(`/api/admin/servicemen/${upiOnly.id}/bank`, { bankAccountNumber: '1234', bankIfsc: 'HDFC0001234' }, S);
+        const badIfsc = await api.put(`/api/admin/servicemen/${upiOnly.id}/bank`, { bankAccountNumber: '50100055554444', bankIfsc: 'HDFC1234' }, S);
+        check('adding a bank account: a short account number or a malformed IFSC is refused', bad.status === 400 && badIfsc.status === 400);
+        await db.update(employees).set({ cashfreeBeneId: 'UFUOLDBENE' } as any).where(eq(employees.id, upiOnly.id));
+        const addBank = await api.put(`/api/admin/servicemen/${upiOnly.id}/bank`, { bankAccountNumber: '5010 0055 5544 44', bankIfsc: 'hdfc0005555', bankName: 'HDFC Bank' }, S);
+        const [e2] = await db.select().from(employees).where(eq(employees.id, upiOnly.id));
+        check('…a valid one is saved (spaces removed, IFSC upper-case) and the old Cashfree beneficiary is cleared', addBank.status === 200 && e2.bankAccountNumber === '50100055554444' && e2.bankIfsc === 'HDFC0005555' && e2.bankName === 'HDFC Bank' && e2.cashfreeBeneId === null, JSON.stringify(addBank.body));
+        const audit = await db.execute((await import('drizzle-orm')).sql`SELECT metadata FROM audit_logs WHERE entity_type = 'employee' AND entity_id = ${upiOnly.id} AND action = 'employee_bank_changed' ORDER BY id DESC LIMIT 1`) as any;
+        check('…the change is audited with only the last four digits', audit.rows?.[0]?.metadata?.to === '…4444 HDFC0005555');
+        const w6 = await request(upiOnly.id, 'upi');
+        const viaBank = await pay(w6.id, { mode: 'imps', reference: utr(6) });
+        check('…and the expert who only had a UPI ID can now be paid by IMPS', viaBank.status === 200 && (await row(w6.id)).payoutMode === 'imps', JSON.stringify(viaBank.body));
+
+        // The Employees list shows the wallet payouts read.
+        await db.update(partnerWallets).set({ balanceAvailable: '321.50', balanceHold: '99.00' } as any).where(eq(partnerWallets.partnerId, both.id));
+        const emps = await api.get(`/api/admin/servicemen/list?q=${encodeURIComponent('qa.manual.' + stamp + '.1')}`, S);
+        const me = (emps.body?.data ?? []).find((x: any) => x.id === both.id);
+        check('the Employees list shows the real wallet: available and on hold (it showed the old column, ₹0)', me?.walletBalance === '321.50' && me?.walletOnHold === '99.00', JSON.stringify(me ? { w: me.walletBalance, h: me.walletOnHold, legacy: me.legacyWalletBalance } : emps.body).slice(0, 200));
+        const top = await api.post(`/api/admin/servicemen/${both.id}/topup`, { amount: 10, description: 'QA top-up' }, S);
+        const hist = await api.get(`/api/admin/servicemen/${both.id}/transactions`, S);
+        check('…a top-up lands in that wallet, and the history shows it from the same wallet', top.status === 200 && (await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, both.id)))[0].balanceAvailable === '331.50' && hist.body?.data?.[0]?.type === 'topup' && hist.body.data[0].amount === '10.00' && hist.body.data[0].balanceAfter === '331.50', JSON.stringify(hist.body?.data?.[0] ?? hist.body).slice(0, 200));
+        const nowallet = await expert(3, { upiId: 'qa.nowallet@okaxis' });
+        await db.delete(partnerWallets).where(eq(partnerWallets.partnerId, nowallet.id));
+        await api.post(`/api/admin/servicemen/${nowallet.id}/topup`, { amount: 25, description: 'QA first top-up' }, S);
+        const [nw] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, nowallet.id));
+        check('…a top-up for an expert with no wallet yet creates it (it used to land only in the old column)', nw?.balanceAvailable === '25.00', JSON.stringify(nw ?? null));
+
         const list = await api.get(`/api/admin/withdrawals?q=${encodeURIComponent('qa.manual@okhdfcbank')}`, S);
         const item = (list.body?.data ?? []).find((x: any) => x.request.id === w1.id);
         check('the list gives what a bank transfer needs (IFSC, bank) and the recorded UTR', item?.employee?.bankIfsc === 'HDFC0001234' && item?.employee?.bankName === 'HDFC Bank' && item?.request?.payoutReference === ref1, JSON.stringify(item ?? list.body).slice(0, 200));
@@ -92,6 +122,9 @@ main().catch(e => { console.error(e); check('no crash', false, e?.message); }).f
     const uids = userIds.join(',') || '0';
     await cleanupPartners([], adminIds, [
         `DELETE FROM withdrawal_requests WHERE partner_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
+        `DELETE FROM wallet_transactions_v2 WHERE partner_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
+        `DELETE FROM wallet_transactions WHERE provider_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
+        `DELETE FROM audit_logs WHERE entity_type = 'employee' AND entity_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
         `DELETE FROM partner_wallets WHERE partner_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
         `DELETE FROM audit_logs WHERE entity_type = 'withdrawal' AND action = 'withdrawal_manual_payout' AND changed_by IN (${adminIds.join(',') || '0'})`,
         `DELETE FROM notifications WHERE user_id IN (${uids})`,

@@ -106,7 +106,8 @@ export default function PartnersPage() {
       { header: "Address", value: (p: any) => p.address ?? "" },
       { header: "Verification", value: (p: any) => p.documentVerificationStatus },
       { header: "Active", value: (p: any) => (p.isActive ? "yes" : "no") },
-      { header: "Wallet", value: (p: any) => p.walletBalance },
+      { header: "Wallet (available)", value: (p: any) => p.walletBalance },
+      { header: "On hold", value: (p: any) => p.walletOnHold },
       { header: "Jobs completed", value: (p: any) => p.totalServicesCompleted ?? 0 },
       { header: "Rating", value: (p: any) => p.averageRating ?? "" },
       { header: "Services", value: (p: any) => (p.services || []).join(" | ") },
@@ -455,7 +456,12 @@ export default function PartnersPage() {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <Wallet className="w-4 h-4 text-[hsl(160,84%,60%)]" />
-                          <span className="font-mono font-bold text-[hsl(160,84%,65%)] mr-3">₹{partner.walletBalance}</span>
+                          <span className="font-mono font-bold text-[hsl(160,84%,65%)] mr-3" title="Available to withdraw">
+                            ₹{partner.walletBalance}
+                            {Number(partner.walletOnHold) > 0 && (
+                              <span className="block whitespace-nowrap text-[10px] font-normal text-[hsl(38,92%,65%)]">+ ₹{partner.walletOnHold} on hold</span>
+                            )}
+                          </span>
 
                           {/* Payout readiness. Without this there was no way to see
                               that a partner could never be paid automatically —

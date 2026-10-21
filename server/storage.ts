@@ -1577,8 +1577,10 @@ export class DatabaseStorage implements IStorage {
         })
         .returning();
 
-      // Update V2 Wallet (partner_wallets)
-      const [wallet] = await tx.select().from(partnerWallets).where(eq(partnerWallets.partnerId, providerId));
+      // Update V2 Wallet (partner_wallets) — the one payouts read. Created when
+      // the expert has none yet: a top-up used to land only in the old column,
+      // where it could never be withdrawn.
+      const wallet = await this.getOrCreatePartnerWallet(providerId, tx);
       if (wallet) {
         const v2CurrentAvailable = parseFloat(wallet.balanceAvailable);
         const v2NewAvailable = v2CurrentAvailable + amount;

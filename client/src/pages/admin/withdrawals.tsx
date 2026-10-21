@@ -110,10 +110,34 @@ export default function WithdrawalsPage() {
   // Manual payout: how staff paid, and the bank's reference for it.
   const [manualMode, setManualMode] = useState<ManualMode>('imps');
   const [reference, setReference] = useState("");
+  // Staff adding or changing the expert's bank account, so they can be paid by IMPS / NEFT.
+  const [bankForm, setBankForm] = useState<null | { account: string; confirm: string; ifsc: string; bankName: string }>(null);
+  const bankFormProblem = !bankForm ? null
+    : !/^\d{9,18}$/.test(bankForm.account.replace(/\s+/g, '')) ? 'Account number: 9 to 18 digits.'
+    : bankForm.account.replace(/\s+/g, '') !== bankForm.confirm.replace(/\s+/g, '') ? 'The two account numbers do not match.'
+    : !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankForm.ifsc.trim().toUpperCase()) ? 'IFSC: 4 letters, a zero, then 6 letters or digits.'
+    : null;
+  const saveBankMutation = useMutation({
+    mutationFn: async ({ employeeId, form }: { employeeId: number; form: NonNullable<typeof bankForm> }) =>
+      apiRequest("PUT", `/api/admin/servicemen/${employeeId}/bank`, {
+        bankAccountNumber: form.account.replace(/\s+/g, ''), bankIfsc: form.ifsc.trim().toUpperCase(), bankName: form.bankName.trim() || null,
+      }),
+    onSuccess: (r: any) => {
+      const d = r?.data ?? {};
+      // The open dialog holds a copy of the row: update it so the details show at once.
+      setActionDialog(prev => prev.request ? { ...prev, request: { ...prev.request, employee: { ...prev.request.employee, bankAccountNumber: d.bankAccountNumber, bankIfsc: d.bankIfsc, bankName: d.bankName } } } : prev);
+      setManualMode('imps');
+      setBankForm(null);
+      toast({ title: "Bank account saved", description: r?.message });
+      refreshList();
+    },
+    onError: (error: any) => toast({ title: "Not saved", description: apiErrorMessage(error), variant: "destructive" }),
+  });
 
   const openManual = (w: Withdrawal) => {
     setProofFile(null);
     setReference("");
+    setBankForm(null);
     // Pay the way the expert asked when their details allow it.
     setManualMode(w.request.method === 'upi' ? (hasUpi(w) ? 'upi' : 'imps') : (hasBank(w) ? 'imps' : 'upi'));
     setActionDialog({ isOpen: true, type: 'approveManual', request: w });
@@ -164,6 +188,7 @@ export default function WithdrawalsPage() {
     setActionDialog({ isOpen: false, type: 'approveManual', request: null });
     setProofFile(null);
     setReference("");
+    setBankForm(null);
   };
 
   const approveManualMutation = useMutation({
@@ -592,6 +617,54 @@ export default function WithdrawalsPage() {
                   })}
                 </div>
               </div>
+
+              {bankForm ? (
+                <div className="rounded-lg border border-[hsla(217,91%,60%,0.35)] bg-[hsla(217,91%,60%,0.06)] p-3 space-y-2">
+                  <p className="text-sm font-medium text-white">{hasBank(actionDialog.request) ? 'Change' : 'Add'} {actionDialog.request.employee.fullName}'s bank account</p>
+                  <p className="text-xs text-[hsl(215,20%,60%)]">Take these from the expert's cancelled cheque or passbook. They are told about the change.</p>
+                  {([
+                    ['bank-account', 'Account number', 'account', 'e.g. 50100012345678', 'numeric'],
+                    ['bank-confirm', 'Account number again', 'confirm', 'Type it again', 'numeric'],
+                    ['bank-ifsc', 'IFSC', 'ifsc', 'e.g. HDFC0001234', 'text'],
+                    ['bank-name', 'Bank name (optional)', 'bankName', 'e.g. HDFC Bank', 'text'],
+                  ] as const).map(([fid, label, key, ph, mode]) => (
+                    <div key={fid}>
+                      <label htmlFor={fid} className="block text-[11px] uppercase tracking-wide text-[hsl(215,20%,55%)] mb-1">{label}</label>
+                      <input
+                        id={fid}
+                        inputMode={mode}
+                        autoComplete="off"
+                        value={bankForm[key]}
+                        onChange={(e) => setBankForm({ ...bankForm, [key]: key === 'ifsc' ? e.target.value.toUpperCase() : e.target.value })}
+                        onPaste={key === 'confirm' ? (e) => e.preventDefault() : undefined}
+                        placeholder={ph}
+                        className="w-full rounded-md border border-[rgba(255,255,255,0.12)] bg-[rgba(255,255,255,0.04)] px-3 py-1.5 font-mono text-sm text-white placeholder:text-[hsl(215,20%,45%)] focus:outline-none focus:border-[hsla(217,91%,60%,0.6)]"
+                      />
+                    </div>
+                  ))}
+                  {bankFormProblem && (bankForm.account || bankForm.confirm || bankForm.ifsc) && <p className="text-xs text-[hsl(347,77%,65%)]">{bankFormProblem}</p>}
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button type="button" size="sm" variant="outline" onClick={() => setBankForm(null)} className="border-[rgba(255,255,255,0.12)] text-white bg-transparent">Cancel</Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!!bankFormProblem || saveBankMutation.isPending}
+                      onClick={() => saveBankMutation.mutate({ employeeId: actionDialog.request!.request.partnerId, form: bankForm })}
+                      className="bg-[hsl(217,91%,55%)] hover:bg-[hsl(217,91%,50%)] text-white"
+                    >
+                      {saveBankMutation.isPending ? "Checking…" : "Save bank account"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setBankForm({ account: '', confirm: '', ifsc: '', bankName: actionDialog.request?.employee.bankName ?? '' })}
+                  className="text-xs text-[hsl(217,91%,72%)] underline underline-offset-2 hover:text-white text-left"
+                >
+                  {hasBank(actionDialog.request) ? 'Change bank account' : `Add a bank account for ${actionDialog.request.employee.fullName} to pay by IMPS / NEFT`}
+                </button>
+              )}
 
               {manualMode !== 'upi' ? (
                 <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.03)] px-3 py-1.5 divide-y divide-[rgba(255,255,255,0.06)]">
