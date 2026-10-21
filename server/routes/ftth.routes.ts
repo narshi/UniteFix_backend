@@ -48,6 +48,7 @@ import { validateBody } from "../middleware/validate";
 import { withTransaction } from "../lib/transaction";
 import { recordAudit } from "../lib/audit";
 import { FtthPhoneService, PhoneChangeError } from "../services/ftth-phones.service";
+import { nowFilledMs } from "../lib/db-time";
 import { operatorApplyLimiter, mobileLimiter } from "../middleware/rate-limit";
 import { FtthService, paiseToRupees, resolveAddon, AddonSelectionError } from "../services/ftth.service";
 import { configService } from "../services/config.service";
@@ -1641,18 +1642,50 @@ export function registerFtthRoutes(app: Express) {
                     return res.status(409).json({ success: false, message: `This request is already ${request.status}.` });
                 }
 
-                // The unique index on (operatorId, ispConnectionId) would catch
-                // this, but a clear message beats a constraint violation.
-                const [taken] = await db.select({ id: ftthConnections.id }).from(ftthConnections)
+                // The ID is already on the operator's list (imported, or added by
+                // hand): the request is to move THAT subscriber to this member.
+                // Refusing it ("already mapped") left a customer whose connection
+                // sat on another number no way to recharge. It moves through the
+                // change-of-number process: the requester must be a member, the
+                // previous number stays in the history, both are told.
+                const [taken] = await db.select({ id: ftthConnections.id, userId: ftthConnections.userId, status: ftthConnections.status }).from(ftthConnections)
                     .where(and(
                         eq(ftthConnections.operatorId, operatorId),
                         eq(ftthConnections.ispConnectionId, ispConnectionId),
                     )).limit(1);
                 if (taken) {
-                    return res.status(409).json({
-                        success: false,
-                        message: `${ispConnectionId} is already mapped to another UniteFix account.`,
-                    });
+                    if (taken.status === 'closed') {
+                        return res.status(409).json({ success: false, message: `${ispConnectionId} is a closed subscriber. Reopen them first, then approve.` });
+                    }
+                    if (taken.userId !== request.userId) {
+                        const [requester] = await db.select({ phone: users.phone }).from(users).where(eq(users.id, request.userId)).limit(1);
+                        // A placeholder this member got from an earlier request (no
+                        // ISP id, never recharged) would otherwise block the move —
+                        // one connection per member per operator. Close it.
+                        const [placeholder] = await db.select({ id: ftthConnections.id }).from(ftthConnections)
+                            .where(and(
+                                eq(ftthConnections.operatorId, operatorId), eq(ftthConnections.userId, request.userId),
+                                isNull(ftthConnections.ispConnectionId), ne(ftthConnections.status, 'closed'),
+                            )).limit(1);
+                        if (placeholder) {
+                            const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(ftthRecharges).where(eq(ftthRecharges.connectionId, placeholder.id));
+                            if (n === 0) {
+                                await db.update(ftthConnections).set({ status: 'closed', userId: null, updatedAt: new Date() }).where(eq(ftthConnections.id, placeholder.id));
+                                await recordAudit({ entityType: 'ftth_connection', entityId: placeholder.id, action: 'ftth_connection_closed', toState: 'closed', changedBy: adminUserId, metadata: { operatorId, reason: `merged into ${ispConnectionId} by link request #${id}` } });
+                            }
+                        }
+                        try {
+                            await FtthPhoneService.change({ operatorId, adminUserId: adminUserId ?? null }, taken.id, requester?.phone, `Link request #${id} approved`);
+                        } catch (e) {
+                            if (e instanceof PhoneChangeError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+                            throw e;
+                        }
+                    }
+                    await db.update(ftthIdRequests).set({ status: 'approved', connectionId: taken.id, reviewedByAdminId: adminUserId, reviewedAt: new Date() })
+                        .where(eq(ftthIdRequests.id, id));
+                    await recordAudit({ entityType: 'ftth_connection', entityId: taken.id, action: 'ftth_isp_id_assigned', toState: 'active', changedBy: adminUserId, metadata: { operatorId, ispConnectionId, idRequestId: id, moved: taken.userId !== request.userId } });
+                    void NotificationService.notify(request.userId, 'Your broadband account is linked', `You can now recharge ${ispConnectionId} from the UniteFix app.`, 'ftth_id_assigned', { connectionId: taken.id });
+                    return res.json({ success: true, message: taken.userId === request.userId ? 'Already linked to this member.' : `${ispConnectionId} moved to the requester's number; the previous number stays in its history.`, data: { connectionId: taken.id } });
                 }
 
                 const connection = await withTransaction(async (tx) => {
@@ -2607,6 +2640,18 @@ export function registerFtthRoutes(app: Express) {
                     });
                 }
 
+                // Found, but not the caller's. A 409 with the reason: app builds
+                // before this showed the server's message on a failed lookup,
+                // and would otherwise open a recharge that could only fail.
+                if (result.access !== 'mine') {
+                    return res.status(409).json({
+                        success: false,
+                        code: result.access === 'other_member' ? 'NOT_YOUR_CONNECTION' : result.access === 'other_number' ? 'REGISTERED_TO_OTHER_NUMBER' : 'MEMBER_HAS_CONNECTION',
+                        message: result.message,
+                        data: result.connection,
+                    });
+                }
+
                 res.json({
                     success: true,
                     exists: true,
@@ -2727,7 +2772,22 @@ export function registerFtthRoutes(app: Express) {
                 const [connection] = await db.select().from(ftthConnections)
                     .where(and(eq(ftthConnections.id, connectionId), eq(ftthConnections.userId, userId)))
                     .limit(1);
-                if (!connection) return res.status(404).json({ success: false, message: 'Connection not found' });
+                if (!connection) {
+                    // It exists but is not linked to this account: say so, and how
+                    // to fix it. "Connection not found" sent customers in circles.
+                    const [elsewhere] = await db.select({ operatorId: ftthConnections.operatorId })
+                        .from(ftthConnections).where(eq(ftthConnections.id, connectionId)).limit(1);
+                    if (elsewhere) {
+                        const [op] = await db.select({ name: ftthOperators.companyName }).from(ftthOperators).where(eq(ftthOperators.id, elsewhere.operatorId)).limit(1);
+                        return res.status(403).json({
+                            success: false,
+                            code: 'NOT_YOUR_CONNECTION',
+                            // No digits of the number here: a connection id alone must not reveal them.
+                            message: `This connection is linked to another mobile number. Sign in with that number to recharge it, or ask ${op?.name ?? 'your broadband provider'} to move it to your number.`,
+                        });
+                    }
+                    return res.status(404).json({ success: false, message: 'Connection not found' });
+                }
 
                 if (!connection.ispConnectionId) {
                     return res.status(409).json({
@@ -2756,19 +2816,28 @@ export function registerFtthRoutes(app: Express) {
                     )).limit(1);
                 if (!plan) return res.status(404).json({ success: false, message: 'Plan not available' });
 
-                const [open] = await db.select({ id: ftthRecharges.id }).from(ftthRecharges)
+                // An order already open on this connection. Within a minute it is
+                // a double tap — refuse. Older, it is a payment sheet the customer
+                // closed: it used to block them for up to 45 minutes (until the
+                // abandoned-recharge sweep). Close it and start afresh — a payment
+                // that still lands on it is applied all the same (applyCapture
+                // takes a late capture on a failed row).
+                const open = await db.select({ id: ftthRecharges.id, ageMs: sql<number>`(extract(epoch from now()) * 1000 - ${nowFilledMs(ftthRecharges.createdAt)})::float8` })
+                    .from(ftthRecharges)
                     .where(and(
                         eq(ftthRecharges.connectionId, connectionId),
                         inArray(ftthRecharges.status, ['created', 'pending']),
                     ))
-                    .orderBy(desc(ftthRecharges.id))
-                    .limit(1);
-                if (open) {
+                    .orderBy(desc(ftthRecharges.id));
+                if (open.some(o => Number(o.ageMs) < 60_000)) {
                     return res.status(409).json({
                         success: false,
                         code: 'RECHARGE_IN_PROGRESS',
-                        message: 'A recharge is already in progress. Please wait a moment and try again.',
+                        message: 'A recharge is already in progress. Please wait a minute and try again.',
                     });
+                }
+                for (const o of open) {
+                    await FtthService.markFailed({ rechargeId: o.id, reason: 'Superseded by a new attempt' });
                 }
 
                 const windowDays = parseInt(

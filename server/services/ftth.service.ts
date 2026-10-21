@@ -158,6 +158,12 @@ export interface RechargeQuote {
     platformRevenuePaise: number;
 }
 
+/** "Ravi Kumar" → "R*** K***": enough to recognise, not enough to learn. */
+function maskName(name: string | null | undefined): string | null {
+    if (!name) return null;
+    return name.trim().split(/\s+/).map(w => (w ? `${w[0]}***` : w)).join(' ');
+}
+
 export class FtthService {
 
     private static razorpay: Razorpay | null = null;
@@ -441,17 +447,26 @@ export class FtthService {
             return row;
         });
 
-        const razorpay = await this.getRazorpay();
-        const order = await razorpay.orders.create({
-            amount: quote.totalPaise,
-            currency: "INR",
-            receipt: `ftth_${recharge.id}_${Date.now()}`.slice(0, 40),
-            notes: {
-                payment_type: "ftth_recharge",
-                ftth_recharge_id: String(recharge.id),
-                ftth_connection_id: String(connection.id),
-            },
-        });
+        // If no payment order can be made (credentials, Razorpay down), close
+        // the row now: left "created", it blocked every retry on this
+        // connection with "already in progress" until the sweep ran.
+        let order: any;
+        try {
+            const razorpay = await this.getRazorpay();
+            order = await razorpay.orders.create({
+                amount: quote.totalPaise,
+                currency: "INR",
+                receipt: `ftth_${recharge.id}_${Date.now()}`.slice(0, 40),
+                notes: {
+                    payment_type: "ftth_recharge",
+                    ftth_recharge_id: String(recharge.id),
+                    ftth_connection_id: String(connection.id),
+                },
+            });
+        } catch (e: any) {
+            await this.markFailed({ rechargeId: recharge.id, reason: `Payment order not created: ${String(e?.message ?? e).slice(0, 150)}` });
+            throw e;
+        }
 
         await db.update(ftthRecharges)
             .set({ razorpayOrderId: order.id, status: 'pending', updatedAt: new Date() })
@@ -739,26 +754,45 @@ export class FtthService {
     // ==================== CUSTOMER LOOKUP ====================
 
     /**
-     * Look up a connection under an operator by ISP Connection ID or Phone.
+     * Look up a connection under an operator by its ISP connection ID or the
+     * mobile number on file, for the signed-in customer, and decide whether it
+     * is theirs.
+     *
+     *   mine          linked to the caller — recharge it.
+     *   unlinked      linked to nobody: it becomes the caller's only when the
+     *                 number on file is the caller's own, or when there is no
+     *                 number on file (then the caller's number is put on file,
+     *                 in the number history, so the operator sees who claimed it).
+     *   other_number  linked to nobody, but the number on file is not the
+     *                 caller's: not claimed. Typing an ID used to hand anyone the
+     *                 connection, which locked the real customer out.
+     *   other_member  linked to another UniteFix account: not claimed.
+     *
+     * For anything not the caller's, only a masked name and the last digits of
+     * the number are returned — the lookup used to return the other customer's
+     * full name, phone and email to whoever typed the ID — with what to do:
+     * sign in with that number, or ask the operator (a link request, which the
+     * operator approves to move the connection to the caller).
+     *
+     * Matching ignores case and spaces in the ID and any +91 / spaces / leading
+     * 0 in the number; closed connections are not offered, and when several
+     * rows match, the caller's own, then an unlinked one, then an active one wins.
      */
     static async lookupCustomerConnection(params: {
         operatorId: number;
         query: string;
         authUserId?: number | null;
-    }) {
+    }): Promise<
+        | { exists: false }
+        | { exists: true; access: 'mine'; connection: any }
+        | { exists: true; access: 'other_number' | 'other_member' | 'member_has_connection'; connection: any; message: string }
+    > {
         const { operatorId, query, authUserId } = params;
-        const cleanQuery = query.trim();
-        const cleanPhone = cleanQuery.replace(/\D/g, '').slice(-10);
+        const { tenDigitPhone, FtthPhoneService } = await import('./ftth-phones.service');
+        const idKey = query.replace(/\s+/g, '').toLowerCase();
+        const phone = tenDigitPhone(query);
 
-        const conditions = [
-            eq(ftthConnections.operatorId, operatorId),
-            or(
-                sql`LOWER(${ftthConnections.ispConnectionId}) = LOWER(${cleanQuery})`,
-                cleanPhone.length === 10 ? eq(ftthConnections.customerPhone, cleanPhone) : sql`false`,
-            ),
-        ];
-
-        const [connection] = await db.select({
+        const rows = await db.select({
             id: ftthConnections.id,
             operatorId: ftthConnections.operatorId,
             ispConnectionId: ftthConnections.ispConnectionId,
@@ -771,25 +805,21 @@ export class FtthService {
             userId: ftthConnections.userId,
         })
             .from(ftthConnections)
-            .where(and(...conditions))
-            .limit(1);
+            .where(and(
+                eq(ftthConnections.operatorId, operatorId),
+                sql`${ftthConnections.status} <> 'closed'`,
+                or(
+                    sql`lower(regexp_replace(coalesce(${ftthConnections.ispConnectionId}, ''), '\\s', '', 'g')) = ${idKey}`,
+                    phone ? sql`right(regexp_replace(coalesce(${ftthConnections.customerPhone}, ''), '\\D', '', 'g'), 10) = ${phone}` : sql`false`,
+                ),
+            ))
+            .limit(20);
+        if (!rows.length) return { exists: false };
 
-        if (!connection) {
-            return { exists: false };
-        }
-
-        // If caller is authenticated and connection is unlinked, claim it automatically
-        if (authUserId && !connection.userId) {
-            await db.update(ftthConnections)
-                .set({ userId: authUserId, updatedAt: new Date() })
-                .where(eq(ftthConnections.id, connection.id));
-            connection.userId = authUserId;
-        }
-
-        const now = Date.now();
-        const daysRemaining = connection.validTill
-            ? Math.ceil((connection.validTill.getTime() - now) / 86_400_000)
-            : null;
+        const rank = (r: typeof rows[number]) =>
+            (authUserId && r.userId === authUserId ? 0 : r.userId === null ? 1 : 2) * 10 + (r.status === 'active' ? 0 : 1);
+        rows.sort((x, y) => rank(x) - rank(y) || y.id - x.id);
+        const connection = rows[0];
 
         const [operator] = await db.select({
             id: ftthOperators.id,
@@ -797,15 +827,112 @@ export class FtthService {
             logoUrl: ftthOperators.logoUrl,
             brandColor: ftthOperators.brandColor,
         }).from(ftthOperators).where(eq(ftthOperators.id, operatorId)).limit(1);
+        const operatorName = operator?.companyName ?? 'your broadband provider';
 
+        const now = Date.now();
+        const full = () => ({
+            ...connection,
+            operatorName,
+            daysRemaining: connection.validTill ? Math.ceil((connection.validTill.getTime() - now) / 86_400_000) : null,
+            isExpired: connection.validTill ? connection.validTill.getTime() < now : false,
+        });
+        const masked = (access: string) => ({
+            id: connection.id,
+            operatorId,
+            operatorName,
+            ispConnectionId: connection.ispConnectionId,
+            customerName: maskName(connection.customerName),
+            phoneHint: connection.customerPhone ? `…${connection.customerPhone.slice(-4)}` : null,
+            status: connection.status,
+            access,
+        });
+
+        if (authUserId && connection.userId === authUserId) {
+            return { exists: true, access: 'mine', connection: { ...full(), access: 'mine' } };
+        }
+
+        const [me] = authUserId
+            ? await db.select({ phone: users.phone }).from(users).where(eq(users.id, authUserId)).limit(1)
+            : [];
+        const myPhone = tenDigitPhone(me?.phone);
+        const onFile = tenDigitPhone(connection.customerPhone);
+
+        if (!connection.userId && authUserId && myPhone && (!onFile || onFile === myPhone)) {
+            // One UniteFix account holds one open connection per operator: an ID
+            // request or a number change would otherwise overwrite one of them.
+            const [held] = await db.select({ id: ftthConnections.id, ispConnectionId: ftthConnections.ispConnectionId }).from(ftthConnections)
+                .where(and(
+                    eq(ftthConnections.operatorId, operatorId), eq(ftthConnections.userId, authUserId),
+                    sql`${ftthConnections.status} <> 'closed'`, sql`${ftthConnections.id} <> ${connection.id}`,
+                )).limit(1);
+            if (held) {
+                return {
+                    exists: true, access: 'member_has_connection', connection: masked('member_has_connection'),
+                    message: `Your account already has a connection with ${operatorName} (${held.ispConnectionId ?? 'awaiting its ID'}). One UniteFix account holds one connection per provider — ask ${operatorName} to move this one to you.`,
+                };
+            }
+            const claimed = await withTransaction(async (tx) => {
+                // Only if still unlinked: two people claiming at once, one wins.
+                const [row] = await tx.update(ftthConnections)
+                    .set({ userId: authUserId, ...(onFile ? {} : { customerPhone: myPhone }), updatedAt: new Date() })
+                    .where(and(eq(ftthConnections.id, connection.id), isNull(ftthConnections.userId)))
+                    .returning({ id: ftthConnections.id });
+                if (!row) return false;
+                if (!onFile) {
+                    await FtthPhoneService.recordInitial(tx, connection.id, myPhone, authUserId, null, 'Linked by the customer in the app with the customer ID');
+                }
+                return true;
+            });
+            if (claimed) {
+                connection.userId = authUserId;
+                if (!onFile) connection.customerPhone = myPhone;
+                logger.info('[FTTH] Connection linked from the app lookup', { connectionId: connection.id, userId: authUserId, by: onFile ? 'number on file' : 'customer ID (no number on file)' });
+                return { exists: true, access: 'mine', connection: { ...full(), access: 'mine' } };
+            }
+            return { exists: true, access: 'other_member', connection: masked('other_member'), message: `This connection was just linked to another UniteFix account. Ask ${operatorName} if this is yours.` };
+        }
+
+        // Linked to an account that is not on the number the operator has on
+        // file, and the caller IS on that number. Only the old claim-by-ID
+        // lookup (or an edit that changed the number without moving the link)
+        // made such links; the operator's record wins, so it moves to the caller.
+        if (connection.userId && authUserId && myPhone && onFile === myPhone) {
+            const [linked] = await db.select({ phone: users.phone, deletedAt: users.deletedAt }).from(users).where(eq(users.id, connection.userId)).limit(1);
+            if (!linked || linked.deletedAt || tenDigitPhone(linked.phone) !== onFile) {
+                const previous = connection.userId;
+                const moved = await withTransaction(async (tx) => {
+                    const [row] = await tx.update(ftthConnections).set({ userId: authUserId, updatedAt: new Date() })
+                        .where(and(eq(ftthConnections.id, connection.id), eq(ftthConnections.userId, previous)))
+                        .returning({ id: ftthConnections.id });
+                    if (!row) return false;
+                    const { ftthConnectionPhones } = await import('@shared/schema');
+                    await tx.update(ftthConnectionPhones).set({ userId: authUserId })
+                        .where(and(eq(ftthConnectionPhones.connectionId, connection.id), eq(ftthConnectionPhones.status, 'active')));
+                    return true;
+                });
+                if (moved) {
+                    connection.userId = authUserId;
+                    const { recordAudit } = await import('../lib/audit');
+                    await recordAudit({ entityType: 'ftth_connection', entityId: connection.id, action: 'ftth_connection_relinked', changedBy: null, metadata: { operatorId, fromUserId: previous, toUserId: authUserId, why: 'the number on file belongs to the new account' } });
+                    if (linked && !linked.deletedAt) {
+                        const { NotificationService } = await import('./notification.service');
+                        void NotificationService.sendToUser(previous, 'Broadband connection moved', `${operatorName} has connection ${connection.ispConnectionId ?? ''} on another mobile number, so it moved to that number's UniteFix account. Contact them if this is yours.`.replace(/\s+/g, ' '), 'ftth_connection_unlinked', { connectionId: connection.id }).catch(() => {});
+                    }
+                    logger.info('[FTTH] Connection relinked to the member on its number', { connectionId: connection.id, fromUserId: previous, toUserId: authUserId });
+                    return { exists: true, access: 'mine', connection: { ...full(), access: 'mine' } };
+                }
+            }
+        }
+
+        if (!connection.userId) {
+            return {
+                exists: true, access: 'other_number', connection: masked('other_number'),
+                message: `This connection is registered to the mobile number ending ${onFile?.slice(-4) ?? '—'}. Sign in to UniteFix with that number to recharge it, or ask ${operatorName} to change the number to yours.`,
+            };
+        }
         return {
-            exists: true,
-            connection: {
-                ...connection,
-                operatorName: operator?.companyName ?? 'Broadband',
-                daysRemaining,
-                isExpired: connection.validTill ? connection.validTill.getTime() < now : false,
-            },
+            exists: true, access: 'other_member', connection: masked('other_member'),
+            message: `This connection is linked to another UniteFix account${onFile ? ` (mobile number ending ${onFile.slice(-4)})` : ''}. To recharge it from your account, ask ${operatorName} to move it to your number — send them a link request.`,
         };
     }
 

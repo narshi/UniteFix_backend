@@ -171,9 +171,9 @@ export class FtthPhoneService {
     }
 
     /** Record the number a subscriber is created with, so its history starts at the beginning. */
-    static async recordInitial(tx: any, connectionId: number, phone: string | null, userId: number | null, adminUserId: number | null) {
+    static async recordInitial(tx: any, connectionId: number, phone: string | null, userId: number | null, adminUserId: number | null, reason = 'Added with the subscriber') {
         if (!phone) return;
-        await tx.insert(ftthConnectionPhones).values({ connectionId, phone, userId, status: 'active', reason: 'Added with the subscriber', addedByAdminId: adminUserId, createdAt: new Date() });
+        await tx.insert(ftthConnectionPhones).values({ connectionId, phone, userId, status: 'active', reason, addedByAdminId: adminUserId, createdAt: new Date() });
     }
 
     private static async notify(c: typeof ftthConnections.$inferSelect, newUserId: number, oldUserId: number | null) {

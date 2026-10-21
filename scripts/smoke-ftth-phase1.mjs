@@ -336,7 +336,7 @@ try {
     r = await req('POST', '/api/ftth/recharges/initiate', {
         token: otherToken, body: { connectionId, planId: planRow.id },
     });
-    check('another customer cannot recharge this connection', r.status === 404, `status ${r.status}`);
+    check('another customer cannot recharge this connection, and is told why', r.status === 403 && r.json?.code === 'NOT_YOUR_CONNECTION', `status ${r.status}`);
     await c.query('DELETE FROM users WHERE id=$1', [other.id]);
 
 } catch (err) {

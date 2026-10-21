@@ -33,13 +33,15 @@ export function FTTHOnboardingScreen({ navigation, route }: Props) {
     const queryClient = useQueryClient();
     const user = useAuthStore(s => s.user) as any;
 
-    const [mode, setMode] = useState<Mode>('choose');
+    // Opened from a lookup that found the connection on another number: go
+    // straight to the link request, with the ID already filled in.
+    const [mode, setMode] = useState<Mode>(route.params?.mode === 'existing' ? 'existing' : 'choose');
     const [form, setForm] = useState({
         name: user?.username ?? '',
         phone: (user?.phone ?? '').replace(/^\+91/, ''),
         address: user?.homeAddress ?? '',
         pincode: user?.pinCode ?? '',
-        ispId: '',
+        ispId: String(route.params?.ispId ?? ''),
         notes: '',
     });
 

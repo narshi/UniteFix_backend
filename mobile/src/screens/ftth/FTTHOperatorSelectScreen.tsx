@@ -105,9 +105,27 @@ export function FTTHOperatorSelectScreen({ navigation }: Props) {
                 setShowNotFoundModal(true);
             }
         } catch (err: any) {
+            const body = err?.response?.data;
+            // Found, but on another number or another UniteFix account. The way
+            // out is the operator: a link request, pre-filled with this ID.
+            if (['NOT_YOUR_CONNECTION', 'REGISTERED_TO_OTHER_NUMBER', 'MEMBER_HAS_CONNECTION'].includes(body?.code)) {
+                const op = operators.find(o => o.id === selectedOperatorId) || null;
+                const ispId = body?.data?.ispConnectionId ?? searchQuery.trim();
+                Alert.alert(
+                    body.code === 'REGISTERED_TO_OTHER_NUMBER' ? 'Registered to another number' : 'Linked to another account',
+                    body.message,
+                    op
+                        ? [
+                            { text: 'Close', style: 'cancel' },
+                            { text: 'Ask to link it', onPress: () => navigation.navigate('FTTHOnboarding', { operator: op, mode: 'existing', ispId }) },
+                        ]
+                        : [{ text: 'OK' }],
+                );
+                return;
+            }
             Alert.alert(
                 'Lookup Failed',
-                err?.response?.data?.message || 'Unable to verify Customer ID. Please check your network connection.',
+                body?.message || 'Unable to verify Customer ID. Please check your network connection.',
             );
         } finally {
             setIsSearching(false);
