@@ -165,6 +165,26 @@ async function main() {
         check('…given to a UniteFix expert instead, it is no longer the partner’s', toUf.status === 200 && b3r.providerId === uf.id && b3r.dispatchPartnerId === null && !(b3r.pricingSnapshot as any)?.payeePartnerId, JSON.stringify(toUf.body).slice(0, 160));
         check('…and is off the partner’s Jobs page', !((await api.get('/api/hub/field/jobs', T)).body?.data ?? []).some((j: any) => j.id === b3.id));
 
+        // Reassign to a partner.
+        const b5 = await booking(5);
+        await api.post(`/api/admin/services/${b5.id}/assign`, { technicianId: uf.id }, S);
+        const opts = await api.get(`/api/admin/services/${b5.id}/partner-options`, S);
+        const mine = (opts.body?.data ?? []).find((p: any) => p.id === bpId);
+        check('the partner options for a booking say who covers its pincode and lists its service', opts.status === 200 && mine?.covers === true && mine?.offers === true && opts.body.pincode === PIN, JSON.stringify(opts.body).slice(0, 200));
+        const re = await api.post(`/api/admin/services/${b5.id}/assign-partner`, { businessPartnerId: bpId }, S);
+        const [b5r] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, b5.id));
+        check('a job assigned to a UniteFix expert can be reassigned to a partner: the expert is taken off it', re.status === 200 && b5r.providerId === null && b5r.status === 'created' && b5r.dispatchPartnerId === bpId, JSON.stringify(re.body).slice(0, 200));
+        const revoked = (await db.execute(sql`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${ufU.id}`) as any).rows[0].n;
+        check('…and the expert is told', revoked >= 2, String(revoked));
+        await api.post(`/api/hub/field/jobs/${b5.id}/assign`, { employeeId: expert.id }, T);
+        const same = await api.post(`/api/admin/services/${b5.id}/assign-partner`, { businessPartnerId: bpId }, S);
+        check('…"reassigning" it to the partner whose technician already has it is refused with why', same.status === 409 && /already with this partner/.test(same.body?.error ?? ''));
+        await db.update(serviceRequests).set({ status: 'in_progress' as any }).where(eq(serviceRequests.id, b5.id));
+        check('…and once work has started it cannot be moved', (await api.post(`/api/admin/services/${b5.id}/assign-partner`, { businessPartnerId: bpId }, S)).status === 409);
+        const svcList = await api.get(`/api/admin/services?q=${encodeURIComponent(`QA-SR-${stamp}-5`)}`, S);
+        const row = (svcList.body?.data ?? svcList.body?.services ?? []).find((x: any) => x.id === b5.id);
+        check('Service Requests shows which partner has a job', row?.partnerName === c.body.data.displayName && row?.dispatchPartnerId === bpId, JSON.stringify(row ?? svcList.body).slice(0, 200));
+
         const b4 = await booking(4, { bookingFeeStatus: 'pending' });
         check('an unpaid booking cannot be sent to a partner', (await api.post(`/api/admin/services/${b4.id}/assign-partner`, { businessPartnerId: bpId }, S)).status === 409);
     } finally {

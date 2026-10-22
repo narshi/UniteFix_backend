@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState } from "react";
 import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
+import SendToPartnerModal from "@/components/admin/send-to-partner-modal";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -25,6 +26,8 @@ export default function ServicesPage() {
   const selection = useRowSelection<any>();
   const [selectedService, setSelectedService] = useState<any>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  // Give the booking to a partner, or move it to another partner.
+  const [partnerFor, setPartnerFor] = useState<any>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // Download the real tax-invoice PDF from the server (same document the customer
@@ -380,6 +383,11 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                         </td>
                         <td className="p-4">
                           {getStatusBadge(service.status)}
+                          {service.dispatchPartnerId && service.partnerName && (
+                            <span className="mt-1 block text-[10px] text-[hsl(27,90%,65%)]" title={service.slaAssignBy && !service.providerId ? `Assign by ${new Date(service.slaAssignBy).toLocaleString()}` : undefined}>
+                              {service.escalatedAt ? `Back from ${service.partnerName}` : `With ${service.partnerName}`}
+                            </span>
+                          )}
                         </td>
                         <td className="p-4">
                           {/*
@@ -435,6 +443,17 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                                   className="h-8 border-[hsla(38,92%,60%,0.3)] text-[hsl(38,92%,60%)] bg-[hsla(38,92%,60%,0.05)] hover:bg-[hsla(38,92%,60%,0.15)] transition-colors"
                                 >
                                   <span className="text-xs font-medium">Reassign</span>
+                                </Button>
+                              )}
+                              {['created', 'assigned', 'accepted'].includes(service.status) && service.bookingFeeStatus === 'paid' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setPartnerFor(service)}
+                                  className="h-8 border-[hsla(27,90%,55%,0.3)] text-[hsl(27,90%,65%)] bg-[hsla(27,90%,55%,0.05)] hover:bg-[hsla(27,90%,55%,0.15)] transition-colors"
+                                  title="Give this job to a partner, who picks one of their technicians"
+                                >
+                                  <span className="text-xs font-medium">{service.providerId || service.dispatchPartnerId ? 'Reassign to partner' : 'Send to partner'}</span>
                                 </Button>
                               )}
                               {service.status === 'completed' && (
@@ -627,6 +646,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
           onClose={() => setIsAssignModalOpen(false)}
           service={selectedService}
         />
+        <SendToPartnerModal service={partnerFor} open={!!partnerFor} onClose={() => setPartnerFor(null)} />
       </div>
   );
 }

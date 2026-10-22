@@ -394,8 +394,16 @@ export class PartnerFieldService {
     static async dispatchToPartner(serviceRequestId: number, bpId: number, adminId: number | null) {
         const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
         if (!sr) throw new HubError('Booking not found.', 'NOT_FOUND', 404);
-        if (sr.status !== 'created' || sr.providerId) throw new HubError(`This booking is ${sr.status}${sr.providerId ? ' with an expert' : ''}; only an unassigned booking can go to a partner.`, 'BAD_STATE', 409);
+        // Unassigned, or assigned / accepted but not started: a reassignment. Once
+        // the technician has reached the customer or started, it stays with them.
+        if (!['created', 'assigned', 'accepted'].includes(sr.status as string)) throw new HubError(`This booking is ${String(sr.status).replace(/_/g, ' ')}; it can be moved only before work starts.`, 'BAD_STATE', 409);
         if (sr.bookingFeeStatus !== 'paid') throw new HubError('The customer has not paid the booking fee yet.', 'UNPAID', 409);
+        let outgoing: { id: number; managedBy: number | null } | null = null;
+        if (sr.providerId) {
+            const [cur] = await db.select({ id: employees.id, managedBy: employees.managedByPartnerId }).from(employees).where(eq(employees.id, sr.providerId)).limit(1);
+            if (cur?.managedBy === bpId) throw new HubError('It is already with this partner\'s technician. The partner can change the technician on their Jobs page.', 'SAME_PARTNER', 409);
+            outgoing = cur ? { id: cur.id, managedBy: cur.managedBy ?? null } : null;
+        }
         const candidate = (await this.dispatchCandidates()).find(c => c.id === bpId);
         if (!candidate) {
             const bp = await BusinessPartnerService.byId(bpId);
@@ -409,10 +417,24 @@ export class PartnerFieldService {
         const [updated] = await db.update(serviceRequests).set({
             dispatchPartnerId: bpId, dispatchMode: 'staff', slaAssignBy, escalatedAt: null, escalationReason: null,
             pricingSnapshot: snapshot as any, updatedAt: new Date(),
-        } as any).where(and(eq(serviceRequests.id, serviceRequestId), eq(serviceRequests.status, 'created' as any), isNull(serviceRequests.providerId))).returning();
-        if (!updated) throw new HubError('Someone assigned this booking a moment ago. Refresh.', 'BAD_STATE', 409);
+            // A reassignment: the technician it was with is taken off it.
+            ...(sr.providerId ? { providerId: null, status: 'created', assignedAt: null } : {}),
+        } as any).where(and(
+            eq(serviceRequests.id, serviceRequestId), eq(serviceRequests.status, sr.status as any),
+            sr.providerId ? eq(serviceRequests.providerId, sr.providerId) : isNull(serviceRequests.providerId),
+        )).returning();
+        if (!updated) throw new HubError('This booking changed a moment ago. Refresh.', 'BAD_STATE', 409);
         const { recordAudit } = await import('../lib/audit');
-        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: 'service_dispatched_to_partner', changedBy: adminId, metadata: { businessPartnerId: bpId, previousPartnerId: sr.dispatchPartnerId ?? null, slaAssignBy: slaAssignBy.toISOString() } });
+        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: sr.providerId || sr.dispatchPartnerId ? 'service_reassigned_to_partner' : 'service_dispatched_to_partner', changedBy: adminId, metadata: { businessPartnerId: bpId, previousPartnerId: sr.dispatchPartnerId ?? null, previousTechnicianId: sr.providerId ?? null, slaAssignBy: slaAssignBy.toISOString() } });
+        if (outgoing) {
+            const { BookingNotifications } = await import('./booking-notifications');
+            void BookingNotifications.assignmentRevoked(outgoing.id, serviceRequestId, `Moved to ${bp.displayName}`);
+        }
+        // The partner it was with before (unassigned, or their technician) is told it moved.
+        if (sr.dispatchPartnerId && sr.dispatchPartnerId !== bpId) {
+            const { HubAlerts: HA } = await import('./hub-alerts.service');
+            await HA.send(sr.dispatchPartnerId, 'job_new', { title: `Job ${sr.serviceId} moved`, body: 'UniteFix gave this job to someone else; you do not need to do it.', link: '/partner/field/jobs', refType: 'service_request', refId: serviceRequestId } as any).catch(() => {});
+        }
         const { HubAlerts } = await import('./hub-alerts.service');
         await HubAlerts.send(bpId, 'job_new', {
             title: `New job ${sr.serviceId}`,

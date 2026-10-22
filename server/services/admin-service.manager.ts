@@ -146,10 +146,18 @@ export class AdminServiceManager {
                 updatedAt: serviceRequests.updatedAt,
                 assignedAt: serviceRequests.assignedAt,
                 completedAt: serviceRequests.completedAt,
+                // Which partner has it (sent by staff), and by when they must assign.
+                pincode: serviceRequests.pincode,
+                catalogServiceId: serviceRequests.catalogServiceId,
+                dispatchPartnerId: serviceRequests.dispatchPartnerId,
+                partnerName: businessPartners.displayName,
+                slaAssignBy: serviceRequests.slaAssignBy,
+                escalatedAt: serviceRequests.escalatedAt,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
             .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
+            .leftJoin(businessPartners, eq(businessPartners.id, serviceRequests.dispatchPartnerId))
             .where(conditions.length > 0 ? and(...conditions) : undefined)
             .orderBy(filters.orderBy ?? desc(serviceRequests.createdAt))
             .limit(limit)
@@ -260,6 +268,15 @@ export class AdminServiceManager {
             } as any)
             .where(eq(serviceRequests.id, serviceId))
             .returning();
+
+        if (leavesPartner) {
+            // The partner, and their technician if one was on it, are told it moved.
+            if (service.providerId && service.providerId !== technicianId) {
+                void BookingNotifications.assignmentRevoked(service.providerId, serviceId, 'Moved to a UniteFix expert');
+            }
+            const { HubAlerts } = await import('./hub-alerts.service');
+            void HubAlerts.send(service.dispatchPartnerId, 'job_new', { title: `Job ${service.serviceId} moved`, body: 'UniteFix gave this job to one of its own experts; you do not need to do it.', link: '/partner/field/jobs', refType: 'service_request', refId: serviceId } as any).catch(() => {});
+        }
 
         // Audit log
         await db.insert(auditLogs).values({

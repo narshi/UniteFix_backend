@@ -145,6 +145,29 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
+    /** Partners this booking could go to, with whether each covers its pincode and lists its service. */
+    app.get("/api/admin/services/:id/partner-options", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { serviceRequests } = await import("@shared/schema");
+            const [sr] = await db.select({ pincode: serviceRequests.pincode, catalogServiceId: serviceRequests.catalogServiceId, address: serviceRequests.address, dispatchPartnerId: serviceRequests.dispatchPartnerId })
+                .from(serviceRequests).where(eq(serviceRequests.id, parseInt(req.params.id))).limit(1);
+            if (!sr) return res.status(404).json({ error: "Booking not found" });
+            const pin = sr.pincode ?? (String(sr.address ?? '').match(/\b(\d{6})\b/)?.[1] ?? null);
+            const { PartnerFieldService } = await import("../services/partner-field.service");
+            const all = await PartnerFieldService.dispatchCandidates();
+            const data = all.map(p => ({
+                ...p,
+                covers: !!pin && p.pincodes.includes(pin),
+                offers: !!sr.catalogServiceId && p.catalogServiceIds.includes(sr.catalogServiceId),
+                current: p.id === sr.dispatchPartnerId,
+            })).sort((a, b) => (Number(b.covers) * 2 + Number(b.offers)) - (Number(a.covers) * 2 + Number(a.offers)) || a.openJobs - b.openJobs);
+            res.json({ success: true, data, pincode: pin });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
     app.post("/api/admin/services/:id/recall-partner", async (req: Request, res: Response) => {
         try {
             if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
