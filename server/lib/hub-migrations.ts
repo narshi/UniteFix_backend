@@ -1213,6 +1213,40 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
       CREATE UNIQUE INDEX IF NOT EXISTS withdrawal_requests_payout_reference_idx ON withdrawal_requests (upper(payout_reference)) WHERE payout_reference IS NOT NULL;
     `],
+    ['field: partner services and technician invites; plumbing and electrical', `
+      CREATE TABLE IF NOT EXISTS partner_services (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        catalog_service_id INTEGER REFERENCES services(id),
+        name TEXT NOT NULL,
+        category TEXT,
+        price_paise INTEGER,
+        unit TEXT,
+        description TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_services_bp_idx ON partner_services (business_partner_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_services_bp_catalog_idx ON partner_services (business_partner_id, catalog_service_id);
+      CREATE TABLE IF NOT EXISTS partner_technician_invites (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        employee_id INTEGER NOT NULL REFERENCES employees(id),
+        code_hash TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        expires_at TIMESTAMP NOT NULL,
+        invited_by_admin_user_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        accepted_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS partner_technician_invites_bp_idx ON partner_technician_invites (business_partner_id, status);
+      INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
+        ('plumbing', 'Plumbing', 'Plumbers: leaks, fittings, bathroom and kitchen work, tanks and pumps.', 35),
+        ('electrical', 'Electrical', 'Electricians: wiring, switchboards, fans and lights, inverters, earthing.', 36)
+      ON CONFLICT (code) DO NOTHING;
+    `],
     ['withdrawals: payout attempt', `
       ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_attempt INTEGER NOT NULL DEFAULT 1;
     `],

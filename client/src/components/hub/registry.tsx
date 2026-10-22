@@ -31,7 +31,7 @@ import { HubPayLinksPage } from "@/components/hub/PayLink";
 import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
-import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldRates, HubFieldEarnings, HubFieldWarranty, HubFieldSettings } from "@/pages/hub/field";
+import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldServices, HubFieldEarnings, HubFieldWarranty, HubFieldSettings } from "@/pages/hub/field";
 import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
 import { HubEventShowcase } from "@/pages/hub/events-showcase";
@@ -76,7 +76,7 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/field/jobs", component: HubFieldJobs, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Jobs", icon: "handyman" } },
   { path: "/partner/field/technicians", component: HubFieldTechnicians, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Technicians", icon: "engineering" } },
   { path: "/partner/field/territory", component: HubFieldTerritory, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Territory", icon: "map" } },
-  { path: "/partner/field/rates", component: HubFieldRates, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Rates", icon: "sell" } },
+  { path: "/partner/field/services", aliases: ["/partner/field/rates"], component: HubFieldServices, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Services", icon: "sell" } },
   { path: "/partner/field/warranty", component: HubFieldWarranty, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Warranty", icon: "verified" } },
   { path: "/partner/field/settings", component: HubFieldSettings, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Hours & auto-assign", icon: "schedule" } },
   { path: "/partner/field/earnings", component: HubFieldEarnings, module: "field", perm: "money:view", nav: { group: "Field service", label: "Earnings", icon: "payments" } },

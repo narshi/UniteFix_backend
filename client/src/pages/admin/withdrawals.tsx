@@ -224,7 +224,8 @@ export default function WithdrawalsPage() {
 
   /** Send the money through Cashfree Payouts — UPI or bank, as the expert asked. */
   const payCashfreeMutation = useMutation({
-    mutationFn: async (id: number) => apiRequest("POST", `/api/admin/withdrawals/${id}/approve`, {}),
+    mutationFn: async ({ id, mode }: { id: number; mode: ManualMode }) =>
+      apiRequest("POST", `/api/admin/withdrawals/${id}/approve`, mode === 'upi' ? { to: 'upi' } : { to: 'bank', mode }),
     onSuccess: (r: any) => {
       toast({ title: "Sent to Cashfree", description: r?.message ?? "Payout processing via Cashfree. Use “Sync with Cashfree” to see when it lands." });
       refreshList();
@@ -296,7 +297,7 @@ export default function WithdrawalsPage() {
   const handleAction = () => {
     if (!actionDialog.request) return;
     if (actionDialog.type === 'payCashfree') {
-      payCashfreeMutation.mutate(actionDialog.request.request.id);
+      payCashfreeMutation.mutate({ id: actionDialog.request.request.id, mode: manualMode });
     } else if (actionDialog.type === 'retry') {
       retryMutation.mutate(actionDialog.request.request.id);
     } else if (actionDialog.type === 'approveManual') {
@@ -441,7 +442,7 @@ export default function WithdrawalsPage() {
                             <Button
                               size="sm"
                               className="bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white"
-                              onClick={() => setActionDialog({ isOpen: true, type: 'payCashfree', request: w })}
+                              onClick={() => { setBankForm(null); setManualMode(w.request.method === 'upi' ? (hasUpi(w) ? 'upi' : 'imps') : (hasBank(w) ? 'imps' : 'upi')); setActionDialog({ isOpen: true, type: 'payCashfree', request: w }); }}
                               title={`Send ₹${w.request.amount} through Cashfree to the expert's ${w.request.method === 'bank' ? 'bank account' : 'UPI ID'}`}
                             >
                               Pay via Cashfree
@@ -544,7 +545,7 @@ export default function WithdrawalsPage() {
             </AlertDialogTitle>
             <AlertDialogDescription className="text-[hsl(215,20%,65%)]">
               {actionDialog.type === 'payCashfree'
-                ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${actionDialog.request?.request.method === 'bank' ? 'IMPS to their bank account' : 'UPI'}, from your Cashfree Payouts balance. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
+                ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${manualMode === 'upi' ? 'UPI' : `${manualMode.toUpperCase()} to their bank account`}, from your Cashfree Payouts balance. Choose where and how below. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
                 : actionDialog.type === 'retry'
                 ? `When this payout failed, ₹${actionDialog.request?.request.amount} went back to their wallet${actionDialog.request?.request.failureReason ? ` (${actionDialog.request.request.failureReason})` : ''}. Retry takes it from the wallet again and puts the request back to pending, so you can pay it through Cashfree or manually, or reject it. If they no longer have that much available, nothing changes.`
                 : actionDialog.type === 'approveManual'
@@ -554,46 +555,10 @@ export default function WithdrawalsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {/* Where the money is actually going. Shown before the transfer, not
-              after it fails — and the unverified case is called out, because a
-              UPI id nobody has checked is exactly how a manual payout reaches
-              the wrong person. */}
-          {actionDialog.type === 'payCashfree' && (
-            <div
-              className={`rounded-lg border p-3 text-sm ${
-                actionDialog.request?.request.method === 'bank' || actionDialog.request?.employee.upiVerifiedAt
-                  ? "border-[hsla(160,84%,39%,0.3)] bg-[hsla(160,84%,39%,0.08)]"
-                  : "border-[hsla(38,92%,50%,0.35)] bg-[hsla(38,92%,50%,0.1)]"
-              }`}
-            >
-              <p className="font-mono text-white">
-                {actionDialog.request?.request.method === 'bank'
-                  ? (hasBank(actionDialog.request)
-                      ? `${actionDialog.request?.employee.bankAccountNumber} · ${actionDialog.request?.employee.bankIfsc}`
-                      : "No bank account and IFSC on file")
-                  : (actionDialog.request?.employee.upiId || "No UPI ID on file")}
-              </p>
-              {actionDialog.request?.request.method === 'bank' ? (
-                <p className="text-[hsl(215,20%,70%)] mt-1">
-                  Bank account{actionDialog.request?.employee.bankName ? ` at ${actionDialog.request.employee.bankName}` : ""}, in the name of {actionDialog.request?.employee.fullName}.
-                </p>
-              ) : actionDialog.request?.employee.upiVerifiedAt ? (
-                <p className="text-[hsl(160,84%,65%)] mt-1">
-                  Verified
-                  {actionDialog.request?.employee.upiVerifiedName
-                    ? ` — registered to ${actionDialog.request.employee.upiVerifiedName}`
-                    : ""}
-                </p>
-              ) : (
-                <p className="text-[hsl(38,92%,65%)] mt-1">
-                  Not verified — nobody has confirmed this UPI ID exists. Check it with the
-                  partner before transferring.
-                </p>
-              )}
-            </div>
-          )}
-
-          {actionDialog.type === 'approveManual' && actionDialog.request && (
+          {/* Where the money goes, chosen before anything is sent: the expert's
+              bank account or UPI ID, and for a bank IMPS / NEFT / RTGS. Shared by
+              "Pay via Cashfree" and "Paid manually". */}
+          {(actionDialog.type === 'approveManual' || actionDialog.type === 'payCashfree') && actionDialog.request && (
             <div className="space-y-3">
               <div>
                 <p className="text-sm font-medium text-white mb-1.5">Pay by</p>
@@ -674,7 +639,9 @@ export default function WithdrawalsPage() {
                   {actionDialog.request.employee.bankName && <CopyRow label="Bank" value={actionDialog.request.employee.bankName} onCopied={copied} />}
                   <CopyRow label="Amount (₹)" value={actionDialog.request.request.amount} onCopied={copied} />
                   <p className="text-xs text-[hsl(38,92%,65%)] py-2">
-                    UniteFix has not verified this account. When you add the payee, the name your bank shows should be {actionDialog.request.employee.fullName}; if it is not, stop and check with the partner.
+                    {actionDialog.type === 'payCashfree'
+                      ? `Cashfree sends it to this account. UniteFix has not verified it: if the expert gave it to you by phone, confirm it with them first.`
+                      : `UniteFix has not verified this account. When you add the payee, the name your bank shows should be ${actionDialog.request.employee.fullName}; if it is not, stop and check with the partner.`}
                   </p>
                 </div>
               ) : (
@@ -697,9 +664,10 @@ export default function WithdrawalsPage() {
                       <button
                         key={m.value}
                         type="button"
+                        disabled={m.value === 'rtgs' && actionDialog.type === 'payCashfree' && Number(actionDialog.request?.request.amount) < 200000}
                         onClick={() => setManualMode(m.value)}
                         title={m.hint}
-                        className={`rounded-lg border px-2 py-1.5 text-sm transition-colors ${manualMode === m.value ? "border-[hsla(160,84%,39%,0.6)] bg-[hsla(160,84%,39%,0.12)] text-white" : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] hover:bg-[rgba(255,255,255,0.04)]"}`}
+                        className={`rounded-lg border px-2 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${manualMode === m.value ? "border-[hsla(160,84%,39%,0.6)] bg-[hsla(160,84%,39%,0.12)] text-white" : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] hover:bg-[rgba(255,255,255,0.04)]"}`}
                       >
                         {m.label}
                       </button>
@@ -709,6 +677,7 @@ export default function WithdrawalsPage() {
                 </div>
               )}
 
+              {actionDialog.type === 'approveManual' && (<>
               <div>
                 <label htmlFor="manual-reference" className="text-sm font-medium text-white block mb-1.5">
                   {manualMode === 'upi' ? 'UPI transaction ID' : 'UTR / bank reference'}
@@ -748,6 +717,7 @@ export default function WithdrawalsPage() {
                   A screenshot of the UPI/bank transfer is required to approve.
                 </p>
               )}
+              </>)}
             </div>
           )}
 
@@ -790,7 +760,8 @@ export default function WithdrawalsPage() {
                 }
                 handleAction();
               }}
-              disabled={payCashfreeMutation.isPending || retryMutation.isPending}
+              disabled={payCashfreeMutation.isPending || retryMutation.isPending
+                || (actionDialog.type === 'payCashfree' && !!actionDialog.request && (manualMode === 'upi' ? !hasUpi(actionDialog.request) : !hasBank(actionDialog.request)))}
               className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
               {actionDialog.type === 'payCashfree'

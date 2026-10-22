@@ -113,6 +113,10 @@ export async function cleanupPartners(bpIds: number[], adminIds: number[] = [], 
     const bp = bpIds.length ? bpIds.join(',') : '0';
     const ad = adminIds.length ? adminIds.join(',') : '0';
     const stmts = [
+        // Before the test's own statements: those often delete catalogue
+        // services, which a partner's service list points at.
+        `DELETE FROM partner_services WHERE business_partner_id IN (${bp})`,
+        `DELETE FROM partner_technician_invites WHERE business_partner_id IN (${bp})`,
         ...extra,
         `UPDATE tax_documents SET original_document_id = NULL WHERE issuer_partner_id IN (${bp}) OR recipient_partner_id IN (${bp})`,
         `UPDATE partner_quotations SET invoice_document_id = NULL WHERE business_partner_id IN (${bp})`,

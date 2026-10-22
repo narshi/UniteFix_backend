@@ -62,6 +62,10 @@ async function main() {
 
         const [cat] = await db.insert(serviceCategories).values({ name: `QA Laptop ${stamp}` }).returning(); categoryId = cat.id;
         const [svc] = await db.insert(services).values({ categoryId: cat.id, name: `QA Laptop service ${stamp}`, basePrice: 800 }).returning(); serviceId = svc.id;
+        // Each partner offers it: bookings reach a partner only for services on their list.
+        const offer1 = await api.post('/api/hub/field/services', { catalogServiceId: svc.id }, t1);
+        await api.post('/api/hub/field/services', { catalogServiceId: svc.id }, t2);
+        check('the partner adds the laptop service to their list', offer1.status === 201, JSON.stringify(offer1.body).slice(0, 160));
 
         // ── territory ─────────────────────────────────────────────────────
         const pin = await freshPin(), other = await freshPin();
@@ -84,11 +88,11 @@ async function main() {
         check('a second exclusive partner for the same pincode is refused', rev2.body?.data?.conflicts?.includes(pin));
         const rev3 = await api.post('/api/admin/hub/territories/review', { ids: [t2Row.id], decision: 'approve', mode: 'shared' }, staff);
         check('…but it can share it', rev3.body?.data?.done?.includes(pin));
-        check('routing prefers the exclusive partner', (await PartnerFieldService.partnerFor(pin))?.bp.id === fs.id);
+        check('routing prefers the exclusive partner', (await PartnerFieldService.partnerFor(pin, svc.id))?.bp.id === fs.id);
         await api.post(`/api/hub/field/territories/${tId}/pause`, { reason: 'Diwali' }, t1);
-        check('a paused exclusive partner hands the pincode to the sharing one', (await PartnerFieldService.partnerFor(pin))?.bp.id === fs2.id);
+        check('a paused exclusive partner hands the pincode to the sharing one', (await PartnerFieldService.partnerFor(pin, svc.id))?.bp.id === fs2.id);
         const resume = await api.post(`/api/hub/field/territories/${tId}/resume`, {}, t1);
-        check('…and takes it back on resume', resume.status === 200 && (await PartnerFieldService.partnerFor(pin))?.bp.id === fs.id);
+        check('…and takes it back on resume', resume.status === 200 && (await PartnerFieldService.partnerFor(pin, svc.id))?.bp.id === fs.id);
         await db.update(partnerTerritories).set({ status: 'withdrawn' }).where(eq(partnerTerritories.id, t2Row.id));
 
         // ── rates ─────────────────────────────────────────────────────────

@@ -68,7 +68,8 @@
     "smoke:ftth-phones": "tsx scripts/smoke-ftth-phones.ts",
     "smoke:partner-setup": "tsx scripts/smoke-partner-setup.ts",
     "smoke:manual-payout": "tsx scripts/smoke-manual-payout.ts",
-    "smoke:ftth-recharge-access": "tsx scripts/smoke-ftth-recharge-access.ts"
+    "smoke:ftth-recharge-access": "tsx scripts/smoke-ftth-recharge-access.ts",
+    "smoke:partner-services": "tsx scripts/smoke-partner-services.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

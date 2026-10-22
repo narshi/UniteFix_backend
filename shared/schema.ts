@@ -3066,6 +3066,52 @@ export const partnerServiceRates = pgTable("partner_service_rates", {
   reviewNote: text("review_note"),
 });
 
+/**
+ * The services a field partner offers: their own list, built by them, with
+ * nothing pre-filled and every entry removable. An entry is either a UniteFix
+ * catalogue service they take (catalogServiceId set — UniteFix bookings for it
+ * in their territory come to them, at their rate in partner_service_rates) or
+ * their own service (no catalogue id — their name and price, for their own
+ * invoices, quotations and technicians).
+ */
+export const partnerServices = pgTable("partner_services", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  catalogServiceId: integer("catalog_service_id").references(() => services.id),
+  name: text("name").notNull(),
+  category: text("category"),
+  pricePaise: integer("price_paise"),          // own services; a catalogue service's price is its rate
+  unit: text("unit"),                          // per visit, per point, per hour, per metre …
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  bpIdx: index("partner_services_bp_idx").on(table.businessPartnerId),
+  catalogIdx: uniqueIndex("partner_services_bp_catalog_idx").on(table.businessPartnerId, table.catalogServiceId),
+}));
+export type PartnerService = typeof partnerServices.$inferSelect;
+
+/**
+ * A partner asking an expert who already works with UniteFix to join them as
+ * their technician. Joining moves the expert's jobs and pay to the partner, so
+ * it takes the expert's say-so: a code sent to their app, read out to the partner.
+ */
+export const partnerTechnicianInvites = pgTable("partner_technician_invites", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  employeeId: integer("employee_id").notNull().references(() => employees.id),
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  status: text("status").notNull().default('pending'),   // pending | accepted | expired | cancelled
+  expiresAt: timestamp("expires_at").notNull(),
+  invitedByAdminUserId: integer("invited_by_admin_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  acceptedAt: timestamp("accepted_at"),
+}, (table) => ({
+  bpIdx: index("partner_technician_invites_bp_idx").on(table.businessPartnerId, table.status),
+}));
+
 /** What a partner earned on one job; released to the partner ledger after the hold. */
 export const partnerJobEarnings = pgTable("partner_job_earnings", {
   id: serial("id").primaryKey(),

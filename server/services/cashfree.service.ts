@@ -434,8 +434,8 @@ export class CashfreeService {
         if (!hasBank && !hasUpi) {
             throw new Error('No bank account or UPI id on file for this partner.');
         }
-        if (prefer === 'upi' && !hasUpi) throw new Error('This withdrawal asked for UPI, but no UPI ID is on file for this partner.');
-        if (prefer === 'bank' && !hasBank) throw new Error('This withdrawal asked for a bank transfer, but no bank account and IFSC are on file for this partner.');
+        if (prefer === 'upi' && !hasUpi) throw new Error('No UPI ID is on file for this partner. Pay to their bank account instead, or ask them to add a UPI ID.');
+        if (prefer === 'bank' && !hasBank) throw new Error('No bank account and IFSC are on file for this partner. Add their bank account first (Paid manually → Add a bank account), or pay to their UPI ID.');
         const useBank = prefer === 'upi' ? false : prefer === 'bank' ? true : hasBank;
         const [user] = await db.select({
             email: users.email, phone: users.phone, username: users.username, homeAddress: users.homeAddress,
@@ -479,20 +479,26 @@ export class CashfreeService {
         amountInRupees: number,
         transferId: string,
         purpose: string = 'payout',
+        /** For a bank beneficiary: IMPS (default, instant), NEFT, or RTGS (₹2 lakh and above). Ignored for UPI. */
+        bankMode?: 'imps' | 'neft' | 'rtgs' | null,
     ): Promise<PayoutResult> {
         if (!(amountInRupees >= 1)) {
             throw new Error(`Cashfree requires at least ₹1.00 per transfer (got ₹${amountInRupees}).`);
         }
         const tid = this.v2TransferId(transferId);
 
-        let mode: 'upi' | 'imps';
-        if (beneId.startsWith('UFU')) mode = 'upi';
-        else if (beneId.startsWith('UFB')) mode = 'imps';
+        let toBank: boolean;
+        if (beneId.startsWith('UFU')) toBank = false;
+        else if (beneId.startsWith('UFB')) toBank = true;
         else {
             const bene = await this.getBeneficiary(beneId);
             if (!bene) throw new Error(`Beneficiary ${beneId} is not registered with Cashfree. Run payout setup for this partner first.`);
-            mode = bene.bankAccount ? 'imps' : 'upi';
+            toBank = !!bene.bankAccount;
         }
+        if (toBank && bankMode === 'rtgs' && amountInRupees < 200000) {
+            throw new Error('RTGS is for ₹2 lakh and above. Send this by IMPS or NEFT.');
+        }
+        const mode: 'upi' | 'imps' | 'neft' | 'rtgs' = toBank ? (bankMode ?? 'imps') : 'upi';
 
         const result = (raw: unknown, alreadyExisted: boolean, d: any = {}): PayoutResult => ({
             id: tid, transferId: tid, referenceId: d.cf_transfer_id ? String(d.cf_transfer_id) : null,

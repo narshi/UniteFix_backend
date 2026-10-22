@@ -96,6 +96,8 @@ async function main() {
         await api.post('/api/admin/hub/territories/review', { ids: [terr.id], decision: 'approve' }, staff);
         const [cat] = await db.insert(serviceCategories).values({ name: `QA X ${stamp}`, bookingFee: 99 }).returning(); catIds.push(cat.id);
         const [svc2] = await db.insert(services).values({ categoryId: cat.id, name: `QA Laptop ${stamp}`, basePrice: 900 }).returning(); svcIds.push(svc2.id);
+        // Bookings reach the partner only for services on their list.
+        await api.post('/api/hub/field/services', { catalogServiceId: svc2.id }, t);
         const [cu] = await db.insert(users).values({ phone: `8${String(Date.now()).slice(-9)}`, username: 'QA X Customer', role: 'user', homeAddress: `Road ${pin}`, pinCode: pin } as any).returning(); userIds.push(cu.id);
         const ct = jwt.sign({ userId: cu.id, role: 'user' }, SECRET, { expiresIn: '1h' });
         Object.assign(ctx, { pin, cat, svc2, cu, ct });

@@ -136,6 +136,25 @@ export function registerHubFieldRoutes(app: Express) {
         } catch (e) { hubError(e, res, next); }
     });
 
+    /** An expert who already works with UniteFix: send them a joining code. */
+    app.post('/api/hub/field/technicians/invite', active, field, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            const b = parse(z.object({ phone: z.string().max(20) }), req.body);
+            const r = await PartnerFieldService.inviteExistingExpert(ctxOf(req), b.phone);
+            res.status(201).json({ success: true, message: `A joining code was sent to ${r.expertName ?? 'the expert'}'s UniteFix app. Ask them to read it to you; it works for 30 minutes.`, data: r });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.post('/api/hub/field/technicians/invite/:id/confirm', active, field, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            const b = parse(z.object({ code: z.string().max(10) }), req.body);
+            const ctx = ctxOf(req);
+            const e = await PartnerFieldService.confirmExistingExpert(ctx, Number(req.params.id), b.code);
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_technician_joined', changedBy: ctx.adminUserId, metadata: { employeeId: e.id } });
+            res.json({ success: true, message: `${e.fullName ?? 'The expert'} is now your technician.`, data: { id: e.id, partnerId: e.partnerId } });
+        } catch (e) { hubError(e, res, next); }
+    });
+
     app.patch('/api/hub/field/technicians/:id', active, field, hubCan('ops:manage'), async (req, res, next) => {
         try {
             const b = parse(z.object({ isActive: z.boolean().optional(), services: z.array(z.string().max(60)).max(20).optional(), fullName: z.string().max(120).optional() }), req.body);
@@ -160,7 +179,58 @@ export function registerHubFieldRoutes(app: Express) {
     });
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Rates
+    // Services — the partner's own list (nothing pre-filled, all removable)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    app.get('/api/hub/field/services', active, field, hubCan('ops:view'), async (req, res, next) => {
+        try {
+            const pct = await PartnerFieldService.guardrailPercent();
+            res.json({ success: true, data: { guardrailPercent: pct, services: await PartnerFieldService.myServices(ctxOf(req).businessPartnerId) } });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.get('/api/hub/field/services/catalogue', active, field, hubCan('ops:view'), async (req, res, next) => {
+        try { res.json({ success: true, data: await PartnerFieldService.catalogueChoices(ctxOf(req).businessPartnerId, typeof req.query.q === 'string' ? req.query.q : null) }); }
+        catch (e) { hubError(e, res, next); }
+    });
+
+    const serviceBody = z.object({
+        catalogServiceId: z.coerce.number().int().positive().optional().nullable(),
+        name: z.string().max(120).optional().nullable(),
+        category: z.string().max(80).optional().nullable(),
+        price: z.union([z.number(), z.string().max(20)]).optional().nullable(),
+        unit: z.string().max(40).optional().nullable(),
+        description: z.string().max(500).optional().nullable(),
+        isActive: z.boolean().optional(),
+    });
+
+    app.post('/api/hub/field/services', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try {
+            const ctx = ctxOf(req);
+            const row = await PartnerFieldService.addService(ctx, parse(serviceBody, req.body) as any);
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_service_added', changedBy: ctx.adminUserId, metadata: { serviceId: row.id, name: row.name, catalogServiceId: row.catalogServiceId } });
+            res.status(201).json({ success: true, message: `${row.name} added to your services.`, data: row });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.patch('/api/hub/field/services/:id', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try {
+            const row = await PartnerFieldService.updateService(ctxOf(req), Number(req.params.id), parse(serviceBody, req.body) as any);
+            res.json({ success: true, message: 'Saved.', data: row });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.delete('/api/hub/field/services/:id', active, field, hubCan('settings:manage'), async (req, res, next) => {
+        try {
+            const ctx = ctxOf(req);
+            const r = await PartnerFieldService.removeService(ctx, Number(req.params.id));
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_service_removed', changedBy: ctx.adminUserId, metadata: { serviceId: Number(req.params.id), name: r.removed } });
+            res.json({ success: true, message: `${r.removed} removed from your services.` });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Rates (for catalogue services the partner offers)
     // ═══════════════════════════════════════════════════════════════════════
 
     app.get('/api/hub/field/rates', active, field, hubCan('ops:view'), async (req, res, next) => {

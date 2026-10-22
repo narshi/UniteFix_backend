@@ -26,7 +26,7 @@ import crypto from 'crypto';
 import { db } from '../db';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import {
-    partnerTerritories, partnerServiceRates, partnerJobEarnings, serviceablePincodes, districts, employees, users,
+    partnerTerritories, partnerServiceRates, partnerJobEarnings, partnerServices, partnerTechnicianInvites, serviceablePincodes, districts, employees, users,
     serviceRequests, services, serviceCategories, businessPartners, businessPartnerLedger, warrantyClaims, taxDocuments, partnerHolidays,
     type PartnerTerritory, type ServiceRequest,
 } from '@shared/schema';
@@ -238,10 +238,21 @@ export class PartnerFieldService {
     // ══════════════════════════════════════════════════════════════════════
 
     /** The partner serving a pincode: the exclusive one, else the least-loaded sharing partner. */
-    static async partnerFor(pincode: string | null): Promise<{ bp: typeof businessPartners.$inferSelect; mode: string } | null> {
-        if (!pincode) return null;
+    /**
+     * The partner whose queue a booking lands in: one covering the pincode AND
+     * offering the booked catalogue service. The pincode alone used to decide,
+     * so a plumbing partner got laptop repairs. No service (older app builds)
+     * or nobody offering it: null, and UniteFix handles the booking.
+     */
+    static async partnerFor(pincode: string | null, catalogServiceId: number | null): Promise<{ bp: typeof businessPartners.$inferSelect; mode: string } | null> {
+        if (!pincode || !catalogServiceId) return null;
         const rows = await db.select({ t: partnerTerritories, bp: businessPartners }).from(partnerTerritories)
             .innerJoin(businessPartners, eq(businessPartners.id, partnerTerritories.businessPartnerId))
+            .innerJoin(partnerServices, and(
+                eq(partnerServices.businessPartnerId, businessPartners.id),
+                eq(partnerServices.catalogServiceId, catalogServiceId),
+                eq(partnerServices.isActive, true),
+            ))
             .where(and(eq(partnerTerritories.pincode, pincode), eq(partnerTerritories.status, 'active'), eq(businessPartners.status, 'active')));
         if (!rows.length) return null;
         const excl = rows.find(r => r.t.mode === 'exclusive');
@@ -265,7 +276,7 @@ export class PartnerFieldService {
     static async quote(catalogServiceId: number, pincode: string | null) {
         const [svc] = await db.select({ basePrice: services.basePrice, name: services.name }).from(services).where(eq(services.id, catalogServiceId)).limit(1);
         if (!svc) return null;
-        const p = await this.partnerFor(pincode);
+        const p = await this.partnerFor(pincode, catalogServiceId);
         const rate = p ? await this.liveRate(p.bp.id, catalogServiceId) : null;
         return {
             catalogServiceId, nationalPrice: svc.basePrice, unitPrice: rate?.basePrice ?? svc.basePrice,
@@ -384,7 +395,7 @@ export class PartnerFieldService {
     static async route(input: { catalogServiceId: number | null; pincode: string | null; urgency?: string | null; quotedUnitPrice?: number | null }): Promise<Routing> {
         const none: Routing = { dispatchPartnerId: null, dispatchMode: null, partnerName: null, partnerPhone: null, unitPrice: null, platformFeePercent: null, slaAssignBy: null };
         try {
-            const p = await this.partnerFor(input.pincode);
+            const p = await this.partnerFor(input.pincode, input.catalogServiceId);
             if (!p) return none;
             const rate = input.catalogServiceId ? await this.liveRate(p.bp.id, input.catalogServiceId) : null;
             const quoted = input.quotedUnitPrice != null ? Math.round(Number(input.quotedUnitPrice)) : null;
@@ -410,11 +421,16 @@ export class PartnerFieldService {
 
     static async guardrailPercent() { return Number(await configService.get<number>('BUSINESS_CONFIG.PARTNER_RATE_GUARDRAIL_PERCENT', 25)) || 25; }
 
+    /** Rates for the catalogue services this partner offers — no longer the whole catalogue. */
     static async rates(bpId: number) {
         const pct = await this.guardrailPercent();
+        const offered = await db.select({ id: partnerServices.catalogServiceId }).from(partnerServices)
+            .where(and(eq(partnerServices.businessPartnerId, bpId), isNotNull(partnerServices.catalogServiceId)));
+        const ids = offered.map(o => o.id as number).filter(Boolean);
+        if (!ids.length) return [];
         const svcs = await db.select({ id: services.id, name: services.name, basePrice: services.basePrice, category: serviceCategories.name })
             .from(services).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
-            .where(and(eq(services.isActive, true), sql`${services.basePrice} > 0`)).orderBy(asc(serviceCategories.name), asc(services.name));
+            .where(and(inArray(services.id, ids), eq(services.isActive, true), sql`${services.basePrice} > 0`)).orderBy(asc(serviceCategories.name), asc(services.name));
         const mine = await db.select().from(partnerServiceRates).where(eq(partnerServiceRates.businessPartnerId, bpId)).orderBy(desc(partnerServiceRates.effectiveFrom));
         const now = new Date();
         return svcs.map(s => {
@@ -440,6 +456,9 @@ export class PartnerFieldService {
     static async setRate(ctx: HubContext, input: { catalogServiceId: number; price: number; effectiveFrom?: string | null }) {
         const [svc] = await db.select().from(services).where(eq(services.id, input.catalogServiceId)).limit(1);
         if (!svc || !svc.isActive || svc.basePrice <= 0) throw new HubError('That service is not in the catalogue.', 'NO_SERVICE', 404);
+        const [offers] = await db.select({ id: partnerServices.id }).from(partnerServices)
+            .where(and(eq(partnerServices.businessPartnerId, ctx.businessPartnerId), eq(partnerServices.catalogServiceId, svc.id))).limit(1);
+        if (!offers) throw new HubError(`Add ${svc.name} to your services first.`, 'NOT_OFFERED', 409);
         const price = Math.round(Number(input.price));
         const pct = await this.guardrailPercent();
         const floor = Math.ceil(svc.basePrice * (100 - pct) / 100), ceiling = Math.floor(svc.basePrice * (100 + pct) / 100);
@@ -466,6 +485,135 @@ export class PartnerFieldService {
         const [svc] = await db.select().from(services).where(eq(services.id, catalogServiceId)).limit(1);
         if (!svc) throw new HubError('Not found', 'NOT_FOUND', 404);
         return this.setRate(ctx, { catalogServiceId, price: svc.basePrice });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Services — the partner's own list
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Everything the partner offers: catalogue services (with their rate) and their own. */
+    static async myServices(bpId: number) {
+        const rows = await db.select().from(partnerServices).where(eq(partnerServices.businessPartnerId, bpId))
+            .orderBy(asc(partnerServices.category), asc(partnerServices.name));
+        const rates = new Map((await this.rates(bpId)).map(r => [r.catalogServiceId, r]));
+        return rows.map(r => ({
+            id: r.id, kind: r.catalogServiceId ? 'catalogue' as const : 'own' as const, catalogServiceId: r.catalogServiceId,
+            name: r.name, category: r.category, unit: r.unit, description: r.description, isActive: r.isActive,
+            price: r.catalogServiceId ? null : (r.pricePaise != null ? r.pricePaise / 100 : null),
+            rate: r.catalogServiceId ? rates.get(r.catalogServiceId) ?? null : null,
+        }));
+    }
+
+    /** UniteFix catalogue services the partner has not added yet, to pick from. */
+    static async catalogueChoices(bpId: number, q?: string | null) {
+        const taken = new Set((await db.select({ id: partnerServices.catalogServiceId }).from(partnerServices)
+            .where(and(eq(partnerServices.businessPartnerId, bpId), isNotNull(partnerServices.catalogServiceId)))).map(r => r.id));
+        const term = String(q ?? '').trim();
+        const like = `%${term}%`;
+        const rows = await db.select({ id: services.id, name: services.name, basePrice: services.basePrice, category: serviceCategories.name })
+            .from(services).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
+            .where(and(
+                eq(services.isActive, true), sql`${services.basePrice} > 0`,
+                term ? or(sql`${services.name} ILIKE ${like}`, sql`${serviceCategories.name} ILIKE ${like}`) : undefined,
+            ))
+            .orderBy(asc(serviceCategories.name), asc(services.name)).limit(200);
+        return rows.filter(r => !taken.has(r.id)).map(r => ({ catalogServiceId: r.id, name: r.name, category: r.category, nationalPrice: r.basePrice }));
+    }
+
+    private static text(v: unknown, max: number): string | null {
+        const t = String(v ?? '').trim();
+        return t ? t.slice(0, max) : null;
+    }
+
+    private static rupees(v: unknown): number | null {
+        if (v == null || String(v).trim() === '') return null;
+        const p = Number(v);
+        if (!(Number.isFinite(p) && p >= 0 && p <= 10_000_000)) throw new HubError('Price must be a number of rupees.', 'BAD_PRICE');
+        return p;
+    }
+
+    /**
+     * Add a service: a UniteFix catalogue one (its UniteFix bookings in the
+     * partner's territory then come to them; a price other than the national
+     * one goes through the rate rules) or their own (name and price of their
+     * choosing, for their invoices, quotations and technicians).
+     */
+    static async addService(ctx: HubContext, input: { catalogServiceId?: number | null; price?: number | string | null; name?: string | null; category?: string | null; unit?: string | null; description?: string | null }) {
+        if (input.catalogServiceId) {
+            const [svc] = await db.select({ id: services.id, name: services.name, basePrice: services.basePrice, isActive: services.isActive, category: serviceCategories.name })
+                .from(services).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
+                .where(eq(services.id, Number(input.catalogServiceId))).limit(1);
+            if (!svc || !svc.isActive || svc.basePrice <= 0) throw new HubError('That service is not in the UniteFix catalogue.', 'NO_SERVICE', 404);
+            const [dupe] = await db.select({ id: partnerServices.id }).from(partnerServices)
+                .where(and(eq(partnerServices.businessPartnerId, ctx.businessPartnerId), eq(partnerServices.catalogServiceId, svc.id))).limit(1);
+            if (dupe) throw new HubError(`${svc.name} is already in your services.`, 'DUPLICATE', 409);
+            const [row] = await db.insert(partnerServices).values({
+                businessPartnerId: ctx.businessPartnerId, catalogServiceId: svc.id, name: svc.name, category: svc.category ?? null,
+                unit: this.text(input.unit, 40), description: this.text(input.description, 500), createdAt: new Date(), updatedAt: new Date(),
+            }).returning();
+            const price = this.rupees(input.price);
+            if (price != null && Math.round(price) !== svc.basePrice) {
+                try { await this.setRate(ctx, { catalogServiceId: svc.id, price }); }
+                catch (e) { await db.delete(partnerServices).where(eq(partnerServices.id, row.id)); throw e; }
+            }
+            return row;
+        }
+        const name = this.text(input.name, 120);
+        if (!name || name.length < 2) throw new HubError('Give the service a name.', 'NO_NAME');
+        const price = this.rupees(input.price);
+        const [dupe] = await db.select({ id: partnerServices.id }).from(partnerServices)
+            .where(and(eq(partnerServices.businessPartnerId, ctx.businessPartnerId), isNull(partnerServices.catalogServiceId), sql`lower(${partnerServices.name}) = lower(${name})`)).limit(1);
+        if (dupe) throw new HubError(`You already have a service called ${name}.`, 'DUPLICATE', 409);
+        const [row] = await db.insert(partnerServices).values({
+            businessPartnerId: ctx.businessPartnerId, catalogServiceId: null, name, category: this.text(input.category, 80),
+            pricePaise: price != null ? Math.round(price * 100) : null, unit: this.text(input.unit, 40), description: this.text(input.description, 500),
+            createdAt: new Date(), updatedAt: new Date(),
+        }).returning();
+        return row;
+    }
+
+    static async updateService(ctx: HubContext, id: number, patch: { name?: string | null; category?: string | null; price?: number | string | null; unit?: string | null; description?: string | null; isActive?: boolean }) {
+        const [row] = await db.select().from(partnerServices)
+            .where(and(eq(partnerServices.id, id), eq(partnerServices.businessPartnerId, ctx.businessPartnerId))).limit(1);
+        if (!row) throw new HubError('Not found', 'NOT_FOUND', 404);
+        const set: Record<string, unknown> = { updatedAt: new Date() };
+        if (patch.unit !== undefined) set.unit = this.text(patch.unit, 40);
+        if (patch.description !== undefined) set.description = this.text(patch.description, 500);
+        if (patch.isActive !== undefined) set.isActive = !!patch.isActive;
+        if (row.catalogServiceId) {
+            const price = this.rupees(patch.price);
+            if (price != null) await this.setRate(ctx, { catalogServiceId: row.catalogServiceId, price });
+        } else {
+            if (patch.name !== undefined) {
+                const n = this.text(patch.name, 120);
+                if (!n || n.length < 2) throw new HubError('Give the service a name.', 'NO_NAME');
+                set.name = n;
+            }
+            if (patch.category !== undefined) set.category = this.text(patch.category, 80);
+            if (patch.price !== undefined) {
+                const p = this.rupees(patch.price);
+                set.pricePaise = p != null ? Math.round(p * 100) : null;
+            }
+        }
+        const [updated] = await db.update(partnerServices).set(set as any).where(eq(partnerServices.id, id)).returning();
+        return updated;
+    }
+
+    /** Remove a service. A catalogue one stops bringing UniteFix bookings at once; its price changes are withdrawn. */
+    static async removeService(ctx: HubContext, id: number) {
+        const [row] = await db.select().from(partnerServices)
+            .where(and(eq(partnerServices.id, id), eq(partnerServices.businessPartnerId, ctx.businessPartnerId))).limit(1);
+        if (!row) throw new HubError('Not found', 'NOT_FOUND', 404);
+        await withTransaction(async (tx) => {
+            if (row.catalogServiceId) {
+                await tx.update(partnerServiceRates).set({ status: 'retired' }).where(and(
+                    eq(partnerServiceRates.businessPartnerId, ctx.businessPartnerId), eq(partnerServiceRates.catalogServiceId, row.catalogServiceId),
+                    inArray(partnerServiceRates.status, ['pending_review', 'live']),
+                ));
+            }
+            await tx.delete(partnerServices).where(eq(partnerServices.id, id));
+        });
+        return { removed: row.name };
     }
 
     static async pendingRates() {
@@ -521,7 +669,11 @@ export class PartnerFieldService {
         if (phone.length !== 10) throw new HubError('A 10-digit mobile number is needed — it is their app login.', 'BAD_PHONE');
         if (!input.fullName?.trim()) throw new HubError('Name is required.', 'NO_NAME');
         const [taken] = await db.select({ id: users.id }).from(users).where(or(eq(users.phone, phone), eq(users.phone, `+91${phone}`))).limit(1);
-        if (taken) throw new HubError('This number already has a UniteFix account. A technician who already works with UniteFix cannot be moved here from the Hub — contact UniteFix.', 'PHONE_TAKEN', 409);
+        if (taken) {
+            const [expert] = await db.select({ id: employees.id }).from(employees).where(eq(employees.userId, taken.id)).limit(1);
+            if (expert) throw new HubError('This number belongs to an expert who already works with UniteFix. Send them a joining code: they read it to you from their UniteFix app, and they become your technician.', 'EXISTING_EXPERT', 409);
+            throw new HubError('This number is a UniteFix customer account, not an expert. Use a different number for their technician login.', 'PHONE_TAKEN', 409);
+        }
         const { storage } = await import('../storage');
         const user = await withTransaction(async (tx) => {
             const [u] = await tx.insert(users).values({
@@ -539,6 +691,97 @@ export class PartnerFieldService {
             await db.delete(users).where(eq(users.id, user.id));
             throw e;
         }
+    }
+
+    /** Why an existing expert cannot join this partner right now, or null. Checked on invite and again on joining. */
+    private static async joinBlocker(bpId: number, employeeId: number): Promise<string | null> {
+        const [row] = await db.select({ e: employees, deletedAt: users.deletedAt, userActive: users.isActive }).from(employees)
+            .leftJoin(users, eq(users.id, employees.userId)).where(eq(employees.id, employeeId)).limit(1);
+        if (!row || row.deletedAt) return 'This expert account no longer exists.';
+        if (row.e.managedByPartnerId === bpId) return 'They are already your technician.';
+        if (row.e.managedByPartnerId) return 'They already work for another UniteFix partner and must leave that partner first.';
+        if (row.e.documentVerificationStatus === 'suspended' || row.userActive === false) return 'This expert is suspended by UniteFix and cannot join a partner.';
+        const [busy] = await db.select({ n: sql<number>`count(*)::int` }).from(serviceRequests)
+            .where(and(eq(serviceRequests.providerId, employeeId), inArray(serviceRequests.status, ACTIVE_JOB as any)));
+        if (busy.n > 0) return `They have ${busy.n} UniteFix job${busy.n === 1 ? '' : 's'} in progress. Add them once ${busy.n === 1 ? 'it is' : 'those are'} finished, so they are paid for ${busy.n === 1 ? 'it' : 'them'}.`;
+        return null;
+    }
+
+    /**
+     * Ask an expert who already works with UniteFix to become this partner's
+     * technician. Joining stops UniteFix sending them its own jobs and moves
+     * their pay for jobs to the partner, so it takes their consent: a 6-digit
+     * code goes to their UniteFix app (valid 30 minutes), and they read it out.
+     */
+    static async inviteExistingExpert(ctx: HubContext, rawPhone: string) {
+        const phone = String(rawPhone ?? '').replace(/\D/g, '').slice(-10);
+        if (phone.length !== 10) throw new HubError('A 10-digit mobile number is needed.', 'BAD_PHONE');
+        const [u] = await db.select({ id: users.id }).from(users)
+            .where(and(or(eq(users.phone, phone), eq(users.phone, `+91${phone}`)), isNull(users.deletedAt))).limit(1);
+        const [emp] = u ? await db.select({ id: employees.id, fullName: employees.fullName }).from(employees).where(eq(employees.userId, u.id)).limit(1) : [];
+        if (!u || !emp) throw new HubError('No UniteFix expert has this number. Add them as a new technician instead.', 'NOT_EXPERT', 404);
+        const blocker = await this.joinBlocker(ctx.businessPartnerId, emp.id);
+        if (blocker) throw new HubError(blocker, 'CANNOT_JOIN', 409);
+        const [{ recent }] = await db.select({ recent: sql<number>`count(*)::int` }).from(partnerTechnicianInvites)
+            .where(and(eq(partnerTechnicianInvites.businessPartnerId, ctx.businessPartnerId), gte(partnerTechnicianInvites.createdAt, new Date(Date.now() - 3_600_000))));
+        if (recent >= 10) throw new HubError('Too many joining codes sent in the last hour. Try again later.', 'TOO_MANY', 429);
+
+        const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+        const invite = await withTransaction(async (tx) => {
+            await tx.update(partnerTechnicianInvites).set({ status: 'cancelled' }).where(and(
+                eq(partnerTechnicianInvites.businessPartnerId, ctx.businessPartnerId),
+                eq(partnerTechnicianInvites.employeeId, emp.id), eq(partnerTechnicianInvites.status, 'pending'),
+            ));
+            const [row] = await tx.insert(partnerTechnicianInvites).values({
+                businessPartnerId: ctx.businessPartnerId, employeeId: emp.id, codeHash: await bcrypt.hash(code, 10),
+                expiresAt: new Date(Date.now() + 30 * 60_000), invitedByAdminUserId: ctx.adminUserId, createdAt: new Date(),
+            }).returning();
+            return row;
+        });
+        const { NotificationService } = await import('./notification.service');
+        await NotificationService.sendToUser(u.id, `${ctx.displayName} wants you as their technician`,
+            `Joining code: ${code}. Give it to ${ctx.displayName} only if you agree to work for them. Once you join, UniteFix stops sending you its own jobs and your pay for their jobs comes from them; the money already in your UniteFix wallet stays yours. The code works for 30 minutes.`,
+            'partner_join_code', { inviteId: invite.id, businessPartnerId: ctx.businessPartnerId },
+        ).catch((e: any) => logger.warn(`[FIELD] joining code notification failed: ${e?.message}`));
+        logger.info(`[FIELD] Partner #${ctx.businessPartnerId} sent a joining code to expert #${emp.id}`);
+        return { inviteId: invite.id, expertName: emp.fullName, expiresAt: invite.expiresAt };
+    }
+
+    /** The partner enters the code the expert read out: the expert becomes their technician. */
+    static async confirmExistingExpert(ctx: HubContext, inviteId: number, code: string) {
+        const [inv] = await db.select().from(partnerTechnicianInvites)
+            .where(and(eq(partnerTechnicianInvites.id, inviteId), eq(partnerTechnicianInvites.businessPartnerId, ctx.businessPartnerId))).limit(1);
+        if (!inv || inv.status !== 'pending') throw new HubError('This joining code is no longer valid. Send a new one.', 'INVITE_GONE', 410);
+        if (inv.expiresAt.getTime() < Date.now()) {
+            await db.update(partnerTechnicianInvites).set({ status: 'expired' }).where(eq(partnerTechnicianInvites.id, inv.id));
+            throw new HubError('The joining code has expired. Send a new one.', 'INVITE_EXPIRED', 410);
+        }
+        if (inv.attempts >= 5) throw new HubError('Too many wrong codes. Send a new one.', 'TOO_MANY_TRIES', 429);
+        const typed = String(code ?? '').trim();
+        const ok = /^\d{6}$/.test(typed) && await bcrypt.compare(typed, inv.codeHash);
+        if (!ok) {
+            await db.update(partnerTechnicianInvites).set({ attempts: inv.attempts + 1 }).where(eq(partnerTechnicianInvites.id, inv.id));
+            const left = Math.max(0, 4 - inv.attempts);
+            throw new HubError(`That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.`, 'BAD_CODE');
+        }
+        const blocker = await this.joinBlocker(ctx.businessPartnerId, inv.employeeId);
+        if (blocker) throw new HubError(blocker, 'CANNOT_JOIN', 409);
+        const emp = await withTransaction(async (tx) => {
+            const [row] = await tx.update(employees).set({ managedByPartnerId: ctx.businessPartnerId, updatedAt: new Date() } as any)
+                .where(and(eq(employees.id, inv.employeeId), isNull(employees.managedByPartnerId))).returning();
+            if (!row) throw new HubError('They joined another partner a moment ago.', 'CANNOT_JOIN', 409);
+            await tx.update(partnerTechnicianInvites).set({ status: 'accepted', acceptedAt: new Date() }).where(eq(partnerTechnicianInvites.id, inv.id));
+            return row;
+        });
+        const { recordAudit } = await import('../lib/audit');
+        await recordAudit({ entityType: 'employee', entityId: emp.id, action: 'employee_joined_partner', changedBy: ctx.adminUserId, metadata: { businessPartnerId: ctx.businessPartnerId, inviteId: inv.id } });
+        if (emp.userId) {
+            const { NotificationService } = await import('./notification.service');
+            void NotificationService.sendToUser(emp.userId, `You are now ${ctx.displayName}'s technician`,
+                `${ctx.displayName} will assign your jobs and pay you for them. Your UniteFix wallet balance stays yours to withdraw.`,
+                'partner_joined', { businessPartnerId: ctx.businessPartnerId }).catch(() => {});
+        }
+        return emp;
     }
 
     static async technician(bpId: number, id: number) {

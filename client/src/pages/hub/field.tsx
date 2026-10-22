@@ -5,7 +5,9 @@
  *                assign-by time or UniteFix steps in
  *   Technicians  the partner's people: add, documents, switch on/off
  *   Territory    pincodes served (proposed → approved by UniteFix), pause
- *   Rates        the partner's price per service, inside UniteFix's band
+ *   Services     the partner's own list — UniteFix catalogue services they take
+ *                (their price inside UniteFix's band) and their own services;
+ *                nothing pre-filled, everything removable
  *   Earnings     job values held, released, and the monthly invoice to UniteFix
  */
 
@@ -26,6 +28,11 @@ type Job = {
   preferredDate: string | null; preferredTimeSlot: string | null; customerName: string | null; customerPhone: string | null; address: string | null; pincode: string | null;
   createdAt: string; assignedAt: string | null; completedAt: string | null; technician: { id: number; name: string | null } | null;
   slaAssignBy: string | null; overdue: boolean; escalatedAt: string | null; price: number | null; yourValue: number | null; paymentMethod: string | null;
+};
+type MyService = {
+  id: number; kind: "catalogue" | "own"; catalogServiceId: number | null; name: string; category: string | null; unit: string | null; description: string | null; isActive: boolean;
+  price: number | null;
+  rate: null | { nationalPrice: number; floor: number; ceiling: number; live: { price: number } | null; upcoming: { price: number; from: string; status: string } | null; rejected: { price: number; note: string | null } | null };
 };
 type Tech = {
   id: number; partnerId: string | null; fullName: string | null; phone: string | null; services: string[]; isActive: boolean; isOnline: boolean;
@@ -129,6 +136,13 @@ export function HubFieldTechnicians() {
   const { data, isLoading } = useQuery<Tech[]>({ queryKey: ["/api/hub/field/technicians"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/technicians")).data });
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ fullName: "", phone: "", services: "" });
+  // An expert who already works with UniteFix joins with a code from their app.
+  const [join, setJoin] = useState<null | { step: "ask" | "code"; inviteId?: number; name?: string | null; code: string; message?: string }>(null);
+  const myServices = useQuery<{ services: MyService[] }>({ queryKey: ["/api/hub/field/services"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/services")).data });
+  const serviceNames = (myServices.data?.services ?? []).map(x => x.name);
+  const picked = f.services.split(",").map(x => x.trim()).filter(Boolean);
+  const togglePick = (n: string) => setF({ ...f, services: (picked.includes(n) ? picked.filter(p => p !== n) : [...picked, n]).join(", ") });
+  const closeAdd = () => { setOpen(false); setJoin(null); setF({ fullName: "", phone: "", services: "" }); };
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadFor, setUploadFor] = useState<{ id: number; kind: string } | null>(null);
   const manage = hubCan(me, "ops:manage");
@@ -136,9 +150,25 @@ export function HubFieldTechnicians() {
 
   const add = async () => {
     try {
-      const r: any = await apiRequest("POST", "/api/hub/field/technicians", { fullName: f.fullName, phone: f.phone, services: f.services.split(",").map(s => s.trim()).filter(Boolean) });
-      refresh(); setOpen(false); setF({ fullName: "", phone: "", services: "" }); toast({ title: "Technician added", description: r.message });
-    } catch (e) { fail(toast, "Not added")(e); }
+      const r: any = await apiRequest("POST", "/api/hub/field/technicians", { fullName: f.fullName, phone: f.phone, services: picked });
+      refresh(); closeAdd(); toast({ title: "Technician added", description: r.message });
+    } catch (e) {
+      if (String((e as any)?.message ?? "").includes("EXISTING_EXPERT")) { setJoin({ step: "ask", code: "", message: apiErrorMessage(e) }); return; }
+      fail(toast, "Not added")(e);
+    }
+  };
+  const sendCode = async () => {
+    try {
+      const r: any = await apiRequest("POST", "/api/hub/field/technicians/invite", { phone: f.phone });
+      setJoin({ step: "code", inviteId: r.data.inviteId, name: r.data.expertName, code: "", message: r.message });
+    } catch (e) { fail(toast, "Code not sent")(e); }
+  };
+  const confirmCode = async () => {
+    if (!join?.inviteId) return;
+    try {
+      const r: any = await apiRequest("POST", `/api/hub/field/technicians/invite/${join.inviteId}/confirm`, { code: join.code });
+      refresh(); closeAdd(); toast({ title: "Technician joined", description: r.message });
+    } catch (e) { fail(toast, "Not joined")(e); }
   };
   const toggle = async (t: Tech) => {
     try { await apiRequest("PATCH", `/api/hub/field/technicians/${t.id}`, { isActive: !t.isActive }); refresh(); } catch (e) { fail(toast, "Not changed")(e); }
@@ -182,15 +212,37 @@ export function HubFieldTechnicians() {
             ))}</tbody></table></div>
         )}
       </Panel>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={o => (o ? setOpen(true) : closeAdd())}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Add a technician</DialogTitle><DialogDescription>They sign in to the UniteFix app with this mobile number (OTP). Upload their ID next; UniteFix verifies before they can take a job.</DialogDescription></DialogHeader>
-          <div className="space-y-3">
-            <div><Label htmlFor="t-name">Full name</Label><Input id="t-name" value={f.fullName} onChange={e => setF({ ...f, fullName: e.target.value })} /></div>
-            <div><Label htmlFor="t-phone">Mobile</Label><Input id="t-phone" inputMode="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} /></div>
-            <div><Label htmlFor="t-skills">Trades (comma separated)</Label><Input id="t-skills" placeholder="Laptop, Desktop, CCTV" value={f.services} onChange={e => setF({ ...f, services: e.target.value })} /></div>
-          </div>
-          <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={add} disabled={f.fullName.trim().length < 2 || f.phone.replace(/\D/g, "").length < 10}>Add</Button></DialogFooter>
+          {!join ? (<>
+            <DialogHeader><DialogTitle>Add a technician</DialogTitle><DialogDescription>They sign in to the UniteFix app with this mobile number (OTP). Upload their ID next; UniteFix verifies before they can take a job. Someone who already works with UniteFix can join you too.</DialogDescription></DialogHeader>
+            <div className="space-y-3">
+              <div><Label htmlFor="t-name">Full name</Label><Input id="t-name" value={f.fullName} onChange={e => setF({ ...f, fullName: e.target.value })} /></div>
+              <div><Label htmlFor="t-phone">Mobile</Label><Input id="t-phone" inputMode="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} /></div>
+              <div>
+                <Label htmlFor="t-skills">What they do</Label>
+                {serviceNames.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">{serviceNames.map(n => (
+                    <button key={n} type="button" onClick={() => togglePick(n)} aria-pressed={picked.includes(n)}
+                      className={`rounded-full border px-2.5 py-0.5 text-xs ${picked.includes(n) ? "border-[hsl(174,72%,45%)] bg-[hsla(174,72%,40%,0.15)] text-white" : "border-[rgba(255,255,255,0.15)] text-[hsl(215,20%,70%)] hover:text-white"}`}>{n}</button>
+                  ))}</div>
+                )}
+                <Input id="t-skills" className="mt-1.5" placeholder={serviceNames.length ? "Or type others, comma separated" : "e.g. Plumbing, Wiring — add your services first to pick from them"} value={f.services} onChange={e => setF({ ...f, services: e.target.value })} />
+              </div>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={closeAdd}>Cancel</Button><Button onClick={add} disabled={f.fullName.trim().length < 2 || f.phone.replace(/\D/g, "").length < 10}>Add</Button></DialogFooter>
+          </>) : join.step === "ask" ? (<>
+            <DialogHeader><DialogTitle>Already with UniteFix</DialogTitle><DialogDescription>{join.message}</DialogDescription></DialogHeader>
+            <div className="rounded-md border border-[rgba(255,255,255,0.1)] p-3 text-sm text-[hsl(215,20%,75%)] space-y-1.5">
+              <p>We send a 6-digit joining code to their UniteFix app. They read it to you only if they agree.</p>
+              <p>Once they join, UniteFix stops sending them its own jobs, and you assign their jobs and pay them. The money already in their UniteFix wallet stays theirs.</p>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setJoin(null)}>Back</Button><Button onClick={sendCode}>Send joining code to {f.phone.replace(/\D/g, "").slice(-10)}</Button></DialogFooter>
+          </>) : (<>
+            <DialogHeader><DialogTitle>Enter {join.name ?? "their"} joining code</DialogTitle><DialogDescription>{join.message}</DialogDescription></DialogHeader>
+            <div><Label htmlFor="t-code">Joining code</Label><Input id="t-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} className="font-mono tracking-[0.3em]" value={join.code} onChange={e => setJoin({ ...join, code: e.target.value.replace(/\D/g, "").slice(0, 6) })} /></div>
+            <DialogFooter><Button variant="outline" onClick={sendCode}>Send a new code</Button><Button onClick={confirmCode} disabled={join.code.length !== 6}>Add as my technician</Button></DialogFooter>
+          </>)}
         </DialogContent>
       </Dialog>
     </HubPage>
@@ -276,7 +328,7 @@ export function HubFieldTerritory() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Rates
+// Services (was Rates)
 // ═══════════════════════════════════════════════════════════════════════════
 
 type RateRow = {
@@ -284,49 +336,117 @@ type RateRow = {
   live: { id: number; price: number; since: string } | null; upcoming: { id: number; price: number; from: string; status: string } | null; rejected: { price: number; note: string | null } | null;
 };
 
-export function HubFieldRates() {
+type CatalogueChoice = { catalogServiceId: number; name: string; category: string | null; nationalPrice: number };
+
+export function HubFieldServices() {
   const { me } = useHubMe();
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useQuery<{ guardrailPercent: number; services: RateRow[] }>({ queryKey: ["/api/hub/field/rates"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/rates")).data });
-  const [edit, setEdit] = useState<Record<number, string>>({});
-  const [q, setQ] = useState("");
+  const { data, isLoading } = useQuery<{ guardrailPercent: number; services: MyService[] }>({ queryKey: ["/api/hub/field/services"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/services")).data });
   const manage = hubCan(me, "settings:manage");
-  const rows = (data?.services ?? []).filter(r => !q.trim() || `${r.name} ${r.category}`.toLowerCase().includes(q.trim().toLowerCase()));
-  const save = async (r: RateRow) => {
-    try { const res: any = await apiRequest("PUT", `/api/hub/field/rates/${r.catalogServiceId}`, { price: Number(edit[r.catalogServiceId]) }); qc.invalidateQueries({ queryKey: ["/api/hub/field/rates"] }); setEdit({ ...edit, [r.catalogServiceId]: "" }); toast({ title: "Saved", description: res.message }); }
-    catch (e) { fail(toast, "Not saved")(e); }
+  const refresh = () => { qc.invalidateQueries({ queryKey: ["/api/hub/field/services"] }); qc.invalidateQueries({ queryKey: ["/api/hub/field/services/catalogue"] }); };
+  const [edit, setEdit] = useState<Record<number, string>>({});
+  const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
+  const [pick, setPick] = useState(false);
+  const [pickQ, setPickQ] = useState("");
+  const choices = useQuery<CatalogueChoice[]>({ queryKey: ["/api/hub/field/services/catalogue", pickQ], enabled: pick, queryFn: async () => (await apiRequest("GET", `/api/hub/field/services/catalogue?q=${encodeURIComponent(pickQ)}`)).data });
+  const blank = { name: "", category: "", price: "", unit: "", description: "" };
+  const [own, setOwn] = useState<null | typeof blank>(null);
+  const rows = data?.services ?? [];
+
+  const addCatalogue = async (c: CatalogueChoice) => {
+    try { const r: any = await apiRequest("POST", "/api/hub/field/services", { catalogServiceId: c.catalogServiceId }); refresh(); toast({ title: "Added", description: r.message }); }
+    catch (e) { fail(toast, "Not added")(e); }
   };
-  const clear = async (r: RateRow) => {
-    try { await apiRequest("DELETE", `/api/hub/field/rates/${r.catalogServiceId}`); qc.invalidateQueries({ queryKey: ["/api/hub/field/rates"] }); toast({ title: "Back to the national price from tomorrow" }); }
-    catch (e) { fail(toast, "Not changed")(e); }
+  const addOwn = async () => {
+    if (!own) return;
+    try { const r: any = await apiRequest("POST", "/api/hub/field/services", own); refresh(); setOwn(null); toast({ title: "Added", description: r.message }); }
+    catch (e) { fail(toast, "Not added")(e); }
   };
+  const savePrice = async (r: MyService) => {
+    try {
+      const res: any = await apiRequest("PATCH", `/api/hub/field/services/${r.id}`, { price: edit[r.id] });
+      refresh(); setEdit({ ...edit, [r.id]: "" });
+      toast({ title: "Saved", description: r.kind === "catalogue" ? "Your price goes through the usual notice period and review." : res.message });
+    } catch (e) { fail(toast, "Not saved")(e); }
+  };
+  const remove = async (r: MyService) => {
+    try { const res: any = await apiRequest("DELETE", `/api/hub/field/services/${r.id}`); refresh(); setConfirmRemove(null); toast({ title: "Removed", description: res.message }); }
+    catch (e) { fail(toast, "Not removed")(e); }
+  };
+
   return (
-    <HubPage title="Rates" subtitle={`The all-in price customers in your territory pay (GST included). Within ±${data?.guardrailPercent ?? 25}% of UniteFix's national price; a change goes live no sooner than 24 hours ahead, and new partners' changes are reviewed first.`}
-      actions={<Input aria-label="Search services" placeholder="Search services…" className="h-9 w-60" value={q} onChange={e => setQ(e.target.value)} />}>
+    <HubPage title="Services" subtitle={`What you offer. Nothing is filled in for you, and you can remove anything. UniteFix customers in your territory are sent to you only for the UniteFix services on this list, at your price within ±${data?.guardrailPercent ?? 25}% of UniteFix's (a change takes effect no sooner than 24 hours ahead). Your own services are for your invoices, quotations and technicians.`}
+      actions={manage ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setOwn(blank)}>Add my own service</Button><Button onClick={() => { setPickQ(""); setPick(true); }}>Add from UniteFix catalogue</Button></div> : undefined}>
       <Panel>
-        {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !rows.length ? <Empty icon="sell" title="No services" /> : (
+        {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !rows.length ? (
+          <Empty icon="sell" title="No services yet">Add the UniteFix services you take, such as tap repair or fan installation, and any of your own. Until you add UniteFix services, UniteFix bookings in your area go to UniteFix's own experts.</Empty>
+        ) : (
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
-            <Thead cols={["Service", ["National", "right"], ["Allowed", "right"], ["Your price", "right"], "Next change", ...(manage ? [""] : [])]} />
+            <Thead cols={["Service", "Kind", ["Price", "right"], "Next change", ...(manage ? [""] : [])]} />
             <tbody className="divide-y divide-[rgba(255,255,255,0.06)]">{rows.map(r => (
-              <tr key={r.catalogServiceId}>
-                <td className="py-2 pr-2 text-white">{r.name}<span className="block text-xs text-[hsl(215,20%,55%)]">{r.category}</span></td>
-                <td className="pr-2 text-right tabular-nums">₹{r.nationalPrice}</td>
-                <td className="pr-2 text-right text-xs tabular-nums text-[hsl(215,20%,60%)]">₹{r.floor}–₹{r.ceiling}</td>
-                <td className="pr-2 text-right tabular-nums">{r.live ? <span className="text-white">₹{r.live.price}</span> : <span className="text-[hsl(215,20%,55%)]">national</span>}</td>
-                <td className="pr-2 text-xs">{r.upcoming ? <><Chip tone={r.upcoming.status === "live" ? "info" : "warn"}>{r.upcoming.status === "live" ? "scheduled" : "in review"}</Chip> ₹{r.upcoming.price} from {when(r.upcoming.from)}</> : r.rejected ? <span className="text-rose-300">₹{r.rejected.price} not approved{r.rejected.note ? `: ${r.rejected.note}` : ""}</span> : "—"}</td>
+              <tr key={r.id}>
+                <td className="py-2 pr-2 text-white">{r.name}<span className="block text-xs text-[hsl(215,20%,55%)]">{[r.category, r.unit].filter(Boolean).join(" · ") || "—"}</span></td>
+                <td className="pr-2">{r.kind === "catalogue" ? <Chip tone="info">UniteFix bookings</Chip> : <Chip>your own</Chip>}</td>
+                <td className="pr-2 text-right tabular-nums">
+                  {r.kind === "catalogue"
+                    ? (r.rate ? <>{r.rate.live ? <span className="text-white">₹{r.rate.live.price}</span> : <span className="text-white">₹{r.rate.nationalPrice}</span>}<span className="block text-[11px] text-[hsl(215,20%,55%)]">UniteFix ₹{r.rate.nationalPrice} · allowed ₹{r.rate.floor}–₹{r.rate.ceiling}</span></> : <span className="text-[hsl(215,20%,55%)]">no longer in the catalogue</span>)
+                    : (r.price != null ? <span className="text-white">₹{r.price}</span> : <span className="text-[hsl(215,20%,55%)]">on quote</span>)}
+                </td>
+                <td className="pr-2 text-xs">{r.rate?.upcoming ? <><Chip tone={r.rate.upcoming.status === "live" ? "info" : "warn"}>{r.rate.upcoming.status === "live" ? "scheduled" : "in review"}</Chip> ₹{r.rate.upcoming.price} from {when(r.rate.upcoming.from)}</> : r.rate?.rejected ? <span className="text-rose-300">₹{r.rate.rejected.price} not approved{r.rate.rejected.note ? `: ${r.rate.rejected.note}` : ""}</span> : "—"}</td>
                 {manage && <td className="text-right whitespace-nowrap">
-                  <Input aria-label={`New price for ${r.name}`} className="inline-flex h-8 w-24" inputMode="numeric" placeholder="₹" value={edit[r.catalogServiceId] ?? ""} onChange={e => setEdit({ ...edit, [r.catalogServiceId]: e.target.value.replace(/\D/g, "") })} />
-                  <Button size="sm" className="ml-1" disabled={!edit[r.catalogServiceId]} onClick={() => save(r)}>Set</Button>
-                  {r.live && <Button size="sm" variant="ghost" onClick={() => clear(r)}>Use national</Button>}
+                  {confirmRemove === r.id ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-[hsl(215,20%,75%)]">Remove {r.name}?<Button size="sm" variant="destructive" className="ml-1" onClick={() => remove(r)}>Remove</Button><Button size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Keep</Button></span>
+                  ) : (<>
+                    <Input aria-label={`New price for ${r.name}`} className="inline-flex h-8 w-24" inputMode="numeric" placeholder="₹" value={edit[r.id] ?? ""} onChange={e => setEdit({ ...edit, [r.id]: e.target.value.replace(/[^\d.]/g, "") })} />
+                    <Button size="sm" className="ml-1" disabled={!edit[r.id]} onClick={() => savePrice(r)}>Set</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(r.id)}>Remove</Button>
+                  </>)}
                 </td>}
               </tr>
             ))}</tbody></table></div>
         )}
       </Panel>
+
+      <Dialog open={pick} onOpenChange={setPick}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Add from the UniteFix catalogue</DialogTitle><DialogDescription>UniteFix customers who book these in your territory are sent to you. You can set your own price after adding.</DialogDescription></DialogHeader>
+          <Input aria-label="Search the catalogue" placeholder="Search, e.g. tap, fan, wiring…" value={pickQ} onChange={e => setPickQ(e.target.value)} />
+          <div className="max-h-[50vh] overflow-y-auto divide-y divide-[rgba(255,255,255,0.06)]">
+            {choices.isLoading ? <p className="py-3 text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !(choices.data ?? []).length ? (
+              <p className="py-3 text-sm text-[hsl(215,20%,65%)]">{pickQ ? "Nothing matches. Add it as your own service, or ask UniteFix to add it to the catalogue." : "Everything in the catalogue is already on your list."}</p>
+            ) : (choices.data ?? []).map(c => (
+              <div key={c.catalogServiceId} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0"><p className="text-sm text-white">{c.name}</p><p className="text-xs text-[hsl(215,20%,55%)]">{c.category ?? "—"} · UniteFix ₹{c.nationalPrice}</p></div>
+                <Button size="sm" variant="outline" onClick={() => addCatalogue(c)}>Add</Button>
+              </div>
+            ))}
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setPick(false)}>Done</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!own} onOpenChange={o => !o && setOwn(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add your own service</DialogTitle><DialogDescription>Your name and price, for your invoices, quotations and technicians.</DialogDescription></DialogHeader>
+          {own && <div className="space-y-3">
+            <div><Label htmlFor="s-name">Service</Label><Input id="s-name" placeholder="e.g. Bathroom fitting installation" value={own.name} onChange={e => setOwn({ ...own, name: e.target.value })} /></div>
+            <div><Label htmlFor="s-cat">Group (optional)</Label><Input id="s-cat" placeholder="e.g. Plumbing" value={own.category} onChange={e => setOwn({ ...own, category: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label htmlFor="s-price">Price ₹ (optional)</Label><Input id="s-price" inputMode="decimal" placeholder="Leave empty for on quote" value={own.price} onChange={e => setOwn({ ...own, price: e.target.value.replace(/[^\d.]/g, "") })} /></div>
+              <div><Label htmlFor="s-unit">Per (optional)</Label><Input id="s-unit" placeholder="visit, point, hour…" value={own.unit} onChange={e => setOwn({ ...own, unit: e.target.value })} /></div>
+            </div>
+            <div><Label htmlFor="s-desc">Details (optional)</Label><Textarea id="s-desc" rows={2} value={own.description} onChange={e => setOwn({ ...own, description: e.target.value })} /></div>
+          </div>}
+          <DialogFooter><Button variant="outline" onClick={() => setOwn(null)}>Cancel</Button><Button onClick={addOwn} disabled={!own || own.name.trim().length < 2}>Add</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </HubPage>
   );
 }
+
+/** Kept for older links: the page is now Services. */
+export const HubFieldRates = HubFieldServices;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Warranty — partner first

@@ -193,6 +193,18 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 return res.status(400).json({ error: `Withdrawal is ${existing.status}, cannot approve.` });
             }
 
+            // Staff choose where it goes (the expert's bank account or UPI ID —
+            // by default what they asked for) and, for a bank, IMPS / NEFT / RTGS.
+            const payTo = req.body?.to === 'bank' || req.body?.to === 'upi' ? req.body.to as 'bank' | 'upi' : (existing.method === 'bank' ? 'bank' : 'upi');
+            const rawMode = String(req.body?.mode ?? '').toLowerCase();
+            if (rawMode && !['imps', 'neft', 'rtgs'].includes(rawMode)) {
+                return res.status(400).json({ error: "Choose IMPS, NEFT or RTGS for a bank transfer." });
+            }
+            const bankMode = payTo === 'bank' ? ((rawMode || 'imps') as 'imps' | 'neft' | 'rtgs') : null;
+            if (bankMode === 'rtgs' && parseFloat(existing.amount as any) < 200000) {
+                return res.status(400).json({ error: "RTGS is for ₹2 lakh and above. Send this by IMPS or NEFT." });
+            }
+
             // ATOMIC CLAIM — flip pending -> processing in a single statement and
             // only proceed if THIS request won the row. The previous read-then-write
             // had no lock, so a double-click or two admins could both observe
@@ -229,8 +241,8 @@ export function registerAdminWithdrawalRoutes(app: Express) {
             // details matching their profile as it stands now.
             let beneId: string;
             try {
-                // Pay the way the expert asked: their UPI ID or their bank account.
-                beneId = await CashfreeService.syncEmployeeForPayouts(employee, withdrawal.method);
+                // To the bank account or UPI ID staff chose (default: what the expert asked for).
+                beneId = await CashfreeService.syncEmployeeForPayouts(employee, payTo);
             } catch (syncError: any) {
                 // No payout was attempted — release the claim so it can be retried.
                 await db.update(withdrawalRequests)
@@ -254,6 +266,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                     amountFloat,
                     attempt > 1 ? `WDRW-${withdrawal.id}-${attempt}` : `WDRW-${withdrawal.id}`,
                     'payout',
+                    bankMode,
                 );
 
                 // Status is already 'processing' from the claim above. The column
@@ -262,6 +275,8 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                 // non-additive migration and not part of this cut-over.
                 await db.update(withdrawalRequests).set({
                     razorpayPayoutId: payoutData.id,
+                    // How Cashfree is sending it: imps / neft / rtgs, or upi.
+                    payoutMode: bankMode ?? 'upi',
                     updatedAt: new Date()
                 }).where(eq(withdrawalRequests.id, requestId));
 
@@ -278,6 +293,7 @@ export function registerAdminWithdrawalRoutes(app: Express) {
                         partnerId: withdrawal.partnerId,
                         partnerName: employee.fullName,
                         razorpayPayoutId: payoutData.id,
+                        payTo, mode: bankMode ?? 'upi',
                     },
                 });
 

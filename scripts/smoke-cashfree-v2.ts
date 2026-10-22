@@ -245,6 +245,19 @@ async function main() {
         const [wn2] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, wn.id));
         check('a bank withdrawal from an expert with only a UPI ID: refused with why, nothing sent, still pending', apn.status === 400 && /no bank account/i.test(apn.body?.error ?? '') && transfers.size === sentBefore && wn2.status === 'pending', JSON.stringify(apn.body).slice(0, 200));
 
+        // Staff choose where and how Cashfree sends it.
+        const [cfA] = await db.insert(withdrawalRequests).values({ partnerId: emp2.id, amount: '6.00', method: 'bank', status: 'pending' } as any).returning();
+        const neft = await api.post(`/api/admin/withdrawals/${cfA.id}/approve`, { to: 'bank', mode: 'neft' }, S);
+        check('Pay via Cashfree by NEFT: sent as NEFT to the bank account, and recorded', neft.status === 200 && transfers.get(`WDRW_${cfA.id}`)?.transfer_mode === 'neft' && (await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, cfA.id)))[0].payoutMode === 'neft', JSON.stringify(neft.body).slice(0, 200));
+        const [cfB] = await db.insert(withdrawalRequests).values({ partnerId: emp2.id, amount: '7.00', method: 'bank', status: 'pending' } as any).returning();
+        const toUpi = await api.post(`/api/admin/withdrawals/${cfB.id}/approve`, { to: 'upi' }, S);
+        check('…a bank request paid to their UPI ID instead, when staff choose it', toUpi.status === 200 && transfers.get(`WDRW_${cfB.id}`)?.transfer_mode === 'upi');
+        const [cfC] = await db.insert(withdrawalRequests).values({ partnerId: emp2.id, amount: '8.00', method: 'bank', status: 'pending' } as any).returning();
+        const rtgs = await api.post(`/api/admin/withdrawals/${cfC.id}/approve`, { to: 'bank', mode: 'rtgs' }, S);
+        check('…RTGS under ₹2 lakh is refused before anything is sent, and the request stays pending', rtgs.status === 400 && /RTGS/.test(rtgs.body?.error ?? '') && !transfers.has(`WDRW_${cfC.id}`) && (await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, cfC.id)))[0].status === 'pending');
+        const bogus = await api.post(`/api/admin/withdrawals/${cfC.id}/approve`, { to: 'bank', mode: 'cheque' }, S);
+        check('…an unknown mode is refused', bogus.status === 400);
+
         // Test payout tool, now on v2.
         const tp = await api.post('/api/admin/withdrawals/cashfree-test-payout', { name: 'Ravi Kumar', upiId: 'ravi@okhdfcbank', amount: 1 }, S);
         dupWording = 'plain';

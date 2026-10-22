@@ -34,6 +34,8 @@ export const VERTICAL_TO_MODULES: Record<string, HubModule[]> = {
     isp: ['broadband', 'parts'],
     computer: ['field', 'parts'],
     cctv: ['field', 'parts'],
+    plumbing: ['field', 'parts'],
+    electrical: ['field', 'parts'],
     electronics: ['marketplace', 'parts'],
     consultation: ['consulting'],
     events: ['events'],
@@ -117,7 +119,7 @@ export const DOC_TYPES: DocType[] = [
     { code: 'bank_proof', label: 'Cancelled cheque or bank statement', hint: 'Showing the account name, number and IFSC we will pay into.', requiredFor: ['*'] },
     { code: 'address_proof', label: 'Shop or office address proof', hint: 'Rent agreement, utility bill or shop licence.', requiredFor: [], optionalFor: ['*'] },
     { code: 'isp_licence', label: 'ISP licence or franchise agreement', hint: 'DoT ISP authorisation, or your agreement with the licensed ISP you resell for.', requiredFor: ['isp'] },
-    { code: 'liability_insurance', label: 'Public liability insurance', hint: 'Covers damage at a customer\'s premises. Needed before your own technicians take jobs.', requiredFor: [], optionalFor: ['computer', 'cctv'], hasExpiry: true },
+    { code: 'liability_insurance', label: 'Public liability insurance', hint: 'Covers damage at a customer\'s premises. Needed before your own technicians take jobs.', requiredFor: [], optionalFor: ['computer', 'cctv', 'plumbing', 'electrical'], hasExpiry: true },
     { code: 'trade_licence', label: 'Trade licence', hint: 'Municipal trade licence, if your business holds one.', requiredFor: [], optionalFor: ['events', 'electronics', 'hall', 'photography'], hasExpiry: true },
     { code: 'rni_certificate', label: 'RNI / PRGI registration', hint: 'The registration of your newspaper with the Registrar of Newspapers (PRGI), if it is registered.', requiredFor: [], optionalFor: ['media'] },
     { code: 'fire_noc', label: 'Fire safety NOC', hint: 'From the fire department, for a hall that hosts large gatherings.', requiredFor: [], optionalFor: ['hall'], hasExpiry: true },
@@ -160,7 +162,7 @@ export const AGREEMENTS: AgreementDoc[] = [
         ],
     },
     {
-        code: 'field', version: '2026-10-v1', title: 'Field service annex', appliesTo: ['computer', 'cctv'],
+        code: 'field', version: '2026-10-v1', title: 'Field service annex', appliesTo: ['computer', 'cctv', 'plumbing', 'electrical'],
         sections: [
             ['Your technicians', 'Everyone you send to a customer is verified by UniteFix before their first job. You are their employer and pay them.'],
             ['Service levels', 'Assign a technician within 2 working hours of a booking in your territory. Late assignments may be handed to UniteFix technicians.'],
