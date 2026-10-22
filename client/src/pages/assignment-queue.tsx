@@ -45,6 +45,22 @@ interface QueueItem {
   /** Trades that can work this booking. Empty means no restriction. */
   requiredTechnicianTypeIds?: number[];
   requiredTechnicianTypeNames?: string[];
+  catalogServiceId?: number | null;
+  /** Set when a partner had it and did not assign a technician in time. */
+  dispatchPartnerId?: number | null;
+  escalatedFromPartnerName?: string | null;
+}
+
+/** A partner staff can give a job to. Coverage and services are advice, not rules. */
+interface PartnerItem {
+  id: number;
+  partnerCode: string;
+  name: string;
+  phone: string | null;
+  pincodes: string[];
+  catalogServiceIds: number[];
+  technicians: number;
+  openJobs: number;
 }
 
 interface EmployeeItem {
@@ -119,6 +135,18 @@ export default function AssignmentQueuePage() {
 
   const queue: QueueItem[] = (data as any)?.queue || [];
   const employees: EmployeeItem[] = (data as any)?.employees || [];
+  const partners: PartnerItem[] = (data as any)?.partners || [];
+  // Who to give the selected job to: one of UniteFix's experts, or a partner
+  // (who then picks one of their own technicians).
+  const [panel, setPanel] = useState<"experts" | "partners">("experts");
+  const partnerFit = (p: PartnerItem, r: QueueItem | null) => ({
+    covers: !!r?.pinCode && p.pincodes.includes(r.pinCode),
+    offers: !!r?.catalogServiceId && p.catalogServiceIds.includes(r.catalogServiceId),
+  });
+  const sortedPartners = useMemo(() => {
+    const score = (p: PartnerItem) => { const f = partnerFit(p, selectedRequest); return (f.covers ? 2 : 0) + (f.offers ? 1 : 0); };
+    return [...partners].sort((a, b) => score(b) - score(a) || a.openJobs - b.openJobs || a.name.localeCompare(b.name));
+  }, [partners, selectedRequest]);
 
   useEffect(() => {
     if (!requestedId || selectedRequest || !queue.length) return;
@@ -256,6 +284,18 @@ export default function AssignmentQueuePage() {
     [sortedEmployees, selectedRequest],
   );
 
+  const partnerMutation = useMutation({
+    mutationFn: async ({ requestId, businessPartnerId }: { requestId: number; businessPartnerId: number }) =>
+      apiRequest("POST", `/api/admin/services/${requestId}/assign-partner`, { businessPartnerId }),
+    onSuccess: (r: any) => {
+      toast({ title: "Sent to partner", description: r?.message ?? "The partner assigns a technician." });
+      setSelectedRequest(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/assignment-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/services"] });
+    },
+    onError: (error: Error) => toast({ title: "Not sent", description: error.message, variant: "destructive" }),
+  });
+
   // Assign mutation
   const assignMutation = useMutation({
     mutationFn: async ({ requestId, employeeId }: { requestId: number; employeeId: number }) => {
@@ -310,7 +350,7 @@ export default function AssignmentQueuePage() {
         <div className="flex justify-between items-center">
           <div>
             <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-[hsl(210,20%,75%)] tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">Assignment Queue</h2>
-            <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">Assign employees to pending service requests</p>
+            <p className="text-[hsl(215,20%,65%)] font-medium tracking-wide mt-1">Every booking waits here. Assign it to a UniteFix expert or send it to a partner.</p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} className="flex items-center gap-2 bg-[rgba(255,255,255,0.05)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.1)] transition-all">
             <RefreshCw className="w-4 h-4 text-[hsl(217,91%,60%)]" /> Refresh
@@ -435,6 +475,11 @@ export default function AssignmentQueuePage() {
                             )}
                             <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{(req as any).serviceName || req.serviceType || 'General'}</p>
                             {getUrgencyBadge(req.urgency, req.waitingHours)}
+                            {req.escalatedFromPartnerName && (
+                              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[hsla(27,90%,55%,0.15)] text-[hsl(27,90%,65%)] border border-[hsla(27,90%,55%,0.3)]" title="The partner did not assign a technician by the assign-by time">
+                                Back from {req.escalatedFromPartnerName}
+                              </span>
+                            )}
                             {req.photos && req.photos.length > 0 && (
                               <span className="text-xs text-[hsl(215,20%,55%)] flex items-center gap-0.5">
                                 <Image className="w-3 h-3 text-[hsl(217,91%,60%)]" />{req.photos.length}
@@ -481,6 +526,20 @@ export default function AssignmentQueuePage() {
         <div className="flex flex-col min-h-0">
           <Card className="flex-1 flex flex-col min-h-0 glass-card border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
             <CardHeader className="pb-3 border-b border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] rounded-t-xl mb-4">
+              <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-[rgba(255,255,255,0.08)] p-1" role="tablist" aria-label="Assign to">
+                {(["experts", "partners"] as const).map(k => (
+                  <button
+                    key={k}
+                    role="tab"
+                    aria-selected={panel === k}
+                    onClick={() => setPanel(k)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${panel === k ? "bg-[hsla(217,91%,60%,0.2)] text-white" : "text-[hsl(215,20%,65%)] hover:text-white"}`}
+                  >
+                    {k === "experts" ? `UniteFix experts (${employees.length})` : `Partners (${partners.length})`}
+                  </button>
+                ))}
+              </div>
+              {panel === "experts" && <>
               <CardTitle className="text-base flex items-center gap-2 text-white">
                 <User className="w-4 h-4 text-[hsl(217,91%,60%)]" />
                 Employees ({sortedEmployees.length}{sortedEmployees.length !== employees.length ? ` of ${employees.length}` : ""})
@@ -514,9 +573,51 @@ export default function AssignmentQueuePage() {
                   Filters{activeFilterCount(filters) > 0 && <span className="ml-1.5 rounded bg-[hsla(217,91%,60%,0.25)] px-1.5 text-[10px]">{activeFilterCount(filters)}</span>}
                 </Button>
               </div>
+              </>}
+              {panel === "partners" && (
+                <p className="text-[11px] text-[hsl(215,20%,60%)]">
+                  Give the job to a partner; they assign one of their own technicians by the assign-by time, or it comes back here.
+                </p>
+              )}
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
-              {!selectedRequest ? (
+              {panel === "partners" && selectedRequest ? (
+                <div className="space-y-2">
+                  {!sortedPartners.length ? (
+                    <p className="text-center py-10 text-sm text-[hsl(215,20%,60%)]">No partner can take jobs yet. A partner needs Field service and at least one verified technician.</p>
+                  ) : sortedPartners.map(p => {
+                    const fit = partnerFit(p, selectedRequest);
+                    return (
+                      <div key={p.id} className={`p-3 rounded-lg border transition-all ${fit.covers && fit.offers ? "border-[hsla(217,91%,60%,0.3)] bg-[hsla(217,91%,60%,0.05)]" : "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)]"}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-white text-sm">{p.name} <span className="font-mono text-[10px] text-[hsl(215,20%,55%)]">{p.partnerCode}</span></p>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              <Badge className={`border-0 text-[10px] px-1.5 py-0 ${fit.covers ? "bg-[hsla(160,84%,39%,0.15)] text-[hsl(160,84%,65%)]" : "bg-[rgba(255,255,255,0.05)] text-[hsl(215,20%,55%)]"}`}>{fit.covers ? `Covers ${selectedRequest.pinCode}` : "Not their area"}</Badge>
+                              <Badge className={`border-0 text-[10px] px-1.5 py-0 ${fit.offers ? "bg-[hsla(217,91%,60%,0.2)] text-[hsl(217,91%,70%)]" : "bg-[rgba(255,255,255,0.05)] text-[hsl(215,20%,55%)]"}`}>{fit.offers ? "Takes this service" : "Service not on their list"}</Badge>
+                            </div>
+                            <p className="text-[11px] text-[hsl(215,20%,55%)] mt-1">{p.technicians} technician{p.technicians === 1 ? "" : "s"} · {p.openJobs} open job{p.openJobs === 1 ? "" : "s"}{p.phone ? ` · ${p.phone}` : ""}</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-3 bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white"
+                            disabled={partnerMutation.isPending}
+                            onClick={() => {
+                              if (!(fit.covers && fit.offers)) {
+                                const why = [!fit.covers && "does not cover this pincode", !fit.offers && "has not listed this service"].filter(Boolean).join(" and ");
+                                if (!window.confirm(`${p.name} ${why}.\n\nSend the job to them anyway?`)) return;
+                              }
+                              partnerMutation.mutate({ requestId: selectedRequest.id, businessPartnerId: p.id });
+                            }}
+                          >
+                            Send to partner
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : !selectedRequest ? (
                 <div className="text-center py-12">
                   <ArrowRight className="w-8 h-8 text-[hsl(215,20%,40%)] mx-auto mb-3 rotate-180" />
                   <p className="text-[hsl(210,20%,80%)] text-sm font-medium">Select a request from the queue</p>

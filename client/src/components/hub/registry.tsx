@@ -78,7 +78,7 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/field/territory", component: HubFieldTerritory, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Territory", icon: "map" } },
   { path: "/partner/field/services", aliases: ["/partner/field/rates"], component: HubFieldServices, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Services", icon: "sell" } },
   { path: "/partner/field/warranty", component: HubFieldWarranty, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Warranty", icon: "verified" } },
-  { path: "/partner/field/settings", component: HubFieldSettings, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Hours & auto-assign", icon: "schedule" } },
+  { path: "/partner/field/settings", component: HubFieldSettings, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Working hours", icon: "schedule" } },
   { path: "/partner/field/earnings", component: HubFieldEarnings, module: "field", perm: "money:view", nav: { group: "Field service", label: "Earnings", icon: "payments" } },
 
   // Phase 5 — consulting.

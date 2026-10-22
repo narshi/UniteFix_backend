@@ -254,11 +254,10 @@ async function issueMonthlyFeeInvoices(): Promise<void> {
     }
 }
 
-/** Partner field service: auto-assign where the partner asked for it, escalate unassigned jobs, release held job values. */
+/** Partner field service: return jobs a partner did not assign in time to UniteFix's queue, release held job values. (No auto-assignment: people assign.) */
 async function partnerFieldTick(): Promise<void> {
     try {
         const { PartnerFieldService } = await import('./partner-field.service');
-        await PartnerFieldService.autoAssignDue();
         await PartnerFieldService.escalateOverdue();
         await PartnerFieldService.releaseDue();
     } catch (error: any) {

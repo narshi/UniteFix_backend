@@ -66,20 +66,19 @@ async function main() {
         const editOwn = await api.patch(`/api/hub/field/services/${own.body.data.id}`, { price: 1500, unit: 'tank up to 1000 L' }, T);
         check('…their own service can be repriced', editOwn.status === 200 && editOwn.body.data.pricePaise === 150000);
 
-        // Routing follows the list.
+        // No automatic routing: even a service they offer, in a pincode they cover, waits for staff.
         await db.insert(partnerTerritories).values({ businessPartnerId: bpId, pincode: PIN, mode: 'exclusive', status: 'active', activatedAt: new Date() } as any);
         const toTap = await PartnerFieldService.route({ catalogServiceId: tap.id, pincode: PIN });
-        const toLaptop = await PartnerFieldService.route({ catalogServiceId: laptop.id, pincode: PIN });
-        const noService = await PartnerFieldService.route({ catalogServiceId: null, pincode: PIN });
-        check('a tap-repair booking in their pincode goes to them', toTap.dispatchPartnerId === bpId);
-        check('…a laptop-repair booking in the same pincode does not (they do not offer it)', toLaptop.dispatchPartnerId === null);
-        check('…nor a booking with no catalogue service (older app builds)', noService.dispatchPartnerId === null);
+        check('a booking is never sent to a partner automatically, even for a service and pincode they cover', toTap.dispatchPartnerId === null);
         const q = await PartnerFieldService.quote(tap.id, PIN);
-        check('the app quote names them for a service they offer', q?.servicedBy?.name === c.body.data.displayName);
+        check('the app quote shows UniteFix’s price and names no partner', q?.servicedBy === null && q?.unitPrice === 400);
+        const st = await api.put('/api/hub/field/settings', { autoAssign: true, autoAssignMinutes: 0 }, T);
+        const [bpRow] = await db.execute(sql`SELECT field_auto_assign FROM business_partners WHERE id = ${bpId}`).then((r: any) => r.rows);
+        check('a partner cannot switch on auto-assign (an older client sending it is ignored)', st.status === 200 && bpRow.field_auto_assign === false);
 
         const del = await api.del(`/api/hub/field/services/${byName(tap.name).id}`, T);
         check('removing a UniteFix service: gone from the list', del.status === 200 && (await api.get('/api/hub/field/services', T)).body.data.services.length === 2);
-        check('…and its bookings stop coming to them at once', (await PartnerFieldService.route({ catalogServiceId: tap.id, pincode: PIN })).dispatchPartnerId === null);
+        await api.post('/api/hub/field/services', { catalogServiceId: tap.id }, T);
         const fanRates = await db.select().from(partnerServiceRates).where(eq(partnerServiceRates.catalogServiceId, fan.id));
         await api.del(`/api/hub/field/services/${byName(fan.name).id}`, T);
         const fanRates2 = await db.select().from(partnerServiceRates).where(eq(partnerServiceRates.catalogServiceId, fan.id));
@@ -124,6 +123,50 @@ async function main() {
         check('an expert in the middle of a UniteFix job cannot join until it is done', busyInv.status === 409 && /in progress/.test(busyInv.body?.message ?? ''), JSON.stringify(busyInv.body));
         const custAdd = await api.post('/api/hub/field/technicians', { fullName: 'QA Customer', phone: cust.phone }, T2);
         check('a customer account number is refused with why', custAdd.status === 409 && custAdd.body?.code === 'PHONE_TAKEN' && /customer account/.test(custAdd.body?.message ?? ''));
+
+        // Staff assign every booking: to a partner (who picks the technician) or to a UniteFix expert.
+        const booking = async (n: number, extra: Record<string, unknown> = {}) => (await db.insert(serviceRequests).values({
+            userId: cust.id, serviceId: `QA-SR-${stamp}-${n}`, serviceType: 'Tap repair', brand: 'x', model: 'x', description: 'QA', address: `Road ${PIN}`, pincode: PIN,
+            status: 'created', bookingFeeStatus: 'paid', catalogServiceId: tap.id, pricingSnapshot: { grossTotal: 400, technicianEarning: 300 }, ...extra,
+        } as any).returning())[0];
+        const b1 = await booking(1);
+        const queue = await api.get('/api/admin/assignment-queue', S);
+        const qp = (queue.body?.partners ?? []).find((p: any) => p.id === bpId);
+        check('the Assignment Queue lists the booking and the partners staff can send it to', (queue.body?.queue ?? []).some((x: any) => x.id === b1.id) && qp?.pincodes.includes(PIN) && qp?.catalogServiceIds.includes(tap.id) && qp?.technicians === 1, JSON.stringify(qp ?? queue.body).slice(0, 200));
+        check('…a partner with no verified technician is not offered', !(queue.body?.partners ?? []).some((p: any) => p.id === c2.id));
+        const notReady = await api.post(`/api/admin/services/${b1.id}/assign-partner`, { businessPartnerId: c2.id }, S);
+        check('…and sending a job to them is refused with why', notReady.status === 409 && /verified technician/.test(notReady.body?.error ?? ''), JSON.stringify(notReady.body));
+        const sent = await api.post(`/api/admin/services/${b1.id}/assign-partner`, { businessPartnerId: bpId }, S);
+        const [b1r] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, b1.id));
+        check('staff send it to the partner: it carries their name and an assign-by time', sent.status === 200 && b1r.dispatchPartnerId === bpId && b1r.dispatchMode === 'staff' && !!b1r.slaAssignBy && (b1r.pricingSnapshot as any)?.payeePartnerId === bpId, JSON.stringify(sent.body).slice(0, 200));
+        check('…it leaves the Assignment Queue', !((await api.get('/api/admin/assignment-queue', S)).body?.queue ?? []).some((x: any) => x.id === b1.id));
+        const jobs = await api.get('/api/hub/field/jobs', T);
+        check('…and is on the partner’s Jobs page', (jobs.body?.data ?? []).some((j: any) => j.id === b1.id), JSON.stringify(jobs.body).slice(0, 200));
+        const pick = await api.post(`/api/hub/field/jobs/${b1.id}/assign`, { employeeId: expert.id }, T);
+        check('…where the partner assigns their technician', pick.status === 200 && (await db.select().from(serviceRequests).where(eq(serviceRequests.id, b1.id)))[0].providerId === expert.id, JSON.stringify(pick.body));
+        check('…and once a technician is on it, staff cannot just take it back', (await api.post(`/api/admin/services/${b1.id}/recall-partner`, {}, S)).status === 409);
+
+        const b2 = await booking(2);
+        await api.post(`/api/admin/services/${b2.id}/assign-partner`, { businessPartnerId: bpId }, S);
+        const back = await api.post(`/api/admin/services/${b2.id}/recall-partner`, {}, S);
+        const [b2r] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, b2.id));
+        check('staff can take a job back before a technician is on it: back in the queue, no partner on it', back.status === 200 && b2r.dispatchPartnerId === null && !(b2r.pricingSnapshot as any)?.payeePartnerId && ((await api.get('/api/admin/assignment-queue', S)).body?.queue ?? []).some((x: any) => x.id === b2.id));
+
+        const b3 = await booking(3);
+        await api.post(`/api/admin/services/${b3.id}/assign-partner`, { businessPartnerId: bpId }, S);
+        await db.update(serviceRequests).set({ slaAssignBy: new Date(Date.now() - 60_000) } as any).where(eq(serviceRequests.id, b3.id));
+        await PartnerFieldService.escalateOverdue();
+        const q3 = ((await api.get('/api/admin/assignment-queue', S)).body?.queue ?? []).find((x: any) => x.id === b3.id);
+        check('a job the partner did not assign in time comes back to the queue, marked with their name', q3?.escalatedFromPartnerName === c.body.data.displayName, JSON.stringify(q3 ?? null).slice(0, 200));
+        const [ufU] = await db.insert(users).values({ phone: `5${String(Date.now()).slice(-9)}`, username: 'QA UF Expert', role: 'serviceman', isActive: true } as any).returning(); userIds.push(ufU.id);
+        const [uf] = await db.insert(employees).values({ userId: ufU.id, fullName: 'QA UF Expert', documentVerificationStatus: 'verified', isActive: true } as any).returning();
+        const toUf = await api.post(`/api/admin/services/${b3.id}/assign`, { technicianId: uf.id }, S);
+        const [b3r] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, b3.id));
+        check('…given to a UniteFix expert instead, it is no longer the partner’s', toUf.status === 200 && b3r.providerId === uf.id && b3r.dispatchPartnerId === null && !(b3r.pricingSnapshot as any)?.payeePartnerId, JSON.stringify(toUf.body).slice(0, 160));
+        check('…and is off the partner’s Jobs page', !((await api.get('/api/hub/field/jobs', T)).body?.data ?? []).some((j: any) => j.id === b3.id));
+
+        const b4 = await booking(4, { bookingFeeStatus: 'pending' });
+        check('an unpaid booking cannot be sent to a partner', (await api.post(`/api/admin/services/${b4.id}/assign-partner`, { businessPartnerId: bpId }, S)).status === 409);
     } finally {
         await close();
     }
@@ -132,7 +175,8 @@ async function main() {
 main().catch(e => { console.error(e); check('no crash', false, e?.message); }).finally(async () => {
     const uids = userIds.join(',') || '0', bps = bpIds.join(',') || '0';
     const extra = [
-        `DELETE FROM service_requests WHERE service_id = 'QA-SR-${stamp}'`,
+        `DELETE FROM audit_logs WHERE entity_type = 'service_request' AND entity_id IN (SELECT id FROM service_requests WHERE service_id LIKE 'QA-SR-${stamp}%')`,
+        `DELETE FROM service_requests WHERE service_id LIKE 'QA-SR-${stamp}%'`,
         `DELETE FROM partner_technician_invites WHERE business_partner_id IN (${bps})`,
         `DELETE FROM partner_services WHERE business_partner_id IN (${bps})`,
         `DELETE FROM partner_service_rates WHERE business_partner_id IN (${bps})`,

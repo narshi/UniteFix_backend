@@ -104,7 +104,7 @@ async function main() {
         const bk = await api.post('/api/services/create', { serviceType: 'QA', description: 'QA', address: `Road ${pin}`, pinCode: pin, catalogServiceId: svc2.id }, ct);
         await new Promise(r => setTimeout(r, 400));
         const jobAlert = await db.select().from(hubAlerts).where(and(eq(hubAlerts.businessPartnerId, bp.id), eq(hubAlerts.kind, 'job_new')));
-        check('alerts: a booking in the partner\'s territory raises "new job"', bk.status === 201 && jobAlert.length === 1 && jobAlert[0].refId === bk.body.data.id);
+        check('a booking in the partner\'s territory is not sent to them on its own: no "new job" alert yet', bk.status === 201 && jobAlert.length === 0);
         const terrAlert = await db.select().from(hubAlerts).where(and(eq(hubAlerts.businessPartnerId, bp.id), eq(hubAlerts.kind, 'territory_reviewed')));
         check('alerts: UniteFix approving pincodes is announced', terrAlert.length === 1);
         ctx.job = bk.body.data;

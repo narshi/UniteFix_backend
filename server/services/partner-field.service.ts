@@ -36,7 +36,6 @@ import { TaxDocumentService, type Party } from './tax-documents.service';
 import { HubError, type HubContext } from './partner-hub.service';
 import { withTransaction } from '../lib/transaction';
 import logger from '../lib/logger';
-import { nowFilledMs } from '../lib/db-time';
 
 const OPEN_JOB = ['created', 'assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'];
 const ACTIVE_JOB = ['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'];
@@ -272,23 +271,17 @@ export class PartnerFieldService {
         return r ?? null;
     }
 
-    /** What the customer app should show for a service at a pincode. */
-    static async quote(catalogServiceId: number, pincode: string | null) {
+    /**
+     * What the customer app should show for a service at a pincode: UniteFix's
+     * price. Who does the job is decided later by UniteFix staff, so no
+     * partner is named (or priced) at booking.
+     */
+    static async quote(catalogServiceId: number, _pincode: string | null) {
         const [svc] = await db.select({ basePrice: services.basePrice, name: services.name }).from(services).where(eq(services.id, catalogServiceId)).limit(1);
         if (!svc) return null;
-        const p = await this.partnerFor(pincode, catalogServiceId);
-        const rate = p ? await this.liveRate(p.bp.id, catalogServiceId) : null;
-        return {
-            catalogServiceId, nationalPrice: svc.basePrice, unitPrice: rate?.basePrice ?? svc.basePrice,
-            servicedBy: p ? { name: p.bp.displayName, phone: p.bp.fieldSupportPhone ?? p.bp.contactPhone, note: `Serviced by ${p.bp.displayName}, a UniteFix partner` } : null,
-        };
+        return { catalogServiceId, nationalPrice: svc.basePrice, unitPrice: svc.basePrice, servicedBy: null };
     }
 
-    /**
-     * Decide routing for a new booking. The partner's rate is used only when
-     * the app quoted that exact price to the customer (`quotedUnitPrice`);
-     * otherwise the customer pays the national price they were shown.
-     */
     // ══════════════════════════════════════════════════════════════════════
     // Working hours, holidays, auto-assign
     // ══════════════════════════════════════════════════════════════════════
@@ -326,11 +319,9 @@ export class PartnerFieldService {
                 set.fieldHours = input.hours.map(w => ({ weekday: w.weekday, startTime: w.startTime, endTime: w.endTime }));
             } else set.fieldHours = null;
         }
-        if (input.autoAssign !== undefined) set.fieldAutoAssign = input.autoAssign;
-        if (input.autoAssignMinutes !== undefined) {
-            if (!(Number.isInteger(input.autoAssignMinutes) && input.autoAssignMinutes >= 0 && input.autoAssignMinutes <= 90)) throw new HubError('Auto-assign after 0–90 minutes.', 'BAD_MINUTES');
-            set.fieldAutoAssignMinutes = input.autoAssignMinutes;
-        }
+        // Auto-assign is gone: every assignment is a person's decision (UniteFix
+        // staff choose the partner, the partner chooses the technician).
+        // Older clients may still send autoAssign / autoAssignMinutes; ignored.
         await db.update(businessPartners).set(set).where(eq(businessPartners.id, ctx.businessPartnerId));
         return this.settings(ctx.businessPartnerId);
     }
@@ -347,72 +338,105 @@ export class PartnerFieldService {
         return this.settings(ctx.businessPartnerId);
     }
 
-    /** The technician auto-assign would pick: active and verified, the right trade, online first, least busy. */
-    static async pickTechnician(bpId: number, jobText: string) {
-        const techs = (await this.technicians(bpId)).filter(t => t.isActive && t.verification === 'verified');
-        const text = jobText.toLowerCase();
-        const fit = techs.filter(t => !t.services.length || t.services.some(x => x.trim() && (text.includes(x.trim().toLowerCase()) || x.trim().toLowerCase().includes(text))));
-        fit.sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.activeJobs - b.activeJobs || a.id - b.id);
-        return fit[0] ?? null;
+    // Auto-assignment was removed: UniteFix staff choose the partner, and the
+    // partner chooses the technician. Nothing assigns a job on its own.
+
+    /**
+     * Routing at booking time is off: no booking goes to a partner on its own.
+     * Every booking waits in UniteFix's Assignment Queue, and staff send it to
+     * a UniteFix expert or to a partner (dispatchToPartner). Kept so the two
+     * booking paths need no change; it always answers "UniteFix".
+     */
+    static async route(_input: { catalogServiceId: number | null; pincode: string | null; urgency?: string | null; quotedUnitPrice?: number | null }): Promise<Routing> {
+        return { dispatchPartnerId: null, dispatchMode: null, partnerName: null, partnerPhone: null, unitPrice: null, platformFeePercent: null, slaAssignBy: null };
     }
 
     /**
-     * Partners who turned auto-assign on: a paid job nobody picked within the
-     * window (working minutes) goes to the best-fitting technician. Runs with
-     * the escalation tick, before it.
+     * Partners staff can give a job to: active, with Field service, and with
+     * at least one verified, active technician. Each says whether it covers the
+     * job's pincode and lists the booked UniteFix service — advice for the
+     * choice, not a rule (staff decide).
      */
-    static async autoAssignDue(now = new Date()) {
-        const bps = await db.select().from(businessPartners).where(and(eq(businessPartners.fieldAutoAssign, true), eq(businessPartners.status, 'active')));
-        const done: Array<{ serviceRequestId: number; employeeId: number }> = [];
+    static async dispatchCandidates() {
+        const bps = await db.select().from(businessPartners).where(eq(businessPartners.status, 'active'));
+        if (!bps.length) return [];
+        const { PartnerHubService } = await import('./partner-hub.service');
+        const out: Array<{ id: number; partnerCode: string; name: string; phone: string | null; pincodes: string[]; catalogServiceIds: number[]; technicians: number; openJobs: number }> = [];
         for (const bp of bps) {
-            const jobs = await db.select({ sr: serviceRequests, createdMs: nowFilledMs(serviceRequests.createdAt), serviceName: services.name, categoryName: serviceCategories.name }).from(serviceRequests)
-                .leftJoin(services, eq(services.id, serviceRequests.catalogServiceId)).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
-                .where(and(eq(serviceRequests.dispatchPartnerId, bp.id), isNull(serviceRequests.providerId), eq(serviceRequests.status, 'created' as any), eq(serviceRequests.bookingFeeStatus, 'paid')));
-            if (!jobs.length) continue;
-            const cal = await this.calendar(bp.id, bp);
-            for (const j of jobs) {
-                if (!j.createdMs || addWorkingTime(new Date(Number(j.createdMs)), bp.fieldAutoAssignMinutes, cal) > now) continue;
-                const tech = await this.pickTechnician(bp.id, `${j.categoryName ?? ''} ${j.serviceName ?? j.sr.serviceType ?? ''}`.trim());
-                if (!tech) continue;
-                // Someone may have assigned it by hand a moment ago.
-                const [fresh] = await db.select({ p: serviceRequests.providerId, st: serviceRequests.status }).from(serviceRequests).where(eq(serviceRequests.id, j.sr.id)).limit(1);
-                if (fresh?.p || fresh?.st !== 'created') continue;
-                try {
-                    const { AdminServiceManager } = await import('./admin-service.manager');
-                    await AdminServiceManager.assignTechnician(j.sr.id, tech.id, null as any);
-                    done.push({ serviceRequestId: j.sr.id, employeeId: tech.id });
-                    const { HubAlerts } = await import('./hub-alerts.service');
-                    void HubAlerts.send(bp.id, 'job_assigned', { title: `Job #${j.sr.id} auto-assigned to ${tech.fullName}`, body: `${j.serviceName ?? 'A job'} in ${j.sr.pincode ?? 'your area'} — nobody picked it in ${bp.fieldAutoAssignMinutes} minutes. Reassign it from Jobs if needed.`, link: '/partner/field/jobs', refType: 'service_request', refId: j.sr.id });
-                } catch (e: any) {
-                    logger.warn(`[FIELD] Auto-assign of job #${j.sr.id} failed: ${e?.message}`);
-                }
-            }
+            const verticals = await BusinessPartnerService.verticalCodesOf(bp.id);
+            const modules = await PartnerHubService.modulesOf(bp, verticals);
+            if (!modules.includes('field')) continue;
+            const [techs] = await db.select({ n: sql<number>`count(*)::int` }).from(employees)
+                .where(and(eq(employees.managedByPartnerId, bp.id), eq(employees.isActive, true), eq(employees.documentVerificationStatus, 'verified' as any)));
+            if (!techs.n) continue;   // nobody to send to the job
+            const pins =await db.select({ p: partnerTerritories.pincode }).from(partnerTerritories)
+                .where(and(eq(partnerTerritories.businessPartnerId, bp.id), eq(partnerTerritories.status, 'active')));
+            const offered = await db.select({ id: partnerServices.catalogServiceId }).from(partnerServices)
+                .where(and(eq(partnerServices.businessPartnerId, bp.id), eq(partnerServices.isActive, true), isNotNull(partnerServices.catalogServiceId)));
+            const [open] = await db.select({ n: sql<number>`count(*)::int` }).from(serviceRequests)
+                .where(and(eq(serviceRequests.dispatchPartnerId, bp.id), inArray(serviceRequests.status, OPEN_JOB as any)));
+            out.push({
+                id: bp.id, partnerCode: bp.partnerCode, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone,
+                pincodes: pins.map(p => p.p), catalogServiceIds: offered.map(o => o.id as number), technicians: techs.n, openJobs: open.n,
+            });
         }
-        if (done.length) logger.info(`[FIELD] Auto-assigned ${done.length} partner job(s)`);
-        return done;
+        return out;
     }
 
-    static async route(input: { catalogServiceId: number | null; pincode: string | null; urgency?: string | null; quotedUnitPrice?: number | null }): Promise<Routing> {
-        const none: Routing = { dispatchPartnerId: null, dispatchMode: null, partnerName: null, partnerPhone: null, unitPrice: null, platformFeePercent: null, slaAssignBy: null };
-        try {
-            const p = await this.partnerFor(input.pincode, input.catalogServiceId);
-            if (!p) return none;
-            const rate = input.catalogServiceId ? await this.liveRate(p.bp.id, input.catalogServiceId) : null;
-            const quoted = input.quotedUnitPrice != null ? Math.round(Number(input.quotedUnitPrice)) : null;
-            const fee = p.bp.fieldFeePercent != null ? Number(p.bp.fieldFeePercent) : Number(await configService.get<number>('BUSINESS_CONFIG.PARTNER_FIELD_FEE_PERCENT', 15));
-            const hours = Number(await configService.get<number>(input.urgency === 'urgent' ? 'BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_URGENT_HOURS' : 'BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_HOURS', input.urgency === 'urgent' ? 1 : 2));
-            return {
-                dispatchPartnerId: p.bp.id, dispatchMode: p.mode, partnerName: p.bp.displayName, partnerPhone: p.bp.fieldSupportPhone ?? p.bp.contactPhone,
-                unitPrice: rate && quoted === rate.basePrice ? rate.basePrice : null,
-                platformFeePercent: Number.isFinite(fee) ? fee : 15,
-                // The clock runs in the partner's working hours only.
-                slaAssignBy: addWorkingTime(new Date(), hours * 60, await this.calendar(p.bp.id, p.bp)),
-            };
-        } catch (e: any) {
-            // Routing is an enhancement to booking; it must never stop one.
-            logger.error('[FIELD] Routing failed; booking goes to UniteFix', { error: e?.message });
-            return none;
+    /**
+     * UniteFix staff give a booking to a partner. It leaves the Assignment
+     * Queue and appears on the partner's Jobs page, where the partner picks one
+     * of their technicians by the assign-by time (their working hours); if they
+     * do not, it comes back to the queue marked as theirs. The customer's price
+     * is the one they booked at; the job is paid to the partner through the
+     * technician they assign.
+     */
+    static async dispatchToPartner(serviceRequestId: number, bpId: number, adminId: number | null) {
+        const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+        if (!sr) throw new HubError('Booking not found.', 'NOT_FOUND', 404);
+        if (sr.status !== 'created' || sr.providerId) throw new HubError(`This booking is ${sr.status}${sr.providerId ? ' with an expert' : ''}; only an unassigned booking can go to a partner.`, 'BAD_STATE', 409);
+        if (sr.bookingFeeStatus !== 'paid') throw new HubError('The customer has not paid the booking fee yet.', 'UNPAID', 409);
+        const candidate = (await this.dispatchCandidates()).find(c => c.id === bpId);
+        if (!candidate) {
+            const bp = await BusinessPartnerService.byId(bpId);
+            if (!bp) throw new HubError('Partner not found.', 'NOT_FOUND', 404);
+            throw new HubError(`${bp.displayName} cannot take jobs: it needs to be active, run Field service, and have a verified technician.`, 'PARTNER_NOT_READY', 409);
         }
+        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1);
+        const hours = Number(await configService.get<number>(sr.urgency === 'urgent' ? 'BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_URGENT_HOURS' : 'BUSINESS_CONFIG.PARTNER_ASSIGN_SLA_HOURS', sr.urgency === 'urgent' ? 1 : 2));
+        const slaAssignBy = addWorkingTime(new Date(), hours * 60, await this.calendar(bpId, bp));
+        const snapshot = { ...((sr.pricingSnapshot as any) ?? {}), payeeType: 'partner', payeePartnerId: bpId, servicedBy: bp.displayName };
+        const [updated] = await db.update(serviceRequests).set({
+            dispatchPartnerId: bpId, dispatchMode: 'staff', slaAssignBy, escalatedAt: null, escalationReason: null,
+            pricingSnapshot: snapshot as any, updatedAt: new Date(),
+        } as any).where(and(eq(serviceRequests.id, serviceRequestId), eq(serviceRequests.status, 'created' as any), isNull(serviceRequests.providerId))).returning();
+        if (!updated) throw new HubError('Someone assigned this booking a moment ago. Refresh.', 'BAD_STATE', 409);
+        const { recordAudit } = await import('../lib/audit');
+        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: 'service_dispatched_to_partner', changedBy: adminId, metadata: { businessPartnerId: bpId, previousPartnerId: sr.dispatchPartnerId ?? null, slaAssignBy: slaAssignBy.toISOString() } });
+        const { HubAlerts } = await import('./hub-alerts.service');
+        await HubAlerts.send(bpId, 'job_new', {
+            title: `New job ${sr.serviceId}`,
+            body: `UniteFix sent you ${sr.serviceType ?? 'a job'}${sr.pincode ? ` in ${sr.pincode}` : ''}. Assign a technician by ${slaAssignBy.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.`,
+            link: '/partner/field/jobs', refType: 'service_request', refId: serviceRequestId,
+        } as any).catch((e: any) => logger.warn(`[FIELD] job alert failed: ${e?.message}`));
+        return { serviceRequestId, businessPartnerId: bpId, partnerName: bp.displayName, slaAssignBy };
+    }
+
+    /** Staff take a job back from a partner before a technician is on it: it returns to the Assignment Queue. */
+    static async recallFromPartner(serviceRequestId: number, adminId: number | null) {
+        const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+        if (!sr) throw new HubError('Booking not found.', 'NOT_FOUND', 404);
+        if (!sr.dispatchPartnerId) throw new HubError('This booking is not with a partner.', 'BAD_STATE', 409);
+        if (sr.providerId || sr.status !== 'created') throw new HubError('The partner has already put a technician on it. Reassign it from Service Requests instead.', 'BAD_STATE', 409);
+        const snapshot = { ...((sr.pricingSnapshot as any) ?? {}) };
+        delete snapshot.payeeType; delete snapshot.payeePartnerId; delete snapshot.servicedBy;
+        await db.update(serviceRequests).set({ dispatchPartnerId: null, dispatchMode: null, slaAssignBy: null, escalatedAt: null, escalationReason: null, pricingSnapshot: snapshot as any, updatedAt: new Date() } as any)
+            .where(eq(serviceRequests.id, serviceRequestId));
+        const { recordAudit } = await import('../lib/audit');
+        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: 'service_recalled_from_partner', changedBy: adminId, metadata: { businessPartnerId: sr.dispatchPartnerId } });
+        const { HubAlerts } = await import('./hub-alerts.service');
+        await HubAlerts.send(sr.dispatchPartnerId, 'job_new', { title: `Job ${sr.serviceId} taken back`, body: 'UniteFix has taken this job back; you do not need to assign it.', link: '/partner/field/jobs' } as any).catch(() => {});
+        return { serviceRequestId };
     }
 
     // ══════════════════════════════════════════════════════════════════════

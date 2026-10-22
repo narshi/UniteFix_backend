@@ -1,7 +1,7 @@
 /**
  * Field service — a partner running its own technicians in its own pincodes.
  *
- *   Jobs         bookings from the partner's territory; assign before the
+ *   Jobs         jobs UniteFix staff sent the partner; assign before the
  *                assign-by time or UniteFix steps in
  *   Technicians  the partner's people: add, documents, switch on/off
  *   Territory    pincodes served (proposed → approved by UniteFix), pause
@@ -77,7 +77,7 @@ export function HubFieldJobs() {
   const overdue = (jobs.data ?? []).filter(j => j.overdue).length;
 
   return (
-    <HubPage title="Jobs" subtitle="UniteFix bookings in your territory. Assign a technician before the assign-by time — after it, UniteFix may send its own expert.">
+    <HubPage title="Jobs" subtitle="Jobs UniteFix has sent you. Assign one of your technicians before the assign-by time — after it, the job goes back to UniteFix.">
       {view === "queue" && overdue > 0 && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{overdue} job(s) are past their assign-by time and now show in UniteFix's queue too.</div>}
       <Panel actions={
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
@@ -376,30 +376,29 @@ export function HubFieldServices() {
   };
 
   return (
-    <HubPage title="Services" subtitle={`What you offer. Nothing is filled in for you, and you can remove anything. UniteFix customers in your territory are sent to you only for the UniteFix services on this list, at your price within ±${data?.guardrailPercent ?? 25}% of UniteFix's (a change takes effect no sooner than 24 hours ahead). Your own services are for your invoices, quotations and technicians.`}
+    <HubPage title="Services" subtitle="What you offer. Nothing is filled in for you, and you can remove anything. The UniteFix services on this list tell UniteFix which jobs to send you; UniteFix staff decide who does each job, at UniteFix's price. Your own services, with your prices, are for your invoices, quotations and technicians."
       actions={manage ? <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setOwn(blank)}>Add my own service</Button><Button onClick={() => { setPickQ(""); setPick(true); }}>Add from UniteFix catalogue</Button></div> : undefined}>
       <Panel>
         {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !rows.length ? (
-          <Empty icon="sell" title="No services yet">Add the UniteFix services you take, such as tap repair or fan installation, and any of your own. Until you add UniteFix services, UniteFix bookings in your area go to UniteFix's own experts.</Empty>
+          <Empty icon="sell" title="No services yet">Add the UniteFix services you take, such as tap repair or fan installation, so UniteFix knows which jobs to send you, and any services of your own.</Empty>
         ) : (
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
-            <Thead cols={["Service", "Kind", ["Price", "right"], "Next change", ...(manage ? [""] : [])]} />
+            <Thead cols={["Service", "Kind", ["Price", "right"], ...(manage ? [""] : [])]} />
             <tbody className="divide-y divide-[rgba(255,255,255,0.06)]">{rows.map(r => (
               <tr key={r.id}>
                 <td className="py-2 pr-2 text-white">{r.name}<span className="block text-xs text-[hsl(215,20%,55%)]">{[r.category, r.unit].filter(Boolean).join(" · ") || "—"}</span></td>
-                <td className="pr-2">{r.kind === "catalogue" ? <Chip tone="info">UniteFix bookings</Chip> : <Chip>your own</Chip>}</td>
+                <td className="pr-2">{r.kind === "catalogue" ? <Chip tone="info">UniteFix jobs</Chip> : <Chip>your own</Chip>}</td>
                 <td className="pr-2 text-right tabular-nums">
                   {r.kind === "catalogue"
-                    ? (r.rate ? <>{r.rate.live ? <span className="text-white">₹{r.rate.live.price}</span> : <span className="text-white">₹{r.rate.nationalPrice}</span>}<span className="block text-[11px] text-[hsl(215,20%,55%)]">UniteFix ₹{r.rate.nationalPrice} · allowed ₹{r.rate.floor}–₹{r.rate.ceiling}</span></> : <span className="text-[hsl(215,20%,55%)]">no longer in the catalogue</span>)
+                    ? (r.rate ? <><span className="text-white">₹{r.rate.nationalPrice}</span><span className="block text-[11px] text-[hsl(215,20%,55%)]">UniteFix price</span></> : <span className="text-[hsl(215,20%,55%)]">no longer in the catalogue</span>)
                     : (r.price != null ? <span className="text-white">₹{r.price}</span> : <span className="text-[hsl(215,20%,55%)]">on quote</span>)}
                 </td>
-                <td className="pr-2 text-xs">{r.rate?.upcoming ? <><Chip tone={r.rate.upcoming.status === "live" ? "info" : "warn"}>{r.rate.upcoming.status === "live" ? "scheduled" : "in review"}</Chip> ₹{r.rate.upcoming.price} from {when(r.rate.upcoming.from)}</> : r.rate?.rejected ? <span className="text-rose-300">₹{r.rate.rejected.price} not approved{r.rate.rejected.note ? `: ${r.rate.rejected.note}` : ""}</span> : "—"}</td>
                 {manage && <td className="text-right whitespace-nowrap">
                   {confirmRemove === r.id ? (
                     <span className="inline-flex items-center gap-1 text-xs text-[hsl(215,20%,75%)]">Remove {r.name}?<Button size="sm" variant="destructive" className="ml-1" onClick={() => remove(r)}>Remove</Button><Button size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Keep</Button></span>
                   ) : (<>
-                    <Input aria-label={`New price for ${r.name}`} className="inline-flex h-8 w-24" inputMode="numeric" placeholder="₹" value={edit[r.id] ?? ""} onChange={e => setEdit({ ...edit, [r.id]: e.target.value.replace(/[^\d.]/g, "") })} />
-                    <Button size="sm" className="ml-1" disabled={!edit[r.id]} onClick={() => savePrice(r)}>Set</Button>
+                    {r.kind === "own" && <><Input aria-label={`New price for ${r.name}`} className="inline-flex h-8 w-24" inputMode="numeric" placeholder="₹" value={edit[r.id] ?? ""} onChange={e => setEdit({ ...edit, [r.id]: e.target.value.replace(/[^\d.]/g, "") })} />
+                    <Button size="sm" className="ml-1" disabled={!edit[r.id]} onClick={() => savePrice(r)}>Set</Button></>}
                     <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(r.id)}>Remove</Button>
                   </>)}
                 </td>}
@@ -410,7 +409,7 @@ export function HubFieldServices() {
 
       <Dialog open={pick} onOpenChange={setPick}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Add from the UniteFix catalogue</DialogTitle><DialogDescription>UniteFix customers who book these in your territory are sent to you. You can set your own price after adding.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Add from the UniteFix catalogue</DialogTitle><DialogDescription>Tells UniteFix you take these jobs. UniteFix staff choose who does each job, at UniteFix's price.</DialogDescription></DialogHeader>
           <Input aria-label="Search the catalogue" placeholder="Search, e.g. tap, fan, wiring…" value={pickQ} onChange={e => setPickQ(e.target.value)} />
           <div className="max-h-[50vh] overflow-y-auto divide-y divide-[rgba(255,255,255,0.06)]">
             {choices.isLoading ? <p className="py-3 text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !(choices.data ?? []).length ? (
@@ -545,19 +544,18 @@ export function HubFieldEarnings() {
 type FieldSettings = { hours: Array<{ weekday: number; startTime: string; endTime: string }> | null; autoAssign: boolean; autoAssignMinutes: number; holidays: Array<{ id: number; day: string; reason: string | null }>; assignWithinHours: number; assignWithinHoursUrgent: number };
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-/** Working hours and holidays (they pause the assign-by clock) and auto-assign. */
+/** Working hours and holidays: they pause the assign-by clock for jobs UniteFix sends you. */
 export function HubFieldSettings() {
   const { me } = useHubMe();
   const qc = useQueryClient();
   const { toast } = useToast();
   const canSet = hubCan(me, "settings:manage");
   const { data } = useQuery<FieldSettings>({ queryKey: ["/api/hub/field/settings"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/settings")).data });
-  const [draft, setDraft] = useState<{ allDay: boolean; days: Array<{ open: boolean; start: string; end: string }>; auto: boolean; minutes: string } | null>(null);
+  const [draft, setDraft] = useState<{ allDay: boolean; days: Array<{ open: boolean; start: string; end: string }> } | null>(null);
   const [hol, setHol] = useState({ day: "", reason: "" });
   const d = draft ?? (data ? {
     allDay: !data.hours?.length,
     days: WEEKDAYS.map((_, i) => { const w = data.hours?.find(x => x.weekday === i); return { open: data.hours?.length ? !!w : i !== 0, start: w?.startTime ?? "09:00", end: w?.endTime ?? "19:00" }; }),
-    auto: data.autoAssign, minutes: String(data.autoAssignMinutes),
   } : null);
   const done = (r: any) => { qc.setQueryData(["/api/hub/field/settings"], r.data); setDraft(null); toast({ title: r.message ?? "Saved" }); };
   const failed = (e: unknown) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" });
@@ -566,16 +564,15 @@ export function HubFieldSettings() {
     try {
       done(await apiRequest("PUT", "/api/hub/field/settings", {
         hours: d.allDay ? null : d.days.map((x, i) => ({ weekday: i, startTime: x.start, endTime: x.end, open: x.open })).filter(x => x.open).map(({ open, ...w }) => w),
-        autoAssign: d.auto, autoAssignMinutes: Number(d.minutes),
       }));
     } catch (e) { failed(e); }
   };
   const addHoliday = async () => { try { done(await apiRequest("POST", "/api/hub/field/holidays", { day: hol.day, reason: hol.reason || null })); setHol({ day: "", reason: "" }); } catch (e) { failed(e); } };
   const removeHoliday = async (id: number) => { try { done(await apiRequest("DELETE", `/api/hub/field/holidays/${id}`)); } catch (e) { failed(e); } };
-  if (!d || !data) return <HubPage title="Hours & auto-assign"><p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p></HubPage>;
+  if (!d || !data) return <HubPage title="Working hours"><p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p></HubPage>;
   const set = (patch: Partial<typeof d>) => setDraft({ ...d, ...patch });
   return (
-    <HubPage title="Hours & auto-assign" subtitle={`Assign each job within ${data.assignWithinHours} working hour${data.assignWithinHours === 1 ? "" : "s"} (${data.assignWithinHoursUrgent} for urgent ones). The clock only runs in your working hours and stops on your holidays.`}
+    <HubPage title="Working hours" subtitle={`UniteFix sends you jobs; assign each one to a technician within ${data.assignWithinHours} working hour${data.assignWithinHours === 1 ? "" : "s"} (${data.assignWithinHoursUrgent} for urgent ones), or it goes back to UniteFix. The clock only runs in your working hours and stops on your holidays.`}
       actions={canSet ? <Button disabled={!draft} onClick={save}>Save</Button> : undefined}>
       <Panel title="Working hours">
         <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" disabled={!canSet} checked={d.allDay} onChange={e => set({ allDay: e.target.checked })} /> Round the clock, every day</label>
@@ -590,13 +587,6 @@ export function HubFieldSettings() {
           </li>
         ))}</ul>}
         <p className="mt-3 text-xs text-[hsl(215,20%,55%)]">Times in IST. A job booked at night is due the next working morning.</p>
-      </Panel>
-      <Panel title="Auto-assign">
-        <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" disabled={!canSet} checked={d.auto} onChange={e => set({ auto: e.target.checked })} /> Assign jobs automatically if nobody picks one</label>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[hsl(215,20%,75%)]">
-          After <Input aria-label="Minutes before auto-assign" inputMode="numeric" className="h-9 w-20" disabled={!canSet || !d.auto} value={d.minutes} onChange={e => set({ minutes: e.target.value })} /> working minutes
-        </div>
-        <p className="mt-2 text-xs text-[hsl(215,20%,55%)]">Picks an active, verified technician whose trades match the job — online ones first, then whoever has the fewest open jobs. You are alerted and can reassign from Jobs. Use 0 to assign the moment a job arrives (checked every 15 minutes).</p>
       </Panel>
       <Panel title="Holidays">
         {!data.holidays.length ? <p className="text-sm text-[hsl(215,20%,65%)]">None coming up.</p> : (

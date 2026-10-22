@@ -13,7 +13,7 @@
 
 import { db } from "../db";
 import { sql, eq, and, desc, gte, lte, inArray, isNull, count as sqlCount } from "drizzle-orm";
-import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes } from "@shared/schema";
+import { serviceRequests, employees, users, auditLogs, services as servicesCatalog, serviceCategories, serviceCategoryTechnicianTypes, employeeTechnicianTypes, technicianTypes, businessPartners } from "@shared/schema";
 import { BookingNotifications } from "./booking-notifications";
 import logger from "../lib/logger";
 import { EXCLUDE_UNPAID_DRAFTS } from "../lib/booking-visibility";
@@ -237,6 +237,17 @@ export class AdminServiceManager {
             throw new Error("Service expert not found or inactive");
         }
 
+        // A job that was with a partner, given to a UniteFix expert instead (it
+        // came back unassigned): it is no longer the partner's — off their Jobs
+        // page, and the booking no longer names them.
+        const leavesPartner = !!service.dispatchPartnerId && !(technician as any).managedByPartnerId;
+        let partnerFree: Record<string, unknown> = {};
+        if (leavesPartner) {
+            const snap = { ...((service.pricingSnapshot as any) ?? {}) };
+            delete snap.payeeType; delete snap.payeePartnerId; delete snap.servicedBy;
+            partnerFree = { dispatchPartnerId: null, dispatchMode: null, slaAssignBy: null, pricingSnapshot: snap };
+        }
+
         // Update service
         const [updated] = await db
             .update(serviceRequests)
@@ -245,7 +256,8 @@ export class AdminServiceManager {
                 status: "assigned",
                 assignedAt: new Date(),
                 updatedAt: new Date(),
-            })
+                ...partnerFree,
+            } as any)
             .where(eq(serviceRequests.id, serviceId))
             .returning();
 
@@ -464,6 +476,7 @@ export class AdminServiceManager {
     static async getAssignmentQueue(): Promise<{
         queue: any[];
         employees: any[];
+        partners: any[];
         stats: { totalPending: number; urgentCount: number; avgWaitHours: number; oldestHours: number };
     }> {
         const now = new Date();
@@ -493,6 +506,7 @@ export class AdminServiceManager {
                 categoryName: serviceCategories.name,
                 serviceName: servicesCatalog.name,
                 bookingPincode: serviceRequests.pincode,
+                catalogServiceId: serviceRequests.catalogServiceId,
                 dispatchPartnerId: serviceRequests.dispatchPartnerId,
                 dispatchMode: serviceRequests.dispatchMode,
                 escalatedAt: serviceRequests.escalatedAt,
@@ -693,9 +707,21 @@ export class AdminServiceManager {
             ? Math.max(...queue.map((r) => r.waitingHours))
             : 0;
 
+        // Partners staff can give a job to, and the name of the partner a job
+        // came back from (it missed its assign-by time).
+        const { PartnerFieldService } = await import('./partner-field.service');
+        const partners = await PartnerFieldService.dispatchCandidates();
+        const partnerName = new Map(partners.map(p => [p.id, p.name]));
+        const backFrom = queueWithExpertise.filter((q: any) => q.dispatchPartnerId && !partnerName.has(q.dispatchPartnerId)).map((q: any) => q.dispatchPartnerId as number);
+        if (backFrom.length) {
+            const rows = await db.select({ id: businessPartners.id, name: businessPartners.displayName }).from(businessPartners).where(inArray(businessPartners.id, Array.from(new Set(backFrom))));
+            for (const r of rows) partnerName.set(r.id, r.name);
+        }
+
         return {
-            queue: queueWithExpertise,
+            queue: queueWithExpertise.map((q: any) => ({ ...q, escalatedFromPartnerName: q.dispatchPartnerId ? partnerName.get(q.dispatchPartnerId) ?? null : null })),
             employees: employeesWithTypes,
+            partners,
             stats: { totalPending, urgentCount, avgWaitHours, oldestHours },
         };
     }

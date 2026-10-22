@@ -296,7 +296,7 @@ export const serviceRequests = pgTable("service_requests", {
   // Partner Hub phase 4 — routing to a partner territory, frozen at booking
   pincode: text("pincode"),
   dispatchPartnerId: integer("dispatch_partner_id"),
-  dispatchMode: text("dispatch_mode"),          // exclusive | shared
+  dispatchMode: text("dispatch_mode"),          // staff (sent by UniteFix staff); exclusive | shared on older bookings
   slaAssignBy: timestamp("sla_assign_by"),
   escalatedAt: timestamp("escalated_at"),
   escalationReason: text("escalation_reason"),

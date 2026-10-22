@@ -127,6 +127,36 @@ export function registerAdminRoutes(app: Express) {
     });
 
     /**
+     * POST /api/admin/services/:id/assign-partner — give a booking to a
+     * partner (body: businessPartnerId). The partner picks the technician.
+     * POST /api/admin/services/:id/recall-partner — take it back before a
+     * technician is on it. Nothing goes to a partner except through these.
+     */
+    app.post("/api/admin/services/:id/assign-partner", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const bpId = Number(req.body?.businessPartnerId);
+            if (!Number.isInteger(bpId) || bpId <= 0) return res.status(400).json({ error: "Choose a partner." });
+            const { PartnerFieldService } = await import("../services/partner-field.service");
+            const r = await PartnerFieldService.dispatchToPartner(parseInt(req.params.id), bpId, (req as any).user.id ?? null);
+            res.json({ message: `Sent to ${r.partnerName}. They assign a technician by ${r.slaAssignBy.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}, or it comes back to this queue.`, data: r });
+        } catch (error: any) {
+            res.status(error?.status ?? 400).json({ error: error.message });
+        }
+    });
+
+    app.post("/api/admin/services/:id/recall-partner", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { PartnerFieldService } = await import("../services/partner-field.service");
+            await PartnerFieldService.recallFromPartner(parseInt(req.params.id), (req as any).user.id ?? null);
+            res.json({ message: "Taken back. It is in the Assignment Queue again." });
+        } catch (error: any) {
+            res.status(error?.status ?? 400).json({ error: error.message });
+        }
+    });
+
+    /**
      * POST /api/admin/services/:id/reassign
      * Reassign technician
      */

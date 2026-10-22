@@ -105,10 +105,10 @@ async function main() {
         check('staff see it in the review queue', !!mineP && mineP.nationalPrice === 800 && mineP.price === 900);
         await api.post('/api/admin/hub/rates/review', { ids: [ok.body.data.id], approve: true }, staff);
         const q1 = await api.get(`/api/services/quote?catalogServiceId=${svc.id}&pincode=${pin}`);
-        check('approved rates still give 24 h notice — the customer sees the national price today', q1.body?.data?.unitPrice === 800 && q1.body?.data?.servicedBy?.name === 'Sirsi Electronics');
+        check('the customer sees UniteFix\'s price and no partner name (staff decide who does the job)', q1.body?.data?.unitPrice === 800 && q1.body?.data?.servicedBy === null);
         await db.update(partnerServiceRates).set({ effectiveFrom: new Date(Date.now() - 60_000) }).where(eq(partnerServiceRates.id, ok.body.data.id));
         const q2 = await api.get(`/api/services/quote?catalogServiceId=${svc.id}&pincode=${pin}`);
-        check('once effective, the quote shows the partner\'s price and name', q2.body?.data?.unitPrice === 900 && /Sirsi Electronics, a UniteFix partner/.test(q2.body?.data?.servicedBy?.note ?? ''));
+        check('…even once a partner rate is effective', q2.body?.data?.unitPrice === 800 && q2.body?.data?.servicedBy === null);
 
         // ── technicians ───────────────────────────────────────────────────
         const techPhone = `9${String(Date.now()).slice(-9)}`;
@@ -137,16 +137,23 @@ async function main() {
         const ct = jwt.sign({ userId: cust.id, role: 'user' }, SECRET, { expiresIn: '1h' });
         const book = (extra: Record<string, unknown>) => api.post('/api/services/create', { serviceType: 'Laptop', description: 'QA laptop not booting', address: `Main road, Sirsi ${pin}`, pinCode: pin, catalogServiceId: svc.id, ...extra }, ct);
 
+        // Nothing is routed at booking: every booking waits for staff, at UniteFix's price.
         const b1 = await book({ quotedUnitPrice: 900 });
-        const [sr1] = await db.select().from(serviceRequests).where(eq(serviceRequests.userId, cust.id));
-        const snap1: any = sr1?.pricingSnapshot;
-        check('a booking in the territory is routed to the partner', b1.status === 200 || b1.status === 201 ? sr1?.dispatchPartnerId === fs.id && sr1.dispatchMode === 'exclusive' : false, `${b1.status} ${b1.body?.message ?? ''}`);
-        check('…at the partner\'s price the app showed, with the partner\'s fee %', snap1?.basePrice === 900 && snap1?.platformFeePercent === 15 && snap1?.payeeType === 'partner' && snap1?.servicedBy === 'Sirsi Electronics', JSON.stringify(snap1 && { b: snap1.basePrice, f: snap1.platformFeePercent }));
-        check('…with an assign-by time', !!sr1?.slaAssignBy && new Date(sr1.slaAssignBy).getTime() > Date.now());
-
+        const [sr1u] = await db.select().from(serviceRequests).where(eq(serviceRequests.userId, cust.id));
+        check('a booking in the territory is NOT sent to the partner automatically', (b1.status === 200 || b1.status === 201) && sr1u?.dispatchPartnerId === null && !sr1u?.slaAssignBy, `${b1.status} ${b1.body?.message ?? ''}`);
+        check('…and is at UniteFix\'s price, whatever an older app quoted', (sr1u?.pricingSnapshot as any)?.basePrice === 800, JSON.stringify((sr1u?.pricingSnapshot as any)?.basePrice));
         await book({});
-        const [sr2] = await db.select().from(serviceRequests).where(eq(serviceRequests.userId, cust.id)).orderBy(sql`${serviceRequests.id} desc`).limit(1);
-        check('an app that showed the national price gets the national price (still the partner\'s job)', (sr2.pricingSnapshot as any)?.basePrice === 800 && sr2.dispatchPartnerId === fs.id);
+        const [sr2u] = await db.select().from(serviceRequests).where(eq(serviceRequests.userId, cust.id)).orderBy(sql`${serviceRequests.id} desc`).limit(1);
+        // Paid, as they would be once the customer pays the booking fee.
+        await db.update(serviceRequests).set({ bookingFeeStatus: 'paid' as any }).where(inArray(serviceRequests.id, [sr1u.id, sr2u.id]));
+        const d1 = await api.post(`/api/admin/services/${sr1u.id}/assign-partner`, { businessPartnerId: fs.id }, staff);
+        const d2 = await api.post(`/api/admin/services/${sr2u.id}/assign-partner`, { businessPartnerId: fs.id }, staff);
+        const [sr1] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, sr1u.id));
+        const [sr2] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, sr2u.id));
+        const snap1: any = sr1?.pricingSnapshot;
+        check('staff send both to the partner', d1.status === 200 && d2.status === 200 && sr1.dispatchPartnerId === fs.id && sr1.dispatchMode === 'staff' && sr2.dispatchPartnerId === fs.id, `${d1.status} ${JSON.stringify(d1.body).slice(0, 160)}`);
+        check('…the booking names the partner, at UniteFix\'s price', snap1?.payeeType === 'partner' && snap1?.servicedBy === 'Sirsi Electronics' && snap1?.basePrice === 800);
+        check('…with an assign-by time', !!sr1?.slaAssignBy && new Date(sr1.slaAssignBy).getTime() > Date.now());
 
         await api.post('/api/services/create', { serviceType: 'Laptop', description: 'QA elsewhere', address: `Somewhere ${other}`, pinCode: other, catalogServiceId: svc.id }, ct);
         const [sr3] = await db.select().from(serviceRequests).where(eq(serviceRequests.userId, cust.id)).orderBy(sql`${serviceRequests.id} desc`).limit(1);
@@ -155,7 +162,7 @@ async function main() {
         // ── queues ────────────────────────────────────────────────────────
         const aq = await api.get('/api/admin/assignment-queue', staff);
         const aqIds = (aq.body?.queue ?? []).map((r: any) => r.id);
-        check('UniteFix\'s queue does not show the partner\'s jobs', aq.status === 200 && !aqIds.includes(sr1.id) && !aqIds.includes(sr2.id) && aqIds.includes(sr3.id), `${aq.status}`);
+        check('UniteFix\'s queue no longer shows jobs it sent the partner', aq.status === 200 && !aqIds.includes(sr1.id) && !aqIds.includes(sr2.id), `${aq.status}`);
         check('…nor offer the partner\'s technicians', !(aq.body?.employees ?? []).some((e: any) => e.id === techId));
         const pq = await api.get('/api/hub/field/jobs?view=queue', t1);
         check('the partner\'s queue has both jobs, with the customer\'s details', pq.status === 200 && pq.body?.data?.length === 2 && !!pq.body.data[0].customerPhone);
