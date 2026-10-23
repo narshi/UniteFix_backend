@@ -53,6 +53,8 @@ const RULES: Rule[] = [
     { test: /^\/admins(\/|$)/, area: 'accounts' },
     { test: /^\/roles(\/|$)/, area: 'accounts' },
     { test: /^\/config(\/|$)/, area: 'settings' },
+    // Settings → App updates (force update); saving also needs super admin.
+    { test: /^\/app-version(\/|$)/, area: 'settings' },
 
     // --- Account deletion, split by what is being deleted ------------------
     // /accounts/:kind/... where kind is 'user' or 'employee'. Deleting a

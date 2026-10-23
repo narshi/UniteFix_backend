@@ -797,6 +797,44 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
+    // ==================== APP UPDATES (force update) ====================
+
+    /** The app update policy: latest and minimum version codes, message, store links. */
+    app.get("/api/admin/app-version", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { appVersionPolicy } = await import("../lib/app-version");
+            res.json({ success: true, data: await appVersionPolicy() });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    /** Change it. Super admin only: a minimum blocks every older install. */
+    app.put("/api/admin/app-version", requireSuperAdmin, async (req: Request, res: Response) => {
+        try {
+            const { saveAppVersionPolicy, appVersionPolicy, AppVersionError } = await import("../lib/app-version");
+            const before = await appVersionPolicy();
+            const adminId = (req as any).admin?.userId ?? null;
+            try {
+                const after = await saveAppVersionPolicy(req.body ?? {}, adminId);
+                await recordAudit({ entityType: 'config', entityId: 0, action: 'app_version_policy_changed', changedBy: adminId, metadata: { before, after } });
+                res.json({
+                    success: true,
+                    message: after.minVersionCode > before.minVersionCode
+                        ? `Saved. Builds below ${after.minVersionCode} must now update (within a minute).`
+                        : 'Saved.',
+                    data: after,
+                });
+            } catch (e: any) {
+                if (e instanceof AppVersionError) return res.status(400).json({ error: e.message });
+                throw e;
+            }
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     // ==================== PLATFORM CONFIG MANAGEMENT ====================
 
     /**

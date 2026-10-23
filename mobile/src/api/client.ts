@@ -9,9 +9,15 @@
  */
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { Platform } from 'react-native';
+import * as Application from 'expo-application';
 import { useAuthStore } from '../stores/auth.store';
+import { useUpdateStore } from '../stores/update.store';
 
 import Constants from 'expo-constants';
+
+/** This build's version code (Android versionCode / iOS build number); 0 when unknown. */
+export const APP_VERSION_CODE = Number(Application.nativeBuildVersion) || 0;
 
 // Dynamically resolve dev server IP from Expo manifest.
 // This prevents "Network Error" caused by hardcoded IPs going stale after DHCP changes.
@@ -56,6 +62,9 @@ apiClient.interceptors.request.use(
         if (token) {
             config.headers.set('Authorization', `Bearer ${token}`);
         }
+        // Lets the server refuse builds below the minimum (forced update).
+        if (APP_VERSION_CODE) config.headers.set('X-App-Version-Code', String(APP_VERSION_CODE));
+        config.headers.set('X-App-Platform', Platform.OS);
         return config;
     },
     (error) => Promise.reject(error)
@@ -83,6 +92,17 @@ apiClient.interceptors.response.use(
     (response) => response,
     async (error: AxiosError) => {
         const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+        // This build is below the minimum: show the update screen, nothing else.
+        const body = error.response?.data as any;
+        if (error.response?.status === 426 && body?.code === 'UPDATE_REQUIRED') {
+            useUpdateStore.getState().setRequired({
+                message: String(body.message ?? 'Please update UniteFix to continue.'),
+                updateUrl: body.updateUrl ?? null,
+                minVersionCode: body.minVersionCode ?? null,
+            });
+            return Promise.reject(error);
+        }
 
         // Only attempt refresh on 403 when it looks like a token-expiry issue.
         // Skip refresh for auth-rejection 403s (suspended, role mismatch, etc.)

@@ -10,6 +10,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { Alert } from 'react-native';
 import { PremiumAlertProvider, PremiumAlertService } from './src/components/ui/PremiumAlert';
 import { useAppUpdateCheck } from './src/hooks/useAppUpdateCheck';
+import { ForceUpdateGate } from './src/components/ForceUpdateGate';
 import './src/i18n';
 
 // --- GLOBAL ALERT INTERCEPTOR ---
@@ -44,6 +45,8 @@ function AppShell() {
       <StatusBar style="dark" />
       <RootNavigator />
       <PremiumAlertProvider />
+      {/* Covers everything when this build is below the minimum staff set. */}
+      <ForceUpdateGate />
     </>
   );
 }

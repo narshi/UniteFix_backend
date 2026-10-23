@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import AppUpdateSettings from "@/components/admin/app-update-settings";
 
 // 2-digit state code, 10-char PAN, entity digit, 'Z', checksum.
 const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
@@ -601,6 +602,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* App updates — its own Save: a minimum blocks older installs */}
+        <AppUpdateSettings />
 
         {/* Maintenance Mode */}
         <Card className="glass-card border-[rgba(255,255,255,0.08)]">

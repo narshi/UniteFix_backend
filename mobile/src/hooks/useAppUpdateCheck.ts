@@ -1,13 +1,11 @@
 /**
- * In-app update check, driven entirely by the store.
+ * Optional ("update available") prompts, driven by the store.
  *
- * WHY NO BACKEND
- * There is no `minVersionCode` in our database and no admin screen to set one.
- * The decision of "is this update optional or mandatory" is made in the Play
- * Console at publish time via the release's **update priority** (0–5), which
- * Play hands back as `serverUpdateType`. That keeps one source of truth — the
- * release itself — instead of a version number in our config that has to be
- * remembered and kept in step with every rollout.
+ * FORCED updates are separate: staff set a minimum version code on Admin →
+ * Settings → App updates, and components/ForceUpdateGate.tsx blocks builds
+ * below it (the server refuses them too). This hook only handles what Play
+ * offers on its own: a release's **update priority** (0–5), which Play hands
+ * back as `serverUpdateType`.
  *
  *   priority 4–5  -> IMMEDIATE: Play takes over with its own full-screen,
  *                    unskippable update UI. We do not draw that screen; Play

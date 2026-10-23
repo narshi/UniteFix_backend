@@ -34,6 +34,7 @@ import { TokenService } from "./services/token.service";
 import { configService } from "./services/config.service";
 import logger from "./lib/logger";
 import { recordAudit } from "./lib/audit";
+import { appVersionGate, appVersionInfo } from "./lib/app-version";
 import { syncEmployeeTechnicianTypes, getCategoryTechnicianTypes, setCategoryTechnicianTypes } from "./lib/expertise-matching";
 import { parsePaginationParams, buildPaginatedResult, getOffset } from "./lib/pagination";
 // PHASE 7: Import modular route registrations
@@ -215,6 +216,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     next();
   });
+
+  // ==================== FORCED APP UPDATE ====================
+  // App builds below the minimum set on Settings → App updates are refused
+  // (HTTP 426) before any route runs. See server/lib/app-version.ts.
+  app.use(appVersionGate());
 
   // ==================== RATE LIMITING ====================
   // MUST come before any route registration. Express matches middleware and
@@ -3752,22 +3758,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== APP VERSION CHECK ====================
   app.get("/api/client/app-version", async (req, res, next) => {
     try {
-      const platform = req.query.platform as string || 'android';
-      
-      // Default to 21 (current version) if not found in db
-      const minVersionCode = await configService.get('APP_CONFIG.MIN_VERSION_CODE', 21);
-      const latestVersionCode = await configService.get('APP_CONFIG.LATEST_VERSION_CODE', 21);
-      const updateUrl = await configService.get('APP_CONFIG.UPDATE_URL', 'market://details?id=com.unitefix.app');
-      
-      res.json({
-        success: true,
-        data: {
-          minVersionCode,
-          latestVersionCode,
-          updateUrl,
-          platform
-        }
-      });
+      const platform = String(req.query.platform ?? 'android') === 'ios' ? 'ios' : 'android';
+      // The app compares its own version code with these (see server/lib/app-version.ts).
+      res.json({ success: true, data: await appVersionInfo(platform) });
     } catch (error) {
       next(error);
     }
