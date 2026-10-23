@@ -99,6 +99,9 @@ export class AdminServiceManager {
                            AND (u.username ILIKE ${term} OR u.phone ILIKE ${term}))
                 OR EXISTS (SELECT 1 FROM employees e WHERE e.id = ${serviceRequests.providerId}
                            AND e.full_name ILIKE ${term})
+                OR EXISTS (SELECT 1 FROM services s LEFT JOIN service_categories c ON c.id = s.category_id
+                           WHERE s.id = ${serviceRequests.catalogServiceId}
+                           AND (s.name ILIKE ${term} OR c.name ILIKE ${term}))
             )`);
         }
 
@@ -153,11 +156,24 @@ export class AdminServiceManager {
                 partnerName: businessPartners.displayName,
                 slaAssignBy: serviceRequests.slaAssignBy,
                 escalatedAt: serviceRequests.escalatedAt,
+                // What the customer actually picked: the catalogue service and its
+                // category (serviceType is free text and often just "General").
+                serviceName: servicesCatalog.name,
+                subCategory: servicesCatalog.subCategory,
+                categoryName: serviceCategories.name,
+                quantity: serviceRequests.quantity,
+                urgency: serviceRequests.urgency,
+                preferredDate: serviceRequests.preferredDate,
+                preferredTimeSlot: serviceRequests.preferredTimeSlot,
+                paymentMethod: serviceRequests.paymentMethod,
+                customerEmail: users.email,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
             .leftJoin(employees, eq(serviceRequests.providerId, employees.id))
             .leftJoin(businessPartners, eq(businessPartners.id, serviceRequests.dispatchPartnerId))
+            .leftJoin(servicesCatalog, eq(servicesCatalog.id, serviceRequests.catalogServiceId))
+            .leftJoin(serviceCategories, eq(serviceCategories.id, servicesCatalog.categoryId))
             .where(conditions.length > 0 ? and(...conditions) : undefined)
             .orderBy(filters.orderBy ?? desc(serviceRequests.createdAt))
             .limit(limit)

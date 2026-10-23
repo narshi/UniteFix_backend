@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
 import SendToPartnerModal from "@/components/admin/send-to-partner-modal";
+import BookingSummary from "@/components/admin/booking-summary";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -348,8 +349,9 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
                         </td>
                         <td className="p-4">
+                          {service.categoryName && <p className="text-[10px] uppercase tracking-wider text-[hsl(217,91%,72%)]">{service.categoryName}</p>}
                           <p className="font-medium text-[hsl(210,20%,90%)]">
-                            {service.serviceType || 'General'}
+                            {service.serviceName || service.serviceType || 'General'}
                             {/* Only when it is more than one. A "Qty 1" badge on every
                                 row is noise that trains people to stop reading the badge
                                 at all, which defeats the point of having it. */}
@@ -497,29 +499,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
             </DialogHeader>
             {selectedService && (
               <div className="space-y-6 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service ID</p>
-                    <p className="text-lg font-semibold text-white">{selectedService.serviceId || selectedService.id}</p>
-                  </div>
-                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Status</p>
-                    <div className="mt-1">{getStatusBadge(selectedService.status)}</div>
-                  </div>
-                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Service Type</p>
-                    <p className="text-base text-white">
-                      {selectedService.serviceType || 'General'}
-                      {selectedService.quantity > 1 && (
-                        <span className="ml-2 text-[hsl(217,91%,72%)]">x {selectedService.quantity} units</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                    <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee Status</p>
-                    <p className="text-base font-mono text-[hsl(210,20%,85%)]">{selectedService.bookingFeeStatus || 'N/A'}</p>
-                  </div>
-                </div>
+                <BookingSummary service={selectedService} statusBadge={getStatusBadge(selectedService.status)} />
 
                 <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
                   <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(217,91%,60%)] rounded-full"></span> Customer Information</h4>
@@ -531,16 +511,18 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                     <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                       <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Phone</p>
                       <p className="text-base text-white">{selectedService.customerPhone || 'N/A'}</p>
+                      {selectedService.customerEmail && <p className="text-sm text-[hsl(215,20%,60%)] break-all">{selectedService.customerEmail}</p>}
                     </div>
                     <div className="col-span-2 bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                       <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Address</p>
                       <p className="text-base text-white leading-relaxed">{selectedService.address}</p>
+                      {selectedService.pincode && <p className="text-sm font-mono text-[hsl(215,20%,60%)] mt-1">PIN {selectedService.pincode}</p>}
                     </div>
                   </div>
                 </div>
 
                 <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
-                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(263,70%,60%)] rounded-full"></span> Device Information</h4>
+                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(263,70%,60%)] rounded-full"></span> Device and problem</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
                       <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Brand</p>
@@ -551,7 +533,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                       <p className="text-base text-white">{selectedService.model}</p>
                     </div>
                     <div className="col-span-2 bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Description</p>
+                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">What the customer wrote</p>
                       <p className="text-base text-white leading-relaxed">{selectedService.description}</p>
                     </div>
                   </div>
@@ -603,26 +585,6 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                     </div>
                   </div>
                 )}
-
-                <div className="border-t border-[rgba(255,255,255,0.06)] pt-6">
-                  <h4 className="font-medium text-white mb-4 flex items-center gap-2"><span className="w-1.5 h-4 bg-[hsl(160,84%,60%)] rounded-full"></span> Payment Information</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-[rgba(255,255,255,0.02)] p-4 rounded-xl border border-[rgba(255,255,255,0.04)]">
-                      <p className="text-xs font-medium text-[hsl(215,20%,55%)] uppercase tracking-wider mb-1">Booking Fee</p>
-                      <p className="text-base font-mono text-white">₹{selectedService.bookingFee ?? 99}</p>
-                    </div>
-                    <div className="bg-[hsla(160,84%,39%,0.1)] p-4 rounded-xl border border-[hsla(160,84%,39%,0.2)]">
-                      <p className="text-xs font-medium text-[hsl(160,84%,75%)] uppercase tracking-wider mb-1">Total Amount</p>
-                      <p className="text-lg font-bold font-mono text-[hsl(160,84%,65%)]">{selectedService.totalAmount ? `₹${selectedService.totalAmount}` : 'Pending'}</p>
-                    </div>
-                    {selectedService.commissionAmount && (
-                      <div className="col-span-2 bg-[hsla(217,91%,60%,0.1)] p-4 rounded-xl border border-[hsla(217,91%,60%,0.2)]">
-                        <p className="text-xs font-medium text-[hsl(217,91%,75%)] uppercase tracking-wider mb-1">Platform Commission</p>
-                        <p className="text-base font-mono font-medium text-[hsl(217,91%,65%)]">₹{selectedService.commissionAmount}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
 
                 <div className="border-t border-[rgba(255,255,255,0.06)] pt-6 mt-4">
                   <div className="grid grid-cols-2 gap-4">
