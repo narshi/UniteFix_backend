@@ -510,6 +510,7 @@ export class AdminServiceManager {
         queue: any[];
         employees: any[];
         partners: any[];
+        partnersNotReady: Array<{ id: number; partnerCode: string; name: string; missing: string[] }>;
         stats: { totalPending: number; urgentCount: number; avgWaitHours: number; oldestHours: number };
     }> {
         const now = new Date();
@@ -744,6 +745,8 @@ export class AdminServiceManager {
         // came back from (it missed its assign-by time).
         const { PartnerFieldService } = await import('./partner-field.service');
         const partners = await PartnerFieldService.dispatchCandidates();
+        // Active partners missing Field service or a ready technician, with why.
+        const partnersNotReady = await PartnerFieldService.notReadyPartners(new Set(partners.map(p => p.id)));
         const partnerName = new Map(partners.map(p => [p.id, p.name]));
         const backFrom = queueWithExpertise.filter((q: any) => q.dispatchPartnerId && !partnerName.has(q.dispatchPartnerId)).map((q: any) => q.dispatchPartnerId as number);
         if (backFrom.length) {
@@ -755,6 +758,7 @@ export class AdminServiceManager {
             queue: queueWithExpertise.map((q: any) => ({ ...q, escalatedFromPartnerName: q.dispatchPartnerId ? partnerName.get(q.dispatchPartnerId) ?? null : null })),
             employees: employeesWithTypes,
             partners,
+            partnersNotReady,
             stats: { totalPending, urgentCount, avgWaitHours, oldestHours },
         };
     }

@@ -136,6 +136,7 @@ export default function AssignmentQueuePage() {
   const queue: QueueItem[] = (data as any)?.queue || [];
   const employees: EmployeeItem[] = (data as any)?.employees || [];
   const partners: PartnerItem[] = (data as any)?.partners || [];
+  const partnersNotReady: Array<{ id: number; partnerCode: string; name: string; missing: string[] }> = (data as any)?.partnersNotReady || [];
   // Who to give the selected job to: one of UniteFix's experts, or a partner
   // (who then picks one of their own technicians).
   const [panel, setPanel] = useState<"experts" | "partners">("experts");
@@ -584,8 +585,9 @@ export default function AssignmentQueuePage() {
               {panel === "partners" && selectedRequest ? (
                 <div className="space-y-2">
                   {!sortedPartners.length ? (
-                    <p className="text-center py-10 text-sm text-[hsl(215,20%,60%)]">No partner can take jobs yet. A partner needs Field service and at least one verified technician.</p>
-                  ) : sortedPartners.map(p => {
+                    <p className="text-center py-6 text-sm text-[hsl(215,20%,60%)]">No partner can take jobs yet. A partner needs Field service and at least one verified technician who is switched on.</p>
+                  ) : null}
+                  {sortedPartners.map(p => {
                     const fit = partnerFit(p, selectedRequest);
                     return (
                       <div key={p.id} className={`p-3 rounded-lg border transition-all ${fit.covers && fit.offers ? "border-[hsla(217,91%,60%,0.3)] bg-[hsla(217,91%,60%,0.05)]" : "border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)]"}`}>
@@ -616,6 +618,19 @@ export default function AssignmentQueuePage() {
                       </div>
                     );
                   })}
+                  {partnersNotReady.length > 0 && (
+                    <div className="space-y-2 pt-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-[hsl(215,20%,55%)]">Not ready for jobs yet</p>
+                      {partnersNotReady.map(p => (
+                        <div key={p.id} className="p-3 rounded-lg border border-dashed border-[rgba(255,255,255,0.1)]">
+                          <p className="text-sm text-[hsl(215,20%,80%)]">{p.name} <span className="font-mono text-[10px] text-[hsl(215,20%,55%)]">{p.partnerCode}</span></p>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] text-[hsl(38,92%,65%)]">
+                            {p.missing.map(m => <li key={m}>{m}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : !selectedRequest ? (
                 <div className="text-center py-12">

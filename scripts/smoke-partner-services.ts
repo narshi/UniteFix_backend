@@ -134,6 +134,25 @@ async function main() {
         const qp = (queue.body?.partners ?? []).find((p: any) => p.id === bpId);
         check('the Assignment Queue lists the booking and the partners staff can send it to', (queue.body?.queue ?? []).some((x: any) => x.id === b1.id) && qp?.pincodes.includes(PIN) && qp?.catalogServiceIds.includes(tap.id) && qp?.technicians === 1, JSON.stringify(qp ?? queue.body).slice(0, 200));
         check('…a partner with no verified technician is not offered', !(queue.body?.partners ?? []).some((p: any) => p.id === c2.id));
+        const nr = (queue.body?.partnersNotReady ?? []).find((p: any) => p.id === c2.id);
+        check('…but is listed as not ready, saying it has no technicians yet', !!nr && nr.missing.length === 1 && /No technicians yet/.test(nr.missing[0]), JSON.stringify(nr ?? null));
+        check('…and a ready partner is not in that list', !(queue.body?.partnersNotReady ?? []).some((p: any) => p.id === bpId));
+        // An FTTH operator (ISP only) made a partner: the Poorvi case.
+        const isp = await BusinessPartnerService.create({ legalName: `QA ISP Only ${stamp}`, contactPhone: phone(), contactEmail: `qa_pp3_${stamp}@example.test`, verticalCodes: ['isp'], approvedByAdminId: sa.id } as any);
+        bpIds.push(isp.id);
+        const opt1 = await api.get(`/api/admin/services/${b1.id}/partner-options`, S);
+        const ispNr = (opt1.body?.notReady ?? []).find((p: any) => p.id === isp.id);
+        check('an ISP-only partner shows in Send to partner as not ready: no Field service, no technicians', !!ispNr && /No Field service/.test(ispNr.missing[0] ?? '') && /No technicians yet/.test(ispNr.missing[1] ?? '') && !(opt1.body?.data ?? []).some((p: any) => p.id === isp.id), JSON.stringify(ispNr ?? opt1.body).slice(0, 300));
+        await db.execute(sql`INSERT INTO business_partner_verticals (business_partner_id, vertical_id) SELECT ${isp.id}, id FROM partner_verticals WHERE code = 'computer' ON CONFLICT DO NOTHING`);
+        const [pu] = await db.insert(users).values({ phone: phone(), username: 'QA ISP Tech', role: 'serviceman', isActive: true } as any).returning(); userIds.push(pu.id);
+        const [pt] = await db.insert(employees).values({ userId: pu.id, fullName: 'QA ISP Tech', documentVerificationStatus: 'pending', isActive: true, managedByPartnerId: isp.id } as any).returning();
+        const opt2 = (await api.get(`/api/admin/services/${b1.id}/partner-options`, S)).body;
+        const ispNr2 = (opt2?.notReady ?? []).find((p: any) => p.id === isp.id);
+        check('…with Computer added and an unverified technician, only the verification is left', !!ispNr2 && ispNr2.missing.length === 1 && /none verified yet/.test(ispNr2.missing[0]), JSON.stringify(ispNr2 ?? null));
+        await db.update(employees).set({ documentVerificationStatus: 'verified' } as any).where(eq(employees.id, pt.id));
+        const opt3 = (await api.get(`/api/admin/services/${b1.id}/partner-options`, S)).body;
+        check('…once the technician is verified, the partner can be sent jobs', (opt3?.data ?? []).some((p: any) => p.id === isp.id) && !(opt3?.notReady ?? []).some((p: any) => p.id === isp.id));
+        await db.update(employees).set({ isActive: false } as any).where(eq(employees.id, pt.id));
         const notReady = await api.post(`/api/admin/services/${b1.id}/assign-partner`, { businessPartnerId: c2.id }, S);
         check('…and sending a job to them is refused with why', notReady.status === 409 && /verified technician/.test(notReady.body?.error ?? ''), JSON.stringify(notReady.body));
         const sent = await api.post(`/api/admin/services/${b1.id}/assign-partner`, { businessPartnerId: bpId }, S);

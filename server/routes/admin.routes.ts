@@ -162,7 +162,8 @@ export function registerAdminRoutes(app: Express) {
                 offers: !!sr.catalogServiceId && p.catalogServiceIds.includes(sr.catalogServiceId),
                 current: p.id === sr.dispatchPartnerId,
             })).sort((a, b) => (Number(b.covers) * 2 + Number(b.offers)) - (Number(a.covers) * 2 + Number(a.offers)) || a.openJobs - b.openJobs);
-            res.json({ success: true, data, pincode: pin });
+            const notReady = await PartnerFieldService.notReadyPartners(new Set(all.map(p => p.id)));
+            res.json({ success: true, data, notReady, pincode: pin });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
         }

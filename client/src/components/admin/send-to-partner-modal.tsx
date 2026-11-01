@@ -16,10 +16,12 @@ type Option = {
   id: number; partnerCode: string; name: string; phone: string | null;
   technicians: number; openJobs: number; covers: boolean; offers: boolean; current: boolean;
 };
+/** An active partner that cannot take jobs yet, and what it is missing. */
+type NotReady = { id: number; partnerCode: string; name: string; missing: string[] };
 
 export default function SendToPartnerModal({ service, open, onClose }: { service: any; open: boolean; onClose: () => void }) {
   const { toast } = useToast();
-  const options = useQuery<{ data: Option[]; pincode: string | null }>({
+  const options = useQuery<{ data: Option[]; notReady?: NotReady[]; pincode: string | null }>({
     queryKey: ["/api/admin/services", service?.id, "partner-options"],
     enabled: open && !!service?.id,
     queryFn: async () => apiRequest("GET", `/api/admin/services/${service.id}/partner-options`),
@@ -42,6 +44,7 @@ export default function SendToPartnerModal({ service, open, onClose }: { service
   const withPartnerUnassigned = !!service.dispatchPartnerId && !service.providerId && service.status === "created";
   const moving = !!service.providerId || !!service.dispatchPartnerId;
   const rows = options.data?.data ?? [];
+  const notReady = options.data?.notReady ?? [];
 
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
@@ -59,7 +62,7 @@ export default function SendToPartnerModal({ service, open, onClose }: { service
 
         <div className="max-h-[55vh] overflow-y-auto space-y-2">
           {options.isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p>
-            : !rows.length ? <p className="text-sm text-[hsl(215,20%,65%)]">No partner can take jobs yet. A partner needs Field service and at least one verified technician.</p>
+            : !rows.length ? <p className="text-sm text-[hsl(215,20%,65%)]">No partner can take jobs yet. A partner needs Field service and at least one verified technician who is switched on.</p>
             : rows.map(p => (
               <div key={p.id} className={`flex items-start justify-between gap-3 rounded-lg border p-3 ${p.covers && p.offers ? "border-[hsla(217,91%,60%,0.3)] bg-[hsla(217,91%,60%,0.05)]" : "border-[rgba(255,255,255,0.08)]"}`}>
                 <div className="min-w-0">
@@ -90,6 +93,19 @@ export default function SendToPartnerModal({ service, open, onClose }: { service
                 )}
               </div>
             ))}
+          {!options.isLoading && notReady.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-[hsl(215,20%,55%)]">Not ready for jobs yet</p>
+              {notReady.map(p => (
+                <div key={p.id} className="rounded-lg border border-dashed border-[rgba(255,255,255,0.1)] p-3">
+                  <p className="text-sm text-[hsl(215,20%,80%)]">{p.name} <span className="font-mono text-[10px] text-[hsl(215,20%,55%)]">{p.partnerCode}</span></p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] text-[hsl(38,92%,65%)]">
+                    {p.missing.map(m => <li key={m}>{m}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {withPartnerUnassigned && (

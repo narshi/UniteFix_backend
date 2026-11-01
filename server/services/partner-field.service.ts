@@ -31,6 +31,7 @@ import {
     type PartnerTerritory, type ServiceRequest,
 } from '@shared/schema';
 import { configService } from './config.service';
+import { VERTICAL_TO_MODULES } from '@shared/hub';
 import { BusinessPartnerService } from './business-partner.service';
 import { TaxDocumentService, type Party } from './tax-documents.service';
 import { HubError, type HubContext } from './partner-hub.service';
@@ -379,6 +380,39 @@ export class PartnerFieldService {
                 id: bp.id, partnerCode: bp.partnerCode, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone,
                 pincodes: pins.map(p => p.p), catalogServiceIds: offered.map(o => o.id as number), technicians: techs.n, openJobs: open.n,
             });
+        }
+        return out;
+    }
+
+    /**
+     * Active partners staff cannot give a job to yet, each with what is
+     * missing, so the Send to partner list can say why a partner is absent
+     * instead of leaving staff to guess.
+     */
+    static async notReadyPartners(readyIds: Set<number>) {
+        const bps = await db.select().from(businessPartners).where(eq(businessPartners.status, 'active'));
+        const { PartnerHubService } = await import('./partner-hub.service');
+        const out: Array<{ id: number; partnerCode: string; name: string; missing: string[] }> = [];
+        for (const bp of bps) {
+            if (readyIds.has(bp.id)) continue;
+            const missing: string[] = [];
+            const verticals = await BusinessPartnerService.verticalCodesOf(bp.id);
+            const modules = await PartnerHubService.modulesOf(bp, verticals);
+            if (!modules.includes('field')) {
+                const hasFieldVertical = verticals.some(v => (VERTICAL_TO_MODULES[v] ?? []).includes('field'));
+                missing.push(hasFieldVertical
+                    ? 'Field service is switched off for this partner. Switch it on under its Hub modules.'
+                    : 'No Field service. Add the Computer, CCTV, Plumbing or Electrical vertical in Business partners → Edit.');
+            }
+            const [t] = await db.select({
+                total: sql<number>`count(*)::int`,
+                verified: sql<number>`count(*) FILTER (WHERE ${employees.documentVerificationStatus} = 'verified')::int`,
+                ready: sql<number>`count(*) FILTER (WHERE ${employees.documentVerificationStatus} = 'verified' AND ${employees.isActive})::int`,
+            }).from(employees).where(eq(employees.managedByPartnerId, bp.id));
+            if (!t.total) missing.push('No technicians yet. The partner adds them in their Hub under Field service → Team, or an expert joins with the partner’s joining code.');
+            else if (!t.verified) missing.push(`${t.total} technician${t.total === 1 ? '' : 's'}, none verified yet. Verify them on the Employees page.`);
+            else if (!t.ready) missing.push(`${t.verified} verified technician${t.verified === 1 ? '' : 's'}, all switched off. The partner switches one on under Field service → Team.`);
+            out.push({ id: bp.id, partnerCode: bp.partnerCode, name: bp.displayName, missing });
         }
         return out;
     }
