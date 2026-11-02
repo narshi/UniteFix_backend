@@ -2,7 +2,7 @@
  * Spare-part approval.
  *
  *   Technician  POST /api/bookings/:id/part-requests/preview   price, warranty, duplicates — nothing saved
- *               POST /api/bookings/:id/part-requests           send to the customer { items, reason, confirmDuplicate? }
+ *               POST /api/bookings/:id/part-requests           send to the customer { items, work?, reason, confirmDuplicate? }
  *               GET  /api/partner/bookings/:id/part-requests   every request on the job, newest first
  *               POST /api/part-requests/:id/cancel
  *   Customer    GET  /api/bookings/:id/part-requests           the requests waiting on them, and past decisions
@@ -24,11 +24,11 @@ export function registerPartRequestRoutes(app: Express) {
     const user = (req: Request) => (req as any).user?.userId as number;
 
     app.post('/api/bookings/:id/part-requests/preview', authenticatePartner, requireVerifiedPartner, async (req, res, next) => {
-        try { res.json({ success: true, data: await PartRequestService.preview(tech(req), Number(req.params.id), req.body?.items) }); } catch (e) { fail(e, res, next); }
+        try { res.json({ success: true, data: await PartRequestService.preview(tech(req), Number(req.params.id), req.body?.items ?? [], req.body?.work) }); } catch (e) { fail(e, res, next); }
     });
     app.post('/api/bookings/:id/part-requests', authenticatePartner, requireVerifiedPartner, async (req, res, next) => {
         try {
-            const r = await PartRequestService.create(tech(req), Number(req.params.id), { items: req.body?.items, reason: req.body?.reason, confirmDuplicate: req.body?.confirmDuplicate === true });
+            const r = await PartRequestService.create(tech(req), Number(req.params.id), { items: req.body?.items ?? [], work: req.body?.work, reason: req.body?.reason, confirmDuplicate: req.body?.confirmDuplicate === true });
             res.status(201).json({ success: true, message: 'Sent to the customer for approval.', warnings: r.warnings, data: r.request });
         } catch (e) { fail(e, res, next); }
     });

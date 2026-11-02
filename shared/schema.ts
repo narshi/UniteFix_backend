@@ -3619,6 +3619,11 @@ export const partRequests = pgTable("part_requests", {
   partsPaise: integer("parts_paise").notNull().default(0),
   gstPaise: integer("gst_paise").notNull().default(0),
   totalPaise: integer("total_paise").notNull().default(0),
+  // Extra work the technician did beyond the booked service, all-in prices
+  // (GST and UniteFix's fee are inside them, as in a catalogue price).
+  workItems: jsonb("work_items").notNull().default([]),   // [{ description, amountPaise }]
+  workPaise: integer("work_paise").notNull().default(0),
+  workGstPaise: integer("work_gst_paise").notNull().default(0),
   earlierWarranty: jsonb("earlier_warranty"),             // the same part still under warranty from an earlier job, if any
   customerNote: text("customer_note"),                    // why the customer rejected / their question
   sentAt: timestamp("sent_at").notNull(),

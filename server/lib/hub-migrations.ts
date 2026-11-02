@@ -1257,6 +1257,11 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS partner_commission_value NUMERIC(10,2);
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_partner_owner BOOLEAN NOT NULL DEFAULT false;
     `],
+    ['part requests: extra work', `
+      ALTER TABLE part_requests ADD COLUMN IF NOT EXISTS work_items JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE part_requests ADD COLUMN IF NOT EXISTS work_paise INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE part_requests ADD COLUMN IF NOT EXISTS work_gst_paise INTEGER NOT NULL DEFAULT 0;
+    `],
     ['bookings: admin cancel and close', `
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;

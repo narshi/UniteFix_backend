@@ -199,6 +199,14 @@ export class InvoiceGenerator {
                             total: laborTotal
                         });
                     }
+                    if (Number(snapshot.extraWorkValue) > 0) {
+                        items.push({
+                            description: `Extra work${snapshot.extraWorkNote ? `: ${String(snapshot.extraWorkNote).slice(0, 80)}` : ''}`,
+                            quantity: 1,
+                            unitPrice: Number(snapshot.extraWorkValue),
+                            total: Number(snapshot.extraWorkValue),
+                        });
+                    }
                     if (snapshot.platformFee > 0) {
                         items.push({
                             description: `UniteFix Platform Fee (${snapshot.platformFeePercent || 15}%)`,

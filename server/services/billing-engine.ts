@@ -97,6 +97,19 @@ export interface PricingSnapshot {
    * at its own rate, a local purchase at the booking's service rate. Absent on
    * snapshots billed before parts were taxed; those invoices print as they did.
    */
+  /**
+   * Extra work the customer approved at the end of a fixed-price job (the X+Y:
+   * a visit at X, the fix found to need Y more). Y is all-in like a catalogue
+   * price: its GST and UniteFix's fee are carved out of it and the rest is the
+   * technician's. Folded into gst/cgst/sgst, platformFee, taxableAmount,
+   * grossTotal, finalTotal and the earning; extraWorkValue is its own line on
+   * the invoice.
+   */
+  extraWorkAmount?: number;
+  extraWorkGst?: number;
+  extraWorkFee?: number;
+  extraWorkValue?: number;
+  extraWorkNote?: string;
   partsTaxable?: number;       // extraPartsCost + platformPartsCost
   partsGst?: number;           // partsCgst + partsSgst
   partsCgst?: number;
@@ -452,6 +465,41 @@ export class BillingEngine {
   ): PricingSnapshot {
     // Same math as calculateFinalBill, just not persisted
     return this.calculateFinalBill(sparePartsCost, serviceLaborCost, existingSnapshot);
+  }
+
+  /**
+   * Add customer-approved extra work to a fixed-price bill. amountRupees is
+   * what the customer pays for it, GST included; the GST and the platform fee
+   * (at the booking's frozen rates) come out of it, and the rest is the
+   * technician's. Adds to any extra work already on the bill.
+   */
+  static applyExtraWork(s: PricingSnapshot, amountRupees: number, note: string): PricingSnapshot {
+    const L = round2(Math.max(0, amountRupees));
+    if (!(L > 0)) return s;
+    const g = Number(s.gstPercent) || 0;
+    const f = Number(s.platformFeePercent) || 0;
+    const gst = round2(L * g / (100 + g));
+    const fee = round2(L * f / 100);
+    const value = round2(L - gst - fee);
+    const cgst = round2(gst / 2);
+    const sgst = round2(gst - cgst);
+    return {
+      ...s,
+      extraWorkAmount: round2((s.extraWorkAmount ?? 0) + L),
+      extraWorkGst: round2((s.extraWorkGst ?? 0) + gst),
+      extraWorkFee: round2((s.extraWorkFee ?? 0) + fee),
+      extraWorkValue: round2((s.extraWorkValue ?? 0) + value),
+      extraWorkNote: [s.extraWorkNote, note].filter(Boolean).join('; ').slice(0, 500) || undefined,
+      gst: round2((s.gst ?? 0) + gst),
+      cgst: round2((s.cgst ?? 0) + cgst),
+      sgst: round2((s.sgst ?? 0) + sgst),
+      platformFee: round2((s.platformFee ?? 0) + fee),
+      taxableAmount: round2((s.taxableAmount ?? 0) + L - gst),
+      grossTotal: round2((s.grossTotal ?? 0) + L),
+      finalTotal: round2((s.finalTotal ?? 0) + L),
+      technicianEarning: round2((s.technicianEarning ?? 0) + value),
+      employeeEarnings: round2((s.employeeEarnings ?? 0) + value),
+    };
   }
 
   /**

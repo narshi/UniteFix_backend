@@ -11,6 +11,11 @@
  *      ├──technician──▶ cancelled
  *      └──time──▶ expired (the technician can send it again)
  *
+ * A request can also carry EXTRA WORK: what the technician found and fixed
+ * beyond the booked service (a visit at X, the fix needing Y more). Each line
+ * is what the customer pays for it, GST included; the bill carves the GST and
+ * UniteFix's fee out of it like a catalogue price.
+ *
  * Prices are the server's: a UniteFix-stock part is priced from the catalogue,
  * a local purchase at what the technician paid. GST is added the same way the
  * bill adds it, so the amount the customer approves is the amount they pay.
@@ -41,6 +46,23 @@ export interface PartRequestItemInput {
     billPhotoUrl?: string | null;
 }
 
+export interface WorkItemInput { description?: string; amountRupees?: number }
+type WorkItem = { description: string; amountPaise: number };
+
+/** Extra work lines, checked. Each is what the customer pays for it, GST included. */
+function cleanWork(input: WorkItemInput[] | undefined | null): WorkItem[] {
+    if (!input) return [];
+    if (!Array.isArray(input)) throw new PartRequestError('Extra work must be a list.', 'BAD_WORK');
+    if (input.length > 5) throw new PartRequestError('Up to 5 lines of extra work in one request.', 'TOO_MANY');
+    return input.map((w, n) => {
+        const description = String(w?.description ?? '').trim().replace(/\s+/g, ' ');
+        if (description.length < 3) throw new PartRequestError(`Say what the extra work ${n + 1} is — the customer reads it.`, 'NO_WORK_NOTE');
+        const amount = Number(w?.amountRupees);
+        if (!(amount > 0) || amount > 100000) throw new PartRequestError(`Enter what the extra work "${description.slice(0, 40)}" costs (₹1 to ₹1,00,000).`, 'BAD_WORK_AMOUNT');
+        return { description: description.slice(0, 120), amountPaise: Math.round(amount * 100) };
+    });
+}
+
 const rs = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -69,6 +91,16 @@ const sourceText = (sourceType: string, audience: 'technician' | 'customer', ven
         : sourceType === 'customer_supplied' ? (audience === 'customer' ? 'Your own part' : "Customer's own part")
             : audience === 'customer' ? 'Bought locally by your technician' : (vendorName ? `Bought locally · ${vendorName}` : 'Bought locally');
 
+/** Extra work shaped like a part line: app builds that only list items still show it. */
+function workLines(work: WorkItem[], audience: 'technician' | 'customer') {
+    return work.map(w => ({
+        sparePartId: null, partName: `Extra work: ${w.description}`, quantity: 1, unitPrice: w.amountPaise / 100, lineTotal: w.amountPaise / 100,
+        source: audience === 'customer' ? 'Work by your technician' : 'Your work', sourceType: 'work',
+        warranty: { covered: false, label: `Workmanship guaranteed ${WORKMANSHIP_WARRANTY_DAYS} days` },
+        ...(audience === 'technician' ? { billAttached: false } : {}),
+    }));
+}
+
 export class PartRequestService {
 
     static async expiryMinutes() {
@@ -90,8 +122,15 @@ export class PartRequestService {
      * Price the items, work out their warranty, and look for the same part
      * still under warranty from an earlier job. No writes.
      */
-    static async price(employeeId: number, booking: typeof serviceRequests.$inferSelect, input: PartRequestItemInput[]) {
-        if (!Array.isArray(input) || !input.length) throw new PartRequestError('Add the part first.', 'NO_ITEMS');
+    static async price(employeeId: number, booking: typeof serviceRequests.$inferSelect, input: PartRequestItemInput[], workInput?: WorkItemInput[] | null) {
+        const work = cleanWork(workInput);
+        const gstPercentW = Number((booking.pricingSnapshot as any)?.gstPercent) || 18;
+        const workPaise = work.reduce((a, w) => a + w.amountPaise, 0);
+        const workGstPaise = Math.round(workPaise * gstPercentW / (100 + gstPercentW));
+        if ((!Array.isArray(input) || !input.length) && work.length) {
+            return { items: [] as PartItemInput[], resolved: [] as ReturnType<typeof resolvePartItem>[], partsPaise: 0, gstPaise: 0, totalPaise: workPaise, earlier: null, warnings: [] as string[], gstPercent: gstPercentW, work, workPaise, workGstPaise };
+        }
+        if (!Array.isArray(input) || !input.length) throw new PartRequestError('Add a part or the extra work first.', 'NO_ITEMS');
         if (input.length > 10) throw new PartRequestError('Up to 10 parts in one request.', 'TOO_MANY');
         const raw: PartItemInput[] = input.map((i, n) => {
             const sourceType = i.sourceType === 'platform' || i.sparePartId ? 'platform' : i.sourceType === 'customer_supplied' ? 'customer_supplied' : 'technician_local';
@@ -134,7 +173,7 @@ export class PartRequestService {
         const tax = BillingEngine.partsTax(resolved, gstPercent);
         const partsPaise = Math.round(tax.partsTaxable * 100), gstPaise = Math.round(tax.partsGst * 100);
         const earlier = await this.earlierWarranty(booking, resolved);
-        return { items, resolved, partsPaise, gstPaise, totalPaise: partsPaise + gstPaise, earlier, warnings: enriched.warnings, gstPercent };
+        return { items, resolved, partsPaise, gstPaise, totalPaise: partsPaise + gstPaise + workPaise, earlier, warnings: enriched.warnings, gstPercent, work, workPaise, workGstPaise };
     }
 
     /** The same part fitted for this customer on an earlier job and still under warranty. */
@@ -151,9 +190,9 @@ export class PartRequestService {
         return { partName: hit.p.partName, jobRef: hit.ref, fittedAt: hit.p.installedAt, warrantyUntil: hit.p.warrantyExpiresAt };
     }
 
-    static async preview(employeeId: number, bookingId: number, items: PartRequestItemInput[]) {
+    static async preview(employeeId: number, bookingId: number, items: PartRequestItemInput[], work?: WorkItemInput[] | null) {
         const b = await this.workingBooking(employeeId, bookingId);
-        const p = await this.price(employeeId, b, items);
+        const p = await this.price(employeeId, b, items, work);
         const dup = await this.duplicates(bookingId, p.resolved);
         return { ...this.pricedView(p, 'technician'), duplicates: dup };
     }
@@ -164,8 +203,9 @@ export class PartRequestService {
                 sparePartId: r.sparePartId, partName: r.partName, quantity: r.quantity, unitPrice: r.unitPricePaise / 100,
                 lineTotal: (r.unitPricePaise * r.quantity) / 100, source: sourceText(r.sourceType, audience, r.vendorName),
                 sourceType: r.sourceType, warranty: warrantyOf(r, audience), billAttached: !!r.billPhotoUrl,
-            })),
-            parts: p.partsPaise / 100, gst: p.gstPaise / 100, total: p.totalPaise / 100, gstPercent: p.gstPercent,
+            })).concat(workLines(p.work, audience) as any),
+            work: p.work.map(w => ({ description: w.description, amount: w.amountPaise / 100 })), workTotal: p.workPaise / 100,
+            parts: p.partsPaise / 100, gst: (p.gstPaise + p.workGstPaise) / 100, total: p.totalPaise / 100, gstPercent: p.gstPercent,
             earlierWarranty: p.earlier, warnings: p.warnings,
         };
     }
@@ -185,21 +225,23 @@ export class PartRequestService {
         return out;
     }
 
-    static async create(employeeId: number, bookingId: number, input: { items: PartRequestItemInput[]; reason?: string | null; confirmDuplicate?: boolean }) {
+    static async create(employeeId: number, bookingId: number, input: { items: PartRequestItemInput[]; work?: WorkItemInput[] | null; reason?: string | null; confirmDuplicate?: boolean }) {
         const b = await this.workingBooking(employeeId, bookingId);
         const reason = String(input.reason ?? '').trim().slice(0, 300);
-        if (reason.length < 3) throw new PartRequestError('Say why the part is needed — the customer reads this.', 'NO_REASON');
-        const p = await this.price(employeeId, b, input.items);
+        if (reason.length < 3) throw new PartRequestError('Say why it is needed — the customer reads this.', 'NO_REASON');
+        const p = await this.price(employeeId, b, input.items ?? [], input.work);
         const dup = await this.duplicates(bookingId, p.resolved);
         if (dup.length && !input.confirmDuplicate) throw new PartRequestError(dup.join(' '), 'DUPLICATE_PART', 409);
         const now = new Date();
         const [row] = await db.insert(partRequests).values({
             serviceRequestId: bookingId, employeeId, customerUserId: b.userId, status: 'pending', items: p.items as any, reason,
             partsPaise: p.partsPaise, gstPaise: p.gstPaise, totalPaise: p.totalPaise, earlierWarranty: p.earlier as any,
+            workItems: p.work as any, workPaise: p.workPaise, workGstPaise: p.workGstPaise,
             sentAt: now, expiresAt: new Date(now.getTime() + (await this.expiryMinutes()) * 60_000),
         }).returning();
-        const names = p.resolved.map(r => `${r.partName}${r.quantity > 1 ? ` ×${r.quantity}` : ''}`).join(', ');
-        NotificationService.notify(b.userId, 'Approve a spare part',
+        const names = p.resolved.map(r => `${r.partName}${r.quantity > 1 ? ` ×${r.quantity}` : ''}`)
+            .concat(p.work.map(w => `extra work: ${w.description}`)).join(', ');
+        NotificationService.notify(b.userId, p.resolved.length ? 'Approve a spare part' : 'Approve extra work',
             `Your technician needs ${names} (${rs(p.totalPaise)} incl. GST) for ${b.serviceId}. Tap to approve or reject.`,
             'part_approval_requested', { serviceId: bookingId, partRequestId: row.id, serviceRef: b.serviceId });
         logger.info(`[PARTS] Approval requested on SR #${bookingId}: ${names} ${rs(p.totalPaise)} (request #${row.id})`);
@@ -224,9 +266,11 @@ export class PartRequestService {
                 ...(audience === 'technician' ? { billAttached: !!x.billPhotoUrl } : {}),
             };
         });
+        const work = ((r.workItems as WorkItem[] | null) ?? []);
         return {
-            id: r.id, status: r.status, reason: r.reason, items,
-            parts: r.partsPaise / 100, gst: r.gstPaise / 100, total: r.totalPaise / 100,
+            id: r.id, status: r.status, reason: r.reason, items: items.concat(workLines(work, audience) as any),
+            work: work.map(w => ({ description: w.description, amount: w.amountPaise / 100 })), workTotal: (r.workPaise ?? 0) / 100,
+            parts: r.partsPaise / 100, gst: (r.gstPaise + (r.workGstPaise ?? 0)) / 100, total: r.totalPaise / 100,
             earlierWarranty: r.earlierWarranty, customerNote: r.customerNote,
             sentAt: r.sentAt, expiresAt: r.expiresAt, decidedAt: r.decidedAt,
         };
@@ -280,9 +324,10 @@ export class PartRequestService {
             status: decision === 'approve' ? 'approved' : 'rejected', decidedAt: new Date(), decidedByUserId: userId, customerNote: decision === 'reject' ? cleanNote : null,
         }).where(and(eq(partRequests.id, id), eq(partRequests.status, 'pending'))).returning();
         if (!u) throw new PartRequestError('This request was just decided.', 'ALREADY_DECIDED', 409);
-        const names = (r.items as PartItemInput[]).map(x => String(x.partName)).join(', ');
+        const names = (r.items as PartItemInput[]).map(x => String(x.partName))
+            .concat(((r.workItems as WorkItem[] | null) ?? []).map(w => `extra work: ${w.description}`)).join(', ');
         NotificationService.notify(tech?.userId ?? null,
-            decision === 'approve' ? 'Customer approved the part' : 'Customer rejected the part',
+            decision === 'approve' ? 'Customer approved' : 'Customer rejected',
             decision === 'approve' ? `${names} approved for ${b.ref}. Fit it and request payment when done.` : `${names} rejected for ${b.ref}${cleanNote ? `: "${cleanNote}"` : '.'}`,
             'part_approval_decided', { serviceId: r.serviceRequestId, partRequestId: id, role: 'expert' });
         return this.view(u, 'customer');
@@ -292,8 +337,10 @@ export class PartRequestService {
     static async forBilling(bookingId: number) {
         await this.expireDue(bookingId);
         const rows = await db.select().from(partRequests).where(and(eq(partRequests.serviceRequestId, bookingId), or(eq(partRequests.status, 'approved'), eq(partRequests.status, 'pending'))));
+        const approved = rows.filter(r => r.status === 'approved');
         return {
-            items: rows.filter(r => r.status === 'approved').flatMap(r => r.items as PartItemInput[]),
+            items: approved.flatMap(r => r.items as PartItemInput[]),
+            work: approved.flatMap(r => ((r.workItems as WorkItem[] | null) ?? [])),
             pending: rows.filter(r => r.status === 'pending'),
         };
     }

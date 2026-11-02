@@ -317,7 +317,7 @@ export function registerBillingRoutes(app: Express) {
             // to remit, and a UniteFix-supplied part is UniteFix's sale.
             const round2 = (x: number) => Math.round(x * 100) / 100;
             const tax = BillingEngine.partsTax(resolvedItems, Number(snapshot.gstPercent) || 18);
-            const updatedSnapshot: PricingSnapshot = allPartsCost > 0
+            let updatedSnapshot: PricingSnapshot = allPartsCost > 0
                 ? {
                     ...snapshot,
                     grossTotal: round2((snapshot.grossTotal ?? 0) + allPartsCost + tax.partsGst),
@@ -334,6 +334,13 @@ export function registerBillingRoutes(app: Express) {
                     partsNote: partsNote || undefined,
                 }
                 : snapshot;
+
+            // Extra work the customer approved (the X+Y): its GST and UniteFix's
+            // fee come out of it, the rest is the technician's.
+            if (approval.work.length) {
+                const workRupees = approval.work.reduce((a, w) => a + w.amountPaise, 0) / 100;
+                updatedSnapshot = BillingEngine.applyExtraWork(updatedSnapshot, workRupees, approval.work.map(w => w.description).join('; '));
+            }
 
             const [updated] = await db.update(serviceRequests)
                 .set({
