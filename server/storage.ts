@@ -1157,20 +1157,32 @@ export class DatabaseStorage implements IStorage {
    * v2 fixed-price → the exact frozen technicianEarning; v1/legacy → the historical
    * share-of-booking-fee. Idempotent: creditWalletOnHold dedupes by serviceRequestId.
    */
+  /**
+   * What the technician earns on a completed job, from its frozen bill.
+   *
+   * Fixed-price bookings carry technicianEarning. A General booking billed by
+   * the expert carries employeeEarnings (parts + labour, less parts UniteFix
+   * supplied); it used to fall through to the legacy rule below, so an online
+   * payment credited half the booking fee instead of the bill. Only bookings
+   * with no bill at all keep the legacy share of the booking fee.
+   */
+  async technicianEarningFor(service: any): Promise<number> {
+    const snapshot: any = service.pricingSnapshot;
+    if (snapshot?.snapshotVersion === 2 && snapshot.technicianEarning != null) return Number(snapshot.technicianEarning);
+    if (snapshot?.billedAt && snapshot.employeeEarnings != null) return Number(snapshot.employeeEarnings);
+    const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
+    const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
+    const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
+    return (baseFee * partnerSharePct) / 100;
+  }
+
   private async creditTechnicianOnCompletion(service: any, completedAt: Date | string, tx?: any): Promise<void> {
     if (!service.providerId) {
       logger.warn(`[WALLET] Skipping completion credit for SR ${service.id}: no provider assigned`);
       return;
     }
-    const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
-    const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
-    const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
     const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
-
-    const snapshot: any = service.pricingSnapshot;
-    const partnerAmount = (snapshot && snapshot.snapshotVersion === 2 && snapshot.technicianEarning != null)
-      ? Number(snapshot.technicianEarning)
-      : (baseFee * partnerSharePct) / 100;
+    const partnerAmount = await this.technicianEarningFor(service);
 
     const releaseDate = new Date(completedAt);
     releaseDate.setDate(releaseDate.getDate() + holdDays);
@@ -1442,6 +1454,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  /**
+   * NOT CALLED. Completion (updateServiceRequestStatus → creditTechnicianOnCompletion)
+   * already credits the earning, held. Calling this as well credited it a second
+   * time as available money, so every caller was removed.
+   */
   async creditProviderWalletForOnlinePayment(
     serviceRequestId: number
   ): Promise<{ transaction: WalletTransaction | null }> {
@@ -2455,19 +2472,8 @@ export class DatabaseStorage implements IStorage {
 
         // 3a. WALLET CREDIT (HOLD state)
         try {
-          const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
-          const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
-          const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
           const holdDays = await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7);
-
-          // v2 fixed-price booking → credit the exact technician earning frozen at
-          // booking creation (P − gst − fee − booking). v1/legacy bookings keep the
-          // existing behaviour (a share of the booking fee) so their payouts are
-          // untouched.
-          const snapshot: any = service.pricingSnapshot;
-          const partnerAmount = (snapshot && snapshot.snapshotVersion === 2 && snapshot.technicianEarning != null)
-            ? Number(snapshot.technicianEarning)
-            : (baseFee * partnerSharePct) / 100;
+          const partnerAmount = await this.technicianEarningFor(service);
 
           const releaseDate = new Date(statusUpdate.completedAt);
           releaseDate.setDate(releaseDate.getDate() + holdDays);

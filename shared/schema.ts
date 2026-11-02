@@ -300,6 +300,16 @@ export const serviceRequests = pgTable("service_requests", {
   slaAssignBy: timestamp("sla_assign_by"),
   escalatedAt: timestamp("escalated_at"),
   escalationReason: text("escalation_reason"),
+  // Staff cancelled or closed it from the admin (see booking-admin.service.ts).
+  cancelReason: text("cancel_reason"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledByAdminId: integer("cancelled_by_admin_id"),
+  refundPaise: integer("refund_paise"),
+  visitPayPaise: integer("visit_pay_paise"),
+  closedByAdminId: integer("closed_by_admin_id"),
+  closeMethod: text("close_method"),          // expert_cash | office_cash | upi | bank | other
+  closeReference: text("close_reference"),
+  closeNote: text("close_note"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({

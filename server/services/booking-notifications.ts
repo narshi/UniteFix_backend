@@ -343,6 +343,26 @@ export class BookingNotifications {
         );
     }
 
+    /** cancelled by UniteFix staff — both parties, with the refund if any. */
+    static async cancelledByUniteFix(serviceRequestId: number, reason: string, refundRupees: number) {
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "Booking cancelled",
+            `UniteFix cancelled ${p.serviceRef}: ${reason}.${refundRupees > 0 ? ` ₹${refundRupees} is being refunded; it reaches you in 5–7 working days.` : ""}`,
+            "service_cancelled",
+            { serviceId: p.serviceRequestId, serviceRef: p.serviceRef },
+        );
+        NotificationService.notify(
+            p.expertUserId,
+            "Job cancelled",
+            `UniteFix cancelled ${p.serviceRef}: ${reason}.`,
+            "assignment_cancelled",
+            { serviceId: p.serviceRequestId, serviceRef: p.serviceRef },
+        );
+    }
+
     /** disputed — both parties, because an admin is about to contact them. */
     static async disputeRaised(serviceRequestId: number, reason?: string) {
         const p = await getParties(serviceRequestId);

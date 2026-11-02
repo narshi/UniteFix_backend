@@ -364,8 +364,7 @@ export function registerBillingRoutes(app: Express) {
                 const { storage } = await import('../storage');
                 await storage.updateServiceRequestStatus(bookingId, BookingState.COMPLETED);
                 await storage.updateServiceRequest(bookingId, { paymentMethod: 'online' as any });
-                try { await storage.creditProviderWalletForOnlinePayment(bookingId); }
-                catch (walletErr: any) { logger.error(`[BILLING] Prepaid completion wallet credit failed for ${bookingId}: ${walletErr.message}`); }
+                // Completion above already credited the technician's earning (held).
                 try { await PaymentService.generateInvoice(bookingId, booking.userId, partnerId); }
                 catch (invErr: any) { logger.warn(`[BILLING] Invoice generation failed for prepaid booking ${bookingId}: ${invErr.message}`); }
                 void BookingNotifications.serviceCompleted(bookingId, updatedSnapshot.technicianEarning);
@@ -694,58 +693,17 @@ export function registerBillingRoutes(app: Express) {
                 });
             }
 
-            // What the technician owes UniteFix (positive) or is owed (negative).
-            const net = BillingEngine.calculateCashDebitAmount(snapshot);
-            const platformDebit = Math.max(0, net);
-            const advanceCredit = Math.max(0, Math.round(-net * 100) / 100);
-
-            // Debit employee wallet (allow negative — recovered from future earnings).
-            //
-            // A partner's technician has no wallet. Under the subcontract model
-            // the cash is UniteFix's (it is the provider to the customer): the
-            // partner is charged what its technician collected and credited the
-            // job's value after the hold — net, UniteFix's share, exactly what
-            // the wallet debit would have been, and the job appears on the
-            // partner's monthly invoice like every other.
+            // The wallet moves by the difference between the cash held and the
+            // technician's earning (JobSettlementService). A failure does not
+            // block the customer's completion, but it is recorded for recovery.
+            let platformDebit = 0, advanceCredit = 0;
             let walletTransaction: any = null;
             try {
-                const { PartnerFieldService } = await import('../services/partner-field.service');
-                const employerId = await PartnerFieldService.employerOf(partnerId);
-                if (employerId) {
-                    const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
-                    // value + net = exactly the cash the technician collected.
-                    walletTransaction = await PartnerFieldService.bookCashCollected(employerId, { serviceRequestId: bookingId, serviceId: booking.serviceId, amountRupees: Math.round((value + net) * 100) / 100 });
-                    const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
-                    await PartnerFieldService.holdJobValue(db, employerId, {
-                        serviceRequestId: bookingId, employeeId: partnerId, amountRupees: value,
-                        releaseAt: new Date(Date.now() + holdDays * 86_400_000),
-                    });
-                } else {
-                const { storage } = await import('../storage');
-                if (platformDebit > 0) {
-                    walletTransaction = await storage.deductProviderWallet(
-                        partnerId,
-                        platformDebit,
-                        `Platform fee — cash payment booking #${booking.serviceId}`,
-                        true // allowNegative: UniteFix always recovers its share
-                    );
-                } else if (advanceCredit > 0) {
-                    // The ₹99 advance UniteFix holds is more than its fee + GST:
-                    // the rest is the technician's, held like any other earning.
-                    const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
-                    walletTransaction = await storage.creditWalletOnHold(
-                        partnerId,
-                        bookingId,
-                        advanceCredit,
-                        new Date(Date.now() + holdDays * 86_400_000),
-                        undefined,
-                        { description: `Balance of booking advance — cash payment booking #${booking.serviceId}`, countService: false },
-                    );
-                }
-                }
+                const { JobSettlementService } = await import('../services/job-settlement.service');
+                ({ platformDebit, advanceCredit, walletTransaction } = await JobSettlementService.settleCash(booking, snapshot, partnerId));
             } catch (walletErr: any) {
-                logger.error(`[CASH] Wallet debit failed for booking ${bookingId}:`, walletErr.message);
-                // Don't block the completion — log and continue
+                const { JobSettlementService } = await import('../services/job-settlement.service');
+                await JobSettlementService.recordFailedSettlement(bookingId, partnerId, walletErr);
             }
 
             // Transition to COMPLETED

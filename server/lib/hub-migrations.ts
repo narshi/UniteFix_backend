@@ -1250,6 +1250,17 @@ const BLOCKS: Array<[string, string]> = [
     ['withdrawals: payout attempt', `
       ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_attempt INTEGER NOT NULL DEFAULT 1;
     `],
+    ['bookings: admin cancel and close', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancelled_by_admin_id INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS refund_paise INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS visit_pay_paise INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS closed_by_admin_id INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS close_method TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS close_reference TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS close_note TEXT;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

@@ -116,7 +116,7 @@ export function registerAdminRoutes(app: Express) {
 
             const serviceId = parseInt(req.params.id);
             const { technicianId } = req.body;
-            const adminId = (req as any).user.id;
+            const adminId = (req as any).admin?.userId ?? (req as any).user?.id;
 
             const updated = await AdminServiceManager.assignTechnician(serviceId, technicianId, adminId);
 
@@ -138,7 +138,7 @@ export function registerAdminRoutes(app: Express) {
             const bpId = Number(req.body?.businessPartnerId);
             if (!Number.isInteger(bpId) || bpId <= 0) return res.status(400).json({ error: "Choose a partner." });
             const { PartnerFieldService } = await import("../services/partner-field.service");
-            const r = await PartnerFieldService.dispatchToPartner(parseInt(req.params.id), bpId, (req as any).user.id ?? null);
+            const r = await PartnerFieldService.dispatchToPartner(parseInt(req.params.id), bpId, (req as any).admin?.userId ?? null);
             res.json({ message: `Sent to ${r.partnerName}. They assign a technician by ${r.slaAssignBy.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}, or it comes back to this queue.`, data: r });
         } catch (error: any) {
             res.status(error?.status ?? 400).json({ error: error.message });
@@ -169,11 +169,46 @@ export function registerAdminRoutes(app: Express) {
         }
     });
 
+    /** What the customer paid online, so staff can choose a refund before cancelling. */
+    app.get("/api/admin/services/:id/cancel-preview", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { BookingAdminService } = await import("../services/booking-admin.service");
+            res.json({ success: true, data: await BookingAdminService.cancelPreview(parseInt(req.params.id)) });
+        } catch (error: any) {
+            res.status(error?.status ?? 400).json({ error: error.message, code: error?.code });
+        }
+    });
+
+    /** Cancel at any stage before completion, with a refund choice and optional visit pay. */
+    app.post("/api/admin/services/:id/cancel", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { BookingAdminService } = await import("../services/booking-admin.service");
+            const r = await BookingAdminService.cancel(parseInt(req.params.id), (req as any).admin?.userId ?? (req as any).user?.id, req.body ?? {});
+            res.json({ success: true, message: r.message, data: r });
+        } catch (error: any) {
+            res.status(error?.status ?? 400).json({ error: error.message, code: error?.code });
+        }
+    });
+
+    /** Close as completed when the customer paid outside the app. */
+    app.post("/api/admin/services/:id/close", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { BookingAdminService } = await import("../services/booking-admin.service");
+            const r = await BookingAdminService.close(parseInt(req.params.id), (req as any).admin?.userId ?? (req as any).user?.id, req.body ?? {});
+            res.json({ success: true, message: r.message, data: r });
+        } catch (error: any) {
+            res.status(error?.status ?? 400).json({ error: error.message, code: error?.code });
+        }
+    });
+
     app.post("/api/admin/services/:id/recall-partner", async (req: Request, res: Response) => {
         try {
             if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
             const { PartnerFieldService } = await import("../services/partner-field.service");
-            await PartnerFieldService.recallFromPartner(parseInt(req.params.id), (req as any).user.id ?? null);
+            await PartnerFieldService.recallFromPartner(parseInt(req.params.id), (req as any).admin?.userId ?? null);
             res.json({ message: "Taken back. It is in the Assignment Queue again." });
         } catch (error: any) {
             res.status(error?.status ?? 400).json({ error: error.message });
@@ -192,7 +227,7 @@ export function registerAdminRoutes(app: Express) {
 
             const serviceId = parseInt(req.params.id);
             const { technicianId, reason } = req.body;
-            const adminId = (req as any).user.id;
+            const adminId = (req as any).admin?.userId ?? (req as any).user?.id;
 
             const updated = await AdminServiceManager.reassignTechnician(
                 serviceId,
@@ -219,7 +254,7 @@ export function registerAdminRoutes(app: Express) {
 
             const serviceId = parseInt(req.params.id);
             const { newState, reason } = req.body;
-            const adminId = (req as any).user.id;
+            const adminId = (req as any).admin?.userId ?? (req as any).user?.id;
 
             const updated = await AdminServiceManager.forceStateTransition(
                 serviceId,
@@ -689,7 +724,7 @@ export function registerAdminRoutes(app: Express) {
             // The admin shim builds req.user from req.admin, whose key is
             // `userId` — `.id` was always undefined, so every reply was stored
             // with a null sender.
-            const adminId = (req as any).user.userId ?? (req as any).user.id ?? null;
+            const adminId = (req as any).user.userId ?? (req as any).admin?.userId ?? null;
 
             if (typeof message !== "string" || !message.trim()) {
                 return res.status(400).json({ error: "Message is required" });
@@ -720,7 +755,7 @@ export function registerAdminRoutes(app: Express) {
             }
 
             const { status } = req.body;
-            const adminId = (req as any).user.userId ?? (req as any).user.id ?? null;
+            const adminId = (req as any).user.userId ?? (req as any).admin?.userId ?? null;
 
             // Validated against the ticket_status enum here rather than letting
             // Postgres reject it — an unknown value came back as a raw 22P02

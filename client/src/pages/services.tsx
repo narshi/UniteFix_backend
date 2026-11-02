@@ -10,6 +10,7 @@ import { Search, Download, Filter, RefreshCw } from "lucide-react";
 import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal";
 import SendToPartnerModal from "@/components/admin/send-to-partner-modal";
 import BookingSummary from "@/components/admin/booking-summary";
+import BookingEndModal from "@/components/admin/booking-end-modal";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -29,6 +30,7 @@ export default function ServicesPage() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   // Give the booking to a partner, or move it to another partner.
   const [partnerFor, setPartnerFor] = useState<any>(null);
+  const [endFor, setEndFor] = useState<{ service: any; mode: "cancel" | "close" } | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // Download the real tax-invoice PDF from the server (same document the customer
@@ -425,7 +427,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                           </p>
                         </td>
                         <td className="p-4">
-                          <div className="flex space-x-2">
+                          <div className="flex flex-wrap gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -456,6 +458,27 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                                   title="Give this job to a partner, who picks one of their technicians"
                                 >
                                   <span className="text-xs font-medium">{service.providerId || service.dispatchPartnerId ? 'Reassign to partner' : 'Send to partner'}</span>
+                                </Button>
+                              )}
+                              {['assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(service.status) && service.providerId && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEndFor({ service, mode: "close" })}
+                                  className="h-8 border-[hsla(160,84%,39%,0.3)] text-[hsl(160,84%,60%)] bg-[hsla(160,84%,39%,0.05)] hover:bg-[hsla(160,84%,39%,0.15)] transition-colors"
+                                  title="The work is done and the customer paid outside the app"
+                                >
+                                  <span className="text-xs font-medium">Close as done</span>
+                                </Button>
+                              )}
+                              {['created', 'assigned', 'accepted', 'reached', 'in_progress', 'pending_payment'].includes(service.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEndFor({ service, mode: "cancel" })}
+                                  className="h-8 border-[hsla(347,77%,50%,0.3)] text-[hsl(347,77%,65%)] bg-[hsla(347,77%,50%,0.05)] hover:bg-[hsla(347,77%,50%,0.15)] transition-colors"
+                                >
+                                  <span className="text-xs font-medium">Cancel</span>
                                 </Button>
                               )}
                               {service.status === 'completed' && (
@@ -609,6 +632,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
           service={selectedService}
         />
         <SendToPartnerModal service={partnerFor} open={!!partnerFor} onClose={() => setPartnerFor(null)} />
+        <BookingEndModal service={endFor?.service} mode={endFor?.mode ?? null} onClose={() => setEndFor(null)} />
       </div>
   );
 }

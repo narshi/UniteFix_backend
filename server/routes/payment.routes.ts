@@ -940,7 +940,7 @@ export function registerPaymentRoutes(app: Express) {
                             );
                             // Store payment reference as metadata via updateServiceRequest
                             await storage.updateServiceRequest(serviceId, {
-                                paymentMethod: 'razorpay' as any,
+                                paymentMethod: 'online' as any,
                             });
 
                             const paidAmount = (booking.pricingSnapshot as any)?.finalTotal

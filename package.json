@@ -70,7 +70,8 @@
     "smoke:manual-payout": "tsx scripts/smoke-manual-payout.ts",
     "smoke:ftth-recharge-access": "tsx scripts/smoke-ftth-recharge-access.ts",
     "smoke:partner-services": "tsx scripts/smoke-partner-services.ts",
-    "smoke:app-version": "tsx scripts/smoke-app-version.ts"
+    "smoke:app-version": "tsx scripts/smoke-app-version.ts",
+    "smoke:booking-admin": "tsx scripts/smoke-booking-admin.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

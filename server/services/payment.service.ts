@@ -304,10 +304,9 @@ export class PaymentService {
         });
 
         await storage.updateServiceRequestStatus(serviceRequestId, BookingState.COMPLETED);
-        await storage.updateServiceRequest(serviceRequestId, { paymentMethod: 'razorpay' as any });
-        
-        // Credit the technician's wallet since the platform received the money
-        await storage.creditProviderWalletForOnlinePayment(serviceRequestId);
+        // 'online' is the enum value; completion above already credited the
+        // technician's earning (held). A second credit here paid them twice.
+        await storage.updateServiceRequest(serviceRequestId, { paymentMethod: 'online' as any });
 
         logger.info(`[QR] Booking ${serviceRequestId} settled via QR payment ${payment.id} and wallet credited`);
 
@@ -488,12 +487,10 @@ export class PaymentService {
                         BookingState.COMPLETED,
                     );
                     // Store payment metadata separately
+                    // Completion above already credited the technician (held).
                     await storage.updateServiceRequest(parseInt(notes.service_request_id), {
-                        paymentMethod: 'razorpay' as any,
+                        paymentMethod: 'online' as any,
                     });
-                    
-                    // Credit the technician's wallet since the platform received the money
-                    await storage.creditProviderWalletForOnlinePayment(parseInt(notes.service_request_id));
                     
                     logger.info(`[WEBHOOK] Transitioned booking ${notes.service_request_id} to COMPLETED and wallet credited`);
 
@@ -889,8 +886,28 @@ export class PaymentService {
         return { refunds: results, totalRefunded };
     }
 
+    /** What the customer paid online for this booking so far (advance, or the whole price if prepaid), in paise. */
+    static async capturedBookingChargePaise(serviceRequestId: number): Promise<number> {
+        // Same two rows refundBookingCharge joins: the tagged order, then its capture.
+        const [order] = await db.select({ razorpayOrderId: paymentTransactions.razorpayOrderId, amount: paymentTransactions.amount })
+            .from(paymentTransactions)
+            .where(and(
+                eq(paymentTransactions.serviceRequestId, serviceRequestId),
+                sql`${paymentTransactions.metadata}->>'paymentType' = 'booking_charge'`,
+            ))
+            .orderBy(desc(paymentTransactions.createdAt)).limit(1);
+        if (!order?.razorpayOrderId) return 0;
+        const [cap] = await db.select({ amount: paymentTransactions.amount }).from(paymentTransactions)
+            .where(and(eq(paymentTransactions.razorpayOrderId, order.razorpayOrderId), eq(paymentTransactions.status, 'captured')))
+            .orderBy(desc(paymentTransactions.createdAt)).limit(1);
+        if (!cap) return 0;
+        return cap.amount > 0 ? cap.amount : order.amount;
+    }
+
     static async refundBookingCharge(
         serviceRequestId: number,
+        /** Part of the captured amount (staff keeping a visit charge); the whole of it when omitted. */
+        opts: { amountPaise?: number; reason?: string } = {},
     ): Promise<{ refundId: string; amountRupees: number; alreadyRefunded?: boolean }> {
         const razorpay = await this.getRazorpayInstance();
 
@@ -957,7 +974,11 @@ export class PaymentService {
         // (a ₹99 fee becoming ₹9,900) the moment the lookup started matching.
         // Prefer the captured amount; fall back to the order amount when the
         // capture row was written with a placeholder of 0.
-        const amountPaise = captured.amount > 0 ? captured.amount : order.amount;
+        const capturedPaise = captured.amount > 0 ? captured.amount : order.amount;
+        if (opts.amountPaise != null && (!(opts.amountPaise > 0) || opts.amountPaise > capturedPaise)) {
+            throw new Error(`A refund must be between ₹0.01 and the ₹${capturedPaise / 100} the customer paid.`);
+        }
+        const amountPaise = opts.amountPaise ?? capturedPaise;
 
         if (!amountPaise || amountPaise <= 0) {
             throw new Error(
@@ -970,7 +991,7 @@ export class PaymentService {
                 amount: amountPaise,
                 notes: {
                     service_request_id: serviceRequestId.toString(),
-                    reason: 'Customer cancelled from CREATED state',
+                    reason: opts.reason ?? 'Customer cancelled from CREATED state',
                 },
             });
 
@@ -986,7 +1007,7 @@ export class PaymentService {
                 currency: 'INR',
                 eventType: 'refund_initiated',
                 status: 'refunded',
-                metadata: { refundId: refund.id, reason: 'cancellation' },
+                metadata: { refundId: refund.id, reason: opts.reason ?? 'cancellation', partial: amountPaise < capturedPaise },
             });
 
             logger.info(
