@@ -973,6 +973,7 @@ export class PartnerFieldService {
                 price: snap.basePrice ?? snap.grossTotal ?? null, yourValue: snap.technicianEarning ?? null, paymentMethod: s.paymentMethod,
                 // Your cut once a technician is on it; the job's value is what they and you share.
                 yourCommission: s.providerId ? commissionOn(snap.technicianEarning ?? null, r) : null,
+                pausedUntil: s.pausedUntil, pauseNote: s.pauseNote, followUpCount: s.followUpCount ?? 0, lastAttemptReason: s.lastAttemptReason,
             };
         });
     }

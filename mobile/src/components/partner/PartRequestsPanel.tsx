@@ -16,6 +16,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
 import AddPartSheet from './AddPartSheet';
+import ExtraWorkSheet from './ExtraWorkSheet';
 
 const rs = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: n % 1 ? 2 : 0 })}`;
 const ago = (iso: string) => {
@@ -46,9 +47,10 @@ export function partRequestTotals(list: PartRequest[] | undefined) {
     };
 }
 
-export default function PartRequestsPanel({ bookingId, requests, loading, error }: { bookingId: number; requests: PartRequest[] | undefined; loading: boolean; error: boolean }) {
+export default function PartRequestsPanel({ bookingId, requests, loading, error, gstPercent = 18, feePercent = 15 }: { bookingId: number; requests: PartRequest[] | undefined; loading: boolean; error: boolean; gstPercent?: number; feePercent?: number }) {
     const qc = useQueryClient();
     const [sheet, setSheet] = useState(false);
+    const [workSheet, setWorkSheet] = useState(false);
     const [busy, setBusy] = useState<number | null>(null);
     const refresh = () => qc.invalidateQueries({ queryKey: partRequestsKey(bookingId) });
     const shown = (requests ?? []).filter(r => r.status !== 'cancelled');
@@ -71,16 +73,22 @@ export default function PartRequestsPanel({ bookingId, requests, loading, error 
     return (
         <View style={styles.wrap}>
             <View style={styles.head}>
-                <Text style={styles.title}>Spare parts</Text>
-                <TouchableOpacity style={styles.addBtn} onPress={() => setSheet(true)} accessibilityRole="button">
-                    <Plus size={16} color={colors.primary} />
-                    <Text style={styles.addText}>Add part</Text>
-                </TouchableOpacity>
+                <Text style={styles.title}>Parts & extra work</Text>
+                <View style={styles.addRow}>
+                    <TouchableOpacity style={styles.addBtn} onPress={() => setSheet(true)} accessibilityRole="button">
+                        <Plus size={16} color={colors.primary} />
+                        <Text style={styles.addText}>Part</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.addBtn} onPress={() => setWorkSheet(true)} accessibilityRole="button" accessibilityLabel="Add extra work">
+                        <Plus size={16} color={colors.primary} />
+                        <Text style={styles.addText}>Extra work</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {loading && !requests ? <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.md }} />
                 : error && !requests ? <Text style={styles.error}>Could not load spare parts. Pull down to refresh.</Text>
-                    : !shown.length ? <Text style={styles.empty}>Need a part? Add it here — the customer approves it in their app before it goes on the bill.</Text>
+                    : !shown.length ? <Text style={styles.empty}>Need a part, or found more work than was booked? Add it here — the customer approves it in their app before it goes on the bill.</Text>
                         : shown.map(r => {
                             const names = r.items.map(i => `${i.partName}${i.quantity > 1 ? ` ×${i.quantity}` : ''}`).join(', ');
                             const state = r.status === 'pending'
@@ -118,6 +126,7 @@ export default function PartRequestsPanel({ bookingId, requests, loading, error 
                         })}
 
             <AddPartSheet visible={sheet} bookingId={bookingId} onClose={() => setSheet(false)} onSent={() => refresh()} />
+            <ExtraWorkSheet visible={workSheet} bookingId={bookingId} gstPercent={gstPercent} feePercent={feePercent} onClose={() => setWorkSheet(false)} onSent={() => refresh()} />
         </View>
     );
 }
@@ -126,6 +135,7 @@ const styles = StyleSheet.create({
     wrap: { marginBottom: spacing.lg },
     head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
     title: { ...typography.h4, color: colors.textPrimary, flexShrink: 1, marginRight: spacing.sm },
+    addRow: { flexDirection: 'row', gap: spacing.xs },
     addBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radii.full, backgroundColor: colors.primarySurface },
     addText: { ...typography.captionMedium, color: colors.primary },
     empty: { ...typography.caption, color: colors.textSecondary, lineHeight: 18 },

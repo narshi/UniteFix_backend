@@ -49,6 +49,9 @@ interface QueueItem {
   /** Set when a partner had it and did not assign a technician in time. */
   dispatchPartnerId?: number | null;
   escalatedFromPartnerName?: string | null;
+  /** Times an expert could not fix it and it came back for someone else. */
+  followUpCount?: number;
+  lastAttemptReason?: string | null;
 }
 
 /** A partner staff can give a job to. Coverage and services are advice, not rules. */
@@ -476,6 +479,11 @@ export default function AssignmentQueuePage() {
                             )}
                             <p className="font-semibold text-white text-sm group-hover:text-[hsl(217,91%,70%)] transition-colors">{(req as any).serviceName || req.serviceType || 'General'}</p>
                             {getUrgencyBadge(req.urgency, req.waitingHours)}
+                            {(req.followUpCount ?? 0) > 0 && (
+                              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border border-[hsla(38,92%,50%,0.3)]" title={req.lastAttemptReason ?? undefined}>
+                                Follow-up: earlier expert could not fix
+                              </span>
+                            )}
                             {req.escalatedFromPartnerName && (
                               <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[hsla(27,90%,55%,0.15)] text-[hsl(27,90%,65%)] border border-[hsla(27,90%,55%,0.3)]" title="The partner did not assign a technician by the assign-by time">
                                 Back from {req.escalatedFromPartnerName}

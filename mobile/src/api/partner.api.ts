@@ -33,6 +33,12 @@ export interface Assignment {
     longitude?: number;
     customerLocation?: string;
     paymentMethod?: string;
+    /** A job over several days: the day the expert comes back (YYYY-MM-DD). */
+    pausedUntil?: string | null;
+    pauseNote?: string | null;
+    /** Times an expert could not fix it and it came back for someone else. */
+    followUpCount?: number;
+    lastAttemptReason?: string | null;
 }
 
 export interface WalletSummary {
@@ -153,6 +159,9 @@ export interface PartRequestItemInput {
     billPhotoUrl?: string | null;
 }
 
+/** Extra work beyond the booked service: what the customer pays for it, GST included. */
+export interface WorkItemInput { description: string; amountRupees: number }
+
 export interface PartRequestLine {
     sparePartId: number | null;
     partName: string;
@@ -183,6 +192,9 @@ export interface PartRequest {
     reason: string | null;
     items: PartRequestLine[];
     parts: number; gst: number; total: number;
+    /** Extra work on the request (also listed in items as "Extra work: ..."). */
+    work?: Array<{ description: string; amount: number }>;
+    workTotal?: number;
     earlierWarranty: EarlierWarranty | null;
     customerNote: string | null;
     sentAt: string;
@@ -195,7 +207,7 @@ export const partnerApi = {
     previewPartRequest: (bookingId: number, items: PartRequestItemInput[]) =>
         apiClient.post<{ success: boolean; data: PartRequestPreview }>(`/api/bookings/${bookingId}/part-requests/preview`, { items }),
 
-    sendPartRequest: (bookingId: number, data: { items: PartRequestItemInput[]; reason: string; confirmDuplicate?: boolean }) =>
+    sendPartRequest: (bookingId: number, data: { items: PartRequestItemInput[]; work?: WorkItemInput[]; reason: string; confirmDuplicate?: boolean }) =>
         apiClient.post<{ success: boolean; message: string; data: PartRequest }>(`/api/bookings/${bookingId}/part-requests`, data),
 
     getPartRequests: (bookingId: number) =>
@@ -203,6 +215,18 @@ export const partnerApi = {
 
     cancelPartRequest: (id: number) =>
         apiClient.post<{ success: boolean; message: string; data: PartRequest }>(`/api/part-requests/${id}/cancel`),
+
+    // ── Jobs over several visits ─────────────────────────────────────────
+    /** End today's work; come back on date (YYYY-MM-DD, tomorrow to 14 days). */
+    continueLater: (bookingId: number, data: { date: string; note: string }) =>
+        apiClient.post<{ success: boolean; message: string }>(`/api/bookings/${bookingId}/continue-later`, data),
+
+    resumeJob: (bookingId: number) =>
+        apiClient.post<{ success: boolean; message: string }>(`/api/bookings/${bookingId}/resume`),
+
+    /** Could not fix it: earn the visit pay; the job goes to another expert. */
+    cannotFix: (bookingId: number, reason: string) =>
+        apiClient.post<{ success: boolean; message: string; data: { visitPayRupees: number } }>(`/api/bookings/${bookingId}/cannot-fix`, { reason }),
 
     // ── Spare parts ──────────────────────────────────────────────────────
     /** Search the catalogue, the job's category first. Needs parts access. */

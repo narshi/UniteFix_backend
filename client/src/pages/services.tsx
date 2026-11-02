@@ -387,6 +387,16 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                         </td>
                         <td className="p-4">
                           {getStatusBadge(service.status)}
+                          {service.pausedUntil && (
+                            <span className="mt-1 block text-[10px] text-[hsl(199,89%,65%)]" title={service.pauseNote ?? undefined}>
+                              Continues {new Date(`${service.pausedUntil}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}
+                            </span>
+                          )}
+                          {service.followUpCount > 0 && (
+                            <span className="mt-1 block text-[10px] text-[hsl(38,92%,65%)]" title={service.lastAttemptReason ?? undefined}>
+                              Follow-up {service.followUpCount > 1 ? `#${service.followUpCount}` : ""}: earlier expert could not fix
+                            </span>
+                          )}
                           {service.dispatchPartnerId && service.partnerName && (
                             <span className="mt-1 block text-[10px] text-[hsl(27,90%,65%)]" title={service.slaAssignBy && !service.providerId ? `Assign by ${new Date(service.slaAssignBy).toLocaleString()}` : undefined}>
                               {service.escalatedAt ? `Back from ${service.partnerName}` : `With ${service.partnerName}`}

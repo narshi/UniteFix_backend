@@ -167,6 +167,11 @@ export class AdminServiceManager {
                 preferredTimeSlot: serviceRequests.preferredTimeSlot,
                 paymentMethod: serviceRequests.paymentMethod,
                 customerEmail: users.email,
+                // Over several days, or back for a follow-up after a failed visit.
+                pausedUntil: serviceRequests.pausedUntil,
+                pauseNote: serviceRequests.pauseNote,
+                followUpCount: serviceRequests.followUpCount,
+                lastAttemptReason: serviceRequests.lastAttemptReason,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
@@ -545,6 +550,8 @@ export class AdminServiceManager {
                 dispatchMode: serviceRequests.dispatchMode,
                 escalatedAt: serviceRequests.escalatedAt,
                 escalationReason: serviceRequests.escalationReason,
+                followUpCount: serviceRequests.followUpCount,
+                lastAttemptReason: serviceRequests.lastAttemptReason,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))

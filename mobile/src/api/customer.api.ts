@@ -41,6 +41,11 @@ export interface ServiceItem {
 
 export interface ServiceRequest {
     id: number;
+    /** A job over several days: the day the technician comes back (YYYY-MM-DD). */
+    pausedUntil?: string | null;
+    pauseNote?: string | null;
+    /** Times a technician could not fix it and another is coming. */
+    followUpCount?: number;
     serviceId?: string;
     userId: number;
     serviceType: string;

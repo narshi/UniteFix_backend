@@ -90,6 +90,14 @@ export const DEFAULT_PLATFORM_CONFIG: ConfigItem[] = [
         description: 'Cancellation fee in INR charged when customer cancels after assignment',
         isEditable: true,
     },
+    {
+        key: 'BUSINESS_CONFIG.FAILED_VISIT_PAY',
+        value: '150',
+        valueType: 'number',
+        category: 'BUSINESS_CONFIG',
+        description: 'What an expert earns (₹) for a visit when they could not fix the job and someone else follows up. Paid from the job\'s value, never more than it.',
+        isEditable: true,
+    },
 
     // ========== OPERATIONAL_CONFIG ==========
     // System limits, distances, feature flags

@@ -275,10 +275,11 @@ export interface IStorage {
   getOrCreatePartnerWallet(partnerId: number, tx?: any): Promise<PartnerWallet>;
   creditWalletOnHold(
     partnerId: number,
-    serviceRequestId: number,
+    serviceRequestId: number | null,
     amount: number,
     releaseDate: Date,
-    tx?: any
+    tx?: any,
+    opts?: { description?: string; countService?: boolean; forBooking?: number }
   ): Promise<WalletTransactionV2>;
   releaseHeldBalance(transactionId: number): Promise<void>;
   releaseHeldBalanceByService(serviceRequestId: number): Promise<boolean>;
@@ -878,6 +879,10 @@ export class DatabaseStorage implements IStorage {
         reachedAt: serviceRequests.reachedAt,
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
+        pausedUntil: serviceRequests.pausedUntil,
+        pauseNote: serviceRequests.pauseNote,
+        followUpCount: serviceRequests.followUpCount,
+        lastAttemptReason: serviceRequests.lastAttemptReason,
         startedAt: serviceRequests.startedAt,
         completedAt: serviceRequests.completedAt,
         adminNotes: serviceRequests.adminNotes,
@@ -930,6 +935,10 @@ export class DatabaseStorage implements IStorage {
         reachedAt: serviceRequests.reachedAt,
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
+        pausedUntil: serviceRequests.pausedUntil,
+        pauseNote: serviceRequests.pauseNote,
+        followUpCount: serviceRequests.followUpCount,
+        lastAttemptReason: serviceRequests.lastAttemptReason,
         startedAt: serviceRequests.startedAt,
         completedAt: serviceRequests.completedAt,
         adminNotes: serviceRequests.adminNotes,
@@ -1111,6 +1120,10 @@ export class DatabaseStorage implements IStorage {
         reachedAt: serviceRequests.reachedAt,
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
+        pausedUntil: serviceRequests.pausedUntil,
+        pauseNote: serviceRequests.pauseNote,
+        followUpCount: serviceRequests.followUpCount,
+        lastAttemptReason: serviceRequests.lastAttemptReason,
         startedAt: serviceRequests.startedAt,
         completedAt: serviceRequests.completedAt,
         adminNotes: serviceRequests.adminNotes,
@@ -1168,8 +1181,10 @@ export class DatabaseStorage implements IStorage {
    */
   async technicianEarningFor(service: any): Promise<number> {
     const snapshot: any = service.pricingSnapshot;
-    if (snapshot?.snapshotVersion === 2 && snapshot.technicianEarning != null) return Number(snapshot.technicianEarning);
-    if (snapshot?.billedAt && snapshot.employeeEarnings != null) return Number(snapshot.employeeEarnings);
+    // Visit pay already paid to an expert who could not fix it comes out of the job's value.
+    const prior = Math.max(0, Number(service.priorVisitPayPaise ?? 0)) / 100;
+    if (snapshot?.snapshotVersion === 2 && snapshot.technicianEarning != null) return Math.max(0, Math.round((Number(snapshot.technicianEarning) - prior) * 100) / 100);
+    if (snapshot?.billedAt && snapshot.employeeEarnings != null) return Math.max(0, Math.round((Number(snapshot.employeeEarnings) - prior) * 100) / 100);
     const defaultFee = await configService.get<number>('BUSINESS_CONFIG.BASE_SERVICE_FEE', 99);
     const baseFee = service.bookingFee !== null && service.bookingFee !== undefined ? Number(service.bookingFee) : defaultFee;
     const partnerSharePct = await configService.get<number>('BUSINESS_CONFIG.PARTNER_SHARE_PERCENTAGE', 50);
@@ -2566,12 +2581,16 @@ export class DatabaseStorage implements IStorage {
 
   async creditWalletOnHold(
     partnerId: number,
-    serviceRequestId: number,
+    serviceRequestId: number | null,
     amount: number,
     releaseDate: Date,
     tx?: any,
-    /** description: the wallet line; countService false when this is not the job's completion credit. */
-    opts: { description?: string; countService?: boolean } = {},
+    /**
+     * description: the wallet line; countService false when this is not the job's completion credit.
+     * forBooking: with serviceRequestId null, the booking this credit is about (a visit pay), so a
+     * later completion credit on that booking is not mistaken for a repeat.
+     */
+    opts: { description?: string; countService?: boolean; forBooking?: number } = {},
   ): Promise<WalletTransactionV2> {
     const dbCtx = tx || db;
 
@@ -2579,7 +2598,7 @@ export class DatabaseStorage implements IStorage {
     // and the rest is the technician's, in their own wallet below. Only a job's
     // earning carries commission; a visit pay or the balance of an advance
     // (countService false) is the technician's in full.
-    if (opts.countService !== false) {
+    if (opts.countService !== false && serviceRequestId != null) {
       const { PartnerFieldService } = await import('./services/partner-field.service');
       const split = await PartnerFieldService.commissionSplit(partnerId, amount, dbCtx);
       if (split && split.commission > 0) {
@@ -2593,8 +2612,9 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // IDEMPOTENCY CHECK
-    const [existing] = await dbCtx
+    // IDEMPOTENCY CHECK — one completion credit per booking. A credit with no
+    // booking (a visit pay) is guarded by its caller instead.
+    const [existing] = serviceRequestId == null ? [] : await dbCtx
       .select()
       .from(walletTransactionsV2)
       .where(
@@ -2617,7 +2637,7 @@ export class DatabaseStorage implements IStorage {
     const newHold = currentHold + amount;
     const newEarned = currentEarned + amount;
 
-    const transactionId = `WHLD-${serviceRequestId}-${Date.now()}`;
+    const transactionId = `WHLD-${serviceRequestId ?? `v${opts.forBooking ?? 0}`}-${Date.now()}`;
 
     const [transaction] = await dbCtx
       .insert(walletTransactionsV2)
@@ -2634,7 +2654,7 @@ export class DatabaseStorage implements IStorage {
         releaseDate,
         isReleased: false,
         description: opts.description ?? `Earnings held for service completion`,
-        metadata: { serviceRequestId, releaseDate: releaseDate.toISOString() },
+        metadata: { serviceRequestId, forBooking: opts.forBooking ?? serviceRequestId, releaseDate: releaseDate.toISOString() },
       })
       .returning();
 

@@ -305,6 +305,15 @@ export const serviceRequests = pgTable("service_requests", {
   slaAssignBy: timestamp("sla_assign_by"),
   escalatedAt: timestamp("escalated_at"),
   escalationReason: text("escalation_reason"),
+  // A job over several days: where it stands between visits (job-progress.service.ts).
+  pausedUntil: text("paused_until"),                 // YYYY-MM-DD the expert comes back
+  pauseNote: text("pause_note"),
+  visitLog: jsonb("visit_log").notNull().default([]),  // [{ at, kind: 'paused'|'resumed', by, note?, until? }]
+  // Someone could not fix it and another expert follows up.
+  followUpCount: integer("follow_up_count").notNull().default(0),
+  lastAttemptReason: text("last_attempt_reason"),
+  attempts: jsonb("attempts").notNull().default([]),   // [{ employeeId, at, reason, visitPayRupees }]
+  priorVisitPayPaise: integer("prior_visit_pay_paise").notNull().default(0),
   // Staff cancelled or closed it from the admin (see booking-admin.service.ts).
   cancelReason: text("cancel_reason"),
   cancelledAt: timestamp("cancelled_at"),

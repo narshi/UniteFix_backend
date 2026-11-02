@@ -458,6 +458,22 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     )}
                 </View>
 
+                {/* Work over several days, or another technician coming after one could not fix it. */}
+                {request.status === 'in_progress' && !!request.pausedUntil && (
+                    <View style={{ padding: spacing.md, borderRadius: 12, backgroundColor: colors.primarySurface, borderWidth: 1, borderColor: colors.primaryLight, marginBottom: spacing.md }}>
+                        <Text style={{ ...typography.bodySemibold, color: colors.textPrimary }}>
+                            Your technician continues on {new Date(`${request.pausedUntil}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}
+                        </Text>
+                        {!!request.pauseNote && <Text style={{ ...typography.caption, color: colors.textSecondary, marginTop: 4 }}>So far: {request.pauseNote}</Text>}
+                    </View>
+                )}
+                {(request.followUpCount ?? 0) > 0 && ['created', 'assigned', 'accepted', 'reached'].includes(request.status) && (
+                    <View style={{ padding: spacing.md, borderRadius: 12, backgroundColor: colors.warningLight, borderWidth: 1, borderColor: colors.warningDark, marginBottom: spacing.md }}>
+                        <Text style={{ ...typography.bodySemibold, color: colors.textPrimary }}>Another technician is on the way</Text>
+                        <Text style={{ ...typography.caption, color: colors.textSecondary, marginTop: 4 }}>The earlier visit could not finish the job. You do not need to book or pay again.</Text>
+                    </View>
+                )}
+
                 {/* A spare part the technician needs: the customer's decision comes first. */}
                 {(request.status === 'in_progress' || request.status === 'pending_payment') && (
                     <PartApproval bookingId={request.id} live={request.status === 'in_progress'} />

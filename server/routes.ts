@@ -63,6 +63,7 @@ import { registerTruecallerAuthRoutes } from "./routes/auth-truecaller.routes";
 import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerPartRequestRoutes } from "./routes/part-requests.routes";
+import { registerJobProgressRoutes } from "./routes/job-progress.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
 import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
 import { registerPortfolioRoutes } from "./routes/portfolio.routes";
@@ -3796,6 +3797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerGeofenceRoutes(app); // PHASE 4: Geofenced booking transitions
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerPartRequestRoutes(app); // Spare parts the customer approves before they are billed
+  registerJobProgressRoutes(app); // Continue another day; could not fix (follow-up)
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it
   registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
   registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests

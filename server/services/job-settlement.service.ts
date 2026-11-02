@@ -26,8 +26,12 @@ export interface CashSettlement {
 }
 
 export class JobSettlementService {
-    static async settleCash(booking: { id: number; serviceId: string }, snapshot: PricingSnapshot, providerId: number): Promise<CashSettlement> {
+    static async settleCash(booking: { id: number; serviceId: string; priorVisitPayPaise?: number | null }, snapshot: PricingSnapshot, providerId: number): Promise<CashSettlement> {
         let net = BillingEngine.calculateCashDebitAmount(snapshot);
+        // Visit pay UniteFix already paid an expert who could not fix it comes
+        // out of this technician's earning: they owe it back from the cash.
+        const prior = Math.max(0, Number(booking.priorVisitPayPaise ?? 0)) / 100;
+        if (prior > 0) net = Math.round((net + prior) * 100) / 100;
         let walletTransaction: any = null;
         const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
         const releaseAt = new Date(Date.now() + holdDays * 86_400_000);
@@ -36,7 +40,7 @@ export class JobSettlementService {
         // the partner's commission: UniteFix takes it from the wallet with its
         // own share and holds it for the partner.
         const { PartnerFieldService } = await import('./partner-field.service');
-        const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
+        const value = Math.max(0, Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0) - prior);
         const split = await PartnerFieldService.commissionSplit(providerId, value);
         if (split && split.commission > 0) {
             await PartnerFieldService.holdJobValue(db, split.bpId, {

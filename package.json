@@ -73,7 +73,8 @@
     "smoke:app-version": "tsx scripts/smoke-app-version.ts",
     "smoke:booking-admin": "tsx scripts/smoke-booking-admin.ts",
     "smoke:partner-commission": "tsx scripts/smoke-partner-commission.ts",
-    "smoke:extra-work": "tsx scripts/smoke-extra-work.ts"
+    "smoke:extra-work": "tsx scripts/smoke-extra-work.ts",
+    "smoke:job-progress": "tsx scripts/smoke-job-progress.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

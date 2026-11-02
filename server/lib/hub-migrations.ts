@@ -1257,6 +1257,15 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS partner_commission_value NUMERIC(10,2);
       ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_partner_owner BOOLEAN NOT NULL DEFAULT false;
     `],
+    ['bookings: multi-day and follow-up', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS paused_until TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS pause_note TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS visit_log JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS follow_up_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS last_attempt_reason TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS attempts JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS prior_visit_pay_paise INTEGER NOT NULL DEFAULT 0;
+    `],
     ['part requests: extra work', `
       ALTER TABLE part_requests ADD COLUMN IF NOT EXISTS work_items JSONB NOT NULL DEFAULT '[]';
       ALTER TABLE part_requests ADD COLUMN IF NOT EXISTS work_paise INTEGER NOT NULL DEFAULT 0;

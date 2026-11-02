@@ -28,6 +28,7 @@ type Job = {
   preferredDate: string | null; preferredTimeSlot: string | null; customerName: string | null; customerPhone: string | null; address: string | null; pincode: string | null;
   createdAt: string; assignedAt: string | null; completedAt: string | null; technician: { id: number; name: string | null } | null;
   slaAssignBy: string | null; overdue: boolean; escalatedAt: string | null; price: number | null; yourValue: number | null; yourCommission: number | null; paymentMethod: string | null;
+  pausedUntil: string | null; pauseNote: string | null; followUpCount: number; lastAttemptReason: string | null;
 };
 type MyService = {
   id: number; kind: "catalogue" | "own"; catalogServiceId: number | null; name: string; category: string | null; unit: string | null; description: string | null; isActive: boolean;
@@ -99,9 +100,13 @@ export function HubFieldJobs() {
                   <span className="font-mono text-white">{j.serviceId}</span>
                   <span className="text-white">{j.serviceName}{j.quantity > 1 ? ` × ${j.quantity}` : ""}</span>
                   {j.urgency === "urgent" && <Chip tone="bad">urgent</Chip>}
+                  {j.followUpCount > 0 && <Chip tone="warn">follow-up</Chip>}
+                  {j.pausedUntil && <Chip tone="info">continues {new Date(`${j.pausedUntil}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}</Chip>}
                   {view !== "queue" && <Chip tone={j.status === "completed" ? "good" : j.status === "cancelled" ? "muted" : "info"}>{j.status.replace("_", " ")}</Chip>}
                   {view === "queue" && j.slaAssignBy && <Chip tone={j.overdue ? "bad" : "warn"}>{timeLeft(j.slaAssignBy)}</Chip>}
                 </div>
+                {j.followUpCount > 0 && j.lastAttemptReason && <p className="mt-1 text-xs text-amber-200">Earlier visit could not fix it: {j.lastAttemptReason}</p>}
+                {j.pausedUntil && j.pauseNote && <p className="mt-1 text-xs text-sky-200">Last visit: {j.pauseNote}</p>}
                 <p className="mt-1 text-[hsl(215,20%,70%)]">{j.customerName ?? "Customer"}{j.customerPhone ? ` · ${j.customerPhone}` : ""} · {j.address ?? `pincode ${j.pincode ?? "—"}`}</p>
                 <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{j.description}{j.preferredDate ? ` · wants ${j.preferredDate}${j.preferredTimeSlot ? ` ${j.preferredTimeSlot}` : ""}` : ""} · booked {when(j.createdAt)}</p>
                 {j.yourValue != null && <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">Customer pays {inr(j.price)} · job value {inr(j.yourValue)}{j.yourCommission != null ? ` · your commission ${inr(j.yourCommission)}` : ""}{j.paymentMethod && j.paymentMethod !== "pending" ? ` · paid ${j.paymentMethod}` : ""}</p>}

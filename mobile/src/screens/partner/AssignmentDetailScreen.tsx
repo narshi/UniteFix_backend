@@ -45,6 +45,7 @@ import {
 const QR_VALIDITY_MS = 12 * 60 * 1000;
 import { Assignment, partnerApi } from '../../api/partner.api';
 import PartRequestsPanel, { usePartRequests, partRequestTotals } from '../../components/partner/PartRequestsPanel';
+import JobProgressActions, { JobProgressNotes } from '../../components/partner/JobProgressActions';
 import { colors } from '../../theme/colors';
 import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
@@ -397,6 +398,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     </View>
                 </View>
 
+                {/* A paused job (when they come back) and a follow-up (what the last visit found). */}
+                <JobProgressNotes assignment={assignment} />
+
                 {/* Actions based on status */}
                 {assignment.status === 'assigned' && (
                     <View style={styles.actionsCard}>
@@ -447,6 +451,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                             accessibilityLabel="Customer's service OTP"
                         />
                         <Button title="Verify & Start" onPress={handleVerifyAndStart} loading={starting} disabled={otp.length < 4} />
+                        <JobProgressActions assignment={assignment} onLeft={() => navigation.goBack()} />
                     </View>
                 )}
 
@@ -463,6 +468,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                     requests={partReqs.data}
                                     loading={partReqs.isLoading}
                                     error={partReqs.isError}
+                                    gstPercent={Number(snap?.gstPercent) || 18}
+                                    feePercent={Number(snap?.platformFeePercent) || 15}
                                 />
 
                                 {(() => {
@@ -471,18 +478,23 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                         .flatMap(r => r.items).filter(i => i.sourceType === 'technician_local')
                                         .reduce((a, i) => a + i.lineTotal, 0);
                                     const due = Number(snap?.finalTotal ?? 0) + approvedTotal;
+                                    // Approved extra work: its GST and UniteFix's fee come out of it, the rest is earned.
+                                    const g = Number(snap?.gstPercent) || 18, f = Number(snap?.platformFeePercent) || 15;
+                                    const workEarn = (partReqs.data ?? []).filter(r => r.status === 'approved')
+                                        .flatMap(r => r.items).filter(i => i.sourceType === 'work')
+                                        .reduce((a, i) => a + i.lineTotal - i.lineTotal * g / (100 + g) - i.lineTotal * f / 100, 0);
                                     return (
                                         <>
                                             <View style={styles.earnCard}>
                                                 <Text style={styles.earnLabel}>Customer pays when you finish</Text>
                                                 <Text style={styles.earnValue}>₹{due.toFixed(2)}</Text>
-                                                {approvedTotal > 0 && <Text style={styles.earnSub}>Includes ₹{approvedTotal.toFixed(2)} of approved parts</Text>}
+                                                {approvedTotal > 0 && <Text style={styles.earnSub}>Includes ₹{approvedTotal.toFixed(2)} of approved parts and extra work</Text>}
                                                 {technicianEarning > 0 && (
-                                                    <Text style={styles.earnSub}>You earn ₹{(technicianEarning + ownParts).toFixed(2)}{ownParts > 0 ? ` (₹${ownParts.toFixed(2)} back for parts you bought)` : ''}</Text>
+                                                    <Text style={styles.earnSub}>You earn ₹{(technicianEarning + ownParts + workEarn).toFixed(2)}{ownParts > 0 ? ` (₹${ownParts.toFixed(2)} back for parts you bought)` : ''}</Text>
                                                 )}
                                             </View>
                                             {pending > 0 && (
-                                                <Text style={styles.waitHint}>Waiting for the customer to approve or reject a spare part. You can request payment once they decide.</Text>
+                                                <Text style={styles.waitHint}>Waiting for the customer to approve or reject. You can request payment once they decide.</Text>
                                             )}
                                             <Button
                                                 title="Request Payment"
@@ -527,6 +539,7 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                 <Button title="Submit Charges" onPress={handleEnterCharge} loading={enteringCharge} />
                             </View>
                         )}
+                        <JobProgressActions assignment={assignment} onLeft={() => navigation.goBack()} />
                     </View>
                 )}
 
