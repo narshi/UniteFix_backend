@@ -113,7 +113,7 @@ async function main() {
         const k3 = await api.post(`/api/admin/services/${pjob.id}/close`, { method: 'expert_cash', amountRupees: 700, note: 'Partner confirmed cash' }, S);
         const led = await db.select().from(businessPartnerLedger).where(eq(businessPartnerLedger.businessPartnerId, bp.id));
         const held = await db.select().from(partnerJobEarnings).where(eq(partnerJobEarnings.serviceRequestId, pjob.id));
-        check('a partner technician’s cash job closed by staff: the partner is charged the cash and the job value is held for them', k3.status === 200 && led.some(l => l.entryType === 'cash_collected') && held.length === 1 && near(held[0].amountPaise / 100, s799.technicianEarning!), JSON.stringify({ body: k3.body, led: led.map(l => [l.entryType, l.amountPaise]), held }));
+        check('a partner technician’s cash job closed by staff: the partner’s default 20% commission is held for them, and the partner is not charged the cash', k3.status === 200 && !led.some(l => l.entryType === 'cash_collected') && held.length === 1 && near(held[0].amountPaise / 100, Math.round(s799.technicianEarning! * 20) / 100), JSON.stringify({ body: k3.body, led: led.map(l => [l.entryType, l.amountPaise]), held }));
     } finally {
         await close();
     }

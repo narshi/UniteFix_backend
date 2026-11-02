@@ -95,7 +95,7 @@ async function main() {
         check('…a joining code is sent', inv.status === 201 && inv.body?.data?.inviteId, JSON.stringify(inv.body));
         const note = (await db.execute(sql`SELECT body FROM notifications WHERE user_id = ${eu.id} AND type = 'partner_join_code' ORDER BY id DESC LIMIT 1`) as any).rows?.[0]?.body ?? '';
         const code = (note.match(/Joining code: (\d{6})/) ?? [])[1];
-        check('…to the expert’s app, saying what joining means', !!code && /stops sending you its own jobs/.test(note) && /wallet stays yours/.test(note), note.slice(0, 160));
+        check('…to the expert’s app, saying what joining means', !!code && /stops sending you its own jobs/.test(note) && /after their commission/.test(note), note.slice(0, 160));
         const wrong = await api.post(`/api/hub/field/technicians/invite/${inv.body.data.inviteId}/confirm`, { code: code === '000000' ? '111111' : '000000' }, T);
         check('a wrong code is refused, with tries left', wrong.status === 400 && /tries left/.test(wrong.body?.message ?? ''));
         check('…and they are not linked yet', (await db.select().from(employees).where(eq(employees.id, expert.id)))[0].managedByPartnerId === null);

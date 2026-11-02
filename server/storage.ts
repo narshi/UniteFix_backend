@@ -2575,14 +2575,22 @@ export class DatabaseStorage implements IStorage {
   ): Promise<WalletTransactionV2> {
     const dbCtx = tx || db;
 
-    // A partner's technician has no UniteFix wallet: the partner employs and
-    // pays them, so the job's value is held for the partner instead
-    // (Partner Hub phase 4). Same hold window, same idempotency per job.
-    const { PartnerFieldService } = await import('./services/partner-field.service');
-    const employerId = await PartnerFieldService.employerOf(partnerId, dbCtx);
-    if (employerId) {
-      await PartnerFieldService.holdJobValue(dbCtx, employerId, { serviceRequestId, employeeId: partnerId, amountRupees: amount, releaseAt: releaseDate });
-      return null as any;
+    // A partner's technician: the partner's commission is held for the partner
+    // and the rest is the technician's, in their own wallet below. Only a job's
+    // earning carries commission; a visit pay or the balance of an advance
+    // (countService false) is the technician's in full.
+    if (opts.countService !== false) {
+      const { PartnerFieldService } = await import('./services/partner-field.service');
+      const split = await PartnerFieldService.commissionSplit(partnerId, amount, dbCtx);
+      if (split && split.commission > 0) {
+        await PartnerFieldService.holdJobValue(dbCtx, split.bpId, {
+          serviceRequestId, employeeId: partnerId, amountRupees: split.commission, releaseAt: releaseDate,
+          note: `Commission ${split.rule} of ₹${amount}`, countService: false,
+        });
+        amount = split.share;
+        opts = { ...opts, description: opts.description ?? `Earnings held for service completion, after ${split.partnerName}'s commission of ₹${split.commission}` };
+        if (!(amount > 0)) return null as any;
+      }
     }
 
     // IDEMPOTENCY CHECK

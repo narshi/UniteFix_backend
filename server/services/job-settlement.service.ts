@@ -7,9 +7,10 @@
  *
  * The technician holds the cash and is owed their earning, so the wallet moves
  * by the difference (BillingEngine.calculateCashDebitAmount): positive is
- * UniteFix's fee and GST, debited and allowed to go negative (recovered from
- * later earnings); negative is the part of the advance that is theirs, credited
- * on hold like any earning.
+ * UniteFix's fee and GST (plus a partner's commission, for a partner's
+ * technician), debited and allowed to go negative (recovered from later
+ * earnings); negative is the part of the advance that is theirs, credited on
+ * hold like any earning.
  */
 
 import { configService } from './config.service';
@@ -26,35 +27,33 @@ export interface CashSettlement {
 
 export class JobSettlementService {
     static async settleCash(booking: { id: number; serviceId: string }, snapshot: PricingSnapshot, providerId: number): Promise<CashSettlement> {
-        const net = BillingEngine.calculateCashDebitAmount(snapshot);
+        let net = BillingEngine.calculateCashDebitAmount(snapshot);
+        let walletTransaction: any = null;
+        const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
+        const releaseAt = new Date(Date.now() + holdDays * 86_400_000);
+
+        // A partner's technician keeps the cash like any expert, and also owes
+        // the partner's commission: UniteFix takes it from the wallet with its
+        // own share and holds it for the partner.
+        const { PartnerFieldService } = await import('./partner-field.service');
+        const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
+        const split = await PartnerFieldService.commissionSplit(providerId, value);
+        if (split && split.commission > 0) {
+            await PartnerFieldService.holdJobValue(db, split.bpId, {
+                serviceRequestId: booking.id, employeeId: providerId, amountRupees: split.commission, releaseAt,
+                note: `Commission ${split.rule} of ₹${value}, from a cash job`, countService: false,
+            });
+            net = Math.round((net + split.commission) * 100) / 100;
+        }
         const platformDebit = Math.max(0, net);
         const advanceCredit = Math.max(0, Math.round(-net * 100) / 100);
-        let walletTransaction: any = null;
-
-        // A partner's technician has no wallet. Under the subcontract model the
-        // cash is UniteFix's (it is the provider to the customer): the partner is
-        // charged what its technician collected and credited the job's value
-        // after the hold — net, UniteFix's share, exactly what the wallet debit
-        // would have been.
-        const { PartnerFieldService } = await import('./partner-field.service');
-        const employerId = await PartnerFieldService.employerOf(providerId);
-        const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
-        if (employerId) {
-            const value = Number(snapshot.technicianEarning ?? snapshot.employeeEarnings ?? 0);
-            // value + net = exactly the cash the technician collected.
-            walletTransaction = await PartnerFieldService.bookCashCollected(employerId, { serviceRequestId: booking.id, serviceId: booking.serviceId, amountRupees: Math.round((value + net) * 100) / 100 });
-            await PartnerFieldService.holdJobValue(db, employerId, {
-                serviceRequestId: booking.id, employeeId: providerId, amountRupees: value,
-                releaseAt: new Date(Date.now() + holdDays * 86_400_000),
-            });
-            return { platformDebit, advanceCredit, walletTransaction };
-        }
+        const partnerNote = split && split.commission > 0 ? ` and ${split.partnerName}'s commission` : '';
 
         const { storage } = await import('../storage');
         if (platformDebit > 0) {
             walletTransaction = await storage.deductProviderWallet(
                 providerId, platformDebit,
-                `Platform fee — cash payment booking #${booking.serviceId}`,
+                `Platform fee${partnerNote} — cash payment booking #${booking.serviceId}`,
                 true, // allowNegative: UniteFix always recovers its share
             );
         } else if (advanceCredit > 0) {
@@ -62,7 +61,7 @@ export class JobSettlementService {
             // is the technician's, held like any other earning.
             walletTransaction = await storage.creditWalletOnHold(
                 providerId, booking.id, advanceCredit,
-                new Date(Date.now() + holdDays * 86_400_000), undefined,
+                releaseAt, undefined,
                 { description: `Balance of booking advance — cash payment booking #${booking.serviceId}`, countService: false },
             );
         }

@@ -27,7 +27,7 @@ type Job = {
   id: number; serviceId: string; status: string; serviceName: string; categoryName: string | null; quantity: number; description: string; urgency: string | null;
   preferredDate: string | null; preferredTimeSlot: string | null; customerName: string | null; customerPhone: string | null; address: string | null; pincode: string | null;
   createdAt: string; assignedAt: string | null; completedAt: string | null; technician: { id: number; name: string | null } | null;
-  slaAssignBy: string | null; overdue: boolean; escalatedAt: string | null; price: number | null; yourValue: number | null; paymentMethod: string | null;
+  slaAssignBy: string | null; overdue: boolean; escalatedAt: string | null; price: number | null; yourValue: number | null; yourCommission: number | null; paymentMethod: string | null;
 };
 type MyService = {
   id: number; kind: "catalogue" | "own"; catalogServiceId: number | null; name: string; category: string | null; unit: string | null; description: string | null; isActive: boolean;
@@ -37,7 +37,10 @@ type MyService = {
 type Tech = {
   id: number; partnerId: string | null; fullName: string | null; phone: string | null; services: string[]; isActive: boolean; isOnline: boolean;
   verification: string; adminRemarks: string | null; documents: { aadhaar: boolean; pan: boolean; photo: boolean }; completed: number; rating: number; activeJobs: number;
+  isOwner: boolean; commission: Commission | null;
 };
+type Commission = { type: "percent" | "fixed"; value: number };
+const commissionText = (c: Commission) => c.type === "fixed" ? `₹${c.value} a job` : `${c.value}%`;
 
 const fail = (toast: ReturnType<typeof useToast>["toast"], t: string) => (e: unknown) => toast({ title: t, description: apiErrorMessage(e), variant: "destructive" });
 const when = (d: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—";
@@ -101,7 +104,7 @@ export function HubFieldJobs() {
                 </div>
                 <p className="mt-1 text-[hsl(215,20%,70%)]">{j.customerName ?? "Customer"}{j.customerPhone ? ` · ${j.customerPhone}` : ""} · {j.address ?? `pincode ${j.pincode ?? "—"}`}</p>
                 <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{j.description}{j.preferredDate ? ` · wants ${j.preferredDate}${j.preferredTimeSlot ? ` ${j.preferredTimeSlot}` : ""}` : ""} · booked {when(j.createdAt)}</p>
-                {j.yourValue != null && <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">Customer pays {inr(j.price)} · your value {inr(j.yourValue)}{j.paymentMethod && j.paymentMethod !== "pending" ? ` · paid ${j.paymentMethod}` : ""}</p>}
+                {j.yourValue != null && <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">Customer pays {inr(j.price)} · job value {inr(j.yourValue)}{j.yourCommission != null ? ` · your commission ${inr(j.yourCommission)}` : ""}{j.paymentMethod && j.paymentMethod !== "pending" ? ` · paid ${j.paymentMethod}` : ""}</p>}
               </div>
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 {j.technician && <span className="text-sm text-white">{j.technician.name}</span>}
@@ -135,14 +138,20 @@ export function HubFieldTechnicians() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<Tech[]>({ queryKey: ["/api/hub/field/technicians"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/technicians")).data });
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ fullName: "", phone: "", services: "" });
+  const [f, setF] = useState({ fullName: "", phone: "", services: "", isOwner: false });
+  // The default commission, and one technician's own while it is being edited.
+  const settings = useQuery<{ commission: Commission }>({ queryKey: ["/api/hub/field/settings"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/settings")).data });
+  const def = settings.data?.commission ?? null;
+  const [defDraft, setDefDraft] = useState<{ type: Commission["type"]; value: string } | null>(null);
+  const [cFor, setCFor] = useState<null | { t: Tech; mode: "default" | Commission["type"]; value: string }>(null);
+  const canSettings = hubCan(me, "settings:manage");
   // An expert who already works with UniteFix joins with a code from their app.
   const [join, setJoin] = useState<null | { step: "ask" | "code"; inviteId?: number; name?: string | null; code: string; message?: string }>(null);
   const myServices = useQuery<{ services: MyService[] }>({ queryKey: ["/api/hub/field/services"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/services")).data });
   const serviceNames = (myServices.data?.services ?? []).map(x => x.name);
   const picked = f.services.split(",").map(x => x.trim()).filter(Boolean);
   const togglePick = (n: string) => setF({ ...f, services: (picked.includes(n) ? picked.filter(p => p !== n) : [...picked, n]).join(", ") });
-  const closeAdd = () => { setOpen(false); setJoin(null); setF({ fullName: "", phone: "", services: "" }); };
+  const closeAdd = () => { setOpen(false); setJoin(null); setF({ fullName: "", phone: "", services: "", isOwner: false }); };
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadFor, setUploadFor] = useState<{ id: number; kind: string } | null>(null);
   const manage = hubCan(me, "ops:manage");
@@ -150,7 +159,7 @@ export function HubFieldTechnicians() {
 
   const add = async () => {
     try {
-      const r: any = await apiRequest("POST", "/api/hub/field/technicians", { fullName: f.fullName, phone: f.phone, services: picked });
+      const r: any = await apiRequest("POST", "/api/hub/field/technicians", { fullName: f.fullName, phone: f.phone, services: picked, isOwner: f.isOwner });
       refresh(); closeAdd(); toast({ title: "Technician added", description: r.message });
     } catch (e) {
       if (String((e as any)?.message ?? "").includes("EXISTING_EXPERT")) { setJoin({ step: "ask", code: "", message: apiErrorMessage(e) }); return; }
@@ -184,18 +193,51 @@ export function HubFieldTechnicians() {
     } catch (e) { fail(toast, "Upload failed")(e); } finally { setUploadFor(null); if (fileRef.current) fileRef.current.value = ""; }
   };
   const pickFile = (id: number, kind: string) => { setUploadFor({ id, kind }); setTimeout(() => fileRef.current?.click(), 0); };
+  const saveDefault = async () => {
+    if (!defDraft) return;
+    try {
+      const r: any = await apiRequest("PUT", "/api/hub/field/settings", { commissionType: defDraft.type, commissionValue: Number(defDraft.value) });
+      qc.setQueryData(["/api/hub/field/settings"], r.data); setDefDraft(null); toast({ title: "Commission saved", description: "It applies to jobs finished from now on." });
+    } catch (e) { fail(toast, "Not saved")(e); }
+  };
+  const saveTechCommission = async () => {
+    if (!cFor) return;
+    try {
+      await apiRequest("PATCH", `/api/hub/field/technicians/${cFor.t.id}`, { commission: cFor.mode === "default" ? null : { type: cFor.mode, value: Number(cFor.value) } });
+      refresh(); setCFor(null); toast({ title: "Commission saved", description: `For ${cFor.t.fullName}, on jobs finished from now on.` });
+    } catch (e) { fail(toast, "Not saved")(e); }
+  };
 
   return (
-    <HubPage title="Technicians" subtitle="Your people, working UniteFix jobs in your territory. You employ and pay them; UniteFix verifies each one before their first job."
+    <HubPage title="Technicians" subtitle="Your people, working UniteFix jobs in your territory. UniteFix verifies each one before their first job, and pays them into their UniteFix wallet after your commission."
       actions={manage ? <Button onClick={() => setOpen(true)}>Add technician</Button> : undefined}>
       <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) upload(file); }} />
+      <Panel title="Your commission">
+        <p className="mb-3 text-xs text-[hsl(215,20%,60%)]">What you earn from each job your technicians finish. UniteFix holds it 7 days, then adds it to your account with your settlements. A technician can have their own rate in the list below.</p>
+        {!def ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !defDraft ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-white">{def.type === "fixed" ? `₹${def.value} from each job` : `${def.value}% of each job's value`}</p>
+            {canSettings && <Button size="sm" variant="outline" onClick={() => setDefDraft({ type: def.type, value: String(def.value) })}>Change</Button>}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            <div><Label htmlFor="c-def-type">Type</Label>
+              <HubSelect id="c-def-type" aria-label="Commission type" value={defDraft.type} onChange={v => setDefDraft({ ...defDraft, type: v as Commission["type"] })}>
+                <option value="percent">Percentage of the job</option><option value="fixed">Fixed ₹ per job</option>
+              </HubSelect></div>
+            <div><Label htmlFor="c-def-val">{defDraft.type === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-def-val" inputMode="decimal" className="w-28" value={defDraft.value} onChange={e => setDefDraft({ ...defDraft, value: e.target.value.replace(/[^d.]/g, "") })} /></div>
+            <Button size="sm" onClick={saveDefault} disabled={defDraft.value === ""}>Save</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDefDraft(null)}>Cancel</Button>
+          </div>
+        )}
+      </Panel>
       <Panel>
         {isLoading ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : !data?.length ? <Empty icon="engineering" title="No technicians yet">Add them with their mobile number — it is their login to the UniteFix app.</Empty> : (
           <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
-            <Thead cols={["Technician", "Verification", "Documents", ["Jobs", "right"], ["Rating", "right"], "Status", ""]} />
+            <Thead cols={["Technician", "Verification", "Documents", "Your commission", ["Jobs", "right"], ["Rating", "right"], "Status", ""]} />
             <tbody className="divide-y divide-[rgba(255,255,255,0.06)]">{data.map(t => (
               <tr key={t.id}>
-                <td className="py-2 pr-2"><span className="text-white">{t.fullName}</span><span className="block text-xs text-[hsl(215,20%,55%)]">{t.phone} · {t.partnerId}{t.services.length ? ` · ${t.services.join(", ")}` : ""}</span></td>
+                <td className="py-2 pr-2"><span className="text-white">{t.fullName}</span>{t.isOwner && <> <Chip tone="info">you</Chip></>}<span className="block text-xs text-[hsl(215,20%,55%)]">{t.phone} · {t.partnerId}{t.services.length ? ` · ${t.services.join(", ")}` : ""}</span></td>
                 <td className="pr-2"><Chip tone={VER[t.verification] ?? "muted"}>{t.verification}</Chip>{t.adminRemarks && t.verification === "rejected" && <span className="mt-1 block max-w-[220px] text-xs text-rose-300">{t.adminRemarks}</span>}</td>
                 <td className="pr-2">
                   <div className="flex flex-wrap gap-1">{(["aadhaar", "pan", "photo"] as const).map(k => (
@@ -203,6 +245,14 @@ export function HubFieldTechnicians() {
                       {t.documents[k] ? "✓ " : "+ "}{k === "aadhaar" ? "ID" : k === "pan" ? "PAN" : "Photo"}
                     </button>
                   ))}</div>
+                </td>
+                <td className="pr-2">
+                  {t.isOwner ? <span className="text-[hsl(215,20%,70%)]">You · none</span> : (
+                    <button disabled={!manage} onClick={() => setCFor({ t, mode: t.commission ? t.commission.type : "default", value: String(t.commission?.value ?? def?.value ?? "") })}
+                      className="text-left text-white underline decoration-dotted underline-offset-2 disabled:no-underline">
+                      {t.commission ? commissionText(t.commission) : def ? `${commissionText(def)} (default)` : "default"}
+                    </button>
+                  )}
                 </td>
                 <td className="pr-2 text-right tabular-nums">{t.completed}<span className="block text-[11px] text-[hsl(215,20%,55%)]">{t.activeJobs} active</span></td>
                 <td className="pr-2 text-right tabular-nums">{t.rating ? t.rating.toFixed(1) : "—"}</td>
@@ -212,6 +262,22 @@ export function HubFieldTechnicians() {
             ))}</tbody></table></div>
         )}
       </Panel>
+      <Dialog open={!!cFor} onOpenChange={o => !o && setCFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Commission from {cFor?.t.fullName}</DialogTitle><DialogDescription>What you earn from each job they finish. The rest goes to their UniteFix wallet. Changes apply to jobs finished from now on.</DialogDescription></DialogHeader>
+          {cFor && (
+            <div className="space-y-3">
+              {([["default", def ? `Your default (${commissionText(def)})` : "Your default"], ["percent", "Percentage of the job"], ["fixed", "Fixed ₹ per job"]] as const).map(([m, l]) => (
+                <label key={m} className="flex items-center gap-2 text-sm text-white"><input type="radio" name="c-mode" checked={cFor.mode === m} onChange={() => setCFor({ ...cFor, mode: m })} /> {l}</label>
+              ))}
+              {cFor.mode !== "default" && (
+                <div><Label htmlFor="c-val">{cFor.mode === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-val" inputMode="decimal" value={cFor.value} onChange={e => setCFor({ ...cFor, value: e.target.value.replace(/[^d.]/g, "") })} /></div>
+              )}
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setCFor(null)}>Cancel</Button><Button onClick={saveTechCommission} disabled={!cFor || (cFor.mode !== "default" && cFor.value === "")}>Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={open} onOpenChange={o => (o ? setOpen(true) : closeAdd())}>
         <DialogContent className="max-w-md">
           {!join ? (<>
@@ -229,13 +295,19 @@ export function HubFieldTechnicians() {
                 )}
                 <Input id="t-skills" className="mt-1.5" placeholder={serviceNames.length ? "Or type others, comma separated" : "e.g. Plumbing, Wiring — add your services first to pick from them"} value={f.services} onChange={e => setF({ ...f, services: e.target.value })} />
               </div>
+              {!(data ?? []).some(t => t.isOwner) && (
+                <label className="flex items-start gap-2 text-sm text-[hsl(215,20%,80%)]">
+                  <input type="checkbox" className="mt-1" checked={f.isOwner} onChange={e => setF({ ...f, isOwner: e.target.checked })} />
+                  <span>This is me: I work jobs myself. No commission is taken from my own jobs. Use a mobile number other than your partner app login.</span>
+                </label>
+              )}
             </div>
             <DialogFooter><Button variant="outline" onClick={closeAdd}>Cancel</Button><Button onClick={add} disabled={f.fullName.trim().length < 2 || f.phone.replace(/\D/g, "").length < 10}>Add</Button></DialogFooter>
           </>) : join.step === "ask" ? (<>
             <DialogHeader><DialogTitle>Already with UniteFix</DialogTitle><DialogDescription>{join.message}</DialogDescription></DialogHeader>
             <div className="rounded-md border border-[rgba(255,255,255,0.1)] p-3 text-sm text-[hsl(215,20%,75%)] space-y-1.5">
               <p>We send a 6-digit joining code to their UniteFix app. They read it to you only if they agree.</p>
-              <p>Once they join, UniteFix stops sending them its own jobs, and you assign their jobs and pay them. The money already in their UniteFix wallet stays theirs.</p>
+              <p>Once they join, UniteFix stops sending them its own jobs. You assign their jobs; UniteFix pays them into their wallet after your commission.</p>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setJoin(null)}>Back</Button><Button onClick={sendCode}>Send joining code to {f.phone.replace(/\D/g, "").slice(-10)}</Button></DialogFooter>
           </>) : (<>
@@ -508,7 +580,7 @@ export function HubFieldEarnings() {
   const { toast } = useToast();
   const { data, isLoading } = useQuery<Earnings>({ queryKey: ["/api/hub/field/earnings"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/earnings")).data });
   return (
-    <HubPage title="Field earnings" subtitle="Each job's value is held for 7 days (the dispute window), then added to what UniteFix owes you and paid at settlement. On cash jobs, the cash your technician kept is charged against it. Each month UniteFix generates your invoice to it for the work.">
+    <HubPage title="Field earnings" subtitle="Your commission on each job your technicians finish is held for 7 days (the dispute window), then added to what UniteFix owes you and paid at settlement. Your technicians are paid their share into their own UniteFix wallets. Jobs from before commissions show the whole job value.">
       {isLoading || !data ? <p className="text-sm text-[hsl(215,20%,65%)]">Loading…</p> : (
         <>
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-3">
@@ -527,7 +599,7 @@ export function HubFieldEarnings() {
           <Panel title="Jobs">
             {!data.jobs.length ? <Empty icon="handyman" title="No completed jobs yet" /> : (
               <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
-                <Thead cols={["Job", "Technician", "Completed", "Status", ["Value", "right"]]} />
+                <Thead cols={["Job", "Technician", "Completed", "Status", ["Your share", "right"]]} />
                 <tbody className="divide-y divide-[rgba(255,255,255,0.06)]">{data.jobs.map(j => (
                   <tr key={j.id}><td className="py-2 font-mono text-white">{j.serviceId}</td><td className="text-[hsl(215,20%,70%)]">{j.technician}</td><td className="text-[hsl(215,20%,70%)]">{when(j.completedAt)}</td>
                     <td><Chip tone={j.status === "released" ? "good" : j.status === "held" ? "warn" : "muted"}>{j.status === "held" ? `held until ${new Date(j.releaseAt).toLocaleDateString("en-IN")}` : j.status}</Chip></td>

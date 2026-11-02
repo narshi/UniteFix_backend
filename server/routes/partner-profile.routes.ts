@@ -53,15 +53,25 @@ export function registerPartnerProfileRoutes(app: Express) {
 
       const employee = await getOrCreateEmployee(userId);
 
-      // A partner's technician is employed and paid by that partner (Partner Hub).
-      let employer: { id: number; name: string; phone: string | null } | null = null;
+      // A partner's technician is paid into their own UniteFix wallet, after the
+      // partner's commission. `employer` stays null: app builds before this
+      // change hide the wallet whenever it is set.
+      let worksWith: { id: number; name: string; phone: string | null; commission: string } | null = null;
       if ((employee as any).managedByPartnerId) {
         const { BusinessPartnerService } = await import("../services/business-partner.service");
         const bp = await BusinessPartnerService.byId((employee as any).managedByPartnerId);
-        if (bp) employer = { id: bp.id, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone };
+        if (bp) {
+          const own = (employee as any).partnerCommissionType;
+          const type = own ?? (bp as any).fieldCommissionType ?? 'percent';
+          const value = Number(own ? (employee as any).partnerCommissionValue : (bp as any).fieldCommissionValue) || 0;
+          worksWith = {
+            id: bp.id, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone,
+            commission: (employee as any).isPartnerOwner ? 'none (your own business)' : type === 'fixed' ? `₹${value} a job` : `${value}% of each job`,
+          };
+        }
       }
 
-      res.json({ success: true, data: { ...employee, employer, payNote: employer ? `Employed by ${employer.name} — your pay comes from your employer, not a UniteFix wallet.` : null } });
+      res.json({ success: true, data: { ...employee, employer: null, worksWith, payNote: worksWith ? `You work with ${worksWith.name}. Your jobs are paid into this wallet after their commission: ${worksWith.commission}.` : null } });
     } catch (error: any) {
       logger.error("Error fetching partner profile", { error: error.message });
       res.status(500).json({ success: false, message: "Failed to fetch profile" });

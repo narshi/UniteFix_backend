@@ -189,10 +189,11 @@ async function main() {
         await db.update(serviceRequests).set({ status: 'in_progress' as any }).where(eq(serviceRequests.id, sr1.id));
         await storage.updateServiceRequestStatus(sr1.id, 'completed');
         const [earn1] = await db.select().from(partnerJobEarnings).where(eq(partnerJobEarnings.serviceRequestId, sr1.id));
-        check('completion holds the job\'s value for the partner', !!earn1 && earn1.status === 'held' && earn1.amountPaise === Math.round(snap1.technicianEarning * 100), `${earn1?.amountPaise} vs ${snap1.technicianEarning}`);
-        const tw = await db.select().from(walletTransactionsV2).where(eq(walletTransactionsV2.serviceRequestId, sr1.id));
+        // The partner's default commission is 20% of the job's value.
+        const comm1 = Math.round(Math.round(snap1.technicianEarning * 20) / 100 * 100);
+        check('completion holds the partner\'s commission (20% default) for the partner', !!earn1 && earn1.status === 'held' && earn1.amountPaise === comm1, `${earn1?.amountPaise} vs ${comm1}`);
         const pw = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, techId));
-        check('…and nothing goes to the technician\'s UniteFix wallet', tw.length === 0 && pw.length === 0);
+        check('…and the rest is held in the technician\'s own UniteFix wallet', pw.length === 1 && Math.round(Number(pw[0].balanceHold) * 100) === Math.round(snap1.technicianEarning * 100) - comm1, JSON.stringify(pw[0] ?? null));
         await storage.updateServiceRequestStatus(sr1.id, 'completed');
         check('completing twice holds once', (await db.select().from(partnerJobEarnings).where(eq(partnerJobEarnings.serviceRequestId, sr1.id))).length === 1);
 
@@ -207,15 +208,15 @@ async function main() {
         const [earn2] = await db.select().from(partnerJobEarnings).where(eq(partnerJobEarnings.serviceRequestId, sr2.id));
         // UniteFix's part of the cash: its fee + GST, less the ₹99 advance it already holds
         // (the booking fee is the customer's advance, not taken from the earning).
-        const debit2 = Math.round(snap2.finalTotal * 100) - Math.round(snap2.technicianEarning * 100);
-        check('cash job: partner is charged the cash, and the value is held for it', !!cashRow && cashRow.amountPaise === Math.round(snap2.finalTotal * 100) && debit2 === Math.round((snap2.platformFee + snap2.cgst + snap2.sgst - snap2.bookingFee) * 100) && earn2?.amountPaise === Math.round(snap2.technicianEarning * 100), JSON.stringify({ cash: cashRow?.amountPaise, earn: earn2?.amountPaise, debit2 }));
+        const comm2 = Math.round(Math.round(snap2.technicianEarning * 20) / 100 * 100);
+        check('cash job: the technician keeps the cash, the partner is not charged it, and the commission is held for the partner', !cashRow && earn2?.amountPaise === comm2, JSON.stringify({ cash: cashRow?.amountPaise, earn: earn2?.amountPaise, comm2 }));
 
         // ── release and settlement ────────────────────────────────────────
         await db.update(partnerJobEarnings).set({ releaseAt: new Date(Date.now() - 1000) }).where(inArray(partnerJobEarnings.serviceRequestId, [sr1.id, sr2.id]));
         const released = await PartnerFieldService.releaseDue();
         check('after the hold, job values are released to the partner ledger', released >= 2);
         const bal = await BusinessPartnerService.balancePaise(fs.id);
-        check('net: UniteFix owes the online job\'s value, less its share of the cash job', bal === balAfterCash - earn1.amountPaise - earn2.amountPaise && bal === -(earn1.amountPaise - debit2), `${bal} vs ${-(earn1.amountPaise - debit2)}`);
+        check('net: UniteFix owes the partner both commissions', bal === balAfterCash - earn1.amountPaise - earn2.amountPaise, `${bal} vs ${balAfterCash - earn1.amountPaise - earn2.amountPaise}`);
         const work = await api.get('/api/admin/hub/settlements/worklist', staff);
         const w = work.body?.data?.find((x: any) => x.businessPartnerId === fs.id);
         check('the partner appears on the settlement worklist with that payout', !!w && Math.round(w.payout * 100) === -bal, JSON.stringify(w));
@@ -257,7 +258,7 @@ async function main() {
 
         // ── technician app, roles, home ───────────────────────────────────
         const prof = await api.get('/api/partner/profile', techTok);
-        check('the technician app knows who employs them', prof.status === 200 && prof.body?.data?.employer?.name === 'Sirsi Electronics', JSON.stringify(prof.body).slice(0, 200));
+        check('the technician app shows who they work with, and their wallet (no "employer")', prof.status === 200 && prof.body?.data?.employer === null && prof.body?.data?.worksWith?.name === 'Sirsi Electronics', JSON.stringify(prof.body?.data?.worksWith ?? prof.body).slice(0, 200));
         const invd = await api.post('/api/hub/team', { name: 'QA Dispatcher', email: `qa_p4d_${stamp}@example.test`, role: 'dispatcher' }, t1);
         const [dRow] = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, `qa_p4d_${stamp}@example.test`)); if (dRow) adminIds.push(dRow.id);
         const disp = (await api.login(invd.body.data.username, invd.body.data.temporaryPassword))!;

@@ -79,6 +79,8 @@ export function registerHubFieldRoutes(app: Express) {
             const b = parse(z.object({
                 hours: z.array(z.object({ weekday: z.number().int().min(0).max(6), startTime: time, endTime: time })).max(28).nullable().optional(),
                 autoAssign: z.boolean().optional(), autoAssignMinutes: z.number().int().optional(),
+                fieldSupportPhone: z.string().max(20).optional().nullable(),
+                commissionType: z.enum(['percent', 'fixed']).optional(), commissionValue: z.number().min(0).max(100000).optional(),
             }), req.body ?? {});
             res.json({ success: true, message: 'Saved.', data: await PartnerFieldService.saveSettings(ctxOf(req), b) });
         } catch (e) { hubError(e, res, next); }
@@ -128,7 +130,7 @@ export function registerHubFieldRoutes(app: Express) {
 
     app.post('/api/hub/field/technicians', active, field, hubCan('ops:manage'), async (req, res, next) => {
         try {
-            const b = parse(z.object({ fullName: z.string().min(2).max(120), phone: z.string().max(20), services: z.array(z.string().max(60)).max(20).optional() }), req.body);
+            const b = parse(z.object({ fullName: z.string().min(2).max(120), phone: z.string().max(20), services: z.array(z.string().max(60)).max(20).optional(), isOwner: z.boolean().optional() }), req.body);
             const ctx = ctxOf(req);
             const e = await PartnerFieldService.addTechnician(ctx, b);
             await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_technician_added', changedBy: ctx.adminUserId, metadata: { employeeId: e.id } });
@@ -157,7 +159,10 @@ export function registerHubFieldRoutes(app: Express) {
 
     app.patch('/api/hub/field/technicians/:id', active, field, hubCan('ops:manage'), async (req, res, next) => {
         try {
-            const b = parse(z.object({ isActive: z.boolean().optional(), services: z.array(z.string().max(60)).max(20).optional(), fullName: z.string().max(120).optional() }), req.body);
+            const b = parse(z.object({
+                isActive: z.boolean().optional(), services: z.array(z.string().max(60)).max(20).optional(), fullName: z.string().max(120).optional(),
+                commission: z.object({ type: z.enum(['percent', 'fixed']), value: z.number().min(0).max(100000) }).nullable().optional(),
+            }), req.body);
             const e = await PartnerFieldService.updateTechnician(ctxOf(req), Number(req.params.id), b);
             res.json({ success: true, message: 'Saved.', data: { id: e.id, isActive: e.isActive } });
         } catch (e) { hubError(e, res, next); }
@@ -321,15 +326,9 @@ export function registerHubFieldRoutes(app: Express) {
         } catch (e) { hubError(e, res, next); }
     });
 
-    app.put('/api/hub/field/settings', active, field, hubCan('settings:manage'), async (req, res, next) => {
-        try {
-            const b = parse(z.object({ fieldSupportPhone: z.string().max(20).optional().nullable() }), req.body);
-            const phone = b.fieldSupportPhone ? b.fieldSupportPhone.replace(/\D/g, '').slice(-10) : null;
-            if (b.fieldSupportPhone && phone?.length !== 10) throw new HubError('A 10-digit number customers can call.', 'BAD_PHONE');
-            await db.update(businessPartners).set({ fieldSupportPhone: phone, updatedAt: new Date() }).where(eq(businessPartners.id, ctxOf(req).businessPartnerId));
-            res.json({ success: true, message: 'Saved.' });
-        } catch (e) { hubError(e, res, next); }
-    });
+    // Support phone is saved by the one PUT /api/hub/field/settings above. A
+    // second route here never ran (Express used the first), so the phone was
+    // reported saved and dropped.
 
     // ═══════════════════════════════════════════════════════════════════════
     // Customer: price and provider at a pincode

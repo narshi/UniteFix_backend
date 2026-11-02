@@ -202,6 +202,11 @@ export const employees = pgTable("employees", {
    * partner is the employer and pays them.
    */
   managedByPartnerId: integer("managed_by_partner_id"),
+  // The partner's cut of this technician's jobs; null = the partner's default.
+  partnerCommissionType: text("partner_commission_type"),      // percent | fixed
+  partnerCommissionValue: decimal("partner_commission_value", { precision: 10, scale: 2 }),
+  // The partner's owner working jobs himself: paid in full, no commission.
+  isPartnerOwner: boolean("is_partner_owner").notNull().default(false),
   // Performance
   totalServicesCompleted: integer("total_services_completed").default(0),
   averageRating: decimal("average_rating", { precision: 3, scale: 2 }).default('0.00'),
@@ -2435,6 +2440,9 @@ export const businessPartners = pgTable("business_partners", {
   fieldFeePercent: decimal("field_fee_percent", { precision: 5, scale: 2 }), // null = platform default
   fieldTier: text("field_tier").notNull().default('new'),                    // new | standard | preferred | restricted
   fieldSupportPhone: text("field_support_phone"),
+  // Default cut of each technician's job, unless set on the technician.
+  fieldCommissionType: text("field_commission_type").notNull().default('percent'),   // percent | fixed
+  fieldCommissionValue: decimal("field_commission_value", { precision: 10, scale: 2 }).notNull().default('20'),
   // Phase 7 — selling products
   sellerTier: text("seller_tier").notNull().default('new'),         // new | standard | preferred | restricted
   sellerTierLocked: boolean("seller_tier_locked").notNull().default(false), // staff override wins over the computed tier

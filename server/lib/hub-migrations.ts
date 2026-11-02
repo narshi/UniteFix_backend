@@ -1250,6 +1250,13 @@ const BLOCKS: Array<[string, string]> = [
     ['withdrawals: payout attempt', `
       ALTER TABLE withdrawal_requests ADD COLUMN IF NOT EXISTS payout_attempt INTEGER NOT NULL DEFAULT 1;
     `],
+    ['partners: technician commission', `
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_commission_type TEXT NOT NULL DEFAULT 'percent';
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS field_commission_value NUMERIC(10,2) NOT NULL DEFAULT 20;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS partner_commission_type TEXT;
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS partner_commission_value NUMERIC(10,2);
+      ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_partner_owner BOOLEAN NOT NULL DEFAULT false;
+    `],
     ['bookings: admin cancel and close', `
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;

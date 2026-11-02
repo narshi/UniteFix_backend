@@ -93,6 +93,16 @@ export interface Routing {
     slaAssignBy: Date | null;
 }
 
+/** A commission setting, checked: a percentage of the job (0–100), or a fixed amount per job. */
+function commissionOf(type: string, value: unknown): { type: 'percent' | 'fixed'; value: number } {
+    const v = Number(value);
+    if (type !== 'percent' && type !== 'fixed') throw new HubError('Commission is a percentage or a fixed amount.', 'BAD_COMMISSION');
+    if (!Number.isFinite(v) || v < 0) throw new HubError('Enter a commission of 0 or more.', 'BAD_COMMISSION');
+    if (type === 'percent' && v > 100) throw new HubError('A percentage commission is at most 100%.', 'BAD_COMMISSION');
+    if (type === 'fixed' && v > 100000) throw new HubError('A fixed commission is at most ₹1,00,000 a job.', 'BAD_COMMISSION');
+    return { type, value: Math.round(v * 100) / 100 };
+}
+
 export class PartnerFieldService {
 
     // ══════════════════════════════════════════════════════════════════════
@@ -304,11 +314,22 @@ export class PartnerFieldService {
         return {
             hours: (bp?.fieldHours as WorkWindow[] | null) ?? null, autoAssign: !!bp?.fieldAutoAssign, autoAssignMinutes: bp?.fieldAutoAssignMinutes ?? 15,
             holidays: holidays.map(h => ({ id: h.id, day: h.day, reason: h.reason })), assignWithinHours: sla, assignWithinHoursUrgent: slaUrgent,
+            fieldSupportPhone: bp?.fieldSupportPhone ?? null,
+            commission: { type: (bp?.fieldCommissionType ?? 'percent') as 'percent' | 'fixed', value: Number(bp?.fieldCommissionValue ?? 0) },
         };
     }
 
-    static async saveSettings(ctx: HubContext, input: { hours?: WorkWindow[] | null; autoAssign?: boolean; autoAssignMinutes?: number }) {
+    static async saveSettings(ctx: HubContext, input: { hours?: WorkWindow[] | null; autoAssign?: boolean; autoAssignMinutes?: number; fieldSupportPhone?: string | null; commissionType?: 'percent' | 'fixed'; commissionValue?: number }) {
         const set: Record<string, unknown> = { updatedAt: new Date() };
+        if (input.fieldSupportPhone !== undefined) {
+            const phone = input.fieldSupportPhone ? input.fieldSupportPhone.replace(/D/g, '').slice(-10) : null;
+            if (input.fieldSupportPhone && phone?.length !== 10) throw new HubError('A 10-digit number customers can call.', 'BAD_PHONE');
+            set.fieldSupportPhone = phone;
+        }
+        if (input.commissionType !== undefined || input.commissionValue !== undefined) {
+            const c = commissionOf(input.commissionType ?? 'percent', input.commissionValue);
+            set.fieldCommissionType = c.type; set.fieldCommissionValue = String(c.value);
+        }
         if (input.hours !== undefined) {
             if (input.hours && input.hours.length) {
                 for (const w of input.hours) {
@@ -737,6 +758,9 @@ export class PartnerFieldService {
             verification: e.documentVerificationStatus, adminRemarks: e.adminRemarks,
             documents: { aadhaar: !!e.aadhaarDocUrl, pan: !!e.panDocUrl, photo: !!e.profilePhotoUrl },
             completed: e.totalServicesCompleted ?? 0, rating: Number(e.averageRating ?? 0), activeJobs: act.get(e.id) ?? 0,
+            isOwner: !!e.isPartnerOwner,
+            // Their own commission, or null when the partner's default applies.
+            commission: e.partnerCommissionType ? { type: e.partnerCommissionType as 'percent' | 'fixed', value: Number(e.partnerCommissionValue ?? 0) } : null,
         }));
     }
 
@@ -744,12 +768,20 @@ export class PartnerFieldService {
      * Add a technician. They sign in to the UniteFix app with this mobile
      * number (OTP); UniteFix verifies their documents before they can work.
      */
-    static async addTechnician(ctx: HubContext, input: { fullName: string; phone: string; services?: string[] }) {
+    static async addTechnician(ctx: HubContext, input: { fullName: string; phone: string; services?: string[]; isOwner?: boolean }) {
         const phone = String(input.phone ?? '').replace(/\D/g, '').slice(-10);
         if (phone.length !== 10) throw new HubError('A 10-digit mobile number is needed — it is their app login.', 'BAD_PHONE');
         if (!input.fullName?.trim()) throw new HubError('Name is required.', 'NO_NAME');
+        if (input.isOwner) {
+            const [already] = await db.select({ id: employees.id }).from(employees)
+                .where(and(eq(employees.managedByPartnerId, ctx.businessPartnerId), eq(employees.isPartnerOwner, true))).limit(1);
+            if (already) throw new HubError('You are already on your team as a technician.', 'OWNER_EXISTS', 409);
+        }
         const [taken] = await db.select({ id: users.id }).from(users).where(or(eq(users.phone, phone), eq(users.phone, `+91${phone}`))).limit(1);
         if (taken) {
+            const [own] = await db.select({ id: businessPartners.id }).from(businessPartners)
+                .where(and(eq(businessPartners.id, ctx.businessPartnerId), eq(businessPartners.userId, taken.id))).limit(1);
+            if (own) throw new HubError('This number is your partner app login, so it cannot also be a technician login. Add yourself with another mobile number to work jobs in the UniteFix app.', 'OWN_LOGIN', 409);
             const [expert] = await db.select({ id: employees.id }).from(employees).where(eq(employees.userId, taken.id)).limit(1);
             if (expert) throw new HubError('This number belongs to an expert who already works with UniteFix. Send them a joining code: they read it to you from their UniteFix app, and they become your technician.', 'EXISTING_EXPERT', 409);
             throw new HubError('This number is a UniteFix customer account, not an expert. Use a different number for their technician login.', 'PHONE_TAKEN', 409);
@@ -765,6 +797,7 @@ export class PartnerFieldService {
             const emp = await storage.createServiceProvider({
                 userId: user.id, fullName: input.fullName.trim(), partnerType: 'Partner staff', businessName: ctx.displayName,
                 services: (input.services ?? []).slice(0, 20), isActive: false, isOnline: false, managedByPartnerId: ctx.businessPartnerId,
+                isPartnerOwner: !!input.isOwner,
             });
             return emp;
         } catch (e) {
@@ -789,8 +822,8 @@ export class PartnerFieldService {
 
     /**
      * Ask an expert who already works with UniteFix to become this partner's
-     * technician. Joining stops UniteFix sending them its own jobs and moves
-     * their pay for jobs to the partner, so it takes their consent: a 6-digit
+     * technician. Joining stops UniteFix sending them its own jobs and
+     * gives the partner a commission on each of their jobs, so it takes their consent: a 6-digit
      * code goes to their UniteFix app (valid 30 minutes), and they read it out.
      */
     static async inviteExistingExpert(ctx: HubContext, rawPhone: string) {
@@ -820,7 +853,7 @@ export class PartnerFieldService {
         });
         const { NotificationService } = await import('./notification.service');
         await NotificationService.sendToUser(u.id, `${ctx.displayName} wants you as their technician`,
-            `Joining code: ${code}. Give it to ${ctx.displayName} only if you agree to work for them. Once you join, UniteFix stops sending you its own jobs and your pay for their jobs comes from them; the money already in your UniteFix wallet stays yours. The code works for 30 minutes.`,
+            `Joining code: ${code}. Give it to ${ctx.displayName} only if you agree to work for them. Once you join, UniteFix stops sending you its own jobs; you work their jobs and are paid into your UniteFix wallet after their commission. The code works for 30 minutes.`,
             'partner_join_code', { inviteId: invite.id, businessPartnerId: ctx.businessPartnerId },
         ).catch((e: any) => logger.warn(`[FIELD] joining code notification failed: ${e?.message}`));
         logger.info(`[FIELD] Partner #${ctx.businessPartnerId} sent a joining code to expert #${emp.id}`);
@@ -871,8 +904,13 @@ export class PartnerFieldService {
     }
 
     /** Partner switches its own person on or off (instant), or edits their trades. Activation needs UniteFix verification. */
-    static async updateTechnician(ctx: HubContext, id: number, patch: { isActive?: boolean; services?: string[]; fullName?: string }) {
+    static async updateTechnician(ctx: HubContext, id: number, patch: { isActive?: boolean; services?: string[]; fullName?: string; commission?: { type: 'percent' | 'fixed'; value: number } | null }) {
         const e = await this.technician(ctx.businessPartnerId, id);
+        if (patch.commission !== undefined) {
+            if (e.isPartnerOwner && patch.commission) throw new HubError('You take no commission from your own jobs.', 'OWNER_COMMISSION', 409);
+            const c = patch.commission ? commissionOf(patch.commission.type, patch.commission.value) : null;
+            await db.update(employees).set({ partnerCommissionType: c?.type ?? null, partnerCommissionValue: c ? String(c.value) : null, updatedAt: new Date() }).where(eq(employees.id, id));
+        }
         if (patch.isActive === true && e.documentVerificationStatus !== 'verified') throw new HubError('UniteFix has not verified this technician yet. Upload their documents; activation follows verification.', 'NOT_VERIFIED', 409);
         const [u] = await db.update(employees).set({
             ...(patch.isActive !== undefined ? { isActive: patch.isActive, ...(patch.isActive ? {} : { isOnline: false }) } : {}),
@@ -902,7 +940,7 @@ export class PartnerFieldService {
                 : inArray(serviceRequests.status, ['completed', 'cancelled'] as any);
         const rows = await db.select({
             sr: serviceRequests, customerName: users.username, customerPhone: users.phone, serviceName: services.name, categoryName: serviceCategories.name,
-            techName: employees.fullName,
+            techName: employees.fullName, techCType: employees.partnerCommissionType, techCValue: employees.partnerCommissionValue, techOwner: employees.isPartnerOwner,
         }).from(serviceRequests)
             .leftJoin(users, eq(users.id, serviceRequests.userId))
             .leftJoin(services, eq(services.id, serviceRequests.catalogServiceId))
@@ -912,6 +950,14 @@ export class PartnerFieldService {
             .orderBy(view === 'done' ? desc(serviceRequests.updatedAt) : asc(serviceRequests.createdAt)).limit(view === 'done' ? 200 : 500);
         const now = Date.now();
         const ninety = 90 * 86_400_000;
+        const [bp] = await db.select({ type: businessPartners.fieldCommissionType, value: businessPartners.fieldCommissionValue }).from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1);
+        // The partner's commission on a job, by the technician on it (as commissionSplit decides at completion).
+        const commissionOn = (value: number | null, r: { techCType: string | null; techCValue: string | null; techOwner: boolean | null }) => {
+            if (value == null || r.techOwner) return value == null ? null : 0;
+            const type = r.techCType ?? bp?.type ?? 'percent';
+            const v = Math.max(0, Number(r.techCType ? r.techCValue : bp?.value) || 0);
+            return Math.min(value, Math.round((type === 'fixed' ? v : value * Math.min(100, v) / 100) * 100) / 100);
+        };
         return rows.map(r => {
             const s = r.sr;
             const closedLongAgo = ['completed', 'cancelled'].includes(s.status as string) && s.updatedAt && now - new Date(s.updatedAt).getTime() > ninety;
@@ -925,6 +971,8 @@ export class PartnerFieldService {
                 technician: s.providerId ? { id: s.providerId, name: r.techName } : null,
                 slaAssignBy: s.slaAssignBy, overdue: !s.providerId && !!s.slaAssignBy && new Date(s.slaAssignBy).getTime() < now, escalatedAt: s.escalatedAt,
                 price: snap.basePrice ?? snap.grossTotal ?? null, yourValue: snap.technicianEarning ?? null, paymentMethod: s.paymentMethod,
+                // Your cut once a technician is on it; the job's value is what they and you share.
+                yourCommission: s.providerId ? commissionOn(snap.technicianEarning ?? null, r) : null,
             };
         });
     }
@@ -965,13 +1013,42 @@ export class PartnerFieldService {
         return e?.bp ?? null;
     }
 
-    /** A partner technician's job is complete: hold its value for the partner. Idempotent per job. */
-    static async holdJobValue(tx: any, bpId: number, input: { serviceRequestId: number; employeeId: number; amountRupees: number; releaseAt: Date }) {
+    /**
+     * How a partner technician's job money divides: the partner's commission
+     * and the technician's own share, which goes to the technician's UniteFix
+     * wallet like any expert's. The commission is the technician's own setting,
+     * else the partner's default: a percentage of the job's value, or a fixed
+     * amount per job (never more than the job is worth). The partner's owner
+     * working jobs himself takes no commission from himself.
+     *
+     * Null for a technician who does not work for a partner.
+     */
+    static async commissionSplit(employeeId: number, amountRupees: number, tx: any = db): Promise<{ bpId: number; partnerName: string; owner: boolean; commission: number; share: number; rule: string } | null> {
+        const [row] = await tx.select({
+            bpId: employees.managedByPartnerId, owner: employees.isPartnerOwner, type: employees.partnerCommissionType, value: employees.partnerCommissionValue,
+            defType: businessPartners.fieldCommissionType, defValue: businessPartners.fieldCommissionValue, name: businessPartners.displayName,
+        }).from(employees).innerJoin(businessPartners, eq(businessPartners.id, employees.managedByPartnerId))
+            .where(eq(employees.id, employeeId)).limit(1);
+        if (!row?.bpId) return null;
+        const amount = Math.max(0, Math.round(amountRupees * 100) / 100);
+        if (row.owner) return { bpId: row.bpId, partnerName: row.name, owner: true, commission: 0, share: amount, rule: 'owner' };
+        const type = row.type ?? row.defType ?? 'percent';
+        const value = Math.max(0, Number(row.type ? row.value : row.defValue) || 0);
+        const raw = type === 'fixed' ? value : amount * Math.min(100, value) / 100;
+        const commission = Math.min(amount, Math.round(raw * 100) / 100);
+        return {
+            bpId: row.bpId, partnerName: row.name, owner: false, commission, share: Math.round((amount - commission) * 100) / 100,
+            rule: type === 'fixed' ? `₹${value} a job` : `${value}%`,
+        };
+    }
+
+    /** Hold a partner's money from a job (its commission, or the whole value for an older job). Idempotent per job. */
+    static async holdJobValue(tx: any, bpId: number, input: { serviceRequestId: number; employeeId: number; amountRupees: number; releaseAt: Date; note?: string; countService?: boolean }) {
         const paise = Math.round(input.amountRupees * 100);
         const rows = await tx.insert(partnerJobEarnings).values({
-            businessPartnerId: bpId, serviceRequestId: input.serviceRequestId, employeeId: input.employeeId, amountPaise: paise, releaseAt: input.releaseAt,
+            businessPartnerId: bpId, serviceRequestId: input.serviceRequestId, employeeId: input.employeeId, amountPaise: paise, releaseAt: input.releaseAt, note: input.note ?? null,
         }).onConflictDoNothing().returning();
-        if (rows.length) {
+        if (rows.length && input.countService !== false) {
             await tx.update(employees).set({ totalServicesCompleted: sql`COALESCE(${employees.totalServicesCompleted}, 0) + 1`, updatedAt: new Date() }).where(eq(employees.id, input.employeeId));
             logger.info(`[FIELD] SR ${input.serviceRequestId}: ₹${input.amountRupees} held for partner #${bpId} until ${input.releaseAt.toISOString().slice(0, 10)}`);
         }
