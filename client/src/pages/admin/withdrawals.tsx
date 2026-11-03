@@ -237,17 +237,46 @@ export default function WithdrawalsPage() {
     },
   });
 
-  /** A failed payout: take the amount from the wallet again and put it back to pending. */
+  /**
+   * A failed payout: take the amount from the wallet again (the server puts the
+   * request back to pending), then pay it the way staff chose in the same box:
+   * through Cashfree by UPI or IMPS / NEFT / RTGS, or by hand ("manual" opens
+   * the record-payment form for it).
+   */
   const retryMutation = useMutation({
-    mutationFn: async (id: number) => apiRequest("POST", `/api/admin/withdrawals/${id}/retry`, {}),
-    onSuccess: (r: any) => {
-      toast({ title: "Back to pending", description: r?.message ?? "Pay it through Cashfree or manually." });
+    mutationFn: async ({ w, mode, then }: { w: Withdrawal; mode: ManualMode; then: 'cashfree' | 'manual' }) => {
+      const id = w.request.id;
+      await apiRequest("POST", `/api/admin/withdrawals/${id}/retry`, {});
+      if (then === 'manual') return { then, w, mode, message: undefined as string | undefined };
+      try {
+        const r: any = await apiRequest("POST", `/api/admin/withdrawals/${id}/approve`, mode === 'upi' ? { to: 'upi' } : { to: 'bank', mode });
+        return { then, w, mode, message: r?.message as string | undefined };
+      } catch (e) {
+        // The retry itself worked: the request is pending again, only the send failed.
+        throw Object.assign(new Error(apiErrorMessage(e)), { reopened: true });
+      }
+    },
+    onSuccess: (r) => {
       refreshList();
+      if (r.then === 'manual') {
+        toast({ title: "Reopened", description: "The amount is taken from the wallet again. Pay them, then record the payment here." });
+        setProofFile(null);
+        setReference("");
+        setManualMode(r.mode);
+        setActionDialog({ isOpen: true, type: 'approveManual', request: { ...r.w, request: { ...r.w.request, status: 'pending', failureReason: null } } as Withdrawal });
+        return;
+      }
+      toast({ title: "Sent to Cashfree", description: r.message ?? `Retried by ${r.mode === 'upi' ? 'UPI' : r.mode.toUpperCase()}. Use “Sync with Cashfree” to see when it lands.` });
       closeDialog();
     },
     onError: (error: any) => {
-      toast({ title: "Not retried", description: apiErrorMessage(error), variant: "destructive" });
+      toast({
+        title: error?.reopened ? "Reopened, but not sent" : "Not retried",
+        description: error?.reopened ? `${error.message} The request is pending again: pay it through Cashfree or manually.` : apiErrorMessage(error),
+        variant: "destructive",
+      });
       refreshList();
+      if (error?.reopened) closeDialog();
     },
   });
 
@@ -299,7 +328,7 @@ export default function WithdrawalsPage() {
     if (actionDialog.type === 'payCashfree') {
       payCashfreeMutation.mutate({ id: actionDialog.request.request.id, mode: manualMode });
     } else if (actionDialog.type === 'retry') {
-      retryMutation.mutate(actionDialog.request.request.id);
+      retryMutation.mutate({ w: actionDialog.request, mode: manualMode, then: 'cashfree' });
     } else if (actionDialog.type === 'approveManual') {
       if (!proofFile) return; // guarded again in the dialog button
       approveManualMutation.mutate({ id: actionDialog.request.request.id, proof: proofFile, mode: manualMode, reference: cleanReference(reference) });
@@ -473,8 +502,8 @@ export default function WithdrawalsPage() {
                             size="sm"
                             variant="outline"
                             className="bg-[hsla(38,92%,50%,0.1)] text-[hsl(38,92%,65%)] hover:bg-[hsla(38,92%,50%,0.2)] border-[hsla(38,92%,50%,0.35)] transition-colors"
-                            onClick={() => setActionDialog({ isOpen: true, type: 'retry', request: w })}
-                            title="Take the amount from the wallet again and reopen the request"
+                            onClick={() => { setBankForm(null); setManualMode(w.request.method === 'upi' ? (hasUpi(w) ? 'upi' : 'imps') : (hasBank(w) ? 'imps' : 'upi')); setActionDialog({ isOpen: true, type: 'retry', request: w }); }}
+                            title="Take the amount from the wallet again and pay it by UPI or bank transfer"
                           >
                             Retry payout
                           </Button>
@@ -547,7 +576,7 @@ export default function WithdrawalsPage() {
               {actionDialog.type === 'payCashfree'
                 ? `Cashfree sends ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} by ${manualMode === 'upi' ? 'UPI' : `${manualMode.toUpperCase()} to their bank account`}, from your Cashfree Payouts balance. Choose where and how below. The request shows "processing" until Cashfree confirms; if it fails, the money goes back to their wallet.`
                 : actionDialog.type === 'retry'
-                ? `When this payout failed, ₹${actionDialog.request?.request.amount} went back to their wallet${actionDialog.request?.request.failureReason ? ` (${actionDialog.request.request.failureReason})` : ''}. Retry takes it from the wallet again and puts the request back to pending, so you can pay it through Cashfree or manually, or reject it. If they no longer have that much available, nothing changes.`
+                ? `When this payout failed, ₹${actionDialog.request?.request.amount} went back to their wallet${actionDialog.request?.request.failureReason ? ` (${actionDialog.request.request.failureReason})` : ''}. Retry takes it from the wallet again and pays it the way you choose below: through Cashfree by UPI or bank transfer (IMPS / NEFT / RTGS), or yourself with "Pay manually instead". If they no longer have that much available, nothing changes.`
                 : actionDialog.type === 'approveManual'
                 ? `Send ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName} from your own bank or UPI app using the details below, then record the transfer here. This completes the withdrawal.`
                 : `This will reject the withdrawal and refund ₹${actionDialog.request?.request.amount} to ${actionDialog.request?.employee.fullName}'s wallet. Continue?`
@@ -558,7 +587,7 @@ export default function WithdrawalsPage() {
           {/* Where the money goes, chosen before anything is sent: the expert's
               bank account or UPI ID, and for a bank IMPS / NEFT / RTGS. Shared by
               "Pay via Cashfree" and "Paid manually". */}
-          {(actionDialog.type === 'approveManual' || actionDialog.type === 'payCashfree') && actionDialog.request && (
+          {(actionDialog.type === 'approveManual' || actionDialog.type === 'payCashfree' || actionDialog.type === 'retry') && actionDialog.request && (
             <div className="space-y-3">
               <div>
                 <p className="text-sm font-medium text-white mb-1.5">Pay by</p>
@@ -639,7 +668,7 @@ export default function WithdrawalsPage() {
                   {actionDialog.request.employee.bankName && <CopyRow label="Bank" value={actionDialog.request.employee.bankName} onCopied={copied} />}
                   <CopyRow label="Amount (₹)" value={actionDialog.request.request.amount} onCopied={copied} />
                   <p className="text-xs text-[hsl(38,92%,65%)] py-2">
-                    {actionDialog.type === 'payCashfree'
+                    {actionDialog.type !== 'approveManual'
                       ? `Cashfree sends it to this account. UniteFix has not verified it: if the expert gave it to you by phone, confirm it with them first.`
                       : `UniteFix has not verified this account. When you add the payee, the name your bank shows should be ${actionDialog.request.employee.fullName}; if it is not, stop and check with the partner.`}
                   </p>
@@ -664,7 +693,7 @@ export default function WithdrawalsPage() {
                       <button
                         key={m.value}
                         type="button"
-                        disabled={m.value === 'rtgs' && actionDialog.type === 'payCashfree' && Number(actionDialog.request?.request.amount) < 200000}
+                        disabled={m.value === 'rtgs' && actionDialog.type !== 'approveManual' && Number(actionDialog.request?.request.amount) < 200000}
                         onClick={() => setManualMode(m.value)}
                         title={m.hint}
                         className={`rounded-lg border px-2 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${manualMode === m.value ? "border-[hsla(160,84%,39%,0.6)] bg-[hsla(160,84%,39%,0.12)] text-white" : "border-[rgba(255,255,255,0.1)] text-[hsl(215,20%,70%)] hover:bg-[rgba(255,255,255,0.04)]"}`}
@@ -723,6 +752,18 @@ export default function WithdrawalsPage() {
 
           <AlertDialogFooter>
             <AlertDialogCancel className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white hover:bg-[rgba(255,255,255,0.08)]">Cancel</AlertDialogCancel>
+            {actionDialog.type === 'retry' && actionDialog.request && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={retryMutation.isPending || (manualMode === 'upi' ? !hasUpi(actionDialog.request) : !hasBank(actionDialog.request))}
+                onClick={() => retryMutation.mutate({ w: actionDialog.request!, mode: manualMode, then: 'manual' })}
+                title="Reopen it and pay from your own bank or UPI app, then record the UTR and proof"
+                className="bg-[hsla(160,84%,39%,0.1)] text-[hsl(160,84%,65%)] hover:bg-[hsla(160,84%,39%,0.2)] border-[hsla(160,84%,39%,0.3)]"
+              >
+                Pay manually instead
+              </Button>
+            )}
             <AlertDialogAction
               onClick={(e) => {
                 if (actionDialog.type === 'payCashfree') {
@@ -761,13 +802,13 @@ export default function WithdrawalsPage() {
                 handleAction();
               }}
               disabled={payCashfreeMutation.isPending || retryMutation.isPending
-                || (actionDialog.type === 'payCashfree' && !!actionDialog.request && (manualMode === 'upi' ? !hasUpi(actionDialog.request) : !hasBank(actionDialog.request)))}
+                || ((actionDialog.type === 'payCashfree' || actionDialog.type === 'retry') && !!actionDialog.request && (manualMode === 'upi' ? !hasUpi(actionDialog.request) : !hasBank(actionDialog.request)))}
               className={actionDialog.type === 'reject' ? "bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)] text-white shadow-[0_4px_15px_hsla(347,77%,50%,0.4)] transition-all active:scale-95" : "bg-[hsl(160,84%,39%)] hover:bg-[hsl(160,84%,35%)] text-white shadow-[0_4px_15px_hsla(160,84%,39%,0.4)] transition-all active:scale-95"}
             >
               {actionDialog.type === 'payCashfree'
                 ? (payCashfreeMutation.isPending ? "Sending…" : `Send ₹${actionDialog.request?.request.amount}`)
                 : actionDialog.type === 'retry'
-                ? (retryMutation.isPending ? "Reopening…" : "Retry payout")
+                ? (retryMutation.isPending ? "Retrying…" : `Retry via Cashfree by ${manualMode === 'upi' ? 'UPI' : manualMode.toUpperCase()}`)
                 : actionDialog.type === 'approveManual'
                 ? (approveManualMutation.isPending ? "Saving…" : "Record payment")
                 : (rejectMutation.isPending ? "Rejecting..." : "Yes, Reject")
