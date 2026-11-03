@@ -87,7 +87,8 @@ async function main() {
 
         // Technicians: an expert already with UniteFix joins with a code.
         const expertPhone = `9${String(Date.now()).slice(-9)}`;
-        const [eu] = await db.insert(users).values({ phone: expertPhone, username: 'QA Existing Expert', role: 'serviceman', isActive: true } as any).returning(); userIds.push(eu.id);
+        // users.is_active false, as every real expert signup leaves it (the admin Verify screen never sets it).
+        const [eu] = await db.insert(users).values({ phone: expertPhone, username: 'QA Existing Expert', role: 'serviceman', isActive: false } as any).returning(); userIds.push(eu.id);
         const [expert] = await db.insert(employees).values({ userId: eu.id, fullName: 'QA Existing Expert', documentVerificationStatus: 'verified', isActive: true } as any).returning();
         const tryAdd = await api.post('/api/hub/field/technicians', { fullName: 'QA Existing Expert', phone: expertPhone }, T);
         check('adding an existing UniteFix expert: told they can join with a code (not refused outright)', tryAdd.status === 409 && tryAdd.body?.code === 'EXISTING_EXPERT', JSON.stringify(tryAdd.body));
@@ -123,6 +124,11 @@ async function main() {
         check('an expert in the middle of a UniteFix job cannot join until it is done', busyInv.status === 409 && /in progress/.test(busyInv.body?.message ?? ''), JSON.stringify(busyInv.body));
         const custAdd = await api.post('/api/hub/field/technicians', { fullName: 'QA Customer', phone: cust.phone }, T2);
         check('a customer account number is refused with why', custAdd.status === 409 && custAdd.body?.code === 'PHONE_TAKEN' && /customer account/.test(custAdd.body?.message ?? ''));
+        const susPhone = `6${String(Date.now()).slice(-9)}`;
+        const [su] = await db.insert(users).values({ phone: susPhone, username: 'QA Suspended Expert', role: 'serviceman', isActive: false } as any).returning(); userIds.push(su.id);
+        await db.insert(employees).values({ userId: su.id, fullName: 'QA Suspended Expert', documentVerificationStatus: 'suspended', isActive: false } as any);
+        const susInv = await api.post('/api/hub/field/technicians/invite', { phone: susPhone }, T2);
+        check('an expert UniteFix really suspended cannot be sent a joining code', susInv.status === 409 && /suspended by UniteFix/.test(susInv.body?.message ?? ''), JSON.stringify(susInv.body));
 
         // Staff assign every booking: to a partner (who picks the technician) or to a UniteFix expert.
         const booking = async (n: number, extra: Record<string, unknown> = {}) => (await db.insert(serviceRequests).values({

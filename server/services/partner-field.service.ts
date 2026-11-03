@@ -820,12 +820,17 @@ export class PartnerFieldService {
 
     /** Why an existing expert cannot join this partner right now, or null. Checked on invite and again on joining. */
     private static async joinBlocker(bpId: number, employeeId: number): Promise<string | null> {
-        const [row] = await db.select({ e: employees, deletedAt: users.deletedAt, userActive: users.isActive }).from(employees)
+        const [row] = await db.select({ e: employees, deletedAt: users.deletedAt }).from(employees)
             .leftJoin(users, eq(users.id, employees.userId)).where(eq(employees.id, employeeId)).limit(1);
         if (!row || row.deletedAt) return 'This expert account no longer exists.';
         if (row.e.managedByPartnerId === bpId) return 'They are already your technician.';
         if (row.e.managedByPartnerId) return 'They already work for another UniteFix partner and must leave that partner first.';
-        if (row.e.documentVerificationStatus === 'suspended' || row.userActive === false) return 'This expert is suspended by UniteFix and cannot join a partner.';
+        // Suspension lives on the expert profile, the same field the expert app's
+        // login checks (authenticatePartner). users.is_active is NOT a suspension
+        // flag for experts: it starts false at signup and the admin Verify screen
+        // never sets it, so verified, working experts were wrongly told "suspended".
+        if (row.e.documentVerificationStatus === 'suspended') return 'This expert is suspended by UniteFix and cannot join a partner.';
+        if (row.e.documentVerificationStatus === 'rejected') return 'UniteFix did not approve this expert, so they cannot join a partner.';
         const [busy] = await db.select({ n: sql<number>`count(*)::int` }).from(serviceRequests)
             .where(and(eq(serviceRequests.providerId, employeeId), inArray(serviceRequests.status, ACTIVE_JOB as any)));
         if (busy.n > 0) return `They have ${busy.n} UniteFix job${busy.n === 1 ? '' : 's'} in progress. Add them once ${busy.n === 1 ? 'it is' : 'those are'} finished, so they are paid for ${busy.n === 1 ? 'it' : 'them'}.`;
