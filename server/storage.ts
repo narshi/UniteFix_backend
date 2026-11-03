@@ -90,6 +90,7 @@ import {
 import { db } from "./db";
 import { withTransaction } from "./lib/transaction";
 import { eq, and, desc, asc, sql, count, sum, gte, lte, or, ilike, gt, inArray, ne, isNull } from "drizzle-orm";
+import { phoneVariants } from "./lib/phone-match";
 import { EXCLUDE_UNPAID_DRAFTS } from "./lib/booking-visibility";
 import logger from "./lib/logger";
 import crypto from "crypto";
@@ -318,7 +319,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByPhone(phone: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    // Either stored spelling of the number ("+91…" from the app, bare 10 digits from
+    // the Partner Hub). If both exist, the "+91" one, which the app has always used, wins.
+    const variants = phoneVariants(phone);
+    if (!variants.length) return undefined;
+    const [user] = await db.select().from(users).where(inArray(users.phone, variants))
+      .orderBy(sql`(${users.phone} = ${variants[0]}) DESC`).limit(1);
     return user || undefined;
   }
 

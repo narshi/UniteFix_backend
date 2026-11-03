@@ -440,6 +440,13 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
           return res.status(400).json({ success: false, message: 'Existing profile has no email. Please provide an email.' });
         }
         targetEmail = email.trim().toLowerCase();
+        // users.email is unique: an address already on another account would
+        // crash the save. Say so instead (a partner's email is often already on
+        // their own customer or expert login).
+        const owner = await storage.getUserByEmail(targetEmail);
+        if (owner && owner.id !== user.id) {
+          return res.status(409).json({ success: false, code: 'EMAIL_IN_USE', message: 'This email is already used by another UniteFix account. Please use a different email.' });
+        }
         // Save the provided email
         await storage.updateUser(user.id, { email: targetEmail });
       } else {

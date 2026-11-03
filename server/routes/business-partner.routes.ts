@@ -11,7 +11,8 @@ import { PartnerHubService } from '../services/partner-hub.service';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
-import { and, eq, desc, ilike, or } from 'drizzle-orm';
+import { and, eq, desc, ilike, or, sql } from 'drizzle-orm';
+import { storage } from '../storage';
 import {
     businessPartners, partnerVerticals, users, ftthOperators,
 } from '@shared/schema';
@@ -344,8 +345,10 @@ export function registerBusinessPartnerRoutes(app: Express) {
                 const normalised = digits.length === 10 ? `+91${digits}` : `+${digits.replace(/^0+/, '')}`;
                 const convert = String(req.query.convert) === 'true';
 
-                const [existing] = await db.select().from(users).where(eq(users.phone, normalised)).limit(1);
+                // Either stored spelling of the number: the Hub saves bare 10 digits.
+                const existing = await storage.getUserByPhone(normalised);
                 let userId: number;
+                let emailNote = '';
 
                 if (existing) {
                     if (existing.role !== 'business_partner' && !convert) {
@@ -364,9 +367,17 @@ export function registerBusinessPartnerRoutes(app: Express) {
                         .where(eq(users.id, existing.id));
                     userId = existing.id;
                 } else {
+                    // users.email is unique. When the partner's email is already on another
+                    // account (often their own customer or expert login), the app login is
+                    // made without it; they give an email at first sign-in if asked.
+                    const wanted = bp.contactEmail?.trim() || null;
+                    const [emailTaken] = wanted
+                        ? await db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = lower(${wanted})`).limit(1)
+                        : [];
+                    if (emailTaken) emailNote = ` ${wanted} is already used by another UniteFix account, so this login has no email; if the app asks for one, use a different address.`;
                     const [created] = await db.insert(users).values({
                         phone: normalised,
-                        email: bp.contactEmail ?? null,
+                        email: emailTaken ? null : wanted,
                         username: bp.displayName,
                         password: null as any,
                         role: 'business_partner' as any,
@@ -387,7 +398,7 @@ export function registerBusinessPartnerRoutes(app: Express) {
                 logger.info(`[BP] Mobile login ${existing ? 'linked' : 'created'} for ${bp.partnerCode} → user #${userId}`);
                 res.json({
                     success: true,
-                    message: `${bp.displayName} can now sign into the app with ${normalised}.`,
+                    message: `${bp.displayName} can now sign into the app with ${normalised}.${emailNote}`,
                     data: await view(updated),
                 });
             } catch (error) { next(error); }

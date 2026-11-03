@@ -8,7 +8,8 @@ import {
     users, adminUsers,
     type User, type InsertUser, type AdminUser, type InsertAdminUser,
 } from "@shared/schema";
-import { eq, desc, and, or, ilike, count } from "drizzle-orm";
+import { eq, desc, and, or, ilike, count, inArray, sql } from "drizzle-orm";
+import { phoneVariants } from "../lib/phone-match";
 import crypto from "crypto";
 
 // ==================== USER METHODS ====================
@@ -19,7 +20,12 @@ export async function getUser(id: number): Promise<User | undefined> {
 }
 
 export async function getUserByPhone(phone: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    // Either stored spelling of the number ("+91…" from the app, bare 10 digits from
+    // the Partner Hub). If both exist, the "+91" one, which the app has always used, wins.
+    const variants = phoneVariants(phone);
+    if (!variants.length) return undefined;
+    const [user] = await db.select().from(users).where(inArray(users.phone, variants))
+      .orderBy(sql`(${users.phone} = ${variants[0]}) DESC`).limit(1);
     return user || undefined;
 }
 
