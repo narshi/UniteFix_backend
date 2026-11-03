@@ -72,10 +72,15 @@ export function HubFieldJobs() {
     const t = q.trim().toLowerCase();
     return (jobs.data ?? []).filter(j => !t || [j.serviceId, j.serviceName, j.customerName, j.customerPhone, j.pincode, j.address, j.technician?.name].some(v => (v ?? "").toLowerCase().includes(t)));
   }, [jobs.data, q]);
-  const assign = async (job: Job) => {
-    const employeeId = Number(pick[job.id]);
+  // The owner on his own team, ready to work: he can take a job himself.
+  const me_ = ready.find(t => t.isOwner);
+  const assign = async (job: Job, to?: number) => {
+    const employeeId = to ?? Number(pick[job.id]);
     if (!employeeId) return;
-    try { await apiRequest("POST", `/api/hub/field/jobs/${job.id}/assign`, { employeeId }); qc.invalidateQueries({ queryKey: ["/api/hub/field/jobs"] }); toast({ title: "Assigned", description: "The technician has been notified." }); }
+    try {
+      await apiRequest("POST", `/api/hub/field/jobs/${job.id}/assign`, { employeeId }); qc.invalidateQueries({ queryKey: ["/api/hub/field/jobs"] });
+      toast({ title: to && to === me_?.id ? "It's yours" : "Assigned", description: to && to === me_?.id ? "Open it in the UniteFix app in technician mode." : "The technician has been notified." });
+    }
     catch (e) { fail(toast, "Not assigned")(e); }
   };
   const overdue = (jobs.data ?? []).filter(j => j.overdue).length;
@@ -117,9 +122,10 @@ export function HubFieldJobs() {
                   <>
                     <HubSelect aria-label={`Technician for ${j.serviceId}`} value={pick[j.id] ?? ""} onChange={v => setPick({ ...pick, [j.id]: v })}>
                       <option value="">{ready.length ? (j.technician ? "Reassign to…" : "Choose technician…") : "No technician ready"}</option>
-                      {ready.filter(t => t.id !== j.technician?.id).map(t => <option key={t.id} value={t.id}>{t.fullName} · {t.activeJobs} active{t.isOnline ? " · online" : ""}</option>)}
+                      {ready.filter(t => t.id !== j.technician?.id).map(t => <option key={t.id} value={t.id}>{t.isOwner ? "Me" : t.fullName} · {t.activeJobs} active{t.isOnline ? " · online" : ""}</option>)}
                     </HubSelect>
                     <Button size="sm" disabled={!pick[j.id]} onClick={() => assign(j)}>{j.technician ? "Reassign" : "Assign"}</Button>
+                    {me_ && j.technician?.id !== me_.id && <Button size="sm" variant="outline" onClick={() => assign(j, me_.id)}>Take it myself</Button>}
                   </>
                 )}
               </div>
@@ -303,7 +309,7 @@ export function HubFieldTechnicians() {
               {!(data ?? []).some(t => t.isOwner) && (
                 <label className="flex items-start gap-2 text-sm text-[hsl(215,20%,80%)]">
                   <input type="checkbox" className="mt-1" checked={f.isOwner} onChange={e => setF({ ...f, isOwner: e.target.checked })} />
-                  <span>This is me: I work jobs myself. No commission is taken from my own jobs. Use a mobile number other than your partner app login.</span>
+                  <span>This is me: I work jobs myself, with no commission on my own jobs. Enter my mobile number; if it is my partner app login, I switch to technician mode in the app to work my jobs.</span>
                 </label>
               )}
             </div>

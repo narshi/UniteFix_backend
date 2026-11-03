@@ -13,7 +13,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../db';
-import { businessPartners, taxDocuments } from '@shared/schema';
+import { businessPartners, taxDocuments, employees, users } from '@shared/schema';
 import { authenticateAdmin, requireSuperAdmin } from '../middleware/auth.middleware';
 import { authenticateHub, hubCan, hubModule, hubError, HubRequest } from '../middleware/hub-auth';
 import { HubError } from '../services/partner-hub.service';
@@ -123,6 +123,37 @@ export function registerHubFieldRoutes(app: Express) {
     // ═══════════════════════════════════════════════════════════════════════
     // Technicians
     // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * The owner, signed in to the UniteFix app, switches to technician mode to
+     * work a job he took himself: a technician session on the same login. Only
+     * from the app (the web Hub has no technician screens), and only once he is
+     * on his own team.
+     */
+    app.post('/api/hub/field/technician-session', active, field, async (req, res, next) => {
+        try {
+            const ctx = ctxOf(req);
+            const userId = ctx.username.startsWith('app:') ? Number(ctx.username.slice(4)) : NaN;
+            if (!Number.isInteger(userId)) throw new HubError('Technician mode is in the UniteFix app. Sign in there with your partner login.', 'APP_ONLY', 409);
+            const [emp] = await db.select().from(employees)
+                .where(and(eq(employees.userId, userId), eq(employees.managedByPartnerId, ctx.businessPartnerId), eq(employees.isPartnerOwner, true))).limit(1);
+            if (!emp) throw new HubError('Add yourself to your team first (Team → Add → "This is me").', 'NOT_ON_TEAM', 409);
+            const [u] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+            const { TokenService } = await import('../services/token.service');
+            const tokens = await TokenService.generateTokenPair({ userId, role: 'serviceman', phone: u?.phone ?? undefined, username: u?.username ?? undefined }, 'partner-owner-technician-mode');
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_owner_technician_mode', changedBy: ctx.adminUserId || null, metadata: { userId, employeeId: emp.id } });
+            res.json({
+                success: true, message: 'Technician mode.', isNewUser: false, onboardingCompleted: true, pendingOnboardingSteps: [],
+                user: {
+                    id: userId, phone: u?.phone ?? null, email: u?.email ?? null, username: u?.username ?? emp.fullName, role: 'serviceman',
+                    phoneVerified: true, emailVerified: !!u?.emailVerified, isVerified: true, isActive: true, profilePicture: emp.profilePhotoUrl ?? null,
+                    employeeId: emp.id, documentVerificationStatus: emp.documentVerificationStatus, isOnline: !!emp.isOnline,
+                },
+                profile: { employee: { id: emp.id, documentVerificationStatus: emp.documentVerificationStatus, isOnline: !!emp.isOnline } },
+                ...tokens,
+            });
+        } catch (e) { hubError(e, res, next); }
+    });
 
     app.get('/api/hub/field/technicians', active, field, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: await PartnerFieldService.technicians(ctxOf(req).businessPartnerId) }); } catch (e) { hubError(e, res, next); }

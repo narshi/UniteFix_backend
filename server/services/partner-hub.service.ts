@@ -144,6 +144,32 @@ export class PartnerHubService {
         };
     }
 
+    /**
+     * The business owner signed in through the UniteFix app (a users login with
+     * role business_partner) rather than the web Hub. Same business, owner
+     * role. adminUserId is the owner's web login if there is one, else 0: it is
+     * only ever used to say who did something.
+     */
+    static async contextForApp(bp: BusinessPartner, userId: number): Promise<HubContext> {
+        const verticals = await BusinessPartnerService.verticalCodesOf(bp.id);
+        const [op] = await db.select({ id: ftthOperators.id }).from(ftthOperators)
+            .where(eq(ftthOperators.businessPartnerId, bp.id)).limit(1);
+        return {
+            businessPartnerId: bp.id,
+            partnerCode: bp.partnerCode,
+            displayName: bp.displayName,
+            status: bp.status,
+            adminUserId: bp.adminUserId ?? 0,
+            username: `app:${userId}`,
+            role: 'owner',
+            permissions: ROLE_PERMISSIONS.owner,
+            verticals,
+            modules: await this.modulesOf(bp, verticals),
+            plan: (bp.hubPlan === 'pro' ? 'pro' : 'starter'),
+            ftthOperatorId: op?.id ?? null,
+        };
+    }
+
     static require(ctx: HubContext, perm: HubPermission) {
         if (!can(ctx.role, perm)) throw new HubError(`Your role (${ctx.role}) cannot do this. Ask the owner.`, 'FORBIDDEN', 403);
     }

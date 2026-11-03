@@ -47,6 +47,8 @@ export type PartnerTabParamList = {
 
 /** Business partner (company) mode — trade catalogue, orders, statement. */
 export type BusinessPartnerTabParamList = {
+    JobsTab: undefined;
+    TeamTab: undefined;
     CatalogueTab: undefined;
     OrdersTab: undefined;
     AccountTab: undefined;

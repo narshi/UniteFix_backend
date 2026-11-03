@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, FileText, LogOut, ChevronRight, Building2, Wifi, Wrench, Info, Newspaper } from 'lucide-react-native';
 import { b2bApi, type LedgerLine } from '../../api/b2b.api';
+import { partnerHubApi } from '../../api/partnerHub.api';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -24,6 +25,7 @@ import { useScreenInsets } from '../../theme/layout';
 const ENTRY_LABEL: Record<string, string> = {
     order_invoice: 'Parts order', payment_received: 'Payment received', credit_note: 'Credit note', refund: 'Refund', adjustment: 'Adjustment',
     settlement_paid: 'Settlement paid to you', settlement_received: 'Settlement received from you',
+    service_value: 'Commission from a job',
     recharge_collected: 'Recharge collected for you', platform_fee: 'UniteFix convenience fee', lead_fee: 'Lead fee',
 };
 
@@ -59,8 +61,12 @@ export function AccountScreen() {
 
     const me = useQuery({ queryKey: ['b2b-me'], queryFn: async () => (await b2bApi.me()).data.data });
     const ledger = useQuery({ queryKey: ['b2b-ledger'], queryFn: async () => (await b2bApi.ledger({ limit: 50 })).data.data });
+    // Commission on technicians' jobs: held 7 days, then added to "UniteFix owes you".
+    const hub = useQuery({ queryKey: ['hub-me'], queryFn: async () => (await partnerHubApi.me()).data.data, staleTime: 5 * 60_000, retry: 1 });
+    const field = !!hub.data?.modules?.includes('field');
+    const earnings = useQuery({ queryKey: ['hub-earnings'], queryFn: async () => (await partnerHubApi.earnings()).data.data, enabled: field });
 
-    const refetch = () => { me.refetch(); ledger.refetch(); };
+    const refetch = () => { me.refetch(); ledger.refetch(); if (field) earnings.refetch(); };
     const refreshing = me.isRefetching || ledger.isRefetching;
 
     const confirmLogout = () => {
@@ -125,9 +131,17 @@ export function AccountScreen() {
                             <View style={[styles.balance, { borderColor: (st?.owedToYou ?? 0) > 0 ? colors.successLight : colors.border }]}>
                                 <Text style={styles.balLabel}>UniteFix owes you</Text>
                                 <Text style={[styles.balValue, (st?.owedToYou ?? 0) > 0 && { color: colors.successDark }]}>₹{st?.owedToYou ?? 0}</Text>
-                                <Text style={styles.balSub}>Recharges collected and credit notes, settled to your account</Text>
+                                <Text style={styles.balSub}>{field ? 'Commission released, recharges and credit notes, settled to your account' : 'Recharges collected and credit notes, settled to your account'}</Text>
                             </View>
                         </View>
+
+                        {field && earnings.data && (
+                            <View style={[styles.balance, { marginBottom: spacing.md }]}>
+                                <Text style={styles.balLabel}>Commission on your technicians’ jobs</Text>
+                                <Text style={styles.balValue}>₹{earnings.data.held}</Text>
+                                <Text style={styles.balSub}>Held for 7 days after each job, in case of a complaint · ₹{earnings.data.released} released so far ({earnings.data.jobs.length} job{earnings.data.jobs.length === 1 ? '' : 's'})</Text>
+                            </View>
+                        )}
 
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>Statement</Text>

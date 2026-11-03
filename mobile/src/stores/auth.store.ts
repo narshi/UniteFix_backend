@@ -19,6 +19,8 @@ const KEYS = {
   REFRESH_TOKEN: 'uf_refresh_token',
   USER: 'uf_user',
   LAST_ACTIVITY: 'uf_last_activity',
+  // A partner owner in technician mode: the partner session to go back to.
+  RETURN_SESSION: 'uf_return_session',
 } as const;
 
 const SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -47,6 +49,10 @@ interface AuthState {
    * as soon as the final requirement is satisfied.
    */
   refreshOnboardingStatus: () => Promise<boolean>;
+  /** A partner owner switching to technician mode keeps the partner session to come back to. */
+  canReturnToPartner: boolean;
+  enterTechnicianMode: (response: AuthResponse) => Promise<void>;
+  returnToPartnerMode: () => Promise<boolean>;
 }
 
 // ── Secure Storage Helpers ────────────────────────────────────────────
@@ -92,6 +98,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
   refreshToken: null,
+  canReturnToPartner: false,
+
+  enterTechnicianMode: async (response: AuthResponse) => {
+    const { user, accessToken, refreshToken } = get();
+    if (!user || !accessToken || !refreshToken) return;
+    // Only the partner session itself is kept: switching again from technician mode replaces nothing.
+    if (user.role === 'business_partner') {
+      await secureSet(KEYS.RETURN_SESSION, JSON.stringify({ user, accessToken, refreshToken }));
+    }
+    await get().loginWithTruecaller(response);
+    set({ canReturnToPartner: true });
+  },
+
+  returnToPartnerMode: async () => {
+    const raw = await secureGet(KEYS.RETURN_SESSION);
+    if (!raw) { set({ canReturnToPartner: false }); return false; }
+    try {
+      const saved = JSON.parse(raw) as { user: AuthUser; accessToken: string; refreshToken: string };
+      await Promise.all([
+        secureSet(KEYS.ACCESS_TOKEN, saved.accessToken),
+        secureSet(KEYS.REFRESH_TOKEN, saved.refreshToken),
+        secureSet(KEYS.USER, JSON.stringify(saved.user)),
+        secureSet(KEYS.LAST_ACTIVITY, Date.now().toString()),
+      ]);
+      await SecureStore.deleteItemAsync(KEYS.RETURN_SESSION).catch(() => {});
+      set({ user: saved.user, accessToken: saved.accessToken, refreshToken: saved.refreshToken, isAuthenticated: true, canReturnToPartner: false });
+      return true;
+    } catch {
+      return false;
+    }
+  },
 
   /**
    * Hydrate session from SecureStore on app launch.
@@ -99,12 +136,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    */
   hydrate: async () => {
     try {
-      const [accessToken, refreshToken, userJson, lastActivity] = await Promise.all([
+      const [accessToken, refreshToken, userJson, lastActivity, returnSession] = await Promise.all([
         secureGet(KEYS.ACCESS_TOKEN),
         secureGet(KEYS.REFRESH_TOKEN),
         secureGet(KEYS.USER),
         secureGet(KEYS.LAST_ACTIVITY),
+        secureGet(KEYS.RETURN_SESSION),
       ]);
+      set({ canReturnToPartner: !!returnSession });
 
       // Check session expiry
       if (lastActivity) {
@@ -234,6 +273,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: null,
       accessToken: null,
       refreshToken: null,
+      canReturnToPartner: false,
     });
 
     if (__DEV__) console.log('[AUTH_STORE] Logged out');

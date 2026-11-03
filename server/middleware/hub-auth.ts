@@ -14,7 +14,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { adminUsers } from '@shared/schema';
+import { adminUsers, users } from '@shared/schema';
 import { PartnerHubService, HubContext, HubError } from '../services/partner-hub.service';
 import type { HubPermission, HubModule } from '@shared/hub';
 import logger from '../lib/logger';
@@ -36,6 +36,27 @@ export function authenticateHub(opts: { allowPending?: boolean } = {}) {
                 success: false, code: 'SESSION_EXPIRED',
                 message: error?.name === 'TokenExpiredError' ? 'Session expired. Please sign in again.' : 'Invalid session. Please sign in again.',
             });
+        }
+        // The owner in the UniteFix app: a users login with role business_partner.
+        if (decoded.role === 'business_partner') {
+            try {
+                const [u] = await db.select({ isActive: users.isActive, deletedAt: users.deletedAt }).from(users).where(eq(users.id, decoded.userId)).limit(1);
+                if (!u || u.deletedAt || u.isActive === false) {
+                    return res.status(403).json({ success: false, code: 'LOGIN_DISABLED', message: 'This account has been switched off. Contact UniteFix.' });
+                }
+                const { BusinessPartnerService } = await import('../services/business-partner.service');
+                const bp = await BusinessPartnerService.byUserId(decoded.userId);
+                if (!bp) return res.status(403).json({ success: false, message: 'This login is not linked to a partner business. Contact UniteFix.' });
+                const ctx = await PartnerHubService.contextForApp(bp, decoded.userId);
+                if (ctx.status !== 'active' && !opts.allowPending) {
+                    return res.status(403).json({ success: false, code: 'PARTNER_NOT_ACTIVE', message: ctx.status === 'pending_approval' ? 'Your application is under review. This opens once UniteFix approves it.' : 'Your partner account is paused. Contact UniteFix.' });
+                }
+                (req as HubRequest).hub = ctx;
+                return next();
+            } catch (err: any) {
+                logger.error('[HUB] App login lookup failed', { error: err?.message });
+                return res.status(500).json({ success: false, message: 'Authentication lookup failed' });
+            }
         }
         if (decoded.role !== 'partner' && decoded.role !== 'operator') {
             return res.status(403).json({ success: false, message: 'Partner Hub access required' });

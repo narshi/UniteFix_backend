@@ -781,7 +781,19 @@ export class PartnerFieldService {
         if (taken) {
             const [own] = await db.select({ id: businessPartners.id }).from(businessPartners)
                 .where(and(eq(businessPartners.id, ctx.businessPartnerId), eq(businessPartners.userId, taken.id))).limit(1);
-            if (own) throw new HubError('This number is your partner app login, so it cannot also be a technician login. Add yourself with another mobile number to work jobs in the UniteFix app.', 'OWN_LOGIN', 409);
+            if (own) {
+                // The owner adding himself on his own app login: one login, two hats.
+                // He switches to technician mode in the app to work the jobs he takes.
+                if (!input.isOwner) throw new HubError('This number is your own partner login. To work jobs yourself, tick "This is me".', 'OWN_LOGIN', 409);
+                const [already] = await db.select({ id: employees.id }).from(employees).where(eq(employees.userId, taken.id)).limit(1);
+                if (already) throw new HubError('You are already on your team as a technician.', 'OWNER_EXISTS', 409);
+                const { storage } = await import('../storage');
+                return storage.createServiceProvider({
+                    userId: taken.id, fullName: input.fullName.trim(), partnerType: 'Partner owner', businessName: ctx.displayName,
+                    services: (input.services ?? []).slice(0, 20), isActive: false, isOnline: false, managedByPartnerId: ctx.businessPartnerId,
+                    isPartnerOwner: true,
+                } as any);
+            }
             const [expert] = await db.select({ id: employees.id }).from(employees).where(eq(employees.userId, taken.id)).limit(1);
             if (expert) throw new HubError('This number belongs to an expert who already works with UniteFix. Send them a joining code: they read it to you from their UniteFix app, and they become your technician.', 'EXISTING_EXPERT', 409);
             throw new HubError('This number is a UniteFix customer account, not an expert. Use a different number for their technician login.', 'PHONE_TAKEN', 409);

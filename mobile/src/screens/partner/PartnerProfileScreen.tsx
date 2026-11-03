@@ -41,7 +41,7 @@ export function PartnerProfileScreen() {
     const { data: partnerProfile, isLoading: isPartnerLoading } = usePartnerProfile();
     const { mutate: updateProfile, isPending: saving } = useUpdateProfile();
     const { mutate: updateUpiId, isPending: savingUpi } = useUpdateUpiId();
-    const { logout, user } = useAuthStore();
+    const { logout, user, canReturnToPartner, returnToPartnerMode } = useAuthStore();
     const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
     const { language, setLanguage } = useLanguageStore();
@@ -523,6 +523,17 @@ export function PartnerProfileScreen() {
                     </View>
                     <ChevronRight size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
+
+                {/* A partner owner working his own jobs: back to running the business. */}
+                {canReturnToPartner && (
+                    <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={() => { returnToPartnerMode(); }} accessibilityRole="button">
+                        <View style={styles.menuLeft}>
+                            <Info size={20} color={colors.primary} />
+                            <Text style={[styles.menuLabel, { color: colors.primary }]}>Back to partner mode</Text>
+                        </View>
+                        <ChevronRight size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                )}
 
                 <TouchableOpacity style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.divider }]} onPress={handleLogout}>
                     <View style={styles.menuLeft}>
