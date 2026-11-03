@@ -236,7 +236,7 @@ export function HubFieldTechnicians() {
               <HubSelect id="c-def-type" aria-label="Commission type" value={defDraft.type} onChange={v => setDefDraft({ ...defDraft, type: v as Commission["type"] })}>
                 <option value="percent">Percentage of the job</option><option value="fixed">Fixed ₹ per job</option>
               </HubSelect></div>
-            <div><Label htmlFor="c-def-val">{defDraft.type === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-def-val" inputMode="decimal" className="w-28" value={defDraft.value} onChange={e => setDefDraft({ ...defDraft, value: e.target.value.replace(/[^d.]/g, "") })} /></div>
+            <div><Label htmlFor="c-def-val">{defDraft.type === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-def-val" inputMode="decimal" className="w-28" value={defDraft.value} onChange={e => setDefDraft({ ...defDraft, value: e.target.value.replace(/[^\d.]/g, "") })} /></div>
             <Button size="sm" onClick={saveDefault} disabled={defDraft.value === ""}>Save</Button>
             <Button size="sm" variant="ghost" onClick={() => setDefDraft(null)}>Cancel</Button>
           </div>
@@ -282,7 +282,7 @@ export function HubFieldTechnicians() {
                 <label key={m} className="flex items-center gap-2 text-sm text-white"><input type="radio" name="c-mode" checked={cFor.mode === m} onChange={() => setCFor({ ...cFor, mode: m })} /> {l}</label>
               ))}
               {cFor.mode !== "default" && (
-                <div><Label htmlFor="c-val">{cFor.mode === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-val" inputMode="decimal" value={cFor.value} onChange={e => setCFor({ ...cFor, value: e.target.value.replace(/[^d.]/g, "") })} /></div>
+                <div><Label htmlFor="c-val">{cFor.mode === "fixed" ? "₹ per job" : "Percent"}</Label><Input id="c-val" inputMode="decimal" value={cFor.value} onChange={e => setCFor({ ...cFor, value: e.target.value.replace(/[^\d.]/g, "") })} /></div>
               )}
             </div>
           )}
