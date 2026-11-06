@@ -668,6 +668,20 @@ export class PaymentService {
             };
         }
 
+        // The bank's word on a refund UniteFix started: tell the customer it
+        // arrived (or that it failed and staff will take over). Recorded once
+        // per refund, so a redelivered webhook does not notify twice.
+        if (event === "refund.processed" || event === "refund.failed") {
+            const kind = event === "refund.processed" ? 'processed' : 'failed';
+            const { RefundStatusService } = await import('./refund-status.service');
+            const r = await RefundStatusService.applyWebhook(kind, payload.refund?.entity);
+            if (r) {
+                if (kind === 'processed') void BookingNotifications.refundCompleted(r.serviceRequestId, r.amountRupees, r.reference);
+                else void BookingNotifications.refundFailed(r.serviceRequestId, r.amountRupees);
+            }
+            return { success: true, message: `Refund ${kind} recorded` };
+        }
+
         // Acknowledged with 200 so Razorpay does not retry, but logged so it is
         // visible which events are actually arriving. Note `qr_code.created`
         // fires when the QR is generated, NOT when it is paid — the event that

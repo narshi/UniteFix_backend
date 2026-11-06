@@ -284,6 +284,10 @@ export class NotificationService {
             case 'withdrawal_rejected':
                 return { stack: 'EmployeeMain', screen: 'PartnerTabs', params: { screen: 'WalletTab' } };
 
+            // The customer's refund: started, landed, or failed at the bank.
+            case 'refund_update':
+                return { stack: 'CustomerMain', screen: 'RequestDetail', params: { id: serviceId } };
+
             case 'payment_received':
             case 'payment_failed':
                 return isExpert

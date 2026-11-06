@@ -2358,7 +2358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const totalPages = Math.ceil(result.total / limit);
         return res.json({
           success: true,
-          data: result.data,
+          data: await withRefundStatus(result.data),
           pagination: {
             page,
             limit,
@@ -2708,6 +2708,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get user's service requests (with optional pagination + status filter)
+  /**
+   * Each cancelled booking (and any booking money was refunded on) carries
+   * `refund`: where the customer's money stands, so the app says the truth
+   * instead of "your booking fee has been refunded" on every cancellation.
+   * A failure here never breaks the list.
+   */
+  async function withRefundStatus<T extends { id: number; status: any }>(rows: T[]): Promise<Array<T & { refund?: unknown }>> {
+    try {
+      const { RefundStatusService } = await import("./services/refund-status.service");
+      const map = await RefundStatusService.forBookings(rows as any);
+      return rows.map((r) => (map.has(r.id) ? { ...r, refund: map.get(r.id) } : r));
+    } catch (err: any) {
+      logger.warn(`[REFUND] status lookup failed: ${err.message}`);
+      return rows;
+    }
+  }
+
   app.get("/api/services/my-requests", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
     try {
       const statusFilter = req.query.status as 'active' | 'past' | undefined;
@@ -2738,7 +2755,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Backwards compat: no query params → return all (legacy behavior)
       const services = await storage.getUserServiceRequests(req.user!.userId);
-      res.json({ success: true, data: services });
+      res.json({ success: true, data: await withRefundStatus(services) });
     } catch (error) {
       next(error);
     }
@@ -2834,6 +2851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const refund = await PaymentService.refundBookingCharge(service.id);
               refundInitiated = true;
               refundedAmount = refund.amountRupees;
+              if (!refund.alreadyRefunded) void BookingNotifications.refundStarted(service.id, refundedAmount);
               logger.info(
                   `[CANCEL] Booking ${service.id} cancelled by ${isAdmin ? 'admin' : 'customer'} + ₹${refundedAmount} refunded`,
               );
@@ -3176,6 +3194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         undefined, // Refund full amount captured
         'Admin requested refund via Dashboard'
       );
+      void BookingNotifications.refundStarted(invoice.serviceRequestId, totalRefunded);
 
       res.json({ success: true, refunds, totalRefunded, message: `Successfully refunded ₹${totalRefunded}` });
     } catch (error: any) {

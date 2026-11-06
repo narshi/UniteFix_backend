@@ -71,6 +71,8 @@ export type NotificationType =
     | "wallet_released"
     | "withdrawal_approved"
     | "withdrawal_rejected"
+    // A customer's refund: started, landed, or failed at the bank.
+    | "refund_update"
     // Account
     | "verification_approved"
     | "verification_rejected"
@@ -108,6 +110,7 @@ const CHANNEL_BY_TYPE: Record<string, string> = {
     wallet_released: "payments",
     withdrawal_approved: "payments",
     withdrawal_rejected: "payments",
+    refund_update: "payments",
     verification_approved: "default",
     verification_rejected: "default",
     account_suspended: "default",

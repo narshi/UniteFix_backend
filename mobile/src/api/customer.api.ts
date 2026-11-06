@@ -39,8 +39,19 @@ export interface ServiceItem {
     subCategory?: string | null; // grouping within a category (e.g. Desktop/Laptop)
 }
 
+/** Where the customer's money stands on a cancelled (or refunded) booking. Sent by the server. */
+export interface RefundStatus {
+    state: 'not_paid' | 'none' | 'manual' | 'initiated' | 'processed' | 'failed';
+    amount: number | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    /** The bank's reference (ARN / RRN) once the refund has landed. */
+    reference: string | null;
+}
+
 export interface ServiceRequest {
     id: number;
+    refund?: RefundStatus;
     /** A job over several days: the day the technician comes back (YYYY-MM-DD). */
     pausedUntil?: string | null;
     pauseNote?: string | null;

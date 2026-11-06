@@ -429,6 +429,48 @@ export class BookingNotifications {
         );
     }
 
+    // ==================== REFUNDS ====================
+
+    /** UniteFix asked Razorpay for the refund. Not sent where the cancel or dispute message already says it. */
+    static async refundStarted(serviceRequestId: number, amountRupees: number) {
+        if (!(amountRupees > 0)) return;
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "Refund started",
+            `₹${amountRupees} for ${p.serviceRef} is on its way back to the account you paid from. Banks usually take 5–7 working days; we will tell you when it arrives.`,
+            "refund_update",
+            { serviceId: p.serviceRequestId, refund: "initiated" }
+        );
+    }
+
+    /** The bank returned it (Razorpay refund.processed). */
+    static async refundCompleted(serviceRequestId: number, amountRupees: number, reference: string | null) {
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "Refund completed",
+            `₹${amountRupees} for ${p.serviceRef} has been refunded to the account you paid from.${reference ? ` Bank reference: ${reference} — quote it to your bank if you cannot see the money.` : ""}`,
+            "refund_update",
+            { serviceId: p.serviceRequestId, refund: "processed" }
+        );
+    }
+
+    /** The bank could not return it (Razorpay refund.failed); staff refund it another way. */
+    static async refundFailed(serviceRequestId: number, amountRupees: number) {
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "Refund delayed",
+            `Your bank could not take back the ₹${amountRupees} refund for ${p.serviceRef}. Our team will refund it another way and contact you.`,
+            "refund_update",
+            { serviceId: p.serviceRequestId, refund: "failed" }
+        );
+    }
+
     /** Hold period elapsed — money is now withdrawable. */
     static async walletReleased(employeeId: number, amount: number | string) {
         const expertUserId = await getExpertUserId(employeeId);

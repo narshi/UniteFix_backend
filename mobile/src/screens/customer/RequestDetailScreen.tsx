@@ -54,7 +54,7 @@ import {
 } from 'lucide-react-native';
 import { useCancelServiceRequest, useRateService, usePublicConfig, useServiceRequests, queryKeys } from '../../hooks/useCustomerData';
 import { useQueryClient } from '@tanstack/react-query';
-import { ServiceRequest, customerApi } from '../../api/customer.api';
+import { ServiceRequest, RefundStatus, customerApi } from '../../api/customer.api';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
 import { BackOnMount } from '../../components/ui/BackOnMount';
@@ -174,6 +174,22 @@ function ConfirmModal({
             </Animated.View>
         </Animated.View>
     );
+}
+
+
+/** What happened to the customer's money, in one line, from the server's refund status. */
+function refundText(r: RefundStatus): string {
+    const day = (d: string | null) => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : null);
+    const amt = r.amount != null ? `₹${r.amount} ` : '';
+    switch (r.state) {
+        case 'not_paid': return 'No payment was taken, so there is nothing to refund.';
+        case 'none': return 'No refund was made on this booking. Contact support if you have a question.';
+        case 'manual': return 'Your refund is being handled by our team; we will contact you.';
+        case 'initiated': return `Your ${amt}refund was started${day(r.startedAt) ? ` on ${day(r.startedAt)}` : ''}. Banks usually take 5–7 working days.`;
+        case 'processed': return `${amt ? amt.trim() : 'Your refund'} was refunded to the account you paid from${day(r.completedAt) ? ` on ${day(r.completedAt)}` : ''}.${r.reference ? ` Bank reference: ${r.reference}.` : ''}`;
+        case 'failed': return `Your bank could not take back the ${amt}refund. Our team will refund it another way and contact you.`;
+        default: return '';
+    }
 }
 
 export function RequestDetailScreen({ navigation, route }: Props) {
@@ -591,8 +607,13 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         <View style={styles.cancelledNote}>
                             <XCircle size={16} color={colors.error} />
                             <Text style={styles.cancelledText}>
-                                This booking was cancelled. Your {feeAmt}booking fee has been refunded.
+                                This booking was cancelled.{request.refund ? ` ${refundText(request.refund)}` : ''}
                             </Text>
+                        </View>
+                    )}
+                    {request.status !== 'cancelled' && request.refund && (
+                        <View style={styles.refundNote}>
+                            <Text style={styles.refundText}>{refundText(request.refund)}</Text>
                         </View>
                     )}
                 </View>
@@ -878,6 +899,8 @@ const styles = StyleSheet.create({
         backgroundColor: colors.errorLight, padding: spacing.md, borderRadius: radii.lg, marginTop: spacing.sm,
     },
     cancelledText: { ...typography.caption, color: colors.errorDark, flex: 1 },
+    refundNote: { backgroundColor: colors.surface, padding: spacing.md, borderRadius: radii.lg, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.divider },
+    refundText: { ...typography.caption, color: colors.textPrimary },
 
     // Technician
     techCard: {

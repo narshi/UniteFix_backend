@@ -534,6 +534,7 @@ export function registerBillingRoutes(app: Express) {
                     const refund = await PaymentService.refundBookingCharge(bookingId);
                     refundInitiated = true;
                     refundedAmount = refund.amountRupees;
+                    if (!refund.alreadyRefunded) void BookingNotifications.refundStarted(bookingId, refundedAmount);
 
                     // Only now is 'refunded' true.
                     await db.update(serviceRequests)
