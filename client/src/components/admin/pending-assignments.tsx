@@ -1,12 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 
 interface PendingAssignmentsProps {
   onAssignPartner: (service: any) => void;
+  /** Give the job to a business partner, who picks one of their technicians. */
+  onSendToPartner: (service: any) => void;
 }
 
-export default function PendingAssignments({ onAssignPartner }: PendingAssignmentsProps) {
+export default function PendingAssignments({ onAssignPartner, onSendToPartner }: PendingAssignmentsProps) {
   const { data: pendingServices, isLoading, refetch } = useQuery<any[]>({
     queryKey: ["/api/admin/services/pending"],
+    ...LIVE,
   });
 
   const getWaitingTimeColor = (createdAt: string) => {
@@ -113,12 +117,21 @@ export default function PendingAssignments({ onAssignPartner }: PendingAssignmen
                       </span>
                     </td>
                     <td className="p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row">
                       <button
                         onClick={() => onAssignPartner(service)}
                         className="bg-[hsl(217,91%,60%)] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[hsl(217,91%,55%)] shadow-[0_4px_14px_hsla(217,91%,60%,0.3)] hover:shadow-[0_6px_20px_hsla(217,91%,60%,0.4)] transition-all active:scale-[0.97]"
                       >
                         Assign Employee
                       </button>
+                      <button
+                        onClick={() => onSendToPartner(service)}
+                        title="Give it to a business partner; they pick one of their technicians"
+                        className="whitespace-nowrap rounded-lg border border-[hsla(217,91%,60%,0.35)] bg-[hsla(217,91%,60%,0.1)] px-4 py-2 text-sm font-medium text-[hsl(217,91%,72%)] transition-all hover:bg-[hsla(217,91%,60%,0.2)] active:scale-[0.97]"
+                      >
+                        {service.dispatchPartnerId ? 'Reassign to partner' : 'Send to partner'}
+                      </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
