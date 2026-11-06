@@ -27,6 +27,25 @@ import { useBookingDraftStore } from '../../stores/bookingDraft.store';
 import { useCreateServiceRequest, usePublicConfig, useServiceQuote, useProviderOptions } from '../../hooks/useCustomerData';
 import { ProviderChooser, type ProviderChoice } from '../../components/customer/ProviderChooser';
 import { usePartnerRef } from '../../services/partnerLinks';
+import { bandOf, bandColorOf, BAND_META } from '../../utils/serviceBands';
+
+/** The next 7 days (IST) for a consultation, as YYYY-MM-DD with a short label. */
+function nextDays(): Array<{ date: string; label: string }> {
+    const out: Array<{ date: string; label: string }> = [];
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(Date.now() + 330 * 60_000 + i * 86_400_000);
+        const date = d.toISOString().slice(0, 10);
+        const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+        out.push({ date, label });
+    }
+    return out;
+}
+/** Call slots, with the hour each starts (to hide ones already past today). */
+const CALL_SLOTS: Array<{ slot: string; startHour: number }> = [
+    { slot: '9 – 10 AM', startHour: 9 }, { slot: '10 – 11 AM', startHour: 10 }, { slot: '11 AM – 12 PM', startHour: 11 },
+    { slot: '12 – 1 PM', startHour: 12 }, { slot: '2 – 3 PM', startHour: 14 }, { slot: '3 – 4 PM', startHour: 15 },
+    { slot: '4 – 5 PM', startHour: 16 }, { slot: '5 – 6 PM', startHour: 17 }, { slot: '6 – 7 PM', startHour: 18 },
+];
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
@@ -51,6 +70,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         serviceId: draftServiceId,
         basePrice: draftBasePrice,
         bookingFee: draftBookingFee,
+        band: draftBand,
         setServiceContext
     } = useBookingDraftStore();
 
@@ -68,7 +88,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     useEffect(() => {
         if (route.params?.serviceType) {
-            setServiceContext(serviceType, serviceName, serviceId, catalogBasePrice, typeof paramFee === 'number' ? paramFee : undefined);
+            setServiceContext(serviceType, serviceName, serviceId, catalogBasePrice, typeof paramFee === 'number' ? paramFee : undefined, route.params?.band);
         }
     }, [route.params?.serviceType]);
 
@@ -95,6 +115,17 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         });
         return unsubscribe;
     }, [navigation, clearDraft]);
+
+    // How this service books: a visit, an inspection (fee, then a quote) or a phone consultation.
+    const band = bandOf({ band: route.params?.band ?? draftBand });
+    const isInspect = band === 'inspect_quote';
+    const isConsult = band === 'consultation';
+    const accent = bandColorOf({ band });
+    const days = React.useMemo(nextDays, []);
+    const [consultDate, setConsultDate] = useState<string | null>(null);
+    const [consultSlot, setConsultSlot] = useState<string | null>(null);
+    const nowHourIst = new Date(Date.now() + 330 * 60_000).getUTCHours();
+    const slotsFor = (date: string | null) => CALL_SLOTS.filter(x => date !== days[0].date || x.startHour > nowHourIst);
 
     const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
     const [uploading, setUploading] = useState(false);
@@ -198,7 +229,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     const validate = (): boolean => {
         const newErrors: Record<string, string> = {};
         if (!description.trim()) newErrors.description = 'Please describe the issue';
-        if (!selectedAddress) newErrors.address = 'Please select an address';
+        if (isConsult) {
+            if (!consultDate || !consultSlot) newErrors.slot = 'Choose a day and a time for the call';
+        } else if (!selectedAddress) newErrors.address = 'Please select an address';
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -290,6 +323,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
             : isFixedPrice
             ? `Total for ${serviceName}: ₹${payable}.${savingLine}\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
             : `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`;
+        const bandLine = isInspect
+            ? `\n\nThis books an inspection. The expert sends you a quote in the app; go ahead and the ₹${bookingFee} counts towards the bill, or decline and it pays for their visit.`
+            : isConsult ? `\n\nThe expert calls you on ${days.find(d => d.date === consultDate)?.label ?? consultDate}, ${consultSlot}.` : '';
         const whoLine = choice.type === 'partner'
             ? `\n\n${choice.name} will do this job.`
             : choice.type === 'expert'
@@ -297,7 +333,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
             : '';
         Alert.alert(
             'Confirm Booking',
-            confirmMessage + whoLine,
+            confirmMessage + bandLine + whoLine,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -322,11 +358,12 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                 {
                                     serviceType,
                                     description,
-                                    address: selectedAddress!.address,
-                                    pinCode: selectedAddress!.pinCode || '000000',
+                                    address: selectedAddress?.address ?? '',
+                                    pinCode: selectedAddress?.pinCode || '000000',
                                     photos: photoUrls,
                                     urgency,
-                                    customerLocation: `POINT(${selectedAddress!.long} ${selectedAddress!.lat})`,
+                                    ...(selectedAddress ? { customerLocation: `POINT(${selectedAddress.long} ${selectedAddress.lat})` } : {}),
+                                    ...(isConsult ? { preferredDate: consultDate ?? undefined, preferredTimeSlot: consultSlot ?? undefined } : {}),
                                     catalogServiceId: serviceId,
                                     quantity,
                                     ...(isFixedPrice ? { quotedUnitPrice: basePrice } : {}),
@@ -495,6 +532,18 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
+                {/* How this booking works (inspection or consultation) */}
+                {(isInspect || isConsult) && (
+                    <View style={[styles.bandCard, { borderColor: accent }]}>
+                        <Text style={[styles.bandCardKicker, { color: accent }]}>{BAND_META[band].label}</Text>
+                        <Text style={styles.bandCardText}>
+                            {isInspect
+                                ? `Pay ₹${bookingFee} to book an inspection. The expert looks at the job and sends you a quote here. Approve it and the ₹${bookingFee} counts towards your bill; decline it and it pays for their visit.`
+                                : 'No visit: pick a day and time and the expert calls you on your registered number. Pay the consultation fee now; anything more is billed after the call.'}
+                        </Text>
+                    </View>
+                )}
+
                 {/* Description */}
                 <View style={styles.fieldContainer}>
                     <Text style={styles.label}>Describe the issue *</Text>
@@ -511,7 +560,35 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
                 </View>
 
-                {/* Address Selection */}
+                {/* Consultation: when to call */}
+                {isConsult && (
+                    <View style={styles.fieldContainer}>
+                        <Text style={styles.label}>When should the expert call? *</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                            {days.map(d => (
+                                <TouchableOpacity key={d.date} onPress={() => { setConsultDate(d.date); if (consultSlot && !slotsFor(d.date).some(x => x.slot === consultSlot)) setConsultSlot(null); setErrors(p => ({ ...p, slot: '' })); }}
+                                    style={[styles.chip, consultDate === d.date && { borderColor: accent, backgroundColor: `${accent}1A` }]} accessibilityRole="radio" accessibilityState={{ selected: consultDate === d.date }}>
+                                    <Text style={[styles.chipText, consultDate === d.date && { color: accent }]}>{d.label}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                        {!!consultDate && (
+                            <View style={styles.slotGrid}>
+                                {slotsFor(consultDate).map(x => (
+                                    <TouchableOpacity key={x.slot} onPress={() => { setConsultSlot(x.slot); setErrors(p => ({ ...p, slot: '' })); }}
+                                        style={[styles.chip, consultSlot === x.slot && { borderColor: accent, backgroundColor: `${accent}1A` }]} accessibilityRole="radio" accessibilityState={{ selected: consultSlot === x.slot }}>
+                                        <Text style={[styles.chipText, consultSlot === x.slot && { color: accent }]}>{x.slot}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                                {!slotsFor(consultDate).length && <Text style={styles.errorText}>No times left today. Pick another day.</Text>}
+                            </View>
+                        )}
+                        {!!errors.slot && <Text style={styles.errorText}>{errors.slot}</Text>}
+                    </View>
+                )}
+
+                {/* Address Selection (not needed for a phone consultation) */}
+                {!isConsult && (
                 <View style={styles.fieldContainer}>
                     <Text style={styles.label}>Service Address *</Text>
                     <TouchableOpacity 
@@ -532,8 +609,10 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     </TouchableOpacity>
                     {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
                 </View>
+                )}
 
-                {/* Who does the job */}
+                {/* Who does the job (a visit or an inspection; a consultation is UniteFix's to arrange) */}
+                {!isConsult && (
                 <View style={styles.fieldContainer}>
                     <Text style={styles.label}>Who should do it?</Text>
                     <ProviderChooser
@@ -549,6 +628,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                     />
                     {!!chosenName && <Text style={styles.chosenNote}>Chosen: {chosenName}</Text>}
                 </View>
+                )}
 
                 {/* Urgency selector */}
                 <View style={styles.fieldContainer}>
@@ -609,7 +689,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
                 {/* Submit */}
                 <Button
-                    title={uploading ? 'Uploading photos...' : !feeKnown ? 'Loading price…' : 'Submit Request'}
+                    title={uploading ? 'Uploading photos...' : !feeKnown ? 'Loading price…' : isInspect ? `${BAND_META.inspect_quote.cta} · ₹${bookingFee}` : isConsult ? BAND_META.consultation.cta : 'Submit Request'}
                     onPress={handleSubmit}
                     loading={isPending || uploading}
                     disabled={!feeKnown}
@@ -701,6 +781,13 @@ const styles = StyleSheet.create({
     qtyUnitNote: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
     chosenNote: { ...typography.caption, color: colors.primary, marginTop: spacing.sm, fontWeight: '600' },
+    bandCard: { borderWidth: 1.5, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.lg, backgroundColor: colors.surfaceElevated, gap: spacing.xs },
+    bandCardKicker: { ...typography.small, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
+    bandCardText: { ...typography.caption, color: colors.textSecondary },
+    chipRow: { gap: spacing.sm, paddingVertical: spacing.xs },
+    slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+    chip: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.full, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.background },
+    chipText: { ...typography.captionMedium, color: colors.textPrimary },
     stepperBtn: {
         width: 36, height: 36, borderRadius: radii.full,
         alignItems: 'center', justifyContent: 'center',

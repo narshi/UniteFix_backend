@@ -31,7 +31,7 @@ interface PlacePrediction {
 }
 
 type ParamList = {
-    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; mode?: 'onboarding' | 'profile' };
+    MapAddressPicker: { editAddressIndex?: number; fromCheckout?: boolean; returnTo?: string; mode?: 'onboarding' | 'profile' };
 };
 
 const FALLBACK_COORDS = { latitude: 14.9637, longitude: 74.7094 }; // Yellapur
@@ -292,7 +292,7 @@ export function MapAddressPickerScreen() {
             await queryClient.invalidateQueries({ queryKey: queryKeys.profile });
 
             if (fromCheckout) {
-                navigation.navigate('ServiceRequest', { selectedAddress: newAddress });
+                navigation.navigate({ name: (route.params?.returnTo ?? 'ServiceRequest') as any, params: { selectedAddress: newAddress }, merge: true } as any);
             } else {
                 navigation.goBack();
             }

@@ -53,6 +53,9 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button, ScreenHeader } from '../../components/ui';
 import { callCustomer, canCallCustomer } from '../../utils/callCustomer';
 import { useScreenInsets } from '../../theme/layout';
+import { partnerQueryKeys } from '../../hooks/usePartnerData';
+import { useQueryClient } from '@tanstack/react-query';
+import { getApiErrorMessage } from '../../api/client';
 
 type Props = NativeStackScreenProps<any, 'AssignmentDetail'>;
 
@@ -91,6 +94,8 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
     const { mutate: deny, isPending: denying } = useDenyAssignment();
     const { mutate: markArrived, isPending: arriving } = useMarkArrived();
     const { mutate: startService, isPending: starting } = useStartServiceWithOtp();
+    const [startingCall, setStartingCall] = useState(false);
+    const queryClient = useQueryClient();
     const { mutate: complete, isPending: completing } = useCompleteService(); // Keep hook if needed elsewhere, though Mark Complete removed from in_progress
     const { mutate: enterCharge, isPending: enteringCharge } = useEnterServiceCharge();
     const { mutate: requestPayment, isPending: requestingPayment } = useRequestPayment();
@@ -423,7 +428,31 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                     </View>
                 )}
 
-                {assignment.status === 'accepted' && (
+                {/* Consultation: a phone call at the booked slot — no arrival, no code. */}
+                {assignment.status === 'accepted' && assignment.bookingBand === 'consultation' && (
+                    <View style={styles.actionsCard}>
+                        <Text style={styles.sectionTitle}>Phone consultation</Text>
+                        <Text style={styles.hintText}>
+                            Call the customer{assignment.preferredDate ? ` on ${assignment.preferredDate}${assignment.preferredTimeSlot ? `, ${assignment.preferredTimeSlot}` : ''}` : ' at the booked time'}. Start the call here when you ring; enter the charges when you finish.
+                        </Text>
+                        <Button
+                            title={startingCall ? 'Starting…' : 'Start the call'}
+                            loading={startingCall}
+                            onPress={async () => {
+                                setStartingCall(true);
+                                try {
+                                    await partnerApi.startCall(assignment.id);
+                                    queryClient.invalidateQueries({ queryKey: partnerQueryKeys.assignments });
+                                } catch (e) {
+                                    Alert.alert('Could not start', getApiErrorMessage(e));
+                                } finally { setStartingCall(false); }
+                            }}
+                            style={styles.startBtn}
+                        />
+                    </View>
+                )}
+
+                {assignment.status === 'accepted' && assignment.bookingBand !== 'consultation' && (
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Arrive at Location</Text>
                         <Text style={styles.hintText}>Mark your arrival when you reach the customer's location. You must be nearby to proceed.</Text>
@@ -458,6 +487,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                 {assignment.status === 'in_progress' && (
                     <View style={styles.actionsCard}>
                         <Text style={styles.sectionTitle}>Complete Service</Text>
+                        {assignment.bookingBand === 'inspect_quote' && (
+                            <Text style={styles.hintText}>This was booked as an inspection. Inspect the job, then send your quote with Extra work below: the customer approves it in the app before you start, or declines and you are paid the inspection fee for the visit.</Text>
+                        )}
 
                         {isFixedPrice ? (
                             /* v2 fixed-price: the amount is set. Request payment, optionally

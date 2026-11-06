@@ -67,9 +67,10 @@ export type BusinessPartnerStackParamList = {
 export type HomeStackParamList = {
     Home: undefined;
     AllServices: undefined;
-    ServiceRequest: { serviceType?: string; serviceName?: string; serviceId?: number; basePrice?: number; bookingFee?: number; selectedAddress?: any };
+    ServiceRequest: { serviceType?: string; serviceName?: string; serviceId?: number; basePrice?: number; bookingFee?: number; band?: string; selectedAddress?: any };
+    ServiceEnquiry: { serviceId: number; serviceName: string; selectedAddress?: any };
     Notifications: undefined;
-    SavedAddresses: { fromCheckout?: boolean };
+    SavedAddresses: { fromCheckout?: boolean; returnTo?: string };
     MapAddressPicker: { editAddressIndex?: number } | undefined;
 };
 

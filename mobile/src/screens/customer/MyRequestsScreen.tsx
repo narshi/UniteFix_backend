@@ -56,6 +56,7 @@ import {
 } from 'lucide-react-native';
 import { useServiceRequests, useServiceHistory, usePublicConfig } from '../../hooks/useCustomerData';
 import { ServiceRequest } from '../../api/customer.api';
+import { EnquiriesStrip } from '../../components/customer/EnquiriesStrip';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
@@ -1132,6 +1133,8 @@ export function MyRequestsScreen() {
             {activeTab === 0 ? (
                 /* ==================== ACTIVE TAB ==================== */
                 <FlatList
+                    // Open free-quote enquiries sit above the bookings.
+                    ListHeaderComponent={<EnquiriesStrip />}
                     data={activeGroupedData}
                     renderItem={renderActiveItem}
                     keyExtractor={keyExtractor}

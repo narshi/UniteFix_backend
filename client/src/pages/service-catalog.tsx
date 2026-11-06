@@ -28,6 +28,21 @@ function priceBreakdown(P: number, gstPct: number, feePct: number, booking: numb
   return { gst, fee, booking, technician, sum: r2(gst + fee + technician) };
 }
 
+
+/** Booking bands (server/services/booking-band.service.ts). Colours are the app's theme colours. */
+const BAND_OPTIONS = [
+  { value: 'field_service', label: 'Visit', short: 'Visit', color: '#4F46E5', help: 'book, pay the booking fee, the expert comes (as today).' },
+  { value: 'inspect_quote', label: 'Inspect & quote', short: 'Inspect', color: '#F59E0B', help: 'pay an inspection fee; the expert quotes in the app; the customer approves or declines.' },
+  { value: 'consultation', label: 'Consultation', short: 'Consult', color: '#7C3AED', help: 'a phone call at a day and time the customer books; no visit.' },
+  { value: 'digital_recharge', label: 'Recharge', short: 'Recharge', color: '#3B82F6', help: 'opens the recharge flow (broadband); nothing is booked.' },
+  { value: 'referral', label: 'Free quotes (enquiry)', short: 'Enquiry', color: '#10B981', help: 'a free enquiry to partners in the area, then UniteFix staff; no payment.' },
+] as const;
+const bandOf = (v: string | null | undefined) => BAND_OPTIONS.find(b => b.value === v) ?? BAND_OPTIONS[0];
+const BAND_COLOURS = [
+  { hex: '#4F46E5', name: 'Indigo' }, { hex: '#F59E0B', name: 'Amber' }, { hex: '#10B981', name: 'Emerald' },
+  { hex: '#7C3AED', name: 'Violet' }, { hex: '#3B82F6', name: 'Blue' }, { hex: '#EF4444', name: 'Red' },
+];
+
 export default function ServiceCatalogPage() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
@@ -167,7 +182,12 @@ export default function ServiceCatalogPage() {
   const handleCategorySubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const inspection = String(formData.get('inspectionFee') ?? '').trim();
     const data = {
+      // How booking works for this category (booking bands).
+      bookingBand: (formData.get('bookingBand') as string) || 'field_service',
+      inspectionFee: inspection === '' ? null : Number(inspection),
+      bandColor: (formData.get('bandColor') as string) || null,
       name: formData.get('name') as string,
       icon: formData.get('icon') as string,
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
@@ -209,6 +229,8 @@ export default function ServiceCatalogPage() {
       isActive: formData.get('isActive') === 'on',
       basePrice: Math.max(0, Math.round(Number(priceInput) || 0)),
       subCategory: ((formData.get('subCategory') as string) || '').trim() || null,
+      // Blank = the category's band.
+      bookingBand: (formData.get('bookingBand') as string) || null,
     };
 
     if (editingService) {
@@ -276,6 +298,10 @@ export default function ServiceCatalogPage() {
                     <img src={cat.icon} alt={cat.name} className="w-5 h-5 mr-2 rounded-md object-cover shadow-sm" referrerPolicy="no-referrer" />
                   ) : null}
                   {cat.name}
+                  <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-[rgba(255,255,255,0.12)] px-1.5 text-[9px] uppercase tracking-wide text-[hsl(215,20%,70%)]" title="How customers book this category">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cat.bandColor || bandOf(cat.bookingBand).color }} aria-hidden />
+                    {bandOf(cat.bookingBand).short}
+                  </span>
                   <span className={`ml-auto pl-2 text-[10px] tabular-nums ${cat.bookingFee !== null && cat.bookingFee !== undefined ? 'text-[hsl(38,92%,65%)]' : 'text-[hsl(215,20%,50%)]'}`} title={cat.bookingFee !== null && cat.bookingFee !== undefined ? 'Category booking fee' : 'Platform default booking fee'}>
                     ₹{feeOfCategory(cat.id)}
                   </span>
@@ -386,6 +412,7 @@ export default function ServiceCatalogPage() {
                       <p className="text-sm text-[hsl(210,20%,75%)] line-clamp-2 min-h-[40px] leading-relaxed">{service.subtitle || "No description provided."}</p>
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)]">
                         <div className="flex gap-2">
+                          {service.bookingBand && <Badge variant="outline" className="text-[10px] uppercase font-bold border-[rgba(255,255,255,0.15)] text-[hsl(215,20%,75%)]" title="This service's own booking band">{bandOf(service.bookingBand).short}</Badge>}
                           {service.isHomeVisible && <Badge variant="outline" className="text-[10px] uppercase font-bold text-[hsl(217,91%,65%)] border-[hsla(217,91%,60%,0.3)] bg-[hsla(217,91%,60%,0.1)]">Home</Badge>}
                           <Badge variant="outline" className="text-[10px] uppercase font-bold text-[hsl(215,20%,65%)] border-[rgba(255,255,255,0.1)] bg-[rgba(255,255,255,0.02)]">{service.status}</Badge>
                         </div>
@@ -431,6 +458,37 @@ export default function ServiceCatalogPage() {
                   What customers pay upfront to book any service in this category; it is deducted from the final bill. Set 0 to make it optional: customers then pay the full price of a priced service when booking, and nothing after (only parts, if any are added). Unpriced services stay free to book. Applies to new bookings only.
                 </p>
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cat-band" className="text-[hsl(215,20%,75%)]">How customers book</Label>
+                <select id="cat-band" name="bookingBand" defaultValue={editingCategory?.bookingBand ?? 'field_service'} className="w-full rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-white">
+                  {BAND_OPTIONS.map(b => <option key={b.value} value={b.value} className="bg-[hsl(222,47%,11%)]">{b.label}</option>)}
+                </select>
+                <ul className="space-y-0.5 text-xs text-[hsl(215,20%,55%)]">
+                  {BAND_OPTIONS.map(b => <li key={b.value}><span className="text-[hsl(215,20%,75%)]">{b.label}:</span> {b.help}</li>)}
+                </ul>
+                <p className="text-xs text-[hsl(215,20%,55%)]">A service can use a different band (set it on the service). Applies to new bookings only.</p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cat-insp" className="text-[hsl(215,20%,75%)]">Inspection fee (₹) — Inspect &amp; quote only</Label>
+                <Input id="cat-insp" name="inspectionFee" type="number" min={0} max={5000} step={1} inputMode="numeric"
+                  defaultValue={editingCategory?.inspectionFee ?? ''} placeholder="Blank = the booking fee above"
+                  className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">What the customer pays to book the inspection. It counts towards the bill if they go ahead; if they decline the quote, it is the expert's visit pay.</p>
+              </div>
+              <fieldset className="grid gap-2">
+                <legend className="text-sm text-[hsl(215,20%,75%)]">Band colour in the app</legend>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[rgba(255,255,255,0.1)] px-2 py-1 text-xs text-[hsl(215,20%,75%)]">
+                    <input type="radio" name="bandColor" value="" defaultChecked={!editingCategory?.bandColor} /> Band default
+                  </label>
+                  {BAND_COLOURS.map(c => (
+                    <label key={c.hex} className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[rgba(255,255,255,0.1)] px-2 py-1 text-xs text-[hsl(215,20%,75%)]" title={c.name}>
+                      <input type="radio" name="bandColor" value={c.hex} defaultChecked={editingCategory?.bandColor === c.hex} />
+                      <span className="inline-block h-4 w-4 rounded-full" style={{ backgroundColor: c.hex }} aria-hidden /> {c.name}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <div className="flex items-center space-x-2 pt-2">
                 <Switch id="cat-active" name="isActive" defaultChecked={editingCategory ? editingCategory.isActive : true} className="data-[state=checked]:bg-[hsl(217,91%,60%)]" />
                 <Label htmlFor="cat-active" className="text-[hsl(215,20%,75%)]">Active (Visible to users)</Label>
@@ -479,6 +537,14 @@ export default function ServiceCatalogPage() {
               <div className="grid gap-2">
                 <Label htmlFor="svc-subcat" className="text-[hsl(215,20%,75%)]">Sub-category (optional)</Label>
                 <Input id="svc-subcat" name="subCategory" defaultValue={editingService?.subCategory || ''} placeholder="e.g., Desktop or Laptop — groups this service into a tab" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="svc-band" className="text-[hsl(215,20%,75%)]">How customers book this service</Label>
+                <select id="svc-band" name="bookingBand" defaultValue={editingService?.bookingBand ?? ''} className="w-full rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-white">
+                  <option value="" className="bg-[hsl(222,47%,11%)]">Same as its category</option>
+                  {BAND_OPTIONS.map(b => <option key={b.value} value={b.value} className="bg-[hsl(222,47%,11%)]">{b.label}</option>)}
+                </select>
+                <p className="text-xs text-[hsl(215,20%,55%)]">For a service that books differently from its category, e.g. Broadband → Recharge inside IT &amp; Security.</p>
               </div>
 
               {/* Price + live breakdown */}

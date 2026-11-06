@@ -108,6 +108,8 @@ const RULES: Rule[] = [
     // Bookings LAST among operations: /services matches a lot, and
     // /services/:id/reconcile-payment is still a booking action.
     { test: /^\/assignment-queue(\/|$)/, area: 'bookings' },
+    // Referral enquiries are customer requests, handled like bookings.
+    { test: /^\/enquiries(\/|$)/, area: 'bookings' },
     { test: /^\/services(\/|$)/, area: 'bookings' },
 
     // --- Dashboard --------------------------------------------------------

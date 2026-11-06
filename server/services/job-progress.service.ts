@@ -136,4 +136,57 @@ export class JobProgressService {
         logger.info(`[JOB] SR ${id}: expert ${employeeId} could not fix (visit pay ₹${pay}); back to ${toPartner ? `partner #${sr.dispatchPartnerId}` : 'the Assignment Queue'}`);
         return { booking: u, visitPayRupees: pay, message: pay > 0 ? `Reported. ₹${pay} visit pay is added to your wallet; the job goes to another expert.` : 'Reported. The job goes to another expert.' };
     }
+
+    /**
+     * Consultation band: the expert starts the call. There is no visit, so no
+     * arrival check and no handshake code — the customer booked the slot.
+     */
+    static async startCall(employeeId: number, id: number) {
+        const sr = await this.mine(employeeId, id);
+        if (sr.bookingBand !== 'consultation') throw new JobProgressError('Only a consultation booking starts with a call. Go to the customer and use the code as usual.', 409, 'NOT_CONSULTATION');
+        if (!['accepted', 'reached'].includes(sr.status as string)) throw new JobProgressError('Accept the booking first; then start the call at the booked time.', 409, 'BAD_STATE');
+        const [u] = await db.update(serviceRequests).set({ status: 'in_progress' as any, startedAt: new Date(), updatedAt: new Date() })
+            .where(and(eq(serviceRequests.id, id), eq(serviceRequests.providerId, employeeId), inArray(serviceRequests.status, ['accepted', 'reached'] as any))).returning();
+        if (!u) throw new JobProgressError('This booking just changed. Refresh it.', 409, 'CHANGED');
+        await recordAudit({ entityType: 'service_request', entityId: id, action: 'consultation_started', fromState: sr.status as string, toState: 'in_progress', changedBy: null, metadata: { employeeId } });
+        NotificationService.notify(sr.userId, 'Your consultation is starting', `Your expert is calling you now about ${sr.serviceId}.`, 'service_started', { serviceId: id, serviceRef: sr.serviceId });
+        return { booking: u, message: 'Call started. Enter the charges when you finish.' };
+    }
+
+    /**
+     * Inspect & quote band: the customer declines the expert's quote. The job
+     * closes; the inspection fee they paid is the expert's visit pay (held like
+     * any earning), as the customer was told before paying.
+     */
+    static async declineQuote(userId: number, id: number) {
+        const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, id)).limit(1);
+        if (!sr || sr.userId !== userId) throw new JobProgressError('Booking not found.', 404, 'NOT_FOUND');
+        if (sr.bookingBand !== 'inspect_quote') throw new JobProgressError('Only an inspection booking can be closed by declining its quote.', 409, 'NOT_INSPECTION');
+        if (!['reached', 'in_progress'].includes(sr.status as string) || !sr.providerId) throw new JobProgressError('You can decline once the expert has inspected and sent you a quote.', 409, 'BAD_STATE');
+        const pending = await db.select({ id: partRequests.id }).from(partRequests).where(and(eq(partRequests.serviceRequestId, id), eq(partRequests.status, 'pending')));
+        if (!pending.length) throw new JobProgressError('The expert has not sent a quote yet.', 409, 'NO_QUOTE');
+        const fee = sr.bookingFeeStatus === 'paid' ? Math.max(0, Number(sr.bookingFee ?? 0)) : 0;
+        const providerId = sr.providerId;
+        const [u] = await db.update(serviceRequests).set({
+            status: 'cancelled' as any, cancelReason: 'Customer declined the quote', cancelledAt: new Date(),
+            visitPayPaise: Math.round(fee * 100), refundPaise: 0, updatedAt: new Date(),
+        } as any).where(and(eq(serviceRequests.id, id), eq(serviceRequests.providerId, providerId), inArray(serviceRequests.status, ['reached', 'in_progress'] as any))).returning();
+        if (!u) throw new JobProgressError('This booking just changed. Refresh it.', 409, 'CHANGED');
+        await db.update(partRequests).set({ status: 'rejected' }).where(and(eq(partRequests.serviceRequestId, id), eq(partRequests.status, 'pending')));
+        if (fee > 0) {
+            const { storage } = await import('../storage');
+            const holdDays = Number(await configService.get<number>('BUSINESS_CONFIG.WALLET_HOLD_DAYS', 7));
+            await storage.creditWalletOnHold(providerId, null, fee, new Date(Date.now() + holdDays * 86_400_000), undefined,
+                { description: `Inspection visit — ${sr.serviceId} (customer declined the quote)`, countService: false, forBooking: id });
+        }
+        await recordAudit({ entityType: 'service_request', entityId: id, action: 'quote_declined', fromState: sr.status as string, toState: 'cancelled', changedBy: null, metadata: { employeeId: providerId, visitPayRupees: fee } });
+        const [tech] = await db.select({ userId: employees.userId }).from(employees).where(eq(employees.id, providerId)).limit(1);
+        if (tech?.userId) NotificationService.notify(tech.userId, 'Quote declined', `The customer declined your quote for ${sr.serviceId}. ₹${fee} inspection pay is added to your wallet.`, 'assignment_cancelled', { serviceId: id, serviceRef: sr.serviceId });
+        if (sr.dispatchPartnerId) {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            await HubAlerts.send(sr.dispatchPartnerId, 'job_new' as any, { title: `Quote declined: ${sr.serviceId}`, body: `The customer declined the quote; the job is closed and your technician gets ₹${fee} for the inspection.`, link: '/partner/field/jobs', refType: 'service_request', refId: id }).catch(() => {});
+        }
+        logger.info(`[JOB] SR ${id}: customer declined the quote; ₹${fee} inspection pay to expert ${providerId}`);
+        return { booking: u, visitPayRupees: fee, message: `Closed. Your ₹${fee} inspection fee paid for the expert's visit.` };
+    }
 }

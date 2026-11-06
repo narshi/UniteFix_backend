@@ -8,7 +8,9 @@ interface BookingDraftState {
     basePrice: number;
     /** The category's booking fee, carried with the service. Undefined = use the app-wide fee. */
     bookingFee?: number;
-    setServiceContext: (type: string, name: string, id?: number, price?: number, bookingFee?: number) => void;
+    /** How this service books (utils/serviceBands.ts). */
+    band?: string;
+    setServiceContext: (type: string, name: string, id?: number, price?: number, bookingFee?: number, band?: string) => void;
 
     // Booking details
     description: string;
@@ -25,12 +27,13 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
     serviceName: '',
     serviceId: undefined,
     basePrice: 0,
-    setServiceContext: (type, name, id, price, bookingFee) => set({
+    setServiceContext: (type, name, id, price, bookingFee, band) => set({
         serviceType: type,
         serviceName: name,
         serviceId: id,
         basePrice: price || 0,
         bookingFee,
+        band,
     }),
 
     description: '',
@@ -49,6 +52,7 @@ export const useBookingDraftStore = create<BookingDraftState>((set) => ({
         serviceName: '',
         serviceId: undefined,
         basePrice: 0,
-        bookingFee: undefined
+        bookingFee: undefined,
+        band: undefined,
     }),
 }));

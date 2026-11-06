@@ -17,6 +17,8 @@
  *   initiated  — Razorpay accepted the refund; the bank has not confirmed yet
  *   processed  — the bank returned it (with its reference, when Razorpay gives one)
  *   failed     — the bank could not return it; staff take over
+ *   visit_charge — inspection booking whose quote the customer declined: the
+ *                fee paid for the visit, as they were told before paying
  */
 
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
@@ -26,7 +28,7 @@ import { withTransaction } from '../lib/transaction';
 import { recordAudit } from '../lib/audit';
 import logger from '../lib/logger';
 
-export type RefundState = 'not_paid' | 'none' | 'manual' | 'initiated' | 'processed' | 'failed';
+export type RefundState = 'not_paid' | 'none' | 'manual' | 'initiated' | 'processed' | 'failed' | 'visit_charge';
 
 export interface RefundStatus {
     state: RefundState;
@@ -73,11 +75,11 @@ export class RefundStatusService {
         const needPaid = rows.filter(r => r.status === 'cancelled' && !bySr.has(r.id)).map(r => r.id);
         const paid = new Set<number>();
         // Read from the booking itself: a caller's list may not carry these columns.
-        const facts = new Map<number, { bookingFeeStatus: string | null; cancelledByAdminId: number | null }>();
+        const facts = new Map<number, { bookingFeeStatus: string | null; cancelledByAdminId: number | null; quoteDeclined?: boolean; fee?: number | null }>();
         if (needPaid.length) {
-            const own = await db.select({ id: serviceRequests.id, bookingFeeStatus: serviceRequests.bookingFeeStatus, cancelledByAdminId: serviceRequests.cancelledByAdminId })
+            const own = await db.select({ id: serviceRequests.id, bookingFeeStatus: serviceRequests.bookingFeeStatus, cancelledByAdminId: serviceRequests.cancelledByAdminId, cancelReason: serviceRequests.cancelReason, bookingBand: serviceRequests.bookingBand, bookingFee: serviceRequests.bookingFee })
                 .from(serviceRequests).where(inArray(serviceRequests.id, needPaid));
-            for (const o of own) facts.set(o.id, { bookingFeeStatus: (o.bookingFeeStatus as string | null) ?? null, cancelledByAdminId: o.cancelledByAdminId ?? null });
+            for (const o of own) facts.set(o.id, { bookingFeeStatus: (o.bookingFeeStatus as string | null) ?? null, cancelledByAdminId: o.cancelledByAdminId ?? null, quoteDeclined: o.bookingBand === 'inspect_quote' && o.cancelReason === 'Customer declined the quote', fee: o.bookingFee ?? null });
             const orders = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId, razorpayOrderId: paymentTransactions.razorpayOrderId })
                 .from(paymentTransactions).where(and(inArray(paymentTransactions.serviceRequestId, needPaid), eq(paymentTransactions.eventType, 'order_created' as any)));
             const orderToSr = new Map<string, number>();
@@ -123,6 +125,8 @@ export class RefundStatusService {
             if (feeStatus === 'refunded') {
                 // Marked refunded before refund events were kept: Razorpay accepted it, no more is known.
                 out.set(b.id, { state: 'initiated', amount: null, startedAt: null, completedAt: null, reference: null });
+            } else if (fact?.quoteDeclined) {
+                out.set(b.id, { state: 'visit_charge', amount: fact.fee ?? null, startedAt: null, completedAt: null, reference: null });
             } else if (!paid.has(b.id)) {
                 out.set(b.id, { state: 'not_paid', amount: null, startedAt: null, completedAt: null, reference: null });
             } else {

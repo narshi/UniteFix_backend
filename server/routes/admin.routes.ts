@@ -446,7 +446,11 @@ export function registerAdminRoutes(app: Express) {
             }
             const fee = parseCategoryBookingFee(req.body?.bookingFee);
             if (fee.error) return res.status(400).json({ error: fee.error });
-            const category = await storage.createServiceCategory({ ...req.body, bookingFee: fee.value ?? null });
+            // Booking band, inspection fee and colour: checked, never written raw.
+            const { BookingBandService } = await import("../services/booking-band.service");
+            const band = BookingBandService.clean(req.body ?? {}, { allowInherit: false });
+            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
+            const category = await storage.createServiceCategory({ ...rest, ...band, bookingFee: fee.value ?? null });
             res.json({ success: true, data: category });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -463,7 +467,9 @@ export function registerAdminRoutes(app: Express) {
                 return res.status(403).json({ error: "Admin access required" });
             }
             const id = parseInt(req.params.id);
-            const body = { ...req.body };
+            const { BookingBandService } = await import("../services/booking-band.service");
+            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rawBody } = req.body ?? {};
+            const body: Record<string, any> = { ...rawBody, ...BookingBandService.clean(req.body ?? {}, { allowInherit: false }) };
             if ('bookingFee' in body) {
                 const fee = parseCategoryBookingFee(body.bookingFee);
                 if (fee.error) return res.status(400).json({ error: fee.error });
@@ -518,7 +524,10 @@ export function registerAdminRoutes(app: Express) {
             if (!(req as any).user?.isAdmin) {
                 return res.status(403).json({ error: "Admin access required" });
             }
-            const service = await storage.createService(req.body);
+            // A service's own booking band (null = its category's): checked, never written raw.
+            const { BookingBandService } = await import("../services/booking-band.service");
+            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
+            const service = await storage.createService({ ...rest, ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
             res.json({ success: true, data: service });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -535,7 +544,9 @@ export function registerAdminRoutes(app: Express) {
                 return res.status(403).json({ error: "Admin access required" });
             }
             const id = parseInt(req.params.id);
-            const updated = await storage.updateService(id, req.body);
+            const { BookingBandService } = await import("../services/booking-band.service");
+            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
+            const updated = await storage.updateService(id, { ...rest, ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
             if (!updated) return res.status(404).json({ error: "Service not found" });
             res.json({ success: true, data: updated });
         } catch (error: any) {

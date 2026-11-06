@@ -64,6 +64,7 @@ import { registerGeofenceRoutes } from "./routes/geofence.routes";
 import { registerBillingRoutes } from "./routes/billing.routes";
 import { registerPartRequestRoutes } from "./routes/part-requests.routes";
 import { registerJobProgressRoutes } from "./routes/job-progress.routes";
+import { registerEnquiryRoutes } from "./routes/enquiry.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
 import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
 import { registerPortfolioRoutes } from "./routes/portfolio.routes";
@@ -2575,10 +2576,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // spreading req.body into it let a booking arrive already assigned to an
       // expert, or with any status, before anything was paid.
       const b = req.body ?? {};
+
+      // How this service books (booking-band.service.ts). Recharge and
+      // referral services are not booked: they have their own flows, and an
+      // older app that tries is told where to go.
+      const { BookingBandService } = await import("./services/booking-band.service");
+      const band = await BookingBandService.forCatalogService(catalogServiceId);
+      if (band.band === 'referral') {
+        return res.status(409).json({ success: false, code: 'USE_ENQUIRY', message: 'This service takes a free enquiry, not a booking. Update the UniteFix app to send one.' });
+      }
+      if (band.band === 'digital_recharge') {
+        return res.status(409).json({ success: false, code: 'USE_RECHARGE', message: 'This is recharged in the app, not booked. Open Broadband on the home screen.' });
+      }
+      // Consultation: a call at a slot the customer picks — the slot is required, an address is not.
+      let consultSlot: { date: string; slot: string } | null = null;
+      if (band.band === 'consultation') {
+        const date = String(b.preferredDate ?? '').trim();
+        const slot = String(b.preferredTimeSlot ?? '').trim().slice(0, 40);
+        const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+        const last = new Date(Date.now() + 330 * 60_000 + 30 * 86_400_000).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < today || date > last || !slot) {
+          return res.status(400).json({ success: false, code: 'NEED_SLOT', message: 'Choose a day (within the next 30 days) and a time for the consultation call.' });
+        }
+        consultSlot = { date, slot };
+      }
+
       const serviceData = insertServiceRequestSchema.parse({
         serviceType: b.serviceType, brand: b.brand, model: b.model, description: b.description,
-        photos: b.photos, customerLocation: b.customerLocation, address: b.address,
-        preferredDate: b.preferredDate, preferredTimeSlot: b.preferredTimeSlot, urgency: b.urgency,
+        photos: b.photos, customerLocation: b.customerLocation,
+        address: consultSlot && !String(b.address ?? '').trim() ? 'Phone consultation' : b.address,
+        preferredDate: consultSlot?.date ?? b.preferredDate, preferredTimeSlot: consultSlot?.slot ?? b.preferredTimeSlot, urgency: b.urgency,
         userId: req.user!.userId,
       });
 
@@ -2603,7 +2630,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // The booking fee belongs to the service's category (or the platform
       // default when the category sets none). Resolved once, frozen below.
-      const bookingFee = await BillingEngine.resolveBookingFee(await BillingEngine.categoryOfService(catalogServiceId));
+      // Inspect & quote: the inspection fee takes the booking fee's place (it
+      // counts towards the bill the same way); the category's booking fee
+      // when no inspection fee is set.
+      const bookingFee = band.band === 'inspect_quote' && band.inspectionFee != null
+        ? Math.max(0, band.inspectionFee)
+        : await BillingEngine.resolveBookingFee(await BillingEngine.categoryOfService(catalogServiceId));
       let pricingSnapshot = await BillingEngine.createBookingSnapshot({ bookingFee });
       let catalogTotal: number | null = null;
       let catalogCommission: number | null = null;
@@ -2649,6 +2681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chosenPartnerId: choice.type === 'partner' ? choice.id : null,
           chosenExpertId: choice.type === 'expert' ? choice.id : null,
           chosenVia: choice.type === 'partner' ? (choice.code ? 'code' : 'list') : null,
+          bookingBand: band.band,
           ...(routing.dispatchPartnerId ? { dispatchPartnerId: routing.dispatchPartnerId, dispatchMode: routing.dispatchMode, slaAssignBy: routing.slaAssignBy } : {}),
           ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
           ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
@@ -3884,6 +3917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBillingRoutes(app); // PHASE 5: Billing submission + cancellation
   registerPartRequestRoutes(app); // Spare parts the customer approves before they are billed
   registerJobProgressRoutes(app); // Continue another day; could not fix (follow-up)
+  registerEnquiryRoutes(app); // Referral band: free enquiries to partners, then staff
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it
   registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
   registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests

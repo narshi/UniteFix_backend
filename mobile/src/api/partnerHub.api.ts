@@ -9,6 +9,13 @@ import { apiClient } from './client';
 import type { AuthResponse } from './auth.api';
 
 export type HubJobView = 'queue' | 'active' | 'done';
+/** A free-quote request from a customer near the partner (server: enquiry.service.ts). */
+export interface HubEnquiry {
+    id: number; ref: string; serviceName: string; details: string; preferredDate: string | null; budget: string | null; pincode: string | null;
+    status: 'open' | 'new' | 'taken_by_other' | 'taken' | 'forwarded' | 'contacted' | 'closed'; createdAt: string;
+    /** Only once the enquiry is this partner's. */
+    customer: { name: string | null; phone: string | null; address: string | null } | null;
+}
 
 export interface HubJob {
     id: number; serviceId: string; status: string; serviceName: string | null; categoryName: string | null; quantity: number;
@@ -43,6 +50,9 @@ type Ok<T> = { success: boolean; message?: string; data: T };
 export const partnerHubApi = {
     me: () => apiClient.get<Ok<HubMe>>('/api/hub/me'),
     jobs: (view: HubJobView) => apiClient.get<Ok<HubJob[]>>('/api/hub/field/jobs', { params: { view } }),
+    enquiries: () => apiClient.get<Ok<HubEnquiry[]>>('/api/hub/enquiries'),
+    takeEnquiry: (id: number) => apiClient.post<Ok<HubEnquiry>>(`/api/hub/enquiries/${id}/take`),
+    updateEnquiry: (id: number, status: 'contacted' | 'closed') => apiClient.patch<Ok<unknown>>(`/api/hub/enquiries/${id}`, { status }),
     assign: (jobId: number, employeeId: number) => apiClient.post<Ok<unknown>>(`/api/hub/field/jobs/${jobId}/assign`, { employeeId }),
     technicians: () => apiClient.get<Ok<HubTechnician[]>>('/api/hub/field/technicians'),
     addTechnician: (data: { fullName: string; phone: string; isOwner?: boolean }) =>

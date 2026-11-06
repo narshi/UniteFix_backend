@@ -54,6 +54,7 @@ import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
 import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
+import { openService } from '../../utils/serviceBands';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
 
@@ -374,27 +375,8 @@ export function HomeScreen() {
                                         <View key={service.id} style={styles.serviceCardWrapper}>
                                             <ServiceCard
                                                 service={service}
-                                                onPress={() => {
-                                                    if (service.status === 'COMING_SOON') {
-                                                        Alert.alert(
-                                                            'Coming Soon',
-                                                            'This service is launching soon in your area.',
-                                                        );
-                                                    } else if (service.status === 'MAINTENANCE') {
-                                                        Alert.alert(
-                                                            'Under Maintenance',
-                                                            'This service is temporarily under maintenance.',
-                                                        );
-                                                    } else {
-                                                        navigation.navigate('ServiceRequest', {
-                                                            serviceType: service.name,
-                                                            serviceName: service.name,
-                                                            serviceId: service.id,
-                                                            basePrice: service.basePrice ?? 0,
-                                                            bookingFee: service.bookingFee,
-                                                        });
-                                                    }
-                                                }}
+                                                // Visit, inspection, consultation, recharge or free quotes — by the service's band.
+                                                onPress={() => openService(navigation, service)}
                                             />
                                         </View>
                                     ))}

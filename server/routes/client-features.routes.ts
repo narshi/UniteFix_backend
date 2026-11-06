@@ -59,9 +59,9 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const services = await storage.getHomeVisibleServices();
             // The fee the customer will pay to book, so the app quotes what
-            // the server charges. Old builds ignore the field.
+            // the server charges, and the service's booking band. Old builds ignore them.
             const fees = await categoryFeeMap();
-            res.json({ success: true, data: services.map(s => ({ ...s, bookingFee: fees.feeFor(s.categoryId) })) });
+            res.json({ success: true, data: services.map(s => ({ ...s, ...fees.itemBand(s) })) });
         } catch (error) {
             next(error);
         }
@@ -80,7 +80,8 @@ export function registerClientFeatureRoutes(app: Express) {
                 data: categories.map(c => ({
                     ...c,
                     bookingFee: fees.feeFor(c.id),
-                    items: c.items.map(i => ({ ...i, bookingFee: fees.feeFor(i.categoryId) })),
+                    ...fees.categoryBand(c.id),
+                    items: c.items.map(i => ({ ...i, ...fees.itemBand(i) })),
                 })),
             });
         } catch (error) {
@@ -1485,15 +1486,40 @@ export function registerClientFeatureRoutes(app: Express) {
     });
 }
 
-/** Category id → booking fee, with the platform default for categories that set none. One read per request. */
+/**
+ * Category id → booking fee (the platform default for categories that set
+ * none) and booking band. One read per request.
+ *
+ * A service's bookingFee is what it costs to book: for an Inspect & quote
+ * service, the inspection fee (it counts towards the bill, like a booking fee).
+ */
 async function categoryFeeMap() {
+    const { effectiveBand, bandColour, BAND_INFO } = await import('../services/booking-band.service');
     const fallback = await BillingEngine.defaultBookingFee();
-    const rows = await db.select({ id: serviceCategories.id, fee: serviceCategories.bookingFee }).from(serviceCategories);
-    const map = new Map(rows.map(r => [r.id, r.fee]));
+    const rows = await db.select({ id: serviceCategories.id, fee: serviceCategories.bookingFee, band: serviceCategories.bookingBand, inspection: serviceCategories.inspectionFee, colour: serviceCategories.bandColor }).from(serviceCategories);
+    const map = new Map(rows.map(r => [r.id, r]));
+    const feeFor = (categoryId: number | null | undefined) => {
+        const f = categoryId ? map.get(categoryId)?.fee : null;
+        return f !== null && f !== undefined ? Math.max(0, Math.round(Number(f))) : fallback;
+    };
     return {
-        feeFor: (categoryId: number | null | undefined) => {
-            const f = categoryId ? map.get(categoryId) : null;
-            return f !== null && f !== undefined ? Math.max(0, Math.round(Number(f))) : fallback;
+        feeFor,
+        categoryBand: (categoryId: number) => {
+            const c = map.get(categoryId);
+            const band = effectiveBand(null, c?.band);
+            return { bookingBand: band, bandLabel: BAND_INFO[band].label, bandColor: bandColour(band, c?.colour), inspectionFee: c?.inspection ?? null };
+        },
+        itemBand: (item: { categoryId: number | null; bookingBand?: string | null }) => {
+            const c = item.categoryId ? map.get(item.categoryId) : undefined;
+            const band = effectiveBand(item.bookingBand, c?.band);
+            const inspection = band === 'inspect_quote' ? (c?.inspection ?? feeFor(item.categoryId)) : null;
+            return {
+                bookingFee: inspection ?? feeFor(item.categoryId),
+                band, bandLabel: BAND_INFO[band].label, bandColor: bandColour(band, c?.colour),
+                inspectionFee: inspection,
+                // The category's own band, so the app can tell a service's override from it.
+                categoryBand: effectiveBand(null, c?.band),
+            };
         },
     };
 }

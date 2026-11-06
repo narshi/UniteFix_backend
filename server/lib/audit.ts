@@ -17,6 +17,7 @@ import logger from './logger';
 /** Entities we record against. Keep in step with the dashboard filter list. */
 export type AuditEntity =
     | 'service_request'
+    | 'service_enquiry'   // referral band (enquiry.service.ts)
     | 'employee'
     | 'user'
     | 'withdrawal'

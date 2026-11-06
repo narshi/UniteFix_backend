@@ -6,6 +6,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { CustomerTabs } from './CustomerTabs';
 import { ServiceRequestScreen } from '../screens/customer/ServiceRequestScreen';
+import { ServiceEnquiryScreen } from '../screens/customer/ServiceEnquiryScreen';
 import { RequestDetailScreen } from '../screens/customer/RequestDetailScreen';
 import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
 import { OtpDisplayScreen } from '../screens/customer/OtpDisplayScreen';
@@ -39,6 +40,8 @@ export function CustomerStack() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="CustomerTabs" component={CustomerTabs} />
             <Stack.Screen name="ServiceRequest" component={ServiceRequestScreen} />
+            {/* Free quotes (referral band): an enquiry to partners near the customer. */}
+            <Stack.Screen name="ServiceEnquiry" component={ServiceEnquiryScreen} />
             <Stack.Screen name="RequestDetail" component={RequestDetailScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="OtpDisplay" component={OtpDisplayScreen} />

@@ -35,6 +35,10 @@ export interface Assignment {
     paymentMethod?: string;
     /** A job over several days: the day the expert comes back (YYYY-MM-DD). */
     pausedUntil?: string | null;
+    /** How the job books: 'consultation' is a phone call at preferredDate/preferredTimeSlot; 'inspect_quote' ends in a quote. */
+    bookingBand?: string | null;
+    preferredDate?: string | null;
+    preferredTimeSlot?: string | null;
     pauseNote?: string | null;
     /** Times an expert could not fix it and it came back for someone else. */
     followUpCount?: number;
@@ -223,6 +227,10 @@ export const partnerApi = {
 
     resumeJob: (bookingId: number) =>
         apiClient.post<{ success: boolean; message: string }>(`/api/bookings/${bookingId}/resume`),
+
+    /** Consultation: start the call (no arrival check, no code — the customer booked the slot). */
+    startCall: (bookingId: number) =>
+        apiClient.post<{ success: boolean; message: string }>(`/api/bookings/${bookingId}/start-call`),
 
     /** Could not fix it: earn the visit pay; the job goes to another expert. */
     cannotFix: (bookingId: number, reason: string) =>

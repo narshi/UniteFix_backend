@@ -323,6 +323,8 @@ export const serviceRequests = pgTable("service_requests", {
   // How the partner was chosen: 'list' (picked on the booking screen) or
   // 'code' (the partner's link or code) — what partners bring in themselves.
   chosenVia: text("chosen_via"),
+  // The booking band frozen at booking (field_service, inspect_quote, consultation).
+  bookingBand: text("booking_band"),
   choiceAppliedAt: timestamp("choice_applied_at"),
   // Staff cancelled or closed it from the admin (see booking-admin.service.ts).
   cancelReason: text("cancel_reason"),
@@ -401,6 +403,18 @@ export const serviceCategories = pgTable("service_categories", {
    * already made.
    */
   bookingFee: integer("booking_fee"),
+  /**
+   * How a booking in this category works (booking-band.service.ts):
+   * field_service (a visit, as always), inspect_quote (pay an inspection fee,
+   * the expert quotes, the customer approves), consultation (a call at a
+   * booked slot), digital_recharge (the recharge flow), referral (a free
+   * enquiry for partners). A service can override it.
+   */
+  bookingBand: text("booking_band").notNull().default('field_service'),
+  /** Inspect & quote: the fee to book the inspection, in rupees (NULL = the booking fee). Counts towards the bill. */
+  inspectionFee: integer("inspection_fee"),
+  /** The band's accent in the app (a theme colour, e.g. #4F46E5). NULL = the band's default. */
+  bandColor: text("band_color"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -424,6 +438,8 @@ export const services = pgTable("services", {
   isHomeVisible: boolean("is_home_visible").default(true),
   sortOrder: integer("sort_order").default(0),
   isActive: boolean("is_active").default(true),
+  /** This service's own booking band, when it differs from its category's (NULL = the category's). */
+  bookingBand: text("booking_band"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -3922,3 +3938,40 @@ export const newsArchivePlans = pgTable("news_archive_plans", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 export type NewsArchivePlan = typeof newsArchivePlans.$inferSelect;
+
+/**
+ * Referral band: a customer's free enquiry (travel, hotels, catering, loans,
+ * real estate, driving school...). Sent first to partner businesses that take
+ * the service in the customer's pincode; the first to take it gets the
+ * customer's number. Not taken within BUSINESS_CONFIG.ENQUIRY_PARTNER_HOURS,
+ * it shows for UniteFix staff, who call back or forward it (enquiry.service.ts).
+ */
+export const serviceEnquiries = pgTable("service_enquiries", {
+  id: serial("id").primaryKey(),
+  ref: text("ref").notNull().unique(),                         // EQ000123
+  userId: integer("user_id").notNull().references(() => users.id),
+  catalogServiceId: integer("catalog_service_id").references(() => services.id),
+  categoryId: integer("category_id").references(() => serviceCategories.id),
+  serviceName: text("service_name").notNull(),
+  pincode: text("pincode"),
+  address: text("address"),
+  details: text("details").notNull(),
+  preferredDate: text("preferred_date"),                       // YYYY-MM-DD, optional
+  budget: text("budget"),
+  // new → taken (a partner) | forwarded (staff gave it to a partner) | contacted (staff called) → closed
+  status: text("status").notNull().default('new'),
+  partnerId: integer("partner_id").references((): any => businessPartners.id),
+  notifiedPartnerIds: jsonb("notified_partner_ids").notNull().default([]),
+  takenAt: timestamp("taken_at"),
+  staffDueAt: timestamp("staff_due_at"),                       // when it shows for staff if nobody takes it
+  staffNote: text("staff_note"),
+  closedReason: text("closed_reason"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("service_enquiries_user_idx").on(table.userId),
+  statusIdx: index("service_enquiries_status_idx").on(table.status),
+  partnerIdx: index("service_enquiries_partner_idx").on(table.partnerId),
+}));
+export type ServiceEnquiry = typeof serviceEnquiries.$inferSelect;

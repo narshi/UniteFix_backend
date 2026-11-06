@@ -170,6 +170,7 @@ export class AdminServiceManager {
                 // Over several days, or back for a follow-up after a failed visit.
                 pausedUntil: serviceRequests.pausedUntil,
                 pauseNote: serviceRequests.pauseNote,
+                bookingBand: serviceRequests.bookingBand,
                 followUpCount: serviceRequests.followUpCount,
                 lastAttemptReason: serviceRequests.lastAttemptReason,
                 // Who the customer chose at booking (provider-choice.service.ts).

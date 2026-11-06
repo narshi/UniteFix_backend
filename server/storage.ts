@@ -886,6 +886,8 @@ export class DatabaseStorage implements IStorage {
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
         pausedUntil: serviceRequests.pausedUntil,
+        // How the job books (a consultation is a call at a slot; an inspection ends in a quote).
+        bookingBand: serviceRequests.bookingBand,
         pauseNote: serviceRequests.pauseNote,
         followUpCount: serviceRequests.followUpCount,
         lastAttemptReason: serviceRequests.lastAttemptReason,
@@ -942,6 +944,8 @@ export class DatabaseStorage implements IStorage {
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
         pausedUntil: serviceRequests.pausedUntil,
+        // How the job books (a consultation is a call at a slot; an inspection ends in a quote).
+        bookingBand: serviceRequests.bookingBand,
         pauseNote: serviceRequests.pauseNote,
         followUpCount: serviceRequests.followUpCount,
         lastAttemptReason: serviceRequests.lastAttemptReason,
@@ -1127,6 +1131,8 @@ export class DatabaseStorage implements IStorage {
         reachedLat: serviceRequests.reachedLat,
         reachedLong: serviceRequests.reachedLong,
         pausedUntil: serviceRequests.pausedUntil,
+        // How the job books (a consultation is a call at a slot; an inspection ends in a quote).
+        bookingBand: serviceRequests.bookingBand,
         pauseNote: serviceRequests.pauseNote,
         followUpCount: serviceRequests.followUpCount,
         lastAttemptReason: serviceRequests.lastAttemptReason,

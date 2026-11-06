@@ -32,6 +32,7 @@ import HubCustomers, { HubCustomerDetail } from "@/pages/hub/customers";
 import { HubInvoices, HubInvoiceNew, HubInvoiceDetail, HubQuotations, HubQuotationNew, HubQuotationDetail, HubQuotationRevise } from "@/pages/hub/sales";
 import HubGstDesk from "@/pages/hub/gst";
 import { HubFieldJobs, HubFieldTechnicians, HubFieldTerritory, HubFieldServices, HubFieldEarnings, HubFieldWarranty, HubFieldSettings } from "@/pages/hub/field";
+import { HubEnquiries } from "@/pages/hub/enquiries";
 import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubConsultRetainers } from "@/pages/hub/consulting";
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
 import { HubEventShowcase } from "@/pages/hub/events-showcase";
@@ -74,6 +75,7 @@ export const HUB_ENTRIES: HubEntry[] = [
 
   // Phase 4 — field service in the partner's own territory.
   { path: "/partner/field/jobs", component: HubFieldJobs, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Jobs", icon: "handyman" } },
+  { path: "/partner/field/enquiries", component: HubEnquiries, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Enquiries", icon: "forum" } },
   { path: "/partner/field/technicians", component: HubFieldTechnicians, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Technicians", icon: "engineering" } },
   { path: "/partner/field/territory", component: HubFieldTerritory, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Territory", icon: "map" } },
   { path: "/partner/field/services", aliases: ["/partner/field/rates"], component: HubFieldServices, module: "field", perm: "ops:view", nav: { group: "Field service", label: "Services", icon: "sell" } },

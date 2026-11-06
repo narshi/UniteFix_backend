@@ -5,6 +5,9 @@ const { Grid, ArrowRight } = LucideIcons;
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { ServiceItem } from '../../api/customer.api';
 import { getServiceIcon } from '../../utils/serviceIcons';
+import { bandOf, bandColorOf, BAND_META } from '../../utils/serviceBands';
+
+const tint = (hex: string) => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? `${hex}1A` : colors.primarySurface);
 
 interface ServiceCardProps {
     service?: ServiceItem;
@@ -50,22 +53,31 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({ service, isMoreCard, o
         return null;
     };
 
+    // The service's booking band: its colour, and a chip unless it is a plain visit.
+    const band = bandOf(service);
+    const accent = bandColorOf(service);
+
     return (
         <TouchableOpacity 
             style={[styles.card, service.status !== 'ACTIVE' && styles.cardDisabled, style]} 
             onPress={onPress}
             activeOpacity={0.75}
         >
-            <View style={styles.iconContainer}>
+            <View style={[styles.iconContainer, { backgroundColor: tint(accent) }]}>
                 {(() => {
                     const ServiceIcon = getServiceIcon(service);
-                    return <ServiceIcon size={24} color={colors.primary} strokeWidth={2.0} />;
+                    return <ServiceIcon size={24} color={accent} strokeWidth={2.0} />;
                 })()}
             </View>
             
             <Text style={styles.title} numberOfLines={2}>
                 {service.name}
             </Text>
+            {band !== 'field_service' && (
+                <View style={[styles.bandChip, { backgroundColor: tint(accent) }]}>
+                    <Text style={[styles.bandChipText, { color: accent }]} numberOfLines={1}>{service.bandLabel ?? BAND_META[band].label}</Text>
+                </View>
+            )}
             
             <View style={styles.footer}>
                 {service.basePrice != null && service.basePrice > 0 ? (
@@ -193,4 +205,6 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         textTransform: 'uppercase',
     },
+    bandChip: { alignSelf: 'flex-start', borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 2, marginTop: spacing.xs },
+    bandChipText: { fontSize: 11, fontWeight: '700' },
 });

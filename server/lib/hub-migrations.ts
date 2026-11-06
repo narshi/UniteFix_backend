@@ -1293,6 +1293,54 @@ const BLOCKS: Array<[string, string]> = [
       CREATE UNIQUE INDEX IF NOT EXISTS business_partners_share_code_idx ON business_partners (lower(share_code)) WHERE share_code IS NOT NULL;
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS chosen_via TEXT;
     `],
+    // Booking bands. Additive only: every existing category starts on
+    // 'field_service' (what booking does today); staff set the rest in the
+    // admin Service Catalog. No existing row is updated here.
+    ['catalogue: booking bands', `
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS booking_band TEXT NOT NULL DEFAULT 'field_service';
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS inspection_fee INTEGER;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS band_color TEXT;
+      ALTER TABLE services ADD COLUMN IF NOT EXISTS booking_band TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS booking_band TEXT;
+      DO $band$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'service_categories_booking_band_check') THEN
+          ALTER TABLE service_categories ADD CONSTRAINT service_categories_booking_band_check
+            CHECK (booking_band IN ('field_service','inspect_quote','consultation','digital_recharge','referral'));
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'services_booking_band_check') THEN
+          ALTER TABLE services ADD CONSTRAINT services_booking_band_check
+            CHECK (booking_band IS NULL OR booking_band IN ('field_service','inspect_quote','consultation','digital_recharge','referral'));
+        END IF;
+      END $band$;
+    `],
+    ['catalogue: referral enquiries', `
+      CREATE TABLE IF NOT EXISTS service_enquiries (
+        id SERIAL PRIMARY KEY,
+        ref TEXT NOT NULL UNIQUE,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        catalog_service_id INTEGER REFERENCES services(id),
+        category_id INTEGER REFERENCES service_categories(id),
+        service_name TEXT NOT NULL,
+        pincode TEXT,
+        address TEXT,
+        details TEXT NOT NULL,
+        preferred_date TEXT,
+        budget TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        partner_id INTEGER REFERENCES business_partners(id),
+        notified_partner_ids JSONB NOT NULL DEFAULT '[]',
+        taken_at TIMESTAMP,
+        staff_due_at TIMESTAMP,
+        staff_note TEXT,
+        closed_reason TEXT,
+        closed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS service_enquiries_user_idx ON service_enquiries (user_id);
+      CREATE INDEX IF NOT EXISTS service_enquiries_status_idx ON service_enquiries (status);
+      CREATE INDEX IF NOT EXISTS service_enquiries_partner_idx ON service_enquiries (partner_id);
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

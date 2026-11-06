@@ -20,6 +20,11 @@ export interface ServiceCategory {
     sortOrder: number;
     isActive: boolean;
     items?: ServiceItem[];
+    /** How booking works in this category (utils/serviceBands.ts). Older servers omit these. */
+    bookingBand?: string;
+    bandLabel?: string;
+    bandColor?: string;
+    inspectionFee?: number | null;
 }
 
 export interface ServiceItem {
@@ -37,11 +42,25 @@ export interface ServiceItem {
     /** Booking fee for this service's category — what the server will charge to book. Older servers omit it. */
     bookingFee?: number;
     subCategory?: string | null; // grouping within a category (e.g. Desktop/Laptop)
+    /** The booking band that applies to this service (its own, or its category's). */
+    band?: string;
+    bandLabel?: string;
+    bandColor?: string;
+    /** Inspect & quote: the fee to book the inspection (also sent as bookingFee). */
+    inspectionFee?: number | null;
+}
+
+/** A free-quote request (Free quotes band). */
+export interface ServiceEnquiry {
+    id: number; ref: string; serviceName: string; details: string;
+    preferredDate: string | null; budget: string | null;
+    status: 'new' | 'taken' | 'forwarded' | 'contacted' | 'closed';
+    partnerName: string | null; createdAt: string; closedReason: string | null;
 }
 
 /** Where the customer's money stands on a cancelled (or refunded) booking. Sent by the server. */
 export interface RefundStatus {
-    state: 'not_paid' | 'none' | 'manual' | 'initiated' | 'processed' | 'failed';
+    state: 'not_paid' | 'none' | 'manual' | 'initiated' | 'processed' | 'failed' | 'visit_charge';
     amount: number | null;
     startedAt: string | null;
     completedAt: string | null;
@@ -301,6 +320,16 @@ export const customerApi = {
         }>>('/api/partner/profile/upi/validate', data),
 
     // Service Requests
+    createEnquiry: (data: { catalogServiceId: number; details: string; preferredDate?: string; budget?: string; address?: string; pincode?: string }) =>
+        apiClient.post<ApiResponse<ServiceEnquiry> & { message?: string }>('/api/enquiries', data),
+
+    getMyEnquiries: () =>
+        apiClient.get<ApiResponse<ServiceEnquiry[]>>('/api/enquiries/mine'),
+
+    /** Inspect & quote: decline the expert's quote; the job closes and the fee pays for the visit. */
+    declineQuote: (serviceId: number) =>
+        apiClient.post<ApiResponse<{ visitPayRupees: number }> & { message?: string }>(`/api/services/${serviceId}/decline-quote`),
+
     getPartnerCard: (code: string) =>
         apiClient.get<ApiResponse<PartnerCard>>(`/api/public/partners/${encodeURIComponent(code)}`),
 

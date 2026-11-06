@@ -55,6 +55,7 @@ import {
 import { useCancelServiceRequest, useRateService, usePublicConfig, useServiceRequests, queryKeys } from '../../hooks/useCustomerData';
 import { useQueryClient } from '@tanstack/react-query';
 import { ServiceRequest, RefundStatus, customerApi } from '../../api/customer.api';
+import { getApiErrorMessage } from '../../api/client';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { colors } from '../../theme/colors';
 import { BackOnMount } from '../../components/ui/BackOnMount';
@@ -188,6 +189,7 @@ function refundText(r: RefundStatus): string {
         case 'initiated': return `Your ${amt}refund was started${day(r.startedAt) ? ` on ${day(r.startedAt)}` : ''}. Banks usually take 5–7 working days.`;
         case 'processed': return `${amt ? amt.trim() : 'Your refund'} was refunded to the account you paid from${day(r.completedAt) ? ` on ${day(r.completedAt)}` : ''}.${r.reference ? ` Bank reference: ${r.reference}.` : ''}`;
         case 'failed': return `Your bank could not take back the ${amt}refund. Our team will refund it another way and contact you.`;
+        case 'visit_charge': return `You declined the quote, so your ${amt}inspection fee paid for the expert's visit.`;
         default: return '';
     }
 }
@@ -215,6 +217,7 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [isPayingFee, setIsPayingFee] = useState(false);
     const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+    const [decliningQuote, setDecliningQuote] = useState(false);
 
     const { mutate: cancelRequest, isPending: cancelling } = useCancelServiceRequest();
     const { mutate: rateService, isPending: submittingRating } = useRateService();
@@ -254,7 +257,8 @@ export function RequestDetailScreen({ navigation, route }: Props) {
     const canRate = request.status === 'completed' && !request.rating;
     const needsPayment = request.status === 'pending_payment';
     const isTerminal = ['completed', 'cancelled', 'disputed'].includes(request.status);
-    const showServiceCode = ['accepted', 'reached'].includes(request.status) && !!request.handshakeOtp;
+    // A phone consultation has no visit, so no handshake code to show.
+    const showServiceCode = ['accepted', 'reached'].includes(request.status) && !!request.handshakeOtp && (request as any).bookingBand !== 'consultation';
 
     // Support window: active services always show support; terminal services only within 48h
     const supportWindowHours = publicConfig?.supportWindowHours ?? 48;
@@ -493,6 +497,40 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                 {/* A spare part the technician needs: the customer's decision comes first. */}
                 {(request.status === 'in_progress' || request.status === 'pending_payment') && (
                     <PartApproval bookingId={request.id} live={request.status === 'in_progress'} />
+                )}
+
+                {/* Inspect & quote: approve the quote above, or decline it and close the job. */}
+                {(request as any).bookingBand === 'inspect_quote' && ['reached', 'in_progress'].includes(request.status) && (
+                    <View style={styles.refundNote}>
+                        <Text style={styles.refundText}>This was booked as an inspection. When the expert sends a quote, approve it above to go ahead, or decline it here: the job closes and your inspection fee pays for their visit.</Text>
+                        <TouchableOpacity
+                            style={styles.declineQuoteBtn}
+                            disabled={decliningQuote}
+                            accessibilityRole="button"
+                            onPress={() => Alert.alert('Decline the quote?', 'The job closes and your inspection fee pays for the expert\'s visit. This cannot be undone.', [
+                                { text: 'Keep it', style: 'cancel' },
+                                { text: 'Decline & close', style: 'destructive', onPress: async () => {
+                                    setDecliningQuote(true);
+                                    try {
+                                        const r = await customerApi.declineQuote(request.id);
+                                        queryClient.invalidateQueries({ queryKey: queryKeys.serviceRequests });
+                                        Alert.alert('Closed', r.data?.message ?? 'The job is closed.');
+                                    } catch (e) {
+                                        Alert.alert('Not closed', getApiErrorMessage(e));
+                                    } finally { setDecliningQuote(false); }
+                                } },
+                            ])}
+                        >
+                            <Text style={styles.declineQuoteText}>{decliningQuote ? 'Closing…' : 'Decline the quote'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Consultation: when the call is. */}
+                {(request as any).bookingBand === 'consultation' && !['completed', 'cancelled'].includes(request.status) && (
+                    <View style={styles.refundNote}>
+                        <Text style={styles.refundText}>Phone consultation{(request as any).preferredDate ? ` on ${(request as any).preferredDate}${(request as any).preferredTimeSlot ? `, ${(request as any).preferredTimeSlot}` : ''}` : ''}. The expert calls you on your registered number.</Text>
+                    </View>
                 )}
 
                 {/* Service Code Card — shown when status is accepted or reached */}
@@ -907,6 +945,8 @@ const styles = StyleSheet.create({
     cancelledText: { ...typography.caption, color: colors.errorDark, flex: 1 },
     refundNote: { backgroundColor: colors.surface, padding: spacing.md, borderRadius: radii.lg, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.divider },
     refundText: { ...typography.caption, color: colors.textPrimary },
+    declineQuoteBtn: { alignSelf: 'flex-start', marginTop: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radii.full, borderWidth: 1, borderColor: colors.error },
+    declineQuoteText: { ...typography.captionMedium, color: colors.error },
 
     // Technician
     techCard: {

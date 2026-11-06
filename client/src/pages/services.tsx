@@ -400,6 +400,11 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                               Follow-up {service.followUpCount > 1 ? `#${service.followUpCount}` : ""}: earlier expert could not fix
                             </span>
                           )}
+                          {service.bookingBand && service.bookingBand !== 'field_service' && (
+                            <span className="mt-1 inline-flex w-fit items-center rounded-full border border-[rgba(255,255,255,0.15)] px-2 py-0.5 text-[10px] font-medium text-[hsl(215,20%,75%)]" title="How this booking works">
+                              {service.bookingBand === 'inspect_quote' ? 'Inspect & quote' : service.bookingBand === 'consultation' ? `Consultation${service.preferredDate ? ` · ${service.preferredDate}${service.preferredTimeSlot ? `, ${service.preferredTimeSlot}` : ''}` : ''}` : service.bookingBand}
+                            </span>
+                          )}
                           {service.customerChoice && (
                             <span title={service.customerChoice.state === 'not_taken' ? 'The customer chose them, but they did not take it; staff assign it.' : service.customerChoice.state === 'waiting' ? 'Applied once the customer pays.' : 'The booking is with who the customer chose.'}
                               className={`mt-1 inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${service.customerChoice.state === 'not_taken' ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>

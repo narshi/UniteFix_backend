@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { useScreenInsets } from '../../theme/layout';
 
 type ParamList = {
-    SavedAddresses: { fromCheckout?: boolean };
+    SavedAddresses: { fromCheckout?: boolean; returnTo?: string };
 };
 
 export function SavedAddressesScreen() {
@@ -19,6 +19,8 @@ export function SavedAddressesScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<ParamList, 'SavedAddresses'>>();
     const fromCheckout = route.params?.fromCheckout;
+    // The screen to hand the address back to: booking (default) or a free-quote enquiry.
+    const returnTo = route.params?.returnTo ?? 'ServiceRequest';
     const queryClient = useQueryClient();
 
     const [addresses, setAddresses] = useState<SavedAddress[]>([]);
@@ -73,7 +75,7 @@ export function SavedAddressesScreen() {
         if (fromCheckout) {
             // Need to pass the selected address back to the previous screen (ServiceRequestScreen)
             navigation.navigate({
-                name: 'ServiceRequest',
+                name: returnTo as any,
                 params: { selectedAddress: address },
                 merge: true,
             });
@@ -135,7 +137,7 @@ export function SavedAddressesScreen() {
                     title="Add New Address"
                     // Carry the booking context through so the picker can return the
                     // new address to ServiceRequest rather than dead-ending here.
-                    onPress={() => navigation.navigate('MapAddressPicker', { fromCheckout })}
+                    onPress={() => navigation.navigate('MapAddressPicker', { fromCheckout, returnTo } as any)}
                     icon={<Plus size={20} color="#fff" />}
                     fullWidth
                 />

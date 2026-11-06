@@ -9,6 +9,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Briefcase, Phone, UserCheck, Wrench, X, Share2 } from 'lucide-react-native';
 import { partnerHubApi, type HubJob, type HubJobView, type HubTechnician } from '../../api/partnerHub.api';
+import { PartnerEnquiries } from '../../components/partner/PartnerEnquiries';
 import { getApiErrorMessage } from '../../api/client';
 import { useAuthStore } from '../../stores/auth.store';
 import { colors } from '../../theme/colors';
@@ -19,7 +20,8 @@ import { Button, EmptyState } from '../../components/ui';
 
 const rs = (n: number | null) => (n == null ? '—' : `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`);
 const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-const VIEWS: Array<[HubJobView, string]> = [['queue', 'To assign'], ['active', 'In progress'], ['done', 'Done']];
+type JobsView = HubJobView | 'enquiries';
+const VIEWS: Array<[JobsView, string]> = [['queue', 'To assign'], ['active', 'In progress'], ['done', 'Done'], ['enquiries', 'Enquiries']];
 
 
 /** The partner's customer link: customers who open it, or enter the code while booking, come to this partner. */
@@ -47,11 +49,11 @@ export function PartnerJobsScreen() {
     const { headerTop, tabContent } = useScreenInsets();
     const qc = useQueryClient();
     const enterTechnicianMode = useAuthStore(s => s.enterTechnicianMode);
-    const [view, setView] = useState<HubJobView>('queue');
+    const [view, setView] = useState<JobsView>('queue');
     const [assignFor, setAssignFor] = useState<HubJob | null>(null);
     const [busy, setBusy] = useState<number | 'mode' | null>(null);
 
-    const jobs = useQuery({ queryKey: ['hub-jobs', view], queryFn: async () => (await partnerHubApi.jobs(view)).data.data, refetchInterval: 60_000 });
+    const jobs = useQuery({ queryKey: ['hub-jobs', view], queryFn: async () => (await partnerHubApi.jobs(view as HubJobView)).data.data, refetchInterval: 60_000, enabled: view !== 'enquiries' });
     const team = useQuery({ queryKey: ['hub-team'], queryFn: async () => (await partnerHubApi.technicians()).data.data });
     const ready = useMemo(() => (team.data ?? []).filter(t => t.isActive && t.verification === 'verified'), [team.data]);
     const me = ready.find(t => t.isOwner);
@@ -106,7 +108,7 @@ export function PartnerJobsScreen() {
             </View>
 
             {meOnTeam && !me && <Text style={styles.hint}>You are on your team. Once UniteFix verifies your documents and you switch yourself on in Team, you can take jobs and work them here.</Text>}
-            {jobs.isLoading ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} /> : (
+            {view === 'enquiries' ? <PartnerEnquiries bottomPadding={tabContent} /> : jobs.isLoading ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} /> : (
                 <FlatList
                     ListHeaderComponent={<ShareCard />}
                     data={jobs.data ?? []}

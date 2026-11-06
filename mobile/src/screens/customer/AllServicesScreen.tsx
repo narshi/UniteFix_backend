@@ -10,6 +10,20 @@ import { useAllServices } from '../../hooks/useCustomerData';
 import { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
+import { openService, bandOf, bandColorOf, BAND_META } from '../../utils/serviceBands';
+
+/** A band colour as a soft tint (the same hue, mostly transparent) for icon boxes and pills. */
+const tint = (hex: string, alpha = '1A') => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? `${hex}${alpha}` : colors.primarySurface);
+
+/** One line on how booking works in a category, for its banner. */
+function bandLine(c: ServiceCategory): string | null {
+    const band = bandOf({ band: c.bookingBand });
+    if (band === 'inspect_quote') return `Inspect & quote: pay ${c.inspectionFee != null ? `₹${c.inspectionFee}` : 'an inspection fee'} to book; the expert quotes, you approve or decline.`;
+    if (band === 'consultation') return 'Consultation: pick a day and time; the expert calls you.';
+    if (band === 'referral') return 'Free quotes: tell us what you need; partners near you call back.';
+    if (band === 'digital_recharge') return 'Recharge in a few taps.';
+    return null;
+}
 
 type NavigationProp = NativeStackNavigationProp<HomeStackParamList & CustomerTabParamList>;
 
@@ -48,22 +62,32 @@ const CATEGORY_3D_ICONS: Record<string, any> = {
 /** Design-spec service card: white card, rounded box icon, title, subtitle + arrow chip. */
 const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () => void }) => {
     const Icon = getServiceIcon(service);
+    const band = bandOf(service);
+    const accent = bandColorOf(service);
     return (
         <TouchableOpacity
             style={[styles.serviceTile, service.status !== 'ACTIVE' && styles.serviceTileDisabled]}
             onPress={onPress}
             activeOpacity={0.75}
         >
-            <View style={styles.serviceTileIconBox}>
-                <Icon size={24} color={colors.primary} strokeWidth={2.0} />
+            <View style={[styles.serviceTileIconBox, { backgroundColor: tint(accent) }]}>
+                <Icon size={24} color={accent} strokeWidth={2.0} />
             </View>
             <Text style={styles.serviceTileTitle} numberOfLines={2}>{service.name}</Text>
+            {band !== 'field_service' && (
+                <View style={[styles.bandChip, { backgroundColor: tint(accent) }]}>
+                    <View style={[styles.bandDot, { backgroundColor: accent }]} />
+                    <Text style={[styles.bandChipText, { color: accent }]} numberOfLines={1}>
+                        {band === 'inspect_quote' && service.inspectionFee != null ? `Inspect · ₹${service.inspectionFee}` : (service.bandLabel ?? BAND_META[band].label)}
+                    </Text>
+                </View>
+            )}
             <View style={styles.serviceTileFooter}>
                 <Text style={styles.serviceTileSubtitle} numberOfLines={2}>
                     {service.subtitle || 'Professional service'}
                 </Text>
-                <View style={styles.serviceTileArrow}>
-                    <ArrowRight size={14} color={colors.primary} strokeWidth={2.5} />
+                <View style={[styles.serviceTileArrow, { backgroundColor: tint(accent) }]}>
+                    <ArrowRight size={14} color={accent} strokeWidth={2.5} />
                 </View>
             </View>
             {service.status === 'COMING_SOON' && (
@@ -104,33 +128,8 @@ export const AllServicesScreen = () => {
         return Array.from(set).sort();
     }, [categories, selectedCategoryId]);
 
-    const handleServicePress = (service: ServiceItem) => {
-        if (service.status === 'COMING_SOON') {
-            Alert.alert(
-                "Coming Soon",
-                "🚀 This service is launching soon in your area. Stay tuned!",
-                [{ text: "OK" }]
-            );
-            return;
-        }
-
-        if (service.status === 'MAINTENANCE') {
-            Alert.alert(
-                "Under Maintenance",
-                "This service is temporarily under maintenance. Please try again later.",
-                [{ text: "OK" }]
-            );
-            return;
-        }
-
-        navigation.navigate('ServiceRequest', {
-            serviceType: service.name,
-            serviceName: service.name,
-            serviceId: service.id,
-            basePrice: service.basePrice ?? 0,
-            bookingFee: service.bookingFee,
-        });
-    };
+    // Visit, inspection, consultation, recharge or free quotes — by the service's band.
+    const handleServicePress = (service: ServiceItem) => openService(navigation, service);
 
     if (isLoading) {
         return (
@@ -223,7 +222,10 @@ export const AllServicesScreen = () => {
                                     onPress={() => setSelectedCategoryId(category.id)}
                                     activeOpacity={0.7}
                                 >
-                                    {isSelected && <View style={styles.sidebarActiveBar} />}
+                                    {isSelected && <View style={[styles.sidebarActiveBar, { backgroundColor: bandColorOf({ band: category.bookingBand, bandColor: category.bandColor }) }]} />}
+                                    {bandOf({ band: category.bookingBand }) !== 'field_service' && (
+                                        <View style={[styles.sidebarBandDot, { backgroundColor: bandColorOf({ band: category.bookingBand, bandColor: category.bandColor }) }]} />
+                                    )}
                                     <View style={[
                                         styles.sidebarIconContainer,
                                         isSelected && styles.sidebarIconContainerSelected
@@ -272,6 +274,11 @@ export const AllServicesScreen = () => {
                                         <Users size={14} color={colors.primary} strokeWidth={2.4} />
                                         <Text style={styles.categoryBannerPillText}>{itemsToDisplay.length} services available</Text>
                                     </View>
+                                    {!!bandLine(selectedCategory) && (
+                                        <Text style={[styles.categoryBandLine, { color: bandColorOf({ band: selectedCategory.bookingBand, bandColor: selectedCategory.bandColor }) }]}>
+                                            {bandLine(selectedCategory)}
+                                        </Text>
+                                    )}
                                 </View>
                                 {BannerIcon && !CATEGORY_3D_ICONS[selectedCategory.name] && (
                                     <View style={styles.categoryBannerArt}>
@@ -672,6 +679,34 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primarySurface,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    bandChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: spacing.xs,
+        borderRadius: radii.full,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 2,
+        marginTop: spacing.xs,
+        maxWidth: '100%',
+    },
+    bandDot: { width: 6, height: 6, borderRadius: radii.full },
+    bandChipText: { fontSize: 11, fontWeight: '700', flexShrink: 1 },
+    sidebarBandDot: {
+        position: 'absolute',
+        top: spacing.sm,
+        right: spacing.sm,
+        width: 8,
+        height: 8,
+        borderRadius: radii.full,
+        borderWidth: 1.5,
+        borderColor: colors.surfaceElevated,
+    },
+    categoryBandLine: {
+        ...typography.caption,
+        fontWeight: '600',
+        marginTop: spacing.sm,
     },
     badgeComingSoon: {
         position: 'absolute',
