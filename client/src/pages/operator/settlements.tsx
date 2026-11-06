@@ -7,6 +7,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 
@@ -30,6 +31,7 @@ const LABEL: Record<LedgerEntry["entryType"], string> = {
 export default function OperatorSettlements() {
   const { data, isLoading } = useQuery<{ data: { balance: number; entries: LedgerEntry[] } }>({
     queryKey: ["/api/ftth/admin/ledger"],
+    ...LIVE,
   });
 
   const balance = data?.data.balance ?? 0;

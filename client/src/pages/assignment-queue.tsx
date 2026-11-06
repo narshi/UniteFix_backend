@@ -8,6 +8,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -133,7 +134,7 @@ export default function AssignmentQueuePage() {
   // Fetch assignment queue data
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["/api/admin/assignment-queue"],
-    refetchInterval: 30000, // Auto-refresh every 30s
+    ...LIVE,
   });
 
   const queue: QueueItem[] = (data as any)?.queue || [];

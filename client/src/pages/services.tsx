@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -65,8 +66,10 @@ export default function ServicesPage() {
     }
   };
   
+  // New bookings and status changes show up without a browser reload.
   const { data: response, isLoading, isError, refetch } = useQuery<any>({
     queryKey: [query.key],
+    ...LIVE,
   });
 
   // Searching, filtering, sorting and paging all happen server-side now — the

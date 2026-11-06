@@ -14,6 +14,7 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,10 +88,12 @@ export default function FtthOperatorDetailPage() {
   const { data: opData, isLoading } = useQuery<{ data: OperatorDetail }>({
     queryKey: [`/api/admin/ftth/operators/${id}`],
     enabled: Number.isInteger(id),
+    ...LIVE,
   });
   const { data: actData } = useQuery<{ data: Activity }>({
     queryKey: [`/api/admin/ftth/operators/${id}/activity`],
     enabled: Number.isInteger(id),
+    ...LIVE,
   });
 
   const operator = opData?.data;

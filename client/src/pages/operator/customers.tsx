@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,12 +104,16 @@ export default function OperatorCustomers() {
 
   const { data: connData } = useQuery<{ data: ConnectionRow[] }>({
     queryKey: [`/api/ftth/admin/connections?filter=${filter}`],
+    ...LIVE,
   });
   const { data: reqData } = useQuery<{ data: IdRequestRow[] }>({
     queryKey: ["/api/ftth/admin/id-requests?status=pending"],
+    ...LIVE,
   });
   const { data: rechargeData } = useQuery<{ data: RechargeRow[] }>({
+    // Recharges customers pay in the app appear without a reload.
     queryKey: ["/api/ftth/admin/recharges"],
+    ...LIVE,
   });
 
   const refresh = () => {

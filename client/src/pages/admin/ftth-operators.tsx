@@ -14,6 +14,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,11 +88,13 @@ export default function FtthOperatorsPage() {
 
   const { data, isLoading } = useQuery<{ data: OperatorRow[] }>({
     queryKey: ["/api/admin/ftth/operators"],
+    ...LIVE,
   });
 
   // What UniteFix owes each operator. Positive = due to them.
   const { data: ledgerData } = useQuery<{ data: Array<{ operatorId: number; balance: number }> }>({
     queryKey: ["/api/admin/ftth/ledger"],
+    ...LIVE,
   });
   const balanceFor = (id: number) =>
     ledgerData?.data.find(l => l.operatorId === id)?.balance ?? 0;

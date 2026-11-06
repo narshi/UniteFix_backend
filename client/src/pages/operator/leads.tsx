@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { LIVE } from "@/lib/live";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +48,7 @@ export default function OperatorLeads() {
   const [converting, setConverting] = useState<LeadRow | null>(null);
   const [ispId, setIspId] = useState("");
 
-  const { data, isLoading } = useQuery<{ data: LeadRow[] }>({ queryKey: ["/api/ftth/admin/leads"] });
+  const { data, isLoading } = useQuery<{ data: LeadRow[] }>({ queryKey: ["/api/ftth/admin/leads"], ...LIVE });
   const leads = data?.data ?? [];
 
   const refresh = () => {
