@@ -222,6 +222,18 @@ export function registerClientFeatureRoutes(app: Express) {
                 review: review || null,
             }).returning();
 
+            // The expert's stored average was never recalculated, so it read 0
+            // for most experts in the Hub and admin. Kept right from here on.
+            try {
+                await db.execute(sql`
+                    UPDATE employees SET average_rating = (
+                        SELECT ROUND(AVG(rating)::numeric, 2) FROM ratings WHERE to_provider_id = ${service.providerId} AND is_visible = true
+                    ) WHERE id = ${service.providerId}
+                `);
+            } catch (avgErr: any) {
+                logger.warn(`[RATING] average update failed for expert #${service.providerId}: ${avgErr?.message}`);
+            }
+
             // FAST-TRACK RELEASE: If customer rates 4 or 5 stars, release held earnings immediately!
             if (ratingValue >= 4) {
                 try {

@@ -404,6 +404,16 @@ export function registerBusinessPartnerRoutes(app: Express) {
             } catch (error) { next(error); }
         });
 
+    /** The partner's customer link and code, for staff to give out, and what it has brought in. */
+    app.get('/api/admin/business-partners/:id/share', authenticateAdmin, async (req, res, next) => {
+        try {
+            const bp = await BusinessPartnerService.byId(Number(req.params.id));
+            if (!bp) return res.status(404).json({ success: false, message: 'Business partner not found' });
+            const { PartnerLinkService } = await import('../services/partner-link.service');
+            res.json({ success: true, data: await PartnerLinkService.summary(bp.id) });
+        } catch (error) { next(error); }
+    });
+
     app.get('/api/admin/business-partners/:id/ledger', authenticateAdmin, async (req, res, next) => {
         try {
             const id = Number(req.params.id);

@@ -429,6 +429,34 @@ export class BookingNotifications {
         );
     }
 
+    // ==================== THE CUSTOMER'S CHOICE ====================
+
+    /** The partner or expert the customer chose could not take it (or did not accept in time). */
+    static async choiceNotTaken(serviceRequestId: number, chosenName: string | null) {
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "Finding you another expert",
+            `${chosenName ?? "The expert you chose"} could not take ${p.serviceRef}. UniteFix is assigning another expert now; there is nothing more to pay.`,
+            "service_created",
+            { serviceId: p.serviceRequestId }
+        );
+    }
+
+    /** The partner the customer chose has not put a technician on it by the assign-by time. */
+    static async chosenPartnerLate(serviceRequestId: number, partnerName: string | null) {
+        const p = await getParties(serviceRequestId);
+        if (!p) return;
+        NotificationService.notify(
+            p.customerUserId,
+            "We are on it",
+            `${partnerName ?? "Your partner"} has not assigned a technician to ${p.serviceRef} yet. UniteFix is making sure someone reaches you soon.`,
+            "service_created",
+            { serviceId: p.serviceRequestId }
+        );
+    }
+
     // ==================== REFUNDS ====================
 
     /** UniteFix asked Razorpay for the refund. Not sent where the cancel or dispute message already says it. */

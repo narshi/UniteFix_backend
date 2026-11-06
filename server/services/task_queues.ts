@@ -398,8 +398,56 @@ async function cleanupExpiredRefreshTokens(): Promise<void> {
  * the assignment is reverted so admin can reassign.
  * Runs every 15 minutes.
  */
-async function revertStaleAssignments(): Promise<void> {
+/** Bookings among these that the customer chose an expert for: tell the customer it is being reassigned. */
+async function tellCustomersChoiceNotTaken(ids: number[]) {
+    if (!ids.length) return;
+    const rows = await db.execute(sql`
+        SELECT sr.id, e.full_name AS name FROM service_requests sr
+        LEFT JOIN employees e ON e.id = sr.chosen_expert_id
+        WHERE sr.id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)}) AND sr.chosen_provider_type = 'expert'
+    `) as any;
+    for (const r of (rows?.rows ?? rows ?? []) as Array<{ id: number; name: string | null }>) {
+        void BookingNotifications.choiceNotTaken(r.id, r.name);
+    }
+}
+
+/**
+ * The expert a CUSTOMER chose gets a shorter window to accept than one staff
+ * assigned (OPERATIONAL_CONFIG.CHOSEN_EXPERT_ACCEPT_MINUTES, default 60): the
+ * customer picked them and is waiting. Then it is back in the queue.
+ */
+async function revertUnacceptedChosenExperts(): Promise<void> {
     try {
+        const { configService } = await import("./config.service");
+        const minutes = Math.max(10, Number(await configService.get<number>('OPERATIONAL_CONFIG.CHOSEN_EXPERT_ACCEPT_MINUTES', 60)) || 60);
+        const cutoff = new Date(Date.now() - minutes * 60_000);
+        const result = await db.execute(sql`
+            UPDATE service_requests
+            SET status = 'created', provider_id = NULL, assigned_at = NULL,
+                admin_notes = COALESCE(admin_notes, '') || ${`\n[AUTO_REVERT ${new Date().toISOString()}] The expert the customer chose did not accept within ${minutes} min — reverted to CREATED`},
+                updated_at = NOW()
+            WHERE status = 'assigned' AND chosen_provider_type = 'expert'
+              AND provider_id = chosen_expert_id AND assigned_at IS NOT NULL AND assigned_at <= ${cutoff}
+            RETURNING id, chosen_expert_id
+        `) as any;
+        const rows = (result?.rows ?? []) as Array<{ id: number; chosen_expert_id: number }>;
+        if (!rows.length) return;
+        logger.warn(`[CRON] ${rows.length} customer-chosen expert(s) did not accept within ${minutes} min: ${rows.map(r => r.id).join(', ')}`);
+        for (const r of rows) void BookingNotifications.assignmentRevoked(r.chosen_expert_id, r.id, `not accepted within ${minutes} min`);
+        await tellCustomersChoiceNotTaken(rows.map(r => r.id));
+        void NotificationService.sendToAdmins(
+            `${rows.length} customer-chosen expert(s) did not accept`,
+            `Bookings ${rows.map(r => r.id).join(', ')} are back in the Assignment Queue.`,
+            { bookingIds: rows.map(r => r.id) },
+        );
+    } catch (err: any) {
+        logger.error('[CRON] Chosen-expert timeout job failed', { error: err.message });
+    }
+}
+
+export async function revertStaleAssignments(): Promise<void> {
+    try {
+        await revertUnacceptedChosenExperts();
         // Get timeout from config (default 4 hours)
         const { configService } = await import("./config.service");
         const timeoutHoursStr = await configService.get<string>('OPERATIONAL_CONFIG.PARTNER_ACCEPT_TIMEOUT_HOURS');
@@ -438,6 +486,7 @@ async function revertStaleAssignments(): Promise<void> {
 
         const count = (result as any).rowCount || stale.length;
         logger.warn(`[CRON] Auto-reverted ${count} stale ASSIGNED booking(s) (>${timeoutHours}h)`);
+        await tellCustomersChoiceNotTaken(stale.map(r => r.id));
 
         for (const row of stale) {
             if (row.provider_id) {

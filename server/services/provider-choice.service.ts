@@ -159,18 +159,48 @@ export class ProviderChoiceService {
         }).filter((x): x is { r: typeof rows[number]; km: number } => !!x && x.km <= radiusKm && (!allowed || allowed.has(x.r.id)))
             .sort((a, b) => a.km - b.km).slice(0, 12);
         if (!near.length) return [];
-        const counts = await db.select({ id: ratings.toProviderId, n: sql<number>`count(*)::int` }).from(ratings)
+        // From the ratings themselves: employees.average_rating was never
+        // recalculated when a customer rated, so it read 0 for most experts.
+        const counts = await db.select({ id: ratings.toProviderId, n: sql<number>`count(*)::int`, avg: sql<number>`avg(${ratings.rating})::float` }).from(ratings)
             .where(and(inArray(ratings.toProviderId, near.map(x => x.r.id)), eq(ratings.isVisible, true))).groupBy(ratings.toProviderId);
-        const c = new Map(counts.map(x => [x.id, x.n]));
+        const c = new Map(counts.map(x => [x.id, x]));
         return near.map(({ r, km }) => {
-            const reviews = c.get(r.id) ?? 0;
+            const reviews = c.get(r.id)?.n ?? 0;
             return {
                 id: r.id, name: shortName(r.fullName), photoUrl: r.photo ?? null,
-                rating: reviews > 0 ? round1(Number(r.rating ?? 0)) : null, reviews,
+                rating: reviews > 0 ? round1(Number(c.get(r.id)!.avg)) : null, reviews,
                 jobsDone: r.jobs ?? 0, experienceYears: r.years ?? 0,
                 distanceKm: Math.max(0.1, round1(km)), online: !!r.online,
             };
         });
+    }
+
+    /**
+     * For staff screens: who the customer chose and where it stands —
+     * 'waiting' (not paid yet), 'with_them' (still theirs), or 'not_taken'
+     * (they could not take it, timed out, or staff moved it).
+     */
+    static async describe(rows: Array<{ id: number; chosenProviderType?: string | null; chosenPartnerId?: number | null; chosenExpertId?: number | null; chosenVia?: string | null; choiceAppliedAt?: Date | string | null; providerId?: number | null; dispatchPartnerId?: number | null }>) {
+        const out = new Map<number, { type: 'partner' | 'expert'; name: string | null; via: 'code' | 'list' | null; state: 'waiting' | 'with_them' | 'not_taken' }>();
+        const chosen = rows.filter(r => (r.chosenProviderType === 'partner' && r.chosenPartnerId) || (r.chosenProviderType === 'expert' && r.chosenExpertId));
+        if (!chosen.length) return out;
+        const { businessPartners } = await import('@shared/schema');
+        const bpIds = Array.from(new Set(chosen.map(r => r.chosenPartnerId).filter((x): x is number => !!x)));
+        const exIds = Array.from(new Set(chosen.map(r => r.chosenExpertId).filter((x): x is number => !!x)));
+        const bps = bpIds.length ? await db.select({ id: businessPartners.id, name: businessPartners.displayName }).from(businessPartners).where(inArray(businessPartners.id, bpIds)) : [];
+        const exs = exIds.length ? await db.select({ id: employees.id, name: employees.fullName }).from(employees).where(inArray(employees.id, exIds)) : [];
+        const bn = new Map(bps.map(b => [b.id, b.name])), en = new Map(exs.map(e => [e.id, e.name]));
+        for (const r of chosen) {
+            const isPartner = r.chosenProviderType === 'partner';
+            const theirs = isPartner ? r.dispatchPartnerId === r.chosenPartnerId : r.providerId === r.chosenExpertId;
+            out.set(r.id, {
+                type: isPartner ? 'partner' : 'expert',
+                name: (isPartner ? bn.get(r.chosenPartnerId!) : en.get(r.chosenExpertId!)) ?? null,
+                via: isPartner ? ((r.chosenVia as 'code' | 'list' | null) ?? 'list') : null,
+                state: !r.choiceAppliedAt ? 'waiting' : theirs ? 'with_them' : 'not_taken',
+            });
+        }
+        return out;
     }
 
     /** Read the app's choice from a booking request. Anything unrecognised is "UniteFix picks". */
@@ -232,6 +262,8 @@ export class ProviderChoiceService {
         } catch (err: any) {
             logger.warn(`[CHOICE] SR ${serviceRequestId}: customer's choice not applied (${err?.message}); left for staff`);
             await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: 'customer_choice_not_applied', metadata: { type: claimed.chosenProviderType, partnerId: claimed.chosenPartnerId, expertId: claimed.chosenExpertId, reason: err?.message } });
+            const { BookingNotifications } = await import('./booking-notifications');
+            void BookingNotifications.choiceNotTaken(serviceRequestId, (await this.describe([claimed])).get(serviceRequestId)?.name ?? null);
         }
         return 'left_in_queue';
     }

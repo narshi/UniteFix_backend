@@ -15,6 +15,8 @@ import { bootServer, client, check, summary, makeSuperAdmin, cleanupPartners, db
 import { users, employees, serviceRequests, serviceCategories, services, partnerTerritories, partnerServices, ratings } from '../shared/schema';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { ProviderChoiceService } from '../server/services/provider-choice.service';
+import { PartnerFieldService } from '../server/services/partner-field.service';
+import { revertStaleAssignments } from '../server/services/task_queues';
 
 const stamp = Date.now().toString(36);
 const userIds: number[] = [], adminIds: number[] = [], bpIds: number[] = [], catIds: number[] = [], svcIds: number[] = [];
@@ -75,7 +77,7 @@ async function main() {
         check('…its rating is the stars customers gave on its jobs, with the count', o?.partners?.[0]?.rating === 4 && o.partners[0].reviews === 1 && o.partners[0].jobsDone === 1, JSON.stringify(o?.partners?.[0]));
         const ex = o?.experts ?? [];
         check('nearby verified UniteFix experts are listed, nearest first', ex.length >= 1 && ex[0].id === ravi.id, JSON.stringify(ex.map((e: any) => [e.name, e.distanceKm])));
-        check('…with a short name, rating, reviews, jobs, years and a rounded distance', ex[0]?.name === 'QA K.' && ex[0].rating === 4.8 && ex[0].reviews === 1 && ex[0].jobsDone === 42 && ex[0].experienceYears === 6 && ex[0].distanceKm >= 1.5 && ex[0].distanceKm <= 2.5, JSON.stringify(ex[0]));
+        check('…with a short name, rating, reviews, jobs, years and a rounded distance', ex[0]?.name === 'QA K.' && ex[0].rating === 5 && ex[0].reviews === 1 && ex[0].jobsDone === 42 && ex[0].experienceYears === 6 && ex[0].distanceKm >= 1.5 && ex[0].distanceKm <= 2.5, JSON.stringify(ex[0]));
         check('…and nothing private (no phone, no location)', ex[0] && !('phone' in ex[0]) && !('currentLocation' in ex[0]) && !('location' in ex[0]));
         check('…not one 50 km away, not an unverified one, not a partner\'s technician', !ex.some((e: any) => [far.id, off.id, near.techId, away.techId].includes(e.id)));
 
@@ -121,6 +123,40 @@ async function main() {
         // An expert switched off between booking and payment: left for staff.
         const [gone] = await db.insert(serviceRequests).values({ userId: cu.id, serviceId: `QA-PC-${stamp}-g`, serviceType: 'Fan', brand: 'x', model: 'x', description: 'QA', address: 'x', pincode: PIN, status: 'created', bookingFeeStatus: 'paid', chosenProviderType: 'expert', chosenExpertId: off.id } as any).returning();
         check('a chosen expert who can no longer take it leaves the job in the queue for staff', (await ProviderChoiceService.applyAfterPayment(gone.id)) === 'left_in_queue' && !(await row(gone.id)).providerId);
+        await new Promise(r => setTimeout(r, 300));
+        const told = async (title: string, srRef: string) => (await db.execute(sql`SELECT 1 FROM notifications WHERE user_id = ${cu.id} AND title = ${title} AND body LIKE ${'%' + srRef + '%'} LIMIT 1`) as any).rows.length > 0;
+        check('…and the customer is told UniteFix is assigning another expert', await told('Finding you another expert', (await row(gone.id)).serviceId));
+
+        // ── a chosen expert who does not accept in time ──
+        await db.update(serviceRequests).set({ assignedAt: new Date(Date.now() - 90 * 60_000) } as any).where(eq(serviceRequests.id, r2.id));
+        await revertStaleAssignments();
+        const r2b = await row(r2.id);
+        check('a customer-chosen expert who does not accept within 60 min: the job goes back to the queue', r2b.status === 'created' && !r2b.providerId, JSON.stringify({ s: r2b.status, p: r2b.providerId }));
+        await new Promise(r => setTimeout(r, 300));
+        check('…and the customer is told', await told('Finding you another expert', r2b.serviceId));
+
+        // ── a chosen partner past its assign-by time ──
+        await db.update(serviceRequests).set({ slaAssignBy: new Date(Date.now() - 5 * 60_000) } as any).where(eq(serviceRequests.id, r1.id));
+        await PartnerFieldService.escalateOverdue();
+        await new Promise(r => setTimeout(r, 300));
+        check('a customer-chosen partner past its assign-by time: the customer is told UniteFix is on it', await told('We are on it', r1.serviceId));
+
+        // ── staff see the choice ──
+        const S = await api.login(sa.username, sa.password);
+        const list = await api.get(`/api/admin/services?q=${encodeURIComponent(r1.serviceId)}`, S);
+        const inList = (list.body?.data ?? []).find((x: any) => x.id === r1.id);
+        check('Service Requests shows who the customer chose and that it is with them', inList?.customerChoice?.type === 'partner' && inList.customerChoice.name === near.bp.displayName && inList.customerChoice.via === 'list' && inList.customerChoice.state === 'with_them', JSON.stringify(inList?.customerChoice));
+        const queue = await api.get('/api/admin/assignment-queue', S);
+        const inQueue = (queue.body?.queue ?? []).find((x: any) => x.id === r2.id);
+        check('the Assignment Queue shows "Customer asked for" on a job the chosen expert did not take', inQueue?.customerChoice?.type === 'expert' && inQueue.customerChoice.state === 'not_taken' && inQueue.customerChoice.name === 'QA Ravi Kumar', JSON.stringify(inQueue?.customerChoice));
+
+        // ── ratings keep the expert's stored average right ──
+        const [rated] = await db.insert(serviceRequests).values({ userId: cu.id, serviceId: `QA-PC-${stamp}-rt`, serviceType: 'Fan', brand: 'x', model: 'x', description: 'QA', address: 'x', pincode: PIN, status: 'completed', bookingFeeStatus: 'paid', providerId: ravi.id } as any).returning();
+        const rr = await api.post(`/api/ratings/service/${rated.id}`, { rating: 4, review: 'QA' }, T);
+        const [rv] = await db.select({ avg: employees.averageRating }).from(employees).where(eq(employees.id, ravi.id));
+        check('a customer rating updates the expert\'s stored average (5 and 4 → 4.5)', rr.status === 201 && Number(rv.avg) === 4.5, JSON.stringify({ s: rr.status, avg: rv.avg, m: rr.body?.message }));
+        const after = await opts();
+        check('…and the nearby list shows the real rating and count', after?.experts?.find((e: any) => e.id === ravi.id)?.rating === 4.5 && after.experts.find((e: any) => e.id === ravi.id)?.reviews === 2);
     } finally {
         await close();
     }

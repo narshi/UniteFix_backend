@@ -172,6 +172,12 @@ export class AdminServiceManager {
                 pauseNote: serviceRequests.pauseNote,
                 followUpCount: serviceRequests.followUpCount,
                 lastAttemptReason: serviceRequests.lastAttemptReason,
+                // Who the customer chose at booking (provider-choice.service.ts).
+                chosenProviderType: serviceRequests.chosenProviderType,
+                chosenPartnerId: serviceRequests.chosenPartnerId,
+                chosenExpertId: serviceRequests.chosenExpertId,
+                chosenVia: serviceRequests.chosenVia,
+                choiceAppliedAt: serviceRequests.choiceAppliedAt,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
@@ -185,8 +191,10 @@ export class AdminServiceManager {
             .offset(offset);
 
         const pages = Math.ceil(total / limit);
+        const { ProviderChoiceService } = await import('./provider-choice.service');
+        const choices = await ProviderChoiceService.describe(services);
 
-        return { services, total, page, pages };
+        return { services: services.map(s => ({ ...s, customerChoice: choices.get(s.id) ?? null })), total, page, pages };
     }
 
     /**
@@ -554,6 +562,13 @@ export class AdminServiceManager {
                 escalationReason: serviceRequests.escalationReason,
                 followUpCount: serviceRequests.followUpCount,
                 lastAttemptReason: serviceRequests.lastAttemptReason,
+                providerId: serviceRequests.providerId,
+                // Who the customer chose at booking (provider-choice.service.ts).
+                chosenProviderType: serviceRequests.chosenProviderType,
+                chosenPartnerId: serviceRequests.chosenPartnerId,
+                chosenExpertId: serviceRequests.chosenExpertId,
+                chosenVia: serviceRequests.chosenVia,
+                choiceAppliedAt: serviceRequests.choiceAppliedAt,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
@@ -763,8 +778,11 @@ export class AdminServiceManager {
             for (const r of rows) partnerName.set(r.id, r.name);
         }
 
+        // Who the customer asked for, so staff can honour it when it came back to them.
+        const { ProviderChoiceService } = await import('./provider-choice.service');
+        const queueChoices = await ProviderChoiceService.describe(queueWithExpertise as any);
         return {
-            queue: queueWithExpertise.map((q: any) => ({ ...q, escalatedFromPartnerName: q.dispatchPartnerId ? partnerName.get(q.dispatchPartnerId) ?? null : null })),
+            queue: queueWithExpertise.map((q: any) => ({ ...q, escalatedFromPartnerName: q.dispatchPartnerId ? partnerName.get(q.dispatchPartnerId) ?? null : null, customerChoice: queueChoices.get(q.id) ?? null })),
             employees: employeesWithTypes,
             partners,
             partnersNotReady,

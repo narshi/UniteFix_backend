@@ -77,6 +77,12 @@ async function main() {
         const H = (await api.login(ol.username, ol.temporaryPassword))!;
         const share = await api.get('/api/hub/field/share', H);
         check('the partner\'s Hub shows its code, link and the bookings it brought in', share.status === 200 && share.body.data.code === code && share.body.data.link.endsWith(`/p/${code}`) && share.body.data.bookings === 1, JSON.stringify(share.body?.data));
+        const S = await api.login(sa.username, sa.password);
+        const adminShare = await api.get(`/api/admin/business-partners/${bp.id}/share`, S);
+        check('staff see the same code and count in Business partners', adminShare.status === 200 && adminShare.body.data.code === code && adminShare.body.data.bookings === 1, JSON.stringify(adminShare.body));
+        const list = await api.get(`/api/admin/services?q=${encodeURIComponent(sr.serviceId)}`, S);
+        const row = (list.body?.data ?? []).find((x: any) => x.id === sr.id);
+        check('…and Service Requests marks the booking as brought in by the partner\'s code', row?.customerChoice?.via === 'code' && row.customerChoice.type === 'partner', JSON.stringify(row?.customerChoice));
     } finally {
         await close();
     }

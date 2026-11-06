@@ -1014,8 +1014,16 @@ export class PartnerFieldService {
         const rows = await db.update(serviceRequests).set({ escalatedAt: new Date(), escalationReason: 'Not assigned by the partner in time' })
             .where(and(isNotNull(serviceRequests.dispatchPartnerId), isNull(serviceRequests.providerId), isNull(serviceRequests.escalatedAt),
                 eq(serviceRequests.status, 'created' as any), eq(serviceRequests.bookingFeeStatus, 'paid'), lt(serviceRequests.slaAssignBy, new Date())))
-            .returning({ id: serviceRequests.id, bp: serviceRequests.dispatchPartnerId });
+            .returning({ id: serviceRequests.id, bp: serviceRequests.dispatchPartnerId, mode: serviceRequests.dispatchMode });
         if (rows.length) logger.warn(`[FIELD] Escalated ${rows.length} partner job(s) past their assign-by time: ${rows.map(r => r.id).join(', ')}`);
+        // The customer picked this partner: they are told UniteFix is stepping in.
+        const chosen = rows.filter(r => r.mode === 'customer');
+        if (chosen.length) {
+            const { BookingNotifications } = await import('./booking-notifications');
+            const names = new Map((await db.select({ id: businessPartners.id, name: businessPartners.displayName }).from(businessPartners)
+                .where(inArray(businessPartners.id, chosen.map(r => r.bp!)))).map(b => [b.id, b.name]));
+            for (const r of chosen) void BookingNotifications.chosenPartnerLate(r.id, names.get(r.bp!) ?? null);
+        }
         const { HubAlerts } = await import('./hub-alerts.service');
         for (const r of rows) await HubAlerts.send(r.bp, 'job_overdue', { title: 'A job passed its assign-by time', body: 'It now shows in UniteFix\'s queue too. Assign it now or UniteFix may send its own expert.', link: '/partner/field/jobs', refType: 'service_request', refId: r.id });
         return rows;

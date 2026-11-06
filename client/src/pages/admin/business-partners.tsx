@@ -24,6 +24,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import HubAdminPanel from "@/components/admin/HubAdminPanel";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
+
+/** The partner's customer link and code: customers who use it book this partner. Shown on request. */
+function CustomerCode({ bpId }: { bpId: number }) {
+    const { toast } = useToast();
+    const [show, setShow] = useState(false);
+    const q = useQuery<{ code: string; link: string; bookings: number; completed: number }>({
+        queryKey: ["/api/admin/business-partners", bpId, "share"], enabled: show,
+        queryFn: async () => (await apiRequest("GET", `/api/admin/business-partners/${bpId}/share`)).data,
+    });
+    const copy = async (t: string) => { try { await navigator.clipboard.writeText(t); toast({ title: "Copied" }); } catch { /* selectable */ } };
+    return (
+        <div className="rounded-md border p-3">
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">Customer link &amp; code</div>
+            {!show ? <Button size="sm" variant="outline" className="mt-1" onClick={() => setShow(true)}>Show code</Button>
+                : !q.data ? <div className="mt-1 text-sm text-muted-foreground">{q.isError ? "Could not load" : "Loading…"}</div>
+                : (
+                    <div className="mt-1 space-y-1 text-sm">
+                        <div className="flex flex-wrap items-center gap-2"><span className="font-mono font-semibold tracking-wider">{q.data.code}</span>
+                            <Button size="sm" variant="ghost" onClick={() => copy(q.data!.code)}>Copy code</Button>
+                            <Button size="sm" variant="ghost" onClick={() => copy(q.data!.link)}>Copy link</Button></div>
+                        <div className="break-all text-xs text-muted-foreground">{q.data.link}</div>
+                        <div className="text-xs">{q.data.bookings} booking(s) through it{q.data.completed ? `, ${q.data.completed} done` : ""}</div>
+                    </div>
+                )}
+        </div>
+    );
+}
 import { format } from "date-fns";
 import { Building2, Plus, Search, Smartphone, Globe } from "lucide-react";
 
@@ -226,6 +253,7 @@ export default function BusinessPartnersPage() {
                                                 {!bp.hasMobileLogin && bp.status === "active" && <Button size="sm" variant="outline" onClick={() => act.mutate({ path: "/mobile-login" })}>Create app login on {bp.contactPhone}</Button>}
                                             </div>
                                         </div>
+                                        {bp.status === "active" && <CustomerCode bpId={bp.id} />}
                                         <div className="rounded-md border p-3">
                                             <div className="text-xs uppercase tracking-wide text-muted-foreground">Payout account</div>
                                             <div className="mt-1">{bp.payout.bankLast4 ? `Bank ····${bp.payout.bankLast4} (${bp.payout.bankIfsc})` : bp.payout.upiId ? `UPI ${bp.payout.upiId}` : <span className="text-muted-foreground">none — edit to add</span>}</div>

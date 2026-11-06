@@ -50,6 +50,8 @@ interface QueueItem {
   /** Set when a partner had it and did not assign a technician in time. */
   dispatchPartnerId?: number | null;
   escalatedFromPartnerName?: string | null;
+  /** Who the customer chose at booking, and where that stands. */
+  customerChoice?: { type: 'partner' | 'expert'; name: string | null; via: 'code' | 'list' | null; state: 'waiting' | 'with_them' | 'not_taken' } | null;
   /** Times an expert could not fix it and it came back for someone else. */
   followUpCount?: number;
   lastAttemptReason?: string | null;
@@ -483,6 +485,11 @@ export default function AssignmentQueuePage() {
                             {(req.followUpCount ?? 0) > 0 && (
                               <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-[hsla(38,92%,50%,0.15)] text-[hsl(38,92%,65%)] border border-[hsla(38,92%,50%,0.3)]" title={req.lastAttemptReason ?? undefined}>
                                 Follow-up: earlier expert could not fix
+                              </span>
+                            )}
+                            {req.customerChoice && (
+                              <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300" title="The customer chose them while booking; they could not take it in time.">
+                                Customer asked for {req.customerChoice.name ?? (req.customerChoice.type === 'partner' ? 'a partner' : 'an expert')}{req.customerChoice.via === 'code' ? ' (their code)' : ''}
                               </span>
                             )}
                             {req.escalatedFromPartnerName && (

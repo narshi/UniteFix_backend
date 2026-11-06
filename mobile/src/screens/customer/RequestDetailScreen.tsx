@@ -603,6 +603,12 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                         );
                     })}
 
+                    {/* Booked with a partner (chosen by the customer, or sent by UniteFix): who has it until they put a technician on it. */}
+                    {request.status === 'created' && !!(request as any)?.pricingSnapshot?.servicedBy && (
+                        <View style={styles.refundNote}>
+                            <Text style={styles.refundText}>Booked with {(request as any).pricingSnapshot.servicedBy}. They will assign a technician shortly; you will be told who is coming.</Text>
+                        </View>
+                    )}
                     {request.status === 'cancelled' && (
                         <View style={styles.cancelledNote}>
                             <XCircle size={16} color={colors.error} />
