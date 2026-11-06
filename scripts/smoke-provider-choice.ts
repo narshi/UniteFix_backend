@@ -76,10 +76,7 @@ async function main() {
         o = await opts();
         check('…its rating is the stars customers gave on its jobs, with the count', o?.partners?.[0]?.rating === 4 && o.partners[0].reviews === 1 && o.partners[0].jobsDone === 1, JSON.stringify(o?.partners?.[0]));
         const ex = o?.experts ?? [];
-        check('nearby verified UniteFix experts are listed, nearest first', ex.length >= 1 && ex[0].id === ravi.id, JSON.stringify(ex.map((e: any) => [e.name, e.distanceKm])));
-        check('…with a short name, rating, reviews, jobs, years and a rounded distance', ex[0]?.name === 'QA K.' && ex[0].rating === 5 && ex[0].reviews === 1 && ex[0].jobsDone === 42 && ex[0].experienceYears === 6 && ex[0].distanceKm >= 1.5 && ex[0].distanceKm <= 2.5, JSON.stringify(ex[0]));
-        check('…and nothing private (no phone, no location)', ex[0] && !('phone' in ex[0]) && !('currentLocation' in ex[0]) && !('location' in ex[0]));
-        check('…not one 50 km away, not an unverified one, not a partner\'s technician', !ex.some((e: any) => [far.id, off.id, near.techId, away.techId].includes(e.id)));
+        check('customers are shown partners only: no UniteFix experts in the options', Array.isArray(o?.experts) && o.experts.length === 0, JSON.stringify(o?.experts));
 
         // ── booking with each choice ──
         const book = (provider?: any, extra: Record<string, unknown> = {}) => api.post('/api/services/create', {
@@ -97,14 +94,14 @@ async function main() {
 
         const be = await book({ type: 'expert', id: ravi.id });
         const r2 = await row(be.body?.data?.id ?? 0);
-        check('choosing a nearby expert: the job goes to them to accept', be.status === 201 && r2?.providerId === ravi.id && r2.status === 'assigned', JSON.stringify(be.body?.message ?? (r2 && { p: r2.providerId, s: r2.status })));
+        check('an expert sent by an older app is ignored: it books as "UniteFix chooses"', be.status === 201 && !r2?.providerId && r2?.status === 'created' && r2.chosenProviderType === 'unitefix', JSON.stringify(be.body?.message ?? (r2 && { p: r2.providerId, s: r2.status, c: r2.chosenProviderType })));
 
         const bu = await book();
         const r3 = await row(bu.body?.data?.id ?? 0);
         check('"UniteFix chooses" (or an older app): it waits in the Assignment Queue as before', bu.status === 201 && !r3?.providerId && !r3?.dispatchPartnerId && r3?.status === 'created');
 
         const bad1 = await book({ type: 'expert', id: far.id });
-        check('an expert the customer could not have been shown (50 km away) is refused', bad1.status === 409 && bad1.body?.code === 'EXPERT_UNAVAILABLE', JSON.stringify(bad1.body));
+        check('…even one far away (not refused, just not theirs to choose)', bad1.status === 201, JSON.stringify(bad1.body?.message));
         const bad2 = await book({ type: 'partner', id: away.bp.id });
         check('a partner that does not serve the address is refused', bad2.status === 409 && bad2.body?.code === 'PARTNER_UNAVAILABLE');
 
@@ -128,9 +125,9 @@ async function main() {
         check('…and the customer is told UniteFix is assigning another expert', await told('Finding you another expert', (await row(gone.id)).serviceId));
 
         // ── a chosen expert who does not accept in time ──
-        await db.update(serviceRequests).set({ assignedAt: new Date(Date.now() - 90 * 60_000) } as any).where(eq(serviceRequests.id, r2.id));
+        await db.update(serviceRequests).set({ assignedAt: new Date(Date.now() - 90 * 60_000) } as any).where(eq(serviceRequests.id, unpaid.id));
         await revertStaleAssignments();
-        const r2b = await row(r2.id);
+        const r2b = await row(unpaid.id);
         check('a customer-chosen expert who does not accept within 60 min: the job goes back to the queue', r2b.status === 'created' && !r2b.providerId, JSON.stringify({ s: r2b.status, p: r2b.providerId }));
         await new Promise(r => setTimeout(r, 300));
         check('…and the customer is told', await told('Finding you another expert', r2b.serviceId));
@@ -147,7 +144,7 @@ async function main() {
         const inList = (list.body?.data ?? []).find((x: any) => x.id === r1.id);
         check('Service Requests shows who the customer chose and that it is with them', inList?.customerChoice?.type === 'partner' && inList.customerChoice.name === near.bp.displayName && inList.customerChoice.via === 'list' && inList.customerChoice.state === 'with_them', JSON.stringify(inList?.customerChoice));
         const queue = await api.get('/api/admin/assignment-queue', S);
-        const inQueue = (queue.body?.queue ?? []).find((x: any) => x.id === r2.id);
+        const inQueue = (queue.body?.queue ?? []).find((x: any) => x.id === unpaid.id);
         check('the Assignment Queue shows "Customer asked for" on a job the chosen expert did not take', inQueue?.customerChoice?.type === 'expert' && inQueue.customerChoice.state === 'not_taken' && inQueue.customerChoice.name === 'QA Ravi Kumar', JSON.stringify(inQueue?.customerChoice));
 
         // ── ratings keep the expert's stored average right ──
@@ -155,8 +152,7 @@ async function main() {
         const rr = await api.post(`/api/ratings/service/${rated.id}`, { rating: 4, review: 'QA' }, T);
         const [rv] = await db.select({ avg: employees.averageRating }).from(employees).where(eq(employees.id, ravi.id));
         check('a customer rating updates the expert\'s stored average (5 and 4 → 4.5)', rr.status === 201 && Number(rv.avg) === 4.5, JSON.stringify({ s: rr.status, avg: rv.avg, m: rr.body?.message }));
-        const after = await opts();
-        check('…and the nearby list shows the real rating and count', after?.experts?.find((e: any) => e.id === ravi.id)?.rating === 4.5 && after.experts.find((e: any) => e.id === ravi.id)?.reviews === 2);
+
     } finally {
         await close();
     }

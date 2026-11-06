@@ -142,9 +142,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
 
-    // Who does the job: UniteFix picks (default), a partner near the address,
-    // or a nearby UniteFix expert. Same price either way.
-    const [chooserMode, setChooserMode] = useState<'unitefix' | 'nearby'>('unitefix');
+    // Who does the job: UniteFix picks (default) or a partner near the address.
+    // Which expert goes is always UniteFix's call. Same price either way.
     const [choice, setChoice] = useState<ProviderChoice>({ type: 'unitefix' });
     // A partner's link or code (remembered from the link, or typed in the chooser).
     const partnerCode = usePartnerRef(s => s.code);
@@ -157,22 +156,12 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
         const p = providerOptions?.partners.find(x => x.viaCode);
         if (!inv?.available || !p || autoPickedFor.current === inv.code) return;
         autoPickedFor.current = inv.code;
-        setChooserMode('unitefix');
         setChoice({ type: 'partner', id: p.id, name: p.name, code: inv.code });
     }, [providerOptions]);
     useEffect(() => {
         if (!providerOptions) return;
         // A new address can change who is available: drop a choice that no longer is.
         if (choice.type === 'partner' && !providerOptions.partners.some(p => p.id === choice.id)) setChoice({ type: 'unitefix' });
-        if (choice.type === 'expert' && !providerOptions.experts.some(e => e.id === choice.id)) {
-            const first = providerOptions.experts[0];
-            setChoice(chooserMode === 'nearby' && first ? { type: 'expert', id: first.id, name: first.name } : { type: 'unitefix' });
-        }
-        // "Nearby" opened while the list was still loading: start on the nearest.
-        if (chooserMode === 'nearby' && choice.type === 'unitefix' && providerOptions.experts[0]) {
-            const first = providerOptions.experts[0];
-            setChoice({ type: 'expert', id: first.id, name: first.name });
-        }
     }, [providerOptions]);
     const chosenName = choice.type === 'unitefix' ? null : choice.name;
     const { data: publicConfig } = usePublicConfig();
@@ -328,8 +317,6 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
             : isConsult ? `\n\nThe expert calls you on ${days.find(d => d.date === consultDate)?.label ?? consultDate}, ${consultSlot}.` : '';
         const whoLine = choice.type === 'partner'
             ? `\n\n${choice.name} will do this job.`
-            : choice.type === 'expert'
-            ? `\n\nWe will send it to ${choice.name} to accept.`
             : '';
         Alert.alert(
             'Confirm Booking',
@@ -367,17 +354,13 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     catalogServiceId: serviceId,
                                     quantity,
                                     ...(isFixedPrice ? { quotedUnitPrice: basePrice } : {}),
-                                    provider: choice.type === 'unitefix' ? { type: 'unitefix' }
-                                        : choice.type === 'partner' ? { type: 'partner', id: choice.id, ...(choice.code ? { code: choice.code } : {}) }
-                                        : { type: 'expert', id: choice.id },
+                                    provider: choice.type === 'partner' ? { type: 'partner', id: choice.id, ...(choice.code ? { code: choice.code } : {}) } : { type: 'unitefix' },
                                 },
                                 {
                                     onSuccess: async (response: any) => {
                                         clearDraft();
                                         const nextStep = choice.type === 'partner'
                                             ? `${choice.name} will assign their technician shortly.`
-                                            : choice.type === 'expert'
-                                            ? `We have sent it to ${choice.name} to accept.`
                                             : 'We will assign a service expert soon.';
                                         const paymentData = response?.data?.payment;
 
@@ -621,8 +604,6 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                         hasAddress={!!selectedAddress}
                         value={choice}
                         onChange={setChoice}
-                        mode={chooserMode}
-                        onModeChange={setChooserMode}
                         partnerCode={partnerCode}
                         onApplyCode={setPartnerCode}
                     />

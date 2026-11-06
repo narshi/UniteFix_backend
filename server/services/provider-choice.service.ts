@@ -63,11 +63,14 @@ const pointOf = (wkt: string | null | undefined) => {
 };
 
 export class ProviderChoiceService {
-    /** Partners and nearby experts the customer can choose for this service at this address. */
+    /** Partners the customer can choose for this service at this address (experts are UniteFix's to assign). */
     static async options(input: { catalogServiceId: number | null; pincode: string | null; lat: number | null; lng: number | null; partnerCode?: string | null }): Promise<{ partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number; invited: InvitedPartner | null }> {
         const radiusKm = Number(await configService.get<number>('BUSINESS_CONFIG.NEARBY_EXPERT_RADIUS_KM', 15)) || 15;
-        const [listed, experts, invited] = await Promise.all([
-            this.partnerOptions(input), this.expertOptions(input, radiusKm),
+        // Customers choose among PARTNERS only; which expert goes is UniteFix's call.
+        // experts stays in the reply, always empty, for app builds that still read it.
+        const experts: ExpertOption[] = [];
+        const [listed, invited] = await Promise.all([
+            this.partnerOptions(input),
             input.partnerCode ? this.invitedPartner(input.partnerCode, input.catalogServiceId) : Promise.resolve(null),
         ]);
         // The partner the customer came through goes first and is marked; it is not listed twice.
@@ -211,7 +214,8 @@ export class ProviderChoiceService {
             const code = typeof raw?.code === 'string' && raw.code.trim() ? raw.code.trim().slice(0, 24) : undefined;
             return code ? { type, id, code } : { type, id };
         }
-        if (type === 'expert' && Number.isInteger(id) && id > 0) return { type, id };
+        // An expert is never the customer's to choose (UniteFix assigns experts):
+        // an older build that sends one books as 'UniteFix chooses'.
         return { type: 'unitefix' };
     }
 

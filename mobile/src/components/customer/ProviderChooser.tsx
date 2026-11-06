@@ -1,11 +1,11 @@
 /**
  * Who does the job — the customer's choice while booking.
  *
- * Two cards. "Book via UniteFix" opens, in the same card, the partner
- * businesses that serve this address with their customers' rating; the first
- * row lets UniteFix choose (the default, and what every booking did before).
- * "Nearby service person" opens the verified UniteFix experts close to the
- * address. The price is UniteFix's whoever is chosen, and says so.
+ * One card, "Book via UniteFix": "Let UniteFix choose" (the default, and what
+ * every booking did before) and the partner businesses that serve this
+ * address, with their customers' rating. Customers choose among partners
+ * only; which UniteFix expert goes is UniteFix's call. The price is
+ * UniteFix's whoever is chosen, and says so.
  *
  * Motion is the platform's own (Animated + LayoutAnimation, no extra native
  * module): the selected card's border and tint ease in, its chevron turns, the
@@ -15,11 +15,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, Easing, LayoutAnimation, Platform, UIManager, Image, ActivityIndicator, TextInput } from 'react-native';
-import { ShieldCheck, Navigation, ChevronDown, Star, Sparkles, Check, Users, Briefcase, MapPin, Ticket } from 'lucide-react-native';
+import { ShieldCheck, ChevronDown, Star, Sparkles, Check, Users, Ticket } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import type { ProviderOptions, PartnerOption, ExpertOption } from '../../api/customer.api';
+import type { ProviderOptions, PartnerOption } from '../../api/customer.api';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -27,10 +27,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 export type ProviderChoice =
     | { type: 'unitefix' }
-    | { type: 'partner'; id: number; name: string; code?: string }
-    | { type: 'expert'; id: number; name: string };
-
-type Mode = 'unitefix' | 'nearby';
+    | { type: 'partner'; id: number; name: string; code?: string };
 
 const GROW = {
     duration: 300,
@@ -134,8 +131,10 @@ function OptionRow({ selected, onPress, left, title, rating, meta, label, tag }:
 }
 
 /** A big option card; its list opens inside it when chosen. */
-function ModeCard({ selected, onPress, icon, iconBg, title, subtitle, children }: {
+function ModeCard({ selected, onPress, icon, iconBg, title, subtitle, children, fixed }: {
     selected: boolean; onPress: () => void; icon: React.ReactNode; iconBg: string; title: string; subtitle: string; children?: React.ReactNode;
+    /** Always open: no toggle and no chevron. */
+    fixed?: boolean;
 }) {
     const v = useRef(new Animated.Value(selected ? 1 : 0)).current;
     const p = usePressScale(0.985);
@@ -151,16 +150,18 @@ function ModeCard({ selected, onPress, icon, iconBg, title, subtitle, children }
     return (
         <Animated.View style={[styles.cardShadow, selected && shadows.md, { transform: [{ scale: p.scale }] }]}>
         <Animated.View style={[styles.card, { borderColor, backgroundColor }]}>
-            <Pressable onPress={onPress} onPressIn={p.pressIn} onPressOut={p.pressOut} style={styles.cardHead}
+            <Pressable onPress={onPress} onPressIn={fixed ? undefined : p.pressIn} onPressOut={fixed ? undefined : p.pressOut} disabled={fixed} style={styles.cardHead}
                 accessibilityRole="radio" accessibilityState={{ selected, expanded: selected }} accessibilityLabel={`${title}. ${subtitle}`}>
                 <View style={[styles.cardIcon, { backgroundColor: iconBg }]}>{icon}</View>
                 <View style={styles.cardText}>
                     <Text style={styles.cardTitle}>{title}</Text>
                     <Text style={styles.cardSubtitle}>{subtitle}</Text>
                 </View>
-                <Animated.View style={{ transform: [{ rotate }] }}>
-                    <ChevronDown size={20} color={selected ? colors.primary : colors.textTertiary} />
-                </Animated.View>
+                {!fixed && (
+                    <Animated.View style={{ transform: [{ rotate }] }}>
+                        <ChevronDown size={20} color={selected ? colors.primary : colors.textTertiary} />
+                    </Animated.View>
+                )}
             </Pressable>
             {selected && <View style={styles.cardBody}>{children}</View>}
         </Animated.View>
@@ -176,15 +177,13 @@ function Empty({ icon, text }: { icon: React.ReactNode; text: string }) {
     );
 }
 
-export function ProviderChooser({ options, loading, hasAddress, value, onChange, mode, onModeChange, partnerCode, onApplyCode }: {
+export function ProviderChooser({ options, loading, hasAddress, value, onChange, partnerCode, onApplyCode }: {
     options?: ProviderOptions; loading: boolean; hasAddress: boolean;
     value: ProviderChoice; onChange: (c: ProviderChoice) => void;
-    mode: Mode; onModeChange: (m: Mode) => void;
     /** The partner code in force (from their link, or typed here). */
     partnerCode?: string | null; onApplyCode?: (code: string | null) => void;
 }) {
     const partners: PartnerOption[] = options?.partners ?? [];
-    const experts: ExpertOption[] = options?.experts ?? [];
     const invited = options?.invited ?? null;
     const [codeOpen, setCodeOpen] = useState(false);
     const [codeText, setCodeText] = useState('');
@@ -196,15 +195,6 @@ export function ProviderChooser({ options, loading, hasAddress, value, onChange,
         setCodeOpen(false);
     };
 
-    const pickMode = (m: Mode) => {
-        if (m === mode) return;
-        LayoutAnimation.configureNext(GROW);
-        onModeChange(m);
-        // UniteFix: UniteFix chooses until a partner is picked. Nearby: the nearest expert, ready to change.
-        if (m === 'unitefix') onChange({ type: 'unitefix' });
-        else onChange(experts[0] ? { type: 'expert', id: experts[0].id, name: experts[0].name } : { type: 'unitefix' });
-    };
-
     const loadingRow = (
         <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Text style={styles.loadingText}>Finding who serves your address…</Text></View>
     );
@@ -212,7 +202,7 @@ export function ProviderChooser({ options, loading, hasAddress, value, onChange,
     return (
         <View style={styles.wrap}>
             <ModeCard
-                selected={mode === 'unitefix'} onPress={() => pickMode('unitefix')}
+                fixed selected onPress={() => {}}
                 icon={<ShieldCheck size={22} color={colors.primary} />} iconBg={colors.primarySurface}
                 title="Book via UniteFix" subtitle="Verified partner businesses, with their customer ratings"
             >
@@ -220,7 +210,7 @@ export function ProviderChooser({ options, loading, hasAddress, value, onChange,
                     <OptionRow
                         selected={value.type === 'unitefix'} onPress={() => onChange({ type: 'unitefix' })}
                         left={<View style={[styles.avatar, { backgroundColor: colors.primary }]}><Sparkles size={18} color={colors.textInverse} /></View>}
-                        title="Let UniteFix choose" meta="We match you with the best available expert" label="Let UniteFix choose"
+                        title="Let UniteFix choose" meta="We send our best available expert" label="Let UniteFix choose"
                     />
                 </Appear>
                 {!hasAddress ? null : loading ? loadingRow : partners.length > 0 ? (
@@ -270,29 +260,6 @@ export function ProviderChooser({ options, loading, hasAddress, value, onChange,
                 ))}
             </ModeCard>
 
-            <ModeCard
-                selected={mode === 'nearby'} onPress={() => pickMode('nearby')}
-                icon={<Navigation size={21} color={colors.accentDark} />} iconBg={colors.accentLight}
-                title="Nearby service person" subtitle="Verified UniteFix experts close to your address"
-            >
-                {!hasAddress ? (
-                    <Empty icon={<MapPin size={18} color={colors.textTertiary} />} text="Choose your service address first to see who is nearby." />
-                ) : loading ? loadingRow : experts.length > 0 ? experts.map((e, i) => (
-                    <Appear key={e.id} index={i}>
-                        <OptionRow
-                            selected={value.type === 'expert' && value.id === e.id}
-                            onPress={() => onChange({ type: 'expert', id: e.id, name: e.name })}
-                            left={<Avatar id={e.id} name={e.name} photoUrl={e.photoUrl} online={e.online} />}
-                            title={e.name}
-                            rating={<Rating rating={e.rating} reviews={e.reviews} />}
-                            meta={`${e.distanceKm} km away · ${e.jobsDone} jobs${e.experienceYears ? ` · ${e.experienceYears} yrs` : ''}`}
-                            label={`${e.name}, ${e.distanceKm} kilometres away, ${e.rating != null && e.reviews ? `rated ${e.rating.toFixed(1)}` : 'new'}`}
-                        />
-                    </Appear>
-                )) : (
-                    <Empty icon={<Briefcase size={18} color={colors.textTertiary} />} text={`No UniteFix expert is within ${options?.radiusKm ?? 15} km right now. Book via UniteFix and we will find one.`} />
-                )}
-            </ModeCard>
 
             <View style={styles.note}>
                 <ShieldCheck size={14} color={colors.accentDark} />
