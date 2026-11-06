@@ -5,9 +5,9 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Modal, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Modal, Alert, Linking, Share } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Briefcase, Phone, UserCheck, Wrench, X } from 'lucide-react-native';
+import { Briefcase, Phone, UserCheck, Wrench, X, Share2 } from 'lucide-react-native';
 import { partnerHubApi, type HubJob, type HubJobView, type HubTechnician } from '../../api/partnerHub.api';
 import { getApiErrorMessage } from '../../api/client';
 import { useAuthStore } from '../../stores/auth.store';
@@ -20,6 +20,28 @@ import { Button, EmptyState } from '../../components/ui';
 const rs = (n: number | null) => (n == null ? '—' : `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`);
 const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const VIEWS: Array<[HubJobView, string]> = [['queue', 'To assign'], ['active', 'In progress'], ['done', 'Done']];
+
+
+/** The partner's customer link: customers who open it, or enter the code while booking, come to this partner. */
+function ShareCard() {
+    const q = useQuery({ queryKey: ['hub-share'], queryFn: async () => (await partnerHubApi.share()).data.data, staleTime: 5 * 60_000, retry: 1 });
+    const d = q.data;
+    if (!d) return null;
+    const share = () => Share.share({ message: `Book me on the UniteFix app: ${d.link}\nPartner code: ${d.code}\nSame UniteFix price and guarantee.` }).catch(() => {});
+    return (
+        <View style={styles.shareCard}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.shareKicker}>Your customer code</Text>
+                <Text style={styles.shareCode} selectable>{d.code}</Text>
+                <Text style={styles.shareMeta}>{d.bookings} booking{d.bookings === 1 ? '' : 's'} through your link · keep your rating up, customers see it</Text>
+            </View>
+            <TouchableOpacity style={styles.shareBtn} onPress={share} accessibilityRole="button" accessibilityLabel="Share your customer link">
+                <Share2 size={16} color={colors.textInverse} />
+                <Text style={styles.shareBtnText}>Share</Text>
+            </TouchableOpacity>
+        </View>
+    );
+}
 
 export function PartnerJobsScreen() {
     const { headerTop, tabContent } = useScreenInsets();
@@ -86,6 +108,7 @@ export function PartnerJobsScreen() {
             {meOnTeam && !me && <Text style={styles.hint}>You are on your team. Once UniteFix verifies your documents and you switch yourself on in Team, you can take jobs and work them here.</Text>}
             {jobs.isLoading ? <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} /> : (
                 <FlatList
+                    ListHeaderComponent={<ShareCard />}
                     data={jobs.data ?? []}
                     keyExtractor={j => String(j.id)}
                     contentContainerStyle={[styles.list, { paddingBottom: tabContent }]}
@@ -217,4 +240,10 @@ const styles = StyleSheet.create({
     techOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
     techName: { ...typography.bodyMedium, color: colors.textPrimary },
     pick: { ...typography.captionMedium, color: colors.primary },
+    shareCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginBottom: spacing.md, borderRadius: radii.lg, backgroundColor: colors.primarySurface, borderWidth: 1, borderColor: colors.primaryLight },
+    shareKicker: { ...typography.small, color: colors.primary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    shareCode: { ...typography.h3, color: colors.textPrimary, letterSpacing: 2 },
+    shareMeta: { ...typography.small, color: colors.textSecondary },
+    shareBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.primary, borderRadius: radii.full, paddingHorizontal: spacing.base, paddingVertical: spacing.sm },
+    shareBtnText: { ...typography.buttonSmall, color: colors.textInverse },
 });

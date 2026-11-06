@@ -50,6 +50,8 @@ export const partnerHubApi = {
     updateTechnician: (id: number, patch: { isActive?: boolean; commission?: Commission | null }) =>
         apiClient.patch<Ok<{ id: number; isActive: boolean }>>(`/api/hub/field/technicians/${id}`, patch),
     settings: () => apiClient.get<Ok<{ commission: Commission }>>('/api/hub/field/settings'),
+    /** The partner's customer link and code, and the bookings it brought in. */
+    share: () => apiClient.get<Ok<{ code: string; link: string; bookings: number; completed: number }>>('/api/hub/field/share'),
     saveCommission: (c: Commission) => apiClient.put<Ok<{ commission: Commission }>>('/api/hub/field/settings', { commissionType: c.type, commissionValue: c.value }),
     earnings: () => apiClient.get<Ok<HubEarnings>>('/api/hub/field/earnings'),
     /** A technician session on this same login, for jobs the owner works himself. */

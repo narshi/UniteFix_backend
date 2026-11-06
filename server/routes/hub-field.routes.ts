@@ -69,6 +69,14 @@ export function registerHubFieldRoutes(app: Express) {
     // Territory
     // ═══════════════════════════════════════════════════════════════════════
 
+    // The partner's customer link and code, and the bookings it has brought in.
+    app.get('/api/hub/field/share', active, field, hubCan('ops:view'), async (req, res, next) => {
+        try {
+            const { PartnerLinkService } = await import('../services/partner-link.service');
+            res.json({ success: true, data: await PartnerLinkService.summary(ctxOf(req).businessPartnerId) });
+        } catch (e) { hubError(e, res, next); }
+    });
+
     // Working hours, holidays and auto-assign
     app.get('/api/hub/field/settings', active, field, hubCan('ops:view'), async (req, res, next) => {
         try { res.json({ success: true, data: await PartnerFieldService.settings(ctxOf(req).businessPartnerId) }); } catch (e) { hubError(e, res, next); }

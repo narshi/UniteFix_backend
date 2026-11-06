@@ -16,6 +16,7 @@ import { LinkingOptions } from '@react-navigation/native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { captureNewsLink } from '../services/newsLinks';
+import { capturePartnerLink } from '../services/partnerLinks';
 
 const prefix = Linking.createURL('/');
 
@@ -80,6 +81,8 @@ export const linkingConfig: LinkingOptions<any> = {
         const url = await Linking.getInitialURL();
         // Newspaper links wait for a signed-in reader — RootNavigator opens them.
         if (captureNewsLink(url)) return null;
+        // A partner's link: remembered; the app opens as usual (Home says who).
+        if (capturePartnerLink(url)) return null;
         if (url != null) return url;
 
         // Check if a push notification launched the app
@@ -94,7 +97,7 @@ export const linkingConfig: LinkingOptions<any> = {
     subscribe(listener: (url: string) => void) {
         // Listen for deep links
         const linkingSubscription = Linking.addEventListener('url', ({ url }) => {
-            if (!captureNewsLink(url)) listener(url);
+            if (!captureNewsLink(url) && !capturePartnerLink(url)) listener(url);
         });
 
         // Listen for push notification taps

@@ -50,6 +50,7 @@ import EventsPublicRouter from "@/pages/events-public";
 import PayLinkPage from "@/pages/pay-link";
 import CelebrationsRouter, { isCelebrationsPath } from "@/pages/celebrations";
 import NewsRouter, { isNewsPath } from "@/pages/news";
+import PartnerLinkPage, { isPartnerLinkPath } from "@/pages/partner-link";
 import NewsAdminPage from "@/pages/admin/news";
 import { WeakPasswordBanner } from "@/components/admin/WeakPasswordBanner";
 import { useAdminMe } from "@/lib/admin-auth";
@@ -246,6 +247,11 @@ function Router() {
   // UniteFix Celebrations: halls, photographers, search, a client's booking and plan.
   if (typeof window !== "undefined" && isCelebrationsPath(window.location.pathname)) {
     return <CelebrationsRouter />;
+  }
+
+  // A partner's customer link (/p/POORVI12): who they are, their rating, their code.
+  if (typeof window !== "undefined" && isPartnerLinkPath(window.location.pathname)) {
+    return <PartnerLinkPage />;
   }
 
   // Newspapers: a shared edition, a paper's follow page, the app's reader.

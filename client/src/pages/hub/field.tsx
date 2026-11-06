@@ -11,7 +11,8 @@
  *   Earnings     job values held, released, and the monthly invoice to UniteFix
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,42 @@ function timeLeft(d: string | null) {
 // Jobs
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * The partner's customer link and code. Customers who open it, or type the
+ * code on the booking screen, book this partner through UniteFix.
+ */
+function CustomerLinkPanel() {
+  const { toast } = useToast();
+  const share = useQuery<{ code: string; link: string; bookings: number; completed: number }>({ queryKey: ["/api/hub/field/share"], queryFn: async () => (await apiRequest("GET", "/api/hub/field/share")).data });
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => { if (share.data?.link) QRCode.toDataURL(share.data.link, { width: 640, margin: 2, errorCorrectionLevel: "M" }).then(setQr).catch(() => setQr(null)); }, [share.data?.link]);
+  const copy = async (text: string, what: string) => {
+    try { await navigator.clipboard.writeText(text); toast({ title: `${what} copied` }); } catch { toast({ title: "Copy it from the box", variant: "destructive" }); }
+  };
+  const d = share.data;
+  if (!d) return null;
+  const wa = `https://wa.me/?text=${encodeURIComponent(`Book me on the UniteFix app: ${d.link} (partner code ${d.code}). Same UniteFix price and guarantee.`)}`;
+  return (
+    <Panel title="Your customer link">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        {qr && <img src={qr} alt={`QR code for ${d.link}`} className="h-32 w-32 shrink-0 rounded-lg bg-white p-1" />}
+        <div className="min-w-0 flex-1 space-y-2">
+          <p className="text-xs text-[hsl(215,20%,60%)]">Give this to your customers: on WhatsApp, your visiting card or shop board. When they open it, or enter the code when booking in the UniteFix app, the job comes to you. Keep your rating up: customers see it.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-[rgba(255,255,255,0.06)] px-3 py-1.5 font-mono text-lg font-bold tracking-widest text-white">{d.code}</span>
+            <Button size="sm" variant="outline" onClick={() => copy(d.code, "Code")}>Copy code</Button>
+            <Button size="sm" variant="outline" onClick={() => copy(d.link, "Link")}>Copy link</Button>
+            <a href={wa} target="_blank" rel="noreferrer"><Button size="sm" variant="outline">Share on WhatsApp</Button></a>
+            {qr && <a href={qr} download={`unitefix-${d.code}.png`}><Button size="sm" variant="outline">Download QR</Button></a>}
+          </div>
+          <p className="break-all text-xs text-[hsl(215,20%,55%)]">{d.link}</p>
+          <p className="text-sm text-white">{d.bookings} booking{d.bookings === 1 ? "" : "s"} through your link{d.completed ? ` · ${d.completed} done` : ""}</p>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 export function HubFieldJobs() {
   const { me } = useHubMe();
   const qc = useQueryClient();
@@ -87,6 +124,7 @@ export function HubFieldJobs() {
 
   return (
     <HubPage title="Jobs" subtitle="Jobs UniteFix has sent you. Assign one of your technicians before the assign-by time — after it, the job goes back to UniteFix.">
+      <CustomerLinkPanel />
       {view === "queue" && overdue > 0 && <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{overdue} job(s) are past their assign-by time and now show in UniteFix's queue too.</div>}
       <Panel actions={
         <div className="flex w-full flex-wrap items-center justify-between gap-3">

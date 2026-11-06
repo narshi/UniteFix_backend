@@ -120,21 +120,26 @@ export interface CreateServiceRequest {
      */
     quotedUnitPrice?: number;
     /** Who the customer chose: UniteFix picks (default), a partner, or a nearby expert. Older servers ignore it. */
-    provider?: { type: 'unitefix' } | { type: 'partner' | 'expert'; id: number };
+    provider?: { type: 'unitefix' } | { type: 'partner'; id: number; code?: string } | { type: 'expert'; id: number };
 }
 
 /** A partner business serving the address, with its customers' rating (null = no reviews yet). */
 export interface PartnerOption {
     id: number; name: string;
     rating: number | null; reviews: number; jobsDone: number; technicians: number;
+    /** Reached through the partner's own link or code. */
+    viaCode?: boolean;
 }
+/** The partner a link or code named, and whether it can take this booking. */
+export interface InvitedPartner { code: string; name: string | null; available: boolean; reason: string | null }
+export interface PartnerCard { code: string; link: string; name: string; rating: number | null; reviews: number; jobsDone: number; services: string[]; takesJobs: boolean }
 /** A verified UniteFix expert near the address. */
 export interface ExpertOption {
     id: number; name: string; photoUrl: string | null;
     rating: number | null; reviews: number; jobsDone: number; experienceYears: number;
     distanceKm: number; online: boolean;
 }
-export interface ProviderOptions { partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number }
+export interface ProviderOptions { partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number; invited?: InvitedPartner | null }
 
 /** Price and provider for a service at a pincode (partner territories). */
 export interface ServiceQuote {
@@ -296,7 +301,10 @@ export const customerApi = {
         }>>('/api/partner/profile/upi/validate', data),
 
     // Service Requests
-    getProviderOptions: (p: { catalogServiceId?: number; pincode?: string | null; lat?: number; lng?: number }) =>
+    getPartnerCard: (code: string) =>
+        apiClient.get<ApiResponse<PartnerCard>>(`/api/public/partners/${encodeURIComponent(code)}`),
+
+    getProviderOptions: (p: { catalogServiceId?: number; pincode?: string | null; lat?: number; lng?: number; partnerCode?: string | null }) =>
         apiClient.get<ApiResponse<ProviderOptions>>('/api/services/provider-options', { params: p }),
 
     getServiceQuote: (catalogServiceId: number, pincode: string) =>

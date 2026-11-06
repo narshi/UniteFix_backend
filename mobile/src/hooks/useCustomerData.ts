@@ -11,18 +11,29 @@ import { customerApi, CreateServiceRequest } from '../api/customer.api';
  * national price. Disabled until both are known.
  */
 /** Partners and nearby experts the customer can choose, for this service at this address. */
-export function useProviderOptions(catalogServiceId?: number, address?: { pinCode?: string; lat?: number; long?: number } | null) {
+export function useProviderOptions(catalogServiceId?: number, address?: { pinCode?: string; lat?: number; long?: number } | null, partnerCode?: string | null) {
     const pin = address?.pinCode && /^\d{6}$/.test(address.pinCode) ? address.pinCode : null;
     const lat = Number(address?.lat), lng = Number(address?.long);
     const located = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
     return useQuery({
-        queryKey: ['providerOptions', catalogServiceId ?? null, pin, located ? lat.toFixed(4) : null, located ? lng.toFixed(4) : null],
+        queryKey: ['providerOptions', catalogServiceId ?? null, pin, located ? lat.toFixed(4) : null, located ? lng.toFixed(4) : null, partnerCode ?? null],
         queryFn: async () => (await customerApi.getProviderOptions({
-            catalogServiceId, pincode: pin, ...(located ? { lat, lng } : {}),
+            catalogServiceId, pincode: pin, ...(located ? { lat, lng } : {}), ...(partnerCode ? { partnerCode } : {}),
         })).data?.data ?? { partners: [], experts: [], radiusKm: 15 },
         enabled: !!address,
         staleTime: 60_000,
         retry: 1,
+    });
+}
+
+/** A partner's public card (who a link or code names). */
+export function usePartnerCard(code?: string | null) {
+    return useQuery({
+        queryKey: ['partnerCard', code ?? null],
+        queryFn: async () => (await customerApi.getPartnerCard(code!)).data?.data ?? null,
+        enabled: !!code,
+        staleTime: 10 * 60_000,
+        retry: false,
     });
 }
 

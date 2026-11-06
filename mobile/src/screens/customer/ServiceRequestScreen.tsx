@@ -26,6 +26,7 @@ import * as Location from 'expo-location';
 import { useBookingDraftStore } from '../../stores/bookingDraft.store';
 import { useCreateServiceRequest, usePublicConfig, useServiceQuote, useProviderOptions } from '../../hooks/useCustomerData';
 import { ProviderChooser, type ProviderChoice } from '../../components/customer/ProviderChooser';
+import { usePartnerRef } from '../../services/partnerLinks';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
@@ -114,7 +115,20 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     // or a nearby UniteFix expert. Same price either way.
     const [chooserMode, setChooserMode] = useState<'unitefix' | 'nearby'>('unitefix');
     const [choice, setChoice] = useState<ProviderChoice>({ type: 'unitefix' });
-    const { data: providerOptions, isLoading: optionsLoading } = useProviderOptions(serviceId, selectedAddress);
+    // A partner's link or code (remembered from the link, or typed in the chooser).
+    const partnerCode = usePartnerRef(s => s.code);
+    const setPartnerCode = usePartnerRef(s => s.setCode);
+    const { data: providerOptions, isLoading: optionsLoading } = useProviderOptions(serviceId, selectedAddress, partnerCode);
+    // The partner a code named is chosen for the customer once per code (they can still change it).
+    const autoPickedFor = React.useRef<string | null>(null);
+    useEffect(() => {
+        const inv = providerOptions?.invited;
+        const p = providerOptions?.partners.find(x => x.viaCode);
+        if (!inv?.available || !p || autoPickedFor.current === inv.code) return;
+        autoPickedFor.current = inv.code;
+        setChooserMode('unitefix');
+        setChoice({ type: 'partner', id: p.id, name: p.name, code: inv.code });
+    }, [providerOptions]);
     useEffect(() => {
         if (!providerOptions) return;
         // A new address can change who is available: drop a choice that no longer is.
@@ -316,7 +330,9 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     catalogServiceId: serviceId,
                                     quantity,
                                     ...(isFixedPrice ? { quotedUnitPrice: basePrice } : {}),
-                                    provider: choice.type === 'unitefix' ? { type: 'unitefix' } : { type: choice.type, id: choice.id },
+                                    provider: choice.type === 'unitefix' ? { type: 'unitefix' }
+                                        : choice.type === 'partner' ? { type: 'partner', id: choice.id, ...(choice.code ? { code: choice.code } : {}) }
+                                        : { type: 'expert', id: choice.id },
                                 },
                                 {
                                     onSuccess: async (response: any) => {
@@ -528,6 +544,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                         onChange={setChoice}
                         mode={chooserMode}
                         onModeChange={setChooserMode}
+                        partnerCode={partnerCode}
+                        onApplyCode={setPartnerCode}
                     />
                     {!!chosenName && <Text style={styles.chosenNote}>Chosen: {chosenName}</Text>}
                 </View>

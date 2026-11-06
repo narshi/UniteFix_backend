@@ -26,12 +26,16 @@ import { configService } from './config.service';
 import { recordAudit } from '../lib/audit';
 import logger from '../lib/logger';
 
-export type ProviderChoice = { type: 'unitefix' } | { type: 'partner'; id: number } | { type: 'expert'; id: number };
+export type ProviderChoice = { type: 'unitefix' } | { type: 'partner'; id: number; code?: string } | { type: 'expert'; id: number };
 
 export interface PartnerOption {
     id: number; name: string;
     rating: number | null; reviews: number; jobsDone: number; technicians: number;
+    /** Reached through the partner's own link or code (listed first, even outside its usual pincodes). */
+    viaCode?: boolean;
 }
+/** The partner a link or code named, and whether it can take this booking. */
+export interface InvitedPartner { code: string; name: string | null; available: boolean; reason: string | null }
 export interface ExpertOption {
     id: number; name: string; photoUrl: string | null;
     rating: number | null; reviews: number; jobsDone: number; experienceYears: number;
@@ -60,21 +64,46 @@ const pointOf = (wkt: string | null | undefined) => {
 
 export class ProviderChoiceService {
     /** Partners and nearby experts the customer can choose for this service at this address. */
-    static async options(input: { catalogServiceId: number | null; pincode: string | null; lat: number | null; lng: number | null }): Promise<{ partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number }> {
+    static async options(input: { catalogServiceId: number | null; pincode: string | null; lat: number | null; lng: number | null; partnerCode?: string | null }): Promise<{ partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number; invited: InvitedPartner | null }> {
         const radiusKm = Number(await configService.get<number>('BUSINESS_CONFIG.NEARBY_EXPERT_RADIUS_KM', 15)) || 15;
-        const [partners, experts] = await Promise.all([this.partnerOptions(input), this.expertOptions(input, radiusKm)]);
-        return { partners, experts, radiusKm };
+        const [listed, experts, invited] = await Promise.all([
+            this.partnerOptions(input), this.expertOptions(input, radiusKm),
+            input.partnerCode ? this.invitedPartner(input.partnerCode, input.catalogServiceId) : Promise.resolve(null),
+        ]);
+        // The partner the customer came through goes first and is marked; it is not listed twice.
+        let partners = listed;
+        if (invited?.option) partners = [invited.option, ...listed.filter(p => p.id !== invited.option!.id)];
+        return { partners, experts, radiusKm, invited: invited ? invited.info : null };
     }
 
-    /** Ready partners (staff's own dispatch list) that cover the pincode and take this service, best rated first. */
-    static async partnerOptions(input: { catalogServiceId: number | null; pincode: string | null }): Promise<PartnerOption[]> {
-        if (!input.catalogServiceId || !input.pincode) return [];
+    /**
+     * A partner named by its link or code: offered for this service wherever
+     * the customer is (they came through the partner), if the partner can take
+     * jobs and lists the service.
+     */
+    static async invitedPartner(code: string, catalogServiceId: number | null): Promise<{ option: PartnerOption | null; info: InvitedPartner } | null> {
+        const { PartnerLinkService } = await import('./partner-link.service');
+        const bp = await PartnerLinkService.resolve(code);
+        if (!bp) return { option: null, info: { code, name: null, available: false, reason: 'No UniteFix partner has this code. Check it with them.' } };
+        const shareCode = await PartnerLinkService.ensureCode(bp.id);
         const { PartnerFieldService } = await import('./partner-field.service');
-        const ready = (await PartnerFieldService.dispatchCandidates())
-            .filter(p => p.pincodes.includes(input.pincode!) && p.catalogServiceIds.includes(input.catalogServiceId!));
-        if (!ready.length) return [];
-        const ids = ready.map(p => p.id);
-        // A partner's rating: the stars customers gave on jobs that partner did.
+        const c = (await PartnerFieldService.dispatchCandidates()).find(x => x.id === bp.id);
+        const name = bp.displayName;
+        if (!c) return { option: null, info: { code: shareCode, name, available: false, reason: `${name} is not taking bookings in the app right now. UniteFix will send its own expert.` } };
+        if (!catalogServiceId || !c.catalogServiceIds.includes(catalogServiceId)) {
+            return { option: null, info: { code: shareCode, name, available: false, reason: `${name} does not take this service. Pick another partner or let UniteFix choose.` } };
+        }
+        const s = (await this.partnerStats([bp.id])).get(bp.id);
+        return {
+            option: { id: bp.id, name, rating: s?.rating ?? null, reviews: s?.reviews ?? 0, jobsDone: s?.jobsDone ?? 0, technicians: c.technicians, viaCode: true },
+            info: { code: shareCode, name, available: true, reason: null },
+        };
+    }
+
+    /** Customers' rating (stars on jobs the partner did) and completed jobs, per partner. */
+    static async partnerStats(ids: number[]): Promise<Map<number, { rating: number | null; reviews: number; jobsDone: number }>> {
+        const out = new Map<number, { rating: number | null; reviews: number; jobsDone: number }>();
+        if (!ids.length) return out;
         const stars = await db.select({
             bpId: serviceRequests.dispatchPartnerId,
             avg: sql<number>`avg(${ratings.rating})::float`, n: sql<number>`count(${ratings.id})::int`,
@@ -84,11 +113,27 @@ export class ProviderChoiceService {
         const done = await db.select({ bpId: serviceRequests.dispatchPartnerId, n: sql<number>`count(*)::int` })
             .from(serviceRequests).where(and(inArray(serviceRequests.dispatchPartnerId, ids), eq(serviceRequests.status, 'completed' as any)))
             .groupBy(serviceRequests.dispatchPartnerId);
-        const s = new Map(stars.map(r => [r.bpId, r])), d = new Map(done.map(r => [r.bpId, r.n]));
+        const st = new Map(stars.map(r => [r.bpId, r])), d = new Map(done.map(r => [r.bpId, r.n]));
+        for (const id of ids) {
+            const r = st.get(id);
+            out.set(id, { rating: r?.n ? round1(Number(r.avg)) : null, reviews: r?.n ?? 0, jobsDone: d.get(id) ?? 0 });
+        }
+        return out;
+    }
+
+    /** Ready partners (staff's own dispatch list) that cover the pincode and take this service, best rated first. */
+    static async partnerOptions(input: { catalogServiceId: number | null; pincode: string | null }): Promise<PartnerOption[]> {
+        if (!input.catalogServiceId || !input.pincode) return [];
+        const { PartnerFieldService } = await import('./partner-field.service');
+        const ready = (await PartnerFieldService.dispatchCandidates())
+            .filter(p => p.pincodes.includes(input.pincode!) && p.catalogServiceIds.includes(input.catalogServiceId!));
+        if (!ready.length) return [];
+        // A partner's rating: the stars customers gave on jobs that partner did.
+        const stats = await this.partnerStats(ready.map(p => p.id));
         return ready.map(p => ({
             id: p.id, name: p.name,
-            rating: s.get(p.id)?.n ? round1(Number(s.get(p.id)!.avg)) : null,
-            reviews: s.get(p.id)?.n ?? 0, jobsDone: d.get(p.id) ?? 0, technicians: p.technicians,
+            rating: stats.get(p.id)?.rating ?? null, reviews: stats.get(p.id)?.reviews ?? 0,
+            jobsDone: stats.get(p.id)?.jobsDone ?? 0, technicians: p.technicians,
         })).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || b.reviews - a.reviews || b.jobsDone - a.jobsDone);
     }
 
@@ -132,7 +177,11 @@ export class ProviderChoiceService {
     static parse(raw: any): ProviderChoice {
         const type = raw?.type;
         const id = Number(raw?.id);
-        if ((type === 'partner' || type === 'expert') && Number.isInteger(id) && id > 0) return { type, id };
+        if (type === 'partner' && Number.isInteger(id) && id > 0) {
+            const code = typeof raw?.code === 'string' && raw.code.trim() ? raw.code.trim().slice(0, 24) : undefined;
+            return code ? { type, id, code } : { type, id };
+        }
+        if (type === 'expert' && Number.isInteger(id) && id > 0) return { type, id };
         return { type: 'unitefix' };
     }
 
@@ -140,6 +189,10 @@ export class ProviderChoiceService {
     static async validate(choice: ProviderChoice, ctx: { catalogServiceId: number | null; pincode: string | null; location: string | null }) {
         if (choice.type === 'unitefix') return;
         if (choice.type === 'partner') {
+            if (choice.code) {
+                const inv = await this.invitedPartner(choice.code, ctx.catalogServiceId);
+                if (inv?.option?.id === choice.id) return;
+            }
             const ok = (await this.partnerOptions(ctx)).some(p => p.id === choice.id);
             if (!ok) throw new ProviderChoiceError('That partner can no longer take this booking here. Choose again, or let UniteFix choose.', 'PARTNER_UNAVAILABLE');
             return;

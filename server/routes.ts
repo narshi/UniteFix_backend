@@ -2538,9 +2538,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { ProviderChoiceService } = await import("./services/provider-choice.service");
       const data = await ProviderChoiceService.options({
         catalogServiceId: Number.isInteger(catalogServiceId) ? catalogServiceId : null, pincode,
+        partnerCode: typeof req.query.partnerCode === 'string' && req.query.partnerCode.trim() ? req.query.partnerCode.trim().slice(0, 24) : null,
         lat: Number.isFinite(lat as number) ? lat : null, lng: Number.isFinite(lng as number) ? lng : null,
       });
       res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * A partner's public card, behind their customer link (/p/:code): name,
+   * customers' rating, services, and whether they take bookings now. No
+   * login: the link is shared on WhatsApp and visiting cards.
+   */
+  app.get("/api/public/partners/:code", async (req, res, next) => {
+    try {
+      const { PartnerLinkService } = await import("./services/partner-link.service");
+      const card = await PartnerLinkService.publicCard(req.params.code);
+      if (!card) return res.status(404).json({ success: false, message: "No UniteFix partner has this code." });
+      res.json({ success: true, data: card });
     } catch (error) {
       next(error);
     }
@@ -2631,6 +2648,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chosenProviderType: choice.type,
           chosenPartnerId: choice.type === 'partner' ? choice.id : null,
           chosenExpertId: choice.type === 'expert' ? choice.id : null,
+          chosenVia: choice.type === 'partner' ? (choice.code ? 'code' : 'list') : null,
           ...(routing.dispatchPartnerId ? { dispatchPartnerId: routing.dispatchPartnerId, dispatchMode: routing.dispatchMode, slaAssignBy: routing.slaAssignBy } : {}),
           ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
           ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),

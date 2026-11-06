@@ -53,6 +53,7 @@ import { useHomeServices } from '../../hooks/useCustomerData';
 import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
+import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
 
@@ -264,6 +265,9 @@ export function HomeScreen() {
                     />
                 }
             >
+                {/* Came through a partner's link: who they are booking with. */}
+                <PartnerRefBanner />
+
                 {/* Trust Indicators — inline row */}
                 <View style={styles.trustRow}>
                     {TRUST_ITEMS.map((item, i) => (

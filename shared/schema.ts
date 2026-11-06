@@ -320,6 +320,9 @@ export const serviceRequests = pgTable("service_requests", {
   chosenProviderType: text("chosen_provider_type"),
   chosenPartnerId: integer("chosen_partner_id"),
   chosenExpertId: integer("chosen_expert_id"),
+  // How the partner was chosen: 'list' (picked on the booking screen) or
+  // 'code' (the partner's link or code) — what partners bring in themselves.
+  chosenVia: text("chosen_via"),
   choiceAppliedAt: timestamp("choice_applied_at"),
   // Staff cancelled or closed it from the admin (see booking-admin.service.ts).
   cancelReason: text("cancel_reason"),
@@ -2456,6 +2459,9 @@ export const businessPartners = pgTable("business_partners", {
   fieldFeePercent: decimal("field_fee_percent", { precision: 5, scale: 2 }), // null = platform default
   fieldTier: text("field_tier").notNull().default('new'),                    // new | standard | preferred | restricted
   fieldSupportPhone: text("field_support_phone"),
+  // The code customers book this partner with (POORVI12), and the link
+  // app.unitefix.com/p/<code>. Made on first use (partner-link.service.ts).
+  shareCode: text("share_code"),
   // Default cut of each technician's job, unless set on the technician.
   fieldCommissionType: text("field_commission_type").notNull().default('percent'),   // percent | fixed
   fieldCommissionValue: decimal("field_commission_value", { precision: 10, scale: 2 }).notNull().default('20'),
