@@ -24,7 +24,8 @@ import { ArrowLeft, Camera, MapPin, Clock, AlertTriangle, X, ImagePlus } from 'l
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useBookingDraftStore } from '../../stores/bookingDraft.store';
-import { useCreateServiceRequest, usePublicConfig, useServiceQuote } from '../../hooks/useCustomerData';
+import { useCreateServiceRequest, usePublicConfig, useServiceQuote, useProviderOptions } from '../../hooks/useCustomerData';
+import { ProviderChooser, type ProviderChoice } from '../../components/customer/ProviderChooser';
 import { openRazorpayCheckout, handleRazorpayError } from '../../services/razorpay';
 import { customerApi } from '../../api/customer.api';
 import { colors } from '../../theme/colors';
@@ -108,6 +109,27 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
     }, [route.params?.selectedAddress]);
 
     const { mutate: createRequest, isPending } = useCreateServiceRequest();
+
+    // Who does the job: UniteFix picks (default), a partner near the address,
+    // or a nearby UniteFix expert. Same price either way.
+    const [chooserMode, setChooserMode] = useState<'unitefix' | 'nearby'>('unitefix');
+    const [choice, setChoice] = useState<ProviderChoice>({ type: 'unitefix' });
+    const { data: providerOptions, isLoading: optionsLoading } = useProviderOptions(serviceId, selectedAddress);
+    useEffect(() => {
+        if (!providerOptions) return;
+        // A new address can change who is available: drop a choice that no longer is.
+        if (choice.type === 'partner' && !providerOptions.partners.some(p => p.id === choice.id)) setChoice({ type: 'unitefix' });
+        if (choice.type === 'expert' && !providerOptions.experts.some(e => e.id === choice.id)) {
+            const first = providerOptions.experts[0];
+            setChoice(chooserMode === 'nearby' && first ? { type: 'expert', id: first.id, name: first.name } : { type: 'unitefix' });
+        }
+        // "Nearby" opened while the list was still loading: start on the nearest.
+        if (chooserMode === 'nearby' && choice.type === 'unitefix' && providerOptions.experts[0]) {
+            const first = providerOptions.experts[0];
+            setChoice({ type: 'expert', id: first.id, name: first.name });
+        }
+    }, [providerOptions]);
+    const chosenName = choice.type === 'unitefix' ? null : choice.name;
     const { data: publicConfig } = usePublicConfig();
 
     // In a UniteFix partner's territory the price can be the partner's own,
@@ -254,9 +276,14 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
             : isFixedPrice
             ? `Total for ${serviceName}: ₹${payable}.${savingLine}\n\nPay ₹${bookingFee} now to book, and ₹${finalAfterBooking} after the service is completed.`
             : `A booking fee of ₹${bookingFee} will be charged to confirm your ${serviceName} request. This amount will be adjusted in your final bill.`;
+        const whoLine = choice.type === 'partner'
+            ? `\n\n${choice.name} will do this job.`
+            : choice.type === 'expert'
+            ? `\n\nWe will send it to ${choice.name} to accept.`
+            : '';
         Alert.alert(
             'Confirm Booking',
-            confirmMessage,
+            confirmMessage + whoLine,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -289,10 +316,16 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                     catalogServiceId: serviceId,
                                     quantity,
                                     ...(isFixedPrice ? { quotedUnitPrice: basePrice } : {}),
+                                    provider: choice.type === 'unitefix' ? { type: 'unitefix' } : { type: choice.type, id: choice.id },
                                 },
                                 {
                                     onSuccess: async (response: any) => {
                                         clearDraft();
+                                        const nextStep = choice.type === 'partner'
+                                            ? `${choice.name} will assign their technician shortly.`
+                                            : choice.type === 'expert'
+                                            ? `We have sent it to ${choice.name} to accept.`
+                                            : 'We will assign a service expert soon.';
                                         const paymentData = response?.data?.payment;
 
                                         if (paymentData?.razorpayOrderId && paymentData?.razorpayKeyId) {
@@ -311,8 +344,8 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                                 Alert.alert(
                                                     'Booking Confirmed! ✅',
                                                     prepaidInFull
-                                                        ? `Your ₹${paymentData.amount ?? payNow} payment is received — the service is fully paid. We will assign a service expert soon.`
-                                                        : `Your ₹${bookingFee} booking fee has been paid. We will assign a service expert soon.`,
+                                                        ? `Your ₹${paymentData.amount ?? payNow} payment is received — the service is fully paid. ${nextStep}`
+                                                        : `Your ₹${bookingFee} booking fee has been paid. ${nextStep}`,
                                                     [{ text: 'OK', onPress: () => navigation.reset({
                                                         index: 0,
                                                         routes: [{
@@ -341,7 +374,7 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                                             // No payment required (Razorpay not configured / dev mode)
                                             Alert.alert(
                                                 'Request Submitted! ✅',
-                                                'Your service request has been created. We will assign a service expert soon.',
+                                                `Your service request has been created. ${nextStep}`,
                                                 [{ text: 'OK', onPress: () => navigation.reset({
                                                     index: 0,
                                                     routes: [{
@@ -482,6 +515,21 @@ export function ServiceRequestScreen({ navigation, route }: Props) {
                         </View>
                     </TouchableOpacity>
                     {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
+                </View>
+
+                {/* Who does the job */}
+                <View style={styles.fieldContainer}>
+                    <Text style={styles.label}>Who should do it?</Text>
+                    <ProviderChooser
+                        options={providerOptions}
+                        loading={!!selectedAddress && optionsLoading}
+                        hasAddress={!!selectedAddress}
+                        value={choice}
+                        onChange={setChoice}
+                        mode={chooserMode}
+                        onModeChange={setChooserMode}
+                    />
+                    {!!chosenName && <Text style={styles.chosenNote}>Chosen: {chosenName}</Text>}
                 </View>
 
                 {/* Urgency selector */}
@@ -634,6 +682,7 @@ const styles = StyleSheet.create({
     qtyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     qtyUnitNote: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
     stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+    chosenNote: { ...typography.caption, color: colors.primary, marginTop: spacing.sm, fontWeight: '600' },
     stepperBtn: {
         width: 36, height: 36, borderRadius: radii.full,
         alignItems: 'center', justifyContent: 'center',

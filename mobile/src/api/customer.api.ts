@@ -119,7 +119,22 @@ export interface CreateServiceRequest {
      * showed it; otherwise the national price is charged.
      */
     quotedUnitPrice?: number;
+    /** Who the customer chose: UniteFix picks (default), a partner, or a nearby expert. Older servers ignore it. */
+    provider?: { type: 'unitefix' } | { type: 'partner' | 'expert'; id: number };
 }
+
+/** A partner business serving the address, with its customers' rating (null = no reviews yet). */
+export interface PartnerOption {
+    id: number; name: string;
+    rating: number | null; reviews: number; jobsDone: number; technicians: number;
+}
+/** A verified UniteFix expert near the address. */
+export interface ExpertOption {
+    id: number; name: string; photoUrl: string | null;
+    rating: number | null; reviews: number; jobsDone: number; experienceYears: number;
+    distanceKm: number; online: boolean;
+}
+export interface ProviderOptions { partners: PartnerOption[]; experts: ExpertOption[]; radiusKm: number }
 
 /** Price and provider for a service at a pincode (partner territories). */
 export interface ServiceQuote {
@@ -281,6 +296,9 @@ export const customerApi = {
         }>>('/api/partner/profile/upi/validate', data),
 
     // Service Requests
+    getProviderOptions: (p: { catalogServiceId?: number; pincode?: string | null; lat?: number; lng?: number }) =>
+        apiClient.get<ApiResponse<ProviderOptions>>('/api/services/provider-options', { params: p }),
+
     getServiceQuote: (catalogServiceId: number, pincode: string) =>
         apiClient.get<ApiResponse<ServiceQuote>>(`/api/services/quote?catalogServiceId=${catalogServiceId}&pincode=${encodeURIComponent(pincode)}`),
 

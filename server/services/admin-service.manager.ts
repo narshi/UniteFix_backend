@@ -244,7 +244,8 @@ export class AdminServiceManager {
     static async assignTechnician(
         serviceId: number,
         technicianId: number,
-        adminId: number
+        adminId: number,
+        opts: { by?: 'admin' | 'customer' } = {},
     ): Promise<any> {
         // Validate service exists
         const [service] = await db
@@ -310,7 +311,8 @@ export class AdminServiceManager {
             metadata: {
                 technicianId,
                 technicianName: technician.fullName,
-                assignedBy: "admin",
+                // 'customer': the customer picked this expert at booking (provider-choice.service.ts).
+                assignedBy: opts.by === 'customer' ? "customer" : "admin",
             },
         });
 

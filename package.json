@@ -73,6 +73,7 @@
     "smoke:partner-mobile-login": "tsx scripts/smoke-partner-mobile-login.ts",
     "smoke:refund-status": "tsx scripts/smoke-refund-status.ts",
     "smoke:security-fixes": "tsx scripts/smoke-security-fixes.ts",
+    "smoke:provider-choice": "tsx scripts/smoke-provider-choice.ts",
     "smoke:app-version": "tsx scripts/smoke-app-version.ts",
     "smoke:booking-admin": "tsx scripts/smoke-booking-admin.ts",
     "smoke:partner-commission": "tsx scripts/smoke-partner-commission.ts",

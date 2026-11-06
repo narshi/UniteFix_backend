@@ -10,6 +10,22 @@ import { customerApi, CreateServiceRequest } from '../api/customer.api';
  * In a partner territory the partner's price and name come back; elsewhere the
  * national price. Disabled until both are known.
  */
+/** Partners and nearby experts the customer can choose, for this service at this address. */
+export function useProviderOptions(catalogServiceId?: number, address?: { pinCode?: string; lat?: number; long?: number } | null) {
+    const pin = address?.pinCode && /^\d{6}$/.test(address.pinCode) ? address.pinCode : null;
+    const lat = Number(address?.lat), lng = Number(address?.long);
+    const located = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+    return useQuery({
+        queryKey: ['providerOptions', catalogServiceId ?? null, pin, located ? lat.toFixed(4) : null, located ? lng.toFixed(4) : null],
+        queryFn: async () => (await customerApi.getProviderOptions({
+            catalogServiceId, pincode: pin, ...(located ? { lat, lng } : {}),
+        })).data?.data ?? { partners: [], experts: [], radiusKm: 15 },
+        enabled: !!address,
+        staleTime: 60_000,
+        retry: 1,
+    });
+}
+
 export function useServiceQuote(catalogServiceId?: number, pincode?: string | null) {
     const pin = pincode && /^\d{6}$/.test(pincode) ? pincode : null;
     return useQuery({

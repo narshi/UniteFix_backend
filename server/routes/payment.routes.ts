@@ -967,6 +967,9 @@ export function registerPaymentRoutes(app: Express) {
                              */
                             if (updated?.id) {
                                 void BookingNotifications.bookingCreated(serviceId);
+                                // The partner or expert the customer chose gets it now that it is paid.
+                                const { ProviderChoiceService } = await import("../services/provider-choice.service");
+                                void ProviderChoiceService.applyAfterPayment(serviceId).catch(() => {});
                             }
                         }
                     }

@@ -314,6 +314,13 @@ export const serviceRequests = pgTable("service_requests", {
   lastAttemptReason: text("last_attempt_reason"),
   attempts: jsonb("attempts").notNull().default([]),   // [{ employeeId, at, reason, visitPayRupees }]
   priorVisitPayPaise: integer("prior_visit_pay_paise").notNull().default(0),
+  // Who the CUSTOMER chose at booking (provider-choice.service.ts): 'unitefix'
+  // (staff assign, as always), 'partner' (chosenPartnerId) or 'expert'
+  // (chosenExpertId). Applied once the booking is paid; choiceAppliedAt marks it done.
+  chosenProviderType: text("chosen_provider_type"),
+  chosenPartnerId: integer("chosen_partner_id"),
+  chosenExpertId: integer("chosen_expert_id"),
+  choiceAppliedAt: timestamp("choice_applied_at"),
   // Staff cancelled or closed it from the admin (see booking-admin.service.ts).
   cancelReason: text("cancel_reason"),
   cancelledAt: timestamp("cancelled_at"),

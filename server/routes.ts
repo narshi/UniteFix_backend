@@ -2524,6 +2524,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== USER APP ROUTES ====================
 
   // Create service request with booking charge (₹99 default, dynamic from config)
+  /**
+   * Who the customer can choose for this booking: partner businesses serving
+   * the address that take the service (with their customers' rating), and
+   * verified UniteFix experts near it. UniteFix's price applies either way.
+   */
+  app.get("/api/services/provider-options", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+      const catalogServiceId = num(req.query.catalogServiceId);
+      const pincode = /^\d{6}$/.test(String(req.query.pincode ?? '')) ? String(req.query.pincode) : null;
+      const lat = num(req.query.lat), lng = num(req.query.lng);
+      const { ProviderChoiceService } = await import("./services/provider-choice.service");
+      const data = await ProviderChoiceService.options({
+        catalogServiceId: Number.isInteger(catalogServiceId) ? catalogServiceId : null, pincode,
+        lat: Number.isFinite(lat as number) ? lat : null, lng: Number.isFinite(lng as number) ? lng : null,
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/services/create", authenticateToken, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       // Catalog service id (distinct from the booking's own serviceId string).
@@ -2531,10 +2553,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // into serviceRequests columns.
       const catalogServiceId = req.body?.catalogServiceId ? Number(req.body.catalogServiceId) : null;
 
+      // Only the fields a customer sets. The insert schema covers every column
+      // (status, providerId, dispatchPartnerId, bookingFeeStatus, ...), and
+      // spreading req.body into it let a booking arrive already assigned to an
+      // expert, or with any status, before anything was paid.
+      const b = req.body ?? {};
       const serviceData = insertServiceRequestSchema.parse({
-        ...req.body,
-        userId: req.user!.userId
+        serviceType: b.serviceType, brand: b.brand, model: b.model, description: b.description,
+        photos: b.photos, customerLocation: b.customerLocation, address: b.address,
+        preferredDate: b.preferredDate, preferredTimeSlot: b.preferredTimeSlot, urgency: b.urgency,
+        userId: req.user!.userId,
       });
+
+      // Who the customer chose (Book via UniteFix → a partner, or a nearby
+      // expert). Checked against what they could have been shown; applied once paid.
+      const { ProviderChoiceService, ProviderChoiceError } = await import("./services/provider-choice.service");
+      const choice = ProviderChoiceService.parse(b.provider);
+      try {
+        await ProviderChoiceService.validate(choice, { catalogServiceId, pincode: pinFrom(b), location: typeof b.customerLocation === 'string' ? b.customerLocation : null });
+      } catch (e: any) {
+        if (e instanceof ProviderChoiceError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+        throw e;
+      }
 
       // FIXED-PRICE CATALOG (v2): if the client picked a catalog service with a
       // set price, freeze the whole bill now. Otherwise fall back to the v1
@@ -2588,6 +2628,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           pricingSnapshot: pricingSnapshot as any,
           quantity,
           pincode,
+          chosenProviderType: choice.type,
+          chosenPartnerId: choice.type === 'partner' ? choice.id : null,
+          chosenExpertId: choice.type === 'expert' ? choice.id : null,
           ...(routing.dispatchPartnerId ? { dispatchPartnerId: routing.dispatchPartnerId, dispatchMode: routing.dispatchMode, slaAssignBy: routing.slaAssignBy } : {}),
           ...(catalogTotal !== null ? { totalAmount: catalogTotal } : {}),
           ...(catalogCommission !== null ? { commissionAmount: catalogCommission } : {}),
@@ -2644,6 +2687,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await db.update(serviceRequests)
               .set({ bookingFeeStatus: 'paid' as any })
               .where(eq(serviceRequests.id, service.id));
+            await ProviderChoiceService.applyAfterPayment(service.id).catch(() => {});
             // Treated as paid, so announced as a paid booking would be.
             void BookingNotifications.bookingCreated(service.id);
           } else {
@@ -2698,6 +2742,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
        */
       if (dueNow === 0) {
         void BookingNotifications.bookingCreated(service.id);
+        // Nothing to pay: the customer's choice applies straight away.
+        await ProviderChoiceService.applyAfterPayment(service.id).catch((e: any) => logger.warn(`[CHOICE] apply failed: ${e?.message}`));
       }
 
       res.status(201).json({

@@ -446,7 +446,8 @@ export class PartnerFieldService {
      * is the one they booked at; the job is paid to the partner through the
      * technician they assign.
      */
-    static async dispatchToPartner(serviceRequestId: number, bpId: number, adminId: number | null) {
+    static async dispatchToPartner(serviceRequestId: number, bpId: number, adminId: number | null, opts: { by?: 'staff' | 'customer' } = {}) {
+        const byCustomer = opts.by === 'customer';
         const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceRequestId)).limit(1);
         if (!sr) throw new HubError('Booking not found.', 'NOT_FOUND', 404);
         // Unassigned, or assigned / accepted but not started: a reassignment. Once
@@ -470,7 +471,7 @@ export class PartnerFieldService {
         const slaAssignBy = addWorkingTime(new Date(), hours * 60, await this.calendar(bpId, bp));
         const snapshot = { ...((sr.pricingSnapshot as any) ?? {}), payeeType: 'partner', payeePartnerId: bpId, servicedBy: bp.displayName };
         const [updated] = await db.update(serviceRequests).set({
-            dispatchPartnerId: bpId, dispatchMode: 'staff', slaAssignBy, escalatedAt: null, escalationReason: null,
+            dispatchPartnerId: bpId, dispatchMode: byCustomer ? 'customer' : 'staff', slaAssignBy, escalatedAt: null, escalationReason: null,
             pricingSnapshot: snapshot as any, updatedAt: new Date(),
             // A reassignment: the technician it was with is taken off it.
             ...(sr.providerId ? { providerId: null, status: 'created', assignedAt: null } : {}),
@@ -480,7 +481,7 @@ export class PartnerFieldService {
         )).returning();
         if (!updated) throw new HubError('This booking changed a moment ago. Refresh.', 'BAD_STATE', 409);
         const { recordAudit } = await import('../lib/audit');
-        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: sr.providerId || sr.dispatchPartnerId ? 'service_reassigned_to_partner' : 'service_dispatched_to_partner', changedBy: adminId, metadata: { businessPartnerId: bpId, previousPartnerId: sr.dispatchPartnerId ?? null, previousTechnicianId: sr.providerId ?? null, slaAssignBy: slaAssignBy.toISOString() } });
+        await recordAudit({ entityType: 'service_request', entityId: serviceRequestId, action: sr.providerId || sr.dispatchPartnerId ? 'service_reassigned_to_partner' : 'service_dispatched_to_partner', changedBy: adminId, metadata: { businessPartnerId: bpId, previousPartnerId: sr.dispatchPartnerId ?? null, previousTechnicianId: sr.providerId ?? null, slaAssignBy: slaAssignBy.toISOString(), chosenBy: byCustomer ? 'customer' : 'staff' } });
         if (outgoing) {
             const { BookingNotifications } = await import('./booking-notifications');
             void BookingNotifications.assignmentRevoked(outgoing.id, serviceRequestId, `Moved to ${bp.displayName}`);
@@ -493,7 +494,7 @@ export class PartnerFieldService {
         const { HubAlerts } = await import('./hub-alerts.service');
         await HubAlerts.send(bpId, 'job_new', {
             title: `New job ${sr.serviceId}`,
-            body: `UniteFix sent you ${sr.serviceType ?? 'a job'}${sr.pincode ? ` in ${sr.pincode}` : ''}. Assign a technician by ${slaAssignBy.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.`,
+            body: `${byCustomer ? 'A customer chose you for' : 'UniteFix sent you'} ${sr.serviceType ?? 'a job'}${sr.pincode ? ` in ${sr.pincode}` : ''}. Assign a technician by ${slaAssignBy.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.`,
             link: '/partner/field/jobs', refType: 'service_request', refId: serviceRequestId,
         } as any).catch((e: any) => logger.warn(`[FIELD] job alert failed: ${e?.message}`));
         return { serviceRequestId, businessPartnerId: bpId, partnerName: bp.displayName, slaAssignBy };

@@ -1282,6 +1282,12 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS close_reference TEXT;
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS close_note TEXT;
     `],
+    ['bookings: the customer chooses a partner or a nearby expert', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS chosen_provider_type TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS chosen_partner_id INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS chosen_expert_id INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS choice_applied_at TIMESTAMP;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

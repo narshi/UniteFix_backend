@@ -498,6 +498,9 @@ export class PaymentService {
                         SET booking_fee_status = 'paid', updated_at = NOW()
                         WHERE id = ${parseInt(notes.service_request_id)}
                     `);
+                    // The partner or expert the customer chose gets it now that it is paid.
+                    const { ProviderChoiceService } = await import('./provider-choice.service');
+                    void ProviderChoiceService.applyAfterPayment(parseInt(notes.service_request_id)).catch(() => {});
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] bookingFeeStatus update failed: ${err.message}`);
                 }
