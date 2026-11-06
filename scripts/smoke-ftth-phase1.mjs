@@ -311,7 +311,7 @@ try {
     // ================= settlement =================
     const sa = (await c.query(
         `SELECT id FROM admin_users WHERE role='super_admin' AND is_active=true ORDER BY id LIMIT 1`)).rows[0];
-    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin', kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     r = await req('POST', `/api/admin/ftth/operators/${operatorId}/settle`, {
         token: superToken, body: { amountRupees: 10, reference: `QA-UTR-${stamp}` },

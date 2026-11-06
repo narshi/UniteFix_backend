@@ -31,7 +31,7 @@ import { reconciliationSweep } from "./wallet-reconciliation.service";
  * Moves funds from balanceHold → balanceAvailable.
  * Runs every hour.
  */
-async function releaseHeldWalletFunds(): Promise<void> {
+export async function releaseHeldWalletFunds(): Promise<void> {
     try {
         // Find unreleased transactions past their release date
         const pendingReleases = await db
@@ -51,12 +51,17 @@ async function releaseHeldWalletFunds(): Promise<void> {
 
         for (const txn of pendingReleases) {
             try {
-                await db.transaction(async (tx) => {
-                    // Mark transaction as released
-                    await tx
+                const released = await db.transaction(async (tx) => {
+                    // Claim it: only the run that flips it from unreleased moves
+                    // the money. Two runs overlapping (old and new server during a
+                    // deploy, or two instances) used to both mark it released and
+                    // both add it to the available balance.
+                    const [claimed] = await tx
                         .update(walletTransactionsV2)
                         .set({ isReleased: true })
-                        .where(eq(walletTransactionsV2.id, txn.id));
+                        .where(and(eq(walletTransactionsV2.id, txn.id), eq(walletTransactionsV2.isReleased, false)))
+                        .returning({ id: walletTransactionsV2.id });
+                    if (!claimed) return false;
 
                     // Move funds: hold → available
                     await tx
@@ -69,7 +74,9 @@ async function releaseHeldWalletFunds(): Promise<void> {
                         .where(eq(partnerWallets.partnerId, txn.partnerId));
 
                     logger.info(`[CRON] Released ₹${txn.amount} for partner ${txn.partnerId}, service ${txn.serviceRequestId}`);
+                    return true;
                 });
+                if (!released) continue; // another run released it first
 
                 // Sent after the transaction commits — the expert should only be
                 // told the money is withdrawable once it actually is.

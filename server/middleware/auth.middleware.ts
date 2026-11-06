@@ -204,6 +204,9 @@ export function requireVerifiedPartner(req: Request, res: Response, next: NextFu
  * Admin authentication middleware
  * Validates JWT token for admin dashboard users
  */
+/** Roles the APP issues tokens for (users table). None of them is ever an admin. */
+const APP_TOKEN_ROLES = new Set(['user', 'serviceman', 'business_partner']);
+
 export function authenticateAdmin(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -243,10 +246,24 @@ export function authenticateAdmin(req: Request, res: Response, next: NextFunctio
         });
     }
 
+    // Only a token from the admin login (stamped kind: 'admin') can be an admin.
+    //
+    // App tokens (customer, expert, partner owner) are signed with the same
+    // secret and carry a users.id. Looking that id up in admin_users, as this
+    // used to, made every app account whose users.id equalled an active admin's
+    // id that admin — a customer with id 2 got super admin.
     // The token's role claim is only a cheap pre-filter — the ROW decides.
     // Partner Hub logins ('partner') are refused here exactly like operators.
     if (decoded.role === 'operator' || decoded.role === 'partner') {
         return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    if (decoded.kind !== 'admin') {
+        if (APP_TOKEN_ROLES.has(decoded.role)) {
+            logger.warn('[AUTH] App token refused on an admin route', { claimedUserId: decoded.userId, claimedRole: decoded.role });
+            return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+        // An admin token from before the stamp: sign in again (8-hour tokens, so at most once).
+        return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Please sign in again.' });
     }
 
     // Defence in depth: confirm the token maps to a real, active row in

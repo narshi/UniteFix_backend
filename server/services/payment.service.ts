@@ -19,6 +19,7 @@ import { paymentTransactions, invoices, serviceRequests } from "@shared/schema";
 import { BillingEngine } from "./billing-engine";
 import { configService } from "./config.service";
 import { PaymentTrackingService } from "./payment-tracking.service";
+import { withTransaction } from "../lib/transaction";
 import { BookingState } from "../business/booking-state-machine";
 import { BookingNotifications } from "./booking-notifications";
 import logger from "../lib/logger";
@@ -450,21 +451,44 @@ export class PaymentService {
             const linkedB2bOrderId = notes?.payment_type === 'b2b_order' && notes?.b2b_order_id
                 ? parseInt(notes.b2b_order_id) : undefined;
 
-            // Record capture event via Drizzle ORM (correct columns)
-            await PaymentTrackingService.recordPaymentEvent({
-                serviceRequestId: Number.isFinite(linkedServiceId as number) ? linkedServiceId : undefined,
-                ftthRechargeId: linkedFtthRechargeId,
-                partnerDepositId: Number.isFinite(linkedDepositId as number) ? linkedDepositId : undefined,
-                b2bOrderId: Number.isFinite(linkedB2bOrderId as number) ? linkedB2bOrderId : undefined,
-                razorpayOrderId: orderId,
-                razorpayPaymentId: paymentId,
-                amount: amountPaise, // stored as paise
-                currency: 'INR',
-                eventType: 'payment_captured',
-                status: 'captured',
-                method: payload.payment?.entity?.method,
-                metadata: { ...payload.payment?.entity, paymentType: notes?.payment_type },
+            // Razorpay redelivers a webhook it thinks failed, so the same capture
+            // can arrive twice. Each delivery used to add a capture row; a
+            // refund then saw the payment twice (refunding it once, failing on
+            // the second, and allowing up to twice the amount through its
+            // "never more than collected" check). One row per payment, checked
+            // under a lock so two deliveries at once cannot both insert. The
+            // app's verify step writes an amount-0 row first; that one does not
+            // count — this row carries the real amount.
+            const firstDelivery = await withTransaction(async (tx) => {
+                await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'capture:' + paymentId}))`);
+                const [seen] = await tx.select({ id: paymentTransactions.id }).from(paymentTransactions).where(and(
+                    eq(paymentTransactions.razorpayPaymentId, paymentId),
+                    eq(paymentTransactions.eventType, 'payment_captured'),
+                    sql`${paymentTransactions.amount} > 0`,
+                )).limit(1);
+                if (seen) return false;
+                await tx.insert(paymentTransactions).values({
+                    serviceRequestId: Number.isFinite(linkedServiceId as number) ? linkedServiceId! : null,
+                    ftthRechargeId: linkedFtthRechargeId ?? null,
+                    partnerDepositId: Number.isFinite(linkedDepositId as number) ? linkedDepositId! : null,
+                    b2bOrderId: Number.isFinite(linkedB2bOrderId as number) ? linkedB2bOrderId! : null,
+                    razorpayOrderId: orderId ?? null,
+                    razorpayPaymentId: paymentId,
+                    amount: amountPaise,
+                    currency: 'INR',
+                    eventType: 'payment_captured',
+                    status: 'captured',
+                    method: payload.payment?.entity?.method ?? null,
+                    metadata: { ...payload.payment?.entity, paymentType: notes?.payment_type },
+                });
+                return true;
             });
+            if (!firstDelivery) {
+                // Everything below already ran for this payment on the first delivery.
+                logger.info(`[WEBHOOK] payment.captured ${paymentId} already recorded — repeat delivery ignored`);
+                return { success: true, message: `Payment ${paymentId} already recorded` };
+            }
+
 
             // Also update bookingFeeStatus on the service_requests table
             if (notes?.payment_type === 'booking_charge' && notes?.service_request_id) {
@@ -838,7 +862,17 @@ export class PaymentService {
             ))
             .orderBy(desc(paymentTransactions.amount));
 
-        const refundable = captured.filter((c) => c.razorpayPaymentId && c.amount > 0);
+        // One entry per Razorpay payment. Repeated webhook deliveries used to
+        // write the same capture more than once (rows from before that fix are
+        // still in the table); counted twice, the payment was refunded once and
+        // then failed, and the amount check allowed twice what was collected.
+        const byPayment = new Map<string, (typeof captured)[number]>();
+        for (const c of captured) {
+            if (!c.razorpayPaymentId || !(c.amount > 0)) continue;
+            const prev = byPayment.get(c.razorpayPaymentId);
+            if (!prev || c.amount > prev.amount) byPayment.set(c.razorpayPaymentId, c);
+        }
+        const refundable = Array.from(byPayment.values()).sort((a, b) => b.amount - a.amount);
         if (refundable.length === 0) {
             throw new Error(
                 `No captured payments found for service request ${serviceRequestId} — nothing to refund.`,

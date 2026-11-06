@@ -693,8 +693,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // prompt to change it straight after sign-in.
       const passwordIsWeak = WEAK_ADMIN_PASSWORDS.includes(password.toLowerCase());
 
+      // kind: 'admin' marks a token minted HERE, from an admin_users row.
+      // authenticateAdmin requires it: app tokens are signed with the same
+      // secret and carry a users.id, which can equal an admin's id.
       const token = jwt.sign(
-        { userId: admin.id, role: admin.role },
+        { userId: admin.id, role: admin.role, kind: 'admin' },
         JWT_SECRET,
         { expiresIn: '8h' }
       );

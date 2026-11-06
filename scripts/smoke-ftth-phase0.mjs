@@ -58,12 +58,12 @@ await c.query(`INSERT INTO serviceable_pincodes (pincode, area, district, state,
 const [sa] = (await c.query(
   `SELECT id, username FROM admin_users WHERE role='super_admin' AND is_active=true ORDER BY id LIMIT 1`
 )).rows;
-const superToken = jwt.sign({ userId: sa.id, role: 'super_admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+const superToken = jwt.sign({ userId: sa.id, role: 'super_admin', kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 const [plainAdmin] = (await c.query(
   `SELECT id FROM admin_users WHERE role='admin' AND is_active=true ORDER BY id LIMIT 1`
 )).rows;
 const adminToken = plainAdmin
-  ? jwt.sign({ userId: plainAdmin.id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' })
+  ? jwt.sign({ userId: plainAdmin.id, role: 'admin', kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' })
   : null;
 
 const phone = '9' + String(Date.now()).slice(-9);

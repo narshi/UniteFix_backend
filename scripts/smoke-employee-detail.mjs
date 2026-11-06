@@ -90,7 +90,7 @@ try {
     const [sa] = (await c.query(
         `SELECT id FROM admin_users WHERE role='super_admin' AND is_active=true
            AND deleted_at IS NULL ORDER BY id LIMIT 1`)).rows;
-    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin', kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     let r = await req('GET', `/api/admin/servicemen/${emp.id}/detail`, { token: superToken });
     check('super_admin loads the full record', r.status === 200, `status ${r.status}`);
@@ -131,7 +131,7 @@ try {
          VALUES ($1,$2,'x',$3,$4,true) RETURNING id`,
         [`qastaff${stamp}`, `qastaff${stamp}@x.com`, `qa_staff_${stamp}`, role.id])).rows;
     made.admins.push(ad.id);
-    const staffToken = jwt.sign({ userId: ad.id, role: `qa_staff_${stamp}` }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const staffToken = jwt.sign({ userId: ad.id, role: `qa_staff_${stamp}`, kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     r = await req('GET', `/api/admin/servicemen/${emp.id}/detail`, { token: staffToken });
     check('a staff-only role can open the page', r.status === 200, `status ${r.status}`);

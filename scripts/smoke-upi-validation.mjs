@@ -193,7 +193,7 @@ try {
     const [sa] = (await c.query(
         `SELECT id FROM admin_users WHERE role='super_admin' AND is_active=true
            AND deleted_at IS NULL ORDER BY id LIMIT 1`)).rows;
-    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const superToken = jwt.sign({ userId: sa.id, role: 'super_admin', kind: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     r = await req('GET', '/api/admin/servicemen/list?q=QA UPI Partner', { token: superToken });
     const listed = (r.json?.data ?? []).find(p => p.id === employeeId);
