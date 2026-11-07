@@ -292,7 +292,8 @@ export function MapAddressPickerScreen() {
             await queryClient.invalidateQueries({ queryKey: queryKeys.profile });
 
             if (fromCheckout) {
-                navigation.navigate({ name: (route.params?.returnTo ?? 'ServiceRequest') as any, params: { selectedAddress: newAddress }, merge: true } as any);
+                // Back past Saved addresses to the form, which keeps what was typed (see SavedAddressesScreen).
+                navigation.popTo(route.params?.returnTo ?? 'ServiceRequest', { selectedAddress: newAddress }, { merge: true });
             } else {
                 navigation.goBack();
             }

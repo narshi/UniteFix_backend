@@ -258,6 +258,8 @@ export default function ServiceCatalogPage() {
       isActive: formData.get('isActive') === 'on',
       basePrice: Math.max(0, Math.round(Number(priceInput) || 0)),
       subCategory: ((formData.get('subCategory') as string) || '').trim() || null,
+      // Shown on the app's category page under the service, e.g. "30–45 mins". Blank = hidden.
+      durationLabel: ((formData.get('durationLabel') as string) || '').trim() || null,
       // Blank = the category's band.
       bookingBand: (formData.get('bookingBand') as string) || null,
     };
@@ -664,6 +666,12 @@ export default function ServiceCatalogPage() {
               <div className="grid gap-2">
                 <Label htmlFor="svc-banner" className="text-[hsl(215,20%,75%)]">Banner Image URL</Label>
                 <Input id="svc-banner" name="bannerImage" defaultValue={editingService?.bannerImage} placeholder="https://..." className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">The photo on the service's card in the app.</p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="svc-duration" className="text-[hsl(215,20%,75%)]">Typical duration</Label>
+                <Input id="svc-duration" name="durationLabel" maxLength={40} defaultValue={editingService?.durationLabel ?? ''} placeholder="e.g. 30–45 mins" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">Shown with a clock on the app's category page. Leave blank to hide it.</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">

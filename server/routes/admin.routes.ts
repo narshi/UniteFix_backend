@@ -24,6 +24,16 @@ import {
     parseListParams, buildOrderBy, dateRangeConditions, combine, paginationMeta,
 } from "../lib/list-query";
 
+/**
+ * A service's "typical duration" as sent by the catalogue form: trimmed, at most
+ * 40 characters, blank = not shown. Only present when the request sends it.
+ */
+function durationOf(body: any): { durationLabel?: string | null } {
+    if (!body || !Object.prototype.hasOwnProperty.call(body, 'durationLabel')) return {};
+    const v = typeof body.durationLabel === 'string' ? body.durationLabel.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+    return { durationLabel: v || null };
+}
+
 export function registerAdminRoutes(app: Express) {
     // ==================== SERVICE MANAGEMENT ====================
 
@@ -548,7 +558,7 @@ export function registerAdminRoutes(app: Express) {
             // A service's own booking band (null = its category's): checked, never written raw.
             const { BookingBandService } = await import("../services/booking-band.service");
             const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
-            const service = await storage.createService({ ...rest, ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
+            const service = await storage.createService({ ...rest, ...durationOf(req.body), ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
             res.json({ success: true, data: service });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -567,7 +577,7 @@ export function registerAdminRoutes(app: Express) {
             const id = parseInt(req.params.id);
             const { BookingBandService } = await import("../services/booking-band.service");
             const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
-            const updated = await storage.updateService(id, { ...rest, ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
+            const updated = await storage.updateService(id, { ...rest, ...durationOf(req.body), ...BookingBandService.clean({ bookingBand: req.body?.bookingBand }, { allowInherit: true }) });
             if (!updated) return res.status(404).json({ error: "Service not found" });
             res.json({ success: true, data: updated });
         } catch (error: any) {

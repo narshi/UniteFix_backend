@@ -1351,6 +1351,11 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS service_enquiries_status_idx ON service_enquiries (status);
       CREATE INDEX IF NOT EXISTS service_enquiries_partner_idx ON service_enquiries (partner_id);
     `],
+    // A service's typical duration for the app's category page. Additive: a new
+    // nullable column, no existing row touched; staff fill it in the catalogue.
+    ['catalogue: service duration', `
+      ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_label TEXT;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

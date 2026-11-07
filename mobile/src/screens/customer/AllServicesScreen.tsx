@@ -11,6 +11,7 @@ import { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
 import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
 import { openService, bandOf, bandColorOf, BAND_META } from '../../utils/serviceBands';
+import { useBackClose } from '../../hooks/useBackClose';
 
 /** A band colour as a soft tint (the same hue, mostly transparent) for icon boxes and pills. */
 const tint = (hex: string, alpha = '1A') => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? `${hex}${alpha}` : colors.primarySurface);
@@ -110,6 +111,8 @@ export const AllServicesScreen = () => {
     const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState(params?.query ?? '');
     const [isSearchActive, setIsSearchActive] = useState(openedToSearch);
+    // Back closes the search first, unless the screen was opened just to search.
+    useBackClose(isSearchActive && !openedToSearch, React.useCallback(() => { setIsSearchActive(false); setSearchQuery(''); }, []));
 
     // Set first category as default when loaded
     useEffect(() => {

@@ -47,6 +47,8 @@ export interface ServiceItem {
     /** Booking fee for this service's category — what the server will charge to book. Older servers omit it. */
     bookingFee?: number;
     subCategory?: string | null; // grouping within a category (e.g. Desktop/Laptop)
+    /** How long the job usually takes ("30–45 mins"), set in the admin catalogue. Older servers omit it. */
+    durationLabel?: string | null;
     /** The booking band that applies to this service (its own, or its category's). */
     band?: string;
     bandLabel?: string;

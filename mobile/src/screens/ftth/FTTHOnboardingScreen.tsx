@@ -23,6 +23,7 @@ import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { ScreenHeader, Button, Input } from '../../components/ui';
 import { useScreenInsets } from '../../theme/layout';
+import { useBackClose } from '../../hooks/useBackClose';
 
 type Props = NativeStackScreenProps<any, 'FTTHOnboarding'>;
 type Mode = 'choose' | 'new' | 'existing';
@@ -36,6 +37,8 @@ export function FTTHOnboardingScreen({ navigation, route }: Props) {
     // Opened from a lookup that found the connection on another number: go
     // straight to the link request, with the ID already filled in.
     const [mode, setMode] = useState<Mode>(route.params?.mode === 'existing' ? 'existing' : 'choose');
+    // Back from "existing" or "new" returns to the choice, as the header arrow does.
+    useBackClose(mode !== 'choose', React.useCallback(() => setMode('choose'), []));
     const [form, setForm] = useState({
         name: user?.username ?? '',
         phone: (user?.phone ?? '').replace(/^\+91/, ''),

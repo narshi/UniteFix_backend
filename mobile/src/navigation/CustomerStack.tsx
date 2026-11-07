@@ -44,8 +44,8 @@ export function CustomerStack() {
             {/* Free quotes (referral band): an enquiry to partners near the customer. */}
             <Stack.Screen name="ServiceEnquiry" component={ServiceEnquiryScreen} />
             {/* A category's page, from the Home showcase. */}
-            <Stack.Screen name="CategoryDetail" component={CategoryDetailScreen} />
-            <Stack.Screen name="RequestDetail" component={RequestDetailScreen} />
+            <Stack.Screen name="CategoryDetail" component={CategoryDetailScreen} getId={({ params }: any) => (params?.categoryId != null ? String(params.categoryId) : undefined)} />
+            <Stack.Screen name="RequestDetail" component={RequestDetailScreen} getId={({ params }: any) => { const id = params?.id ?? params?.request?.id; return id != null ? String(id) : undefined; }} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="OtpDisplay" component={OtpDisplayScreen} />
             <Stack.Screen name="SupportTicket" component={SupportTicketScreen} />

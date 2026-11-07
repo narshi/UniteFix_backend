@@ -17,7 +17,12 @@ a navy fade baked in); the app never loads them from Pexels.
 | `recharge.jpg` | More for You → Recharge & Pay | Person Holding Smartphone | Henry Marsh | https://www.pexels.com/photo/person-holding-smartphone-58625/ |
 | `photo-shoots.jpg` | More for You → Photo Shoots | Black DSLR Camera | Trung Nguyen | https://www.pexels.com/photo/black-dslr-camera-2959199/ |
 
+Category page headers (`hero-*.jpg`) are larger crops of the same photos with a navy fade:
+`hero-plumbing.jpg` (Diva Plavalaguna), `hero-electrical.jpg` (CHIHWEI CHENG), `hero-ac.jpg` (NEOSiAM 18+),
+`hero-painting.jpg` (Polina Tankilevitch, mirrored), `hero-default.jpg` (Sharath G.).
+
 Not photos:
 
 - `handshake-white.png`: the handshake from UniteFix's own logo (`mobile/assets/logo.jpg`), in white on transparent for the navy header.
 - `header-fade.png`: a navy-to-background gradient strip for under the header.
+- `fade-to-navy.png`: a transparent-to-navy strip where a category header photo meets its trust band.

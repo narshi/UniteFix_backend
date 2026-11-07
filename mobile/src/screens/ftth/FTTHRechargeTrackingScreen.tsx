@@ -13,6 +13,7 @@ import {
     RefreshControl, Linking,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useBackClose } from '../../hooks/useBackClose';
 import { useQuery } from '@tanstack/react-query';
 import {
     CheckCircle2, Clock, Phone, MessageSquare, RefreshCw,
@@ -28,6 +29,10 @@ import { useScreenInsets } from '../../theme/layout';
 type Props = NativeStackScreenProps<any, 'FTTHRechargeTracking'>;
 
 export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
+    // Home is the tabs already at the bottom of the stack: pop back to them
+    // (navigate() would push a second set). Android's back button does the same.
+    const goHome = React.useCallback(() => navigation.popTo('CustomerTabs'), [navigation]);
+    useBackClose(true, goHome);
     const rechargeId = Number(route.params?.rechargeId);
     const { bottomBar } = useScreenInsets();
 
@@ -67,7 +72,7 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
     if (isLoading) {
         return (
             <View style={styles.screen}>
-                <ScreenHeader title="Recharge Status" onBack={() => navigation.navigate('CustomerTabs')} />
+                <ScreenHeader title="Recharge Status" onBack={() => goHome()} />
                 <View style={styles.centerContainer}>
                     <ActivityIndicator size="large" color={colors.primary} />
                     <Text style={styles.loadingText}>Fetching recharge status…</Text>
@@ -79,13 +84,13 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
     if (!tracking) {
         return (
             <View style={styles.screen}>
-                <ScreenHeader title="Recharge Status" onBack={() => navigation.navigate('CustomerTabs')} />
+                <ScreenHeader title="Recharge Status" onBack={() => goHome()} />
                 <View style={styles.centerContainer}>
                     <Text style={styles.errorTitle}>Recharge Not Found</Text>
                     <Text style={styles.errorBody}>Unable to load tracking information for this recharge.</Text>
                     <Button
                         title="Back to Home"
-                        onPress={() => navigation.navigate('CustomerTabs')}
+                        onPress={() => goHome()}
                         style={{ marginTop: spacing.xl }}
                     />
                 </View>
@@ -99,7 +104,7 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
         <View style={styles.screen}>
             <ScreenHeader
                 title="Recharge Status"
-                onBack={() => navigation.navigate('CustomerTabs')}
+                onBack={() => goHome()}
                 rightAction={
                     <TouchableOpacity onPress={() => refetch()} style={styles.headerRefreshBtn}>
                         <RefreshCw size={18} color={colors.primary} />
@@ -314,7 +319,7 @@ export function FTTHRechargeTrackingScreen({ navigation, route }: Props) {
                 <View style={styles.actionButtonsContainer}>
                     <Button
                         title="Back to Home"
-                        onPress={() => navigation.navigate('CustomerTabs')}
+                        onPress={() => goHome()}
                         variant="primary"
                         style={{ flex: 1 }}
                     />

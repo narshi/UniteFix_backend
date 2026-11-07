@@ -445,6 +445,8 @@ export const services = pgTable("services", {
   // (e.g. category "Computer" → sub-categories "Desktop" / "Laptop"). Null means
   // the service shows under the category's "All" tab only.
   subCategory: text("sub_category"),
+  // How long the job usually takes, as the app shows it ("30–45 mins"). Null = not shown.
+  durationLabel: text("duration_label"),
   status: serviceItemStatusEnum("status").default('ACTIVE'),
   isHomeVisible: boolean("is_home_visible").default(true),
   sortOrder: integer("sort_order").default(0),

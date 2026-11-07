@@ -18,6 +18,7 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii } from '../../theme/spacing';
 import { Button } from '../../components/ui';
+import { useBackClose } from '../../hooks/useBackClose';
 
 type Planner = { id: number; code: string; name: string; city: string | null; categories: string[]; startingFrom: number | null };
 type MyEnquiry = { id: number; partner: string; partnerPhone: string | null; eventType: string; eventDate: string | null; guests: number | null; status: string; quotation: { number: string; version: number; status: string; total: number; link: string } | null };
@@ -38,6 +39,8 @@ export function EventPlannerScreen({ navigation }: Props) {
     });
     const mine = useQuery<MyEnquiry[]>({ queryKey: ['myEventEnquiries'], queryFn: async () => (await apiClient.get('/api/events/my-enquiries')).data?.data ?? [] });
     const [picked, setPicked] = useState<Planner | null>(null);
+    // Back from a planner's form returns to the list, as the header arrow does.
+    useBackClose(!!picked, React.useCallback(() => setPicked(null), []));
     const [f, setF] = useState({ eventType: '', eventDate: '', guests: '', venue: '', budget: '', message: '' });
     const send = useMutation({
         mutationFn: async () => (await apiClient.post('/api/events/enquiries', {

@@ -73,12 +73,10 @@ export function SavedAddressesScreen() {
 
     const handleSelect = (address: SavedAddress) => {
         if (fromCheckout) {
-            // Need to pass the selected address back to the previous screen (ServiceRequestScreen)
-            navigation.navigate({
-                name: returnTo as any,
-                params: { selectedAddress: address },
-                merge: true,
-            });
+            // Back to the form that asked, with the address. popTo returns to the
+            // existing screen (its filled-in state intact); navigate() in React
+            // Navigation 7 would push a second, empty copy of the form on top.
+            navigation.popTo(returnTo, { selectedAddress: address }, { merge: true });
         }
     };
 

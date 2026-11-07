@@ -184,6 +184,26 @@
       "coming_soon": "Coming soon",
       "travel_soon_title": "Travel & Tours — coming soon",
       "travel_soon_body": "Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready."
+    },
+    "category_page": {
+      "missing": "This category is not available right now.",
+      "go_back": "Go back",
+      "none": "Services are coming to this category soon.",
+      "no_match": "No services match your search or filters.",
+      "clear": "Clear search and filters",
+      "quick_booking": "Quick Booking",
+      "transparent_pricing": "Transparent Pricing",
+      "search": "Search {{name}}…",
+      "services_of": "{{name}} Services",
+      "count": "{{count}} Services",
+      "count_of": "{{count}} of {{total}}",
+      "sort_by": "Sort by",
+      "sort_recommended": "Recommended",
+      "sort_low": "Price: low to high",
+      "sort_high": "Price: high to low",
+      "type": "Type",
+      "all": "All",
+      "show": "Show services"
     }
   }
 }
