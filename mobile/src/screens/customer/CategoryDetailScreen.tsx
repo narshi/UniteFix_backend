@@ -16,7 +16,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
     View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, TextInput, Modal,
-    StatusBar, useWindowDimensions, Image as RNImage, ImageSourcePropType,
+    StatusBar, useWindowDimensions, Image as RNImage,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +27,8 @@ import {
 } from 'lucide-react-native';
 import { useAllServices } from '../../hooks/useCustomerData';
 import type { ServiceCategory, ServiceItem } from '../../api/customer.api';
-import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
+import { getCategoryIcon } from '../../utils/serviceIcons';
+import { usePhotoResolver, PhotoResolver } from '../../utils/servicePhotos';
 import { openService, bandOf, BAND_META } from '../../utils/serviceBands';
 import { useBackClose } from '../../hooks/useBackClose';
 import { brand } from '../../theme/colors';
@@ -39,15 +40,7 @@ type Sort = 'recommended' | 'price_low' | 'price_high';
 const SIDE = spacing.base;
 /** hero-*.jpg are 1080 × 820; the photo part of the header is at most this tall for the width. */
 const HERO_RATIO = 820 / 1080 * 0.78;
-const HEROES: { match: RegExp; src: ImageSourcePropType }[] = [
-    { match: /plumb/i, src: require('../../../assets/home/hero-plumbing.jpg') },
-    { match: /electric/i, src: require('../../../assets/home/hero-electrical.jpg') },
-    { match: /\bac\b|a\.c\.|air ?condition/i, src: require('../../../assets/home/hero-ac.jpg') },
-    { match: /paint/i, src: require('../../../assets/home/hero-painting.jpg') },
-];
-const HERO_DEFAULT = require('../../../assets/home/hero-default.jpg');
 const FADE_TO_NAVY = require('../../../assets/home/fade-to-navy.png');
-const heroFor = (name: string) => HEROES.find(h => h.match.test(name))?.src ?? HERO_DEFAULT;
 
 const HOW: Record<string, string> = {
     field_service: 'Book a visit: an expert comes to you.',
@@ -113,6 +106,8 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
 
     const onOpen = useCallback((s: ServiceItem) => openService(navigation, s), [navigation]);
     const photoW = Math.round(Math.min(Math.max(width * 0.27, 92), 132));
+    // Every service and the header get a photo (utils/servicePhotos.ts).
+    const photos = usePhotoResolver();
 
     if (!cat) {
         return (
@@ -134,6 +129,7 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
         <CategoryHero
             cat={cat}
             width={width}
+            hero={photos.hero(cat)}
             topInset={insets.top}
             searching={searching}
             query={query}
@@ -155,7 +151,7 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
                 data={items}
                 keyExtractor={s => String(s.id)}
                 ListHeaderComponent={header}
-                renderItem={({ item }) => <ServiceRow s={item} photoW={photoW} onOpen={onOpen} />}
+                renderItem={({ item }) => <ServiceRow s={item} cat={cat} photos={photos} photoW={photoW} onOpen={onOpen} />}
                 ItemSeparatorComponent={Separator}
                 ListEmptyComponent={
                     <View style={styles.empty}>
@@ -198,7 +194,7 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
 const Separator = () => <View style={{ height: spacing.md }} />;
 
 function CategoryHero(p: {
-    cat: ServiceCategory; width: number; topInset: number; searching: boolean; query: string; filtered: boolean;
+    cat: ServiceCategory; width: number; hero: ReturnType<PhotoResolver['hero']>; topInset: number; searching: boolean; query: string; filtered: boolean;
     onBack: () => void; onSearch: () => void; onQuery: (q: string) => void; onCloseSearch: () => void; onFilter: () => void;
     count: number; total: number;
 }) {
@@ -219,7 +215,9 @@ function CategoryHero(p: {
             <View style={[styles.hero, { paddingTop: p.topInset + spacing.sm, minHeight: Math.min(p.width * HERO_RATIO, 420) }]}>
                 {/* The photo fills the top part whatever its height (absolute edges give it a definite size),
                     and melts into the navy trust band below on any screen. */}
-                <RNImage source={heroFor(cat.name)} style={StyleSheet.absoluteFill} resizeMode="cover" accessible={false} />
+                <RNImage source={p.hero.source} style={StyleSheet.absoluteFill} resizeMode="cover" accessible={false} />
+                {/* An admin's own photo has no fade of its own: darken it so the white text reads. */}
+                {!p.hero.faded && <View style={[StyleSheet.absoluteFill, styles.heroScrim]} />}
                 <RNImage source={FADE_TO_NAVY} style={styles.heroFade} resizeMode="stretch" accessible={false} />
 
                 {/* Back, search, filter */}
@@ -302,8 +300,10 @@ function CategoryHero(p: {
     );
 }
 
-const ServiceRow = React.memo(function ServiceRow({ s, photoW, onOpen }: { s: ServiceItem; photoW: number; onOpen: (s: ServiceItem) => void }) {
-    const SIcon = getServiceIcon(s);
+const ServiceRow = React.memo(function ServiceRow({ s, cat, photos, photoW, onOpen }: { s: ServiceItem; cat: ServiceCategory; photos: PhotoResolver; photoW: number; onOpen: (s: ServiceItem) => void }) {
+    // If the admin's photo link fails to load, fall back to the bundled photo for this service.
+    const [linkFailed, setLinkFailed] = useState(false);
+    const source = photos.service(s, cat, linkFailed);
     const price = priceOf(s);
     const photoH = Math.round(photoW * 0.82);
     const off = s.status !== 'ACTIVE';
@@ -315,11 +315,7 @@ const ServiceRow = React.memo(function ServiceRow({ s, photoW, onOpen }: { s: Se
             accessibilityLabel={`${s.name}. ${price.text}${s.durationLabel ? `. ${s.durationLabel}` : ''}`}
         >
             <View style={[styles.photo, { width: photoW, height: photoH }, off && styles.off]}>
-                {s.bannerImage ? (
-                    <Image source={{ uri: s.bannerImage }} style={{ width: photoW, height: photoH }} contentFit="cover" transition={180} cachePolicy="memory-disk" recyclingKey={String(s.id)} accessible={false} />
-                ) : (
-                    <View style={styles.photoIcon}><SIcon size={30} color={brand.navy} strokeWidth={1.9} /></View>
-                )}
+                <Image source={source} style={{ width: photoW, height: photoH }} contentFit="cover" transition={160} cachePolicy="memory-disk" recyclingKey={String(s.id)} onError={() => setLinkFailed(true)} accessible={false} />
             </View>
             <View style={styles.rowBody}>
                 <Text style={styles.rowName} numberOfLines={2} maxFontSizeMultiplier={1.25}>{s.name}</Text>
@@ -422,7 +418,7 @@ const styles = StyleSheet.create({
     row: { flexDirection: 'row', alignItems: 'center', marginHorizontal: SIDE, padding: 8, paddingRight: spacing.md, gap: spacing.md, backgroundColor: brand.white, borderRadius: 18, borderWidth: 1, borderColor: brand.cardBorder, ...shadow },
     rowPressed: { transform: [{ scale: 0.985 }], opacity: 0.94 },
     photo: { borderRadius: 13, overflow: 'hidden', backgroundColor: brand.background },
-    photoIcon: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(9,38,74,0.07)' },
+    heroScrim: { backgroundColor: 'rgba(9,38,74,0.55)' },
     off: { opacity: 0.55 },
     rowBody: { flex: 1, minWidth: 0, paddingVertical: 4 },
     rowName: { fontSize: 15.5, lineHeight: 20, fontWeight: '800', color: brand.text },

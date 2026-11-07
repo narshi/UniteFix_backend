@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
 const { AlertCircle, ArrowLeft, ArrowRight, Search, Users, ShieldCheck, Clock, Headphones, Inbox, X } = LucideIcons;
@@ -9,9 +9,10 @@ import { CustomerTabParamList, HomeStackParamList } from '../../types/navigation
 import { useAllServices } from '../../hooks/useCustomerData';
 import { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { colors, spacing, typography, radii, shadows } from '../../theme';
-import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
 import { openService, bandOf, bandColorOf, BAND_META } from '../../utils/serviceBands';
 import { useBackClose } from '../../hooks/useBackClose';
+import { Image as Photo } from 'expo-image';
+import { usePhotoResolver, Photo as PhotoSource } from '../../utils/servicePhotos';
 
 /** A band colour as a soft tint (the same hue, mostly transparent) for icon boxes and pills. */
 const tint = (hex: string, alpha = '1A') => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? `${hex}${alpha}` : colors.primarySurface);
@@ -46,23 +47,9 @@ const TRUST_BADGES = [
     { icon: Headphones, color: colors.info, title: '24/7 Support', caption: "We're here to help you" },
 ] as const;
 
-// Map categories to the local 3D icon PNGs
-const CATEGORY_3D_ICONS: Record<string, any> = {
-    'IT & Security': require('../../assets/icons3d/3dicons-shield-dynamic-color.png'),
-    'Appliances & Utilities': require('../../assets/icons3d/3dicons-flash-front-color.png'),
-    'Repairs & Maintenance': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
-    'Professional & Property': require('../../assets/icons3d/3dicons-suitecase-iso-color.png'),
-    'Transport & Logistics': require('../../assets/icons3d/3dicons-suitecase-iso-color.png'), // Fallback
-    'Events, Travel & Lifestyle': require('../../assets/icons3d/3dicons-trophy-iso-color.png'),
-    'Specialized Services': require('../../assets/icons3d/3dicons-star-iso-color.png'),
-    'Technology Services': require('../../assets/icons3d/3dicons-shield-dynamic-color.png'),
-    'Home Services': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
-    'Repair Services': require('../../assets/icons3d/3dicons-tools-dynamic-color.png'),
-};
 
 /** Design-spec service card: white card, rounded box icon, title, subtitle + arrow chip. */
-const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () => void }) => {
-    const Icon = getServiceIcon(service);
+const ServiceTile = ({ service, photo, onPress }: { service: ServiceItem; photo: PhotoSource; onPress: () => void }) => {
     const band = bandOf(service);
     const accent = bandColorOf(service);
     return (
@@ -71,9 +58,8 @@ const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () =
             onPress={onPress}
             activeOpacity={0.75}
         >
-            <View style={[styles.serviceTileIconBox, { backgroundColor: tint(accent) }]}>
-                <Icon size={24} color={accent} strokeWidth={2.0} />
-            </View>
+            {/* The service's photo (utils/servicePhotos.ts): fixed height, width from the tile. */}
+            <Photo source={photo} style={styles.serviceTilePhoto} contentFit="cover" transition={160} cachePolicy="memory-disk" recyclingKey={String(service.id)} accessible={false} />
             <Text style={styles.serviceTileTitle} numberOfLines={2}>{service.name}</Text>
             {band !== 'field_service' && (
                 <View style={[styles.bandChip, { backgroundColor: tint(accent) }]}>
@@ -106,6 +92,7 @@ export const AllServicesScreen = () => {
     const params = useRoute<RouteProp<HomeStackParamList, 'AllServices'>>().params;
     const openedToSearch = !!params?.search;
     const { data: categories, isLoading, error } = useAllServices();
+    const photos = usePhotoResolver();
 
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
@@ -173,7 +160,6 @@ export const AllServicesScreen = () => {
 
     const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : subFilteredItems;
 
-    const BannerIcon = selectedCategory ? getCategoryIcon(selectedCategory) : null;
 
     return (
         <SafeAreaView style={styles.container}>
@@ -224,7 +210,6 @@ export const AllServicesScreen = () => {
                     <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         {categories.map((category) => {
                             const isSelected = category.id === selectedCategoryId;
-                            const CategoryIcon = getCategoryIcon(category);
                             return (
                                 <TouchableOpacity
                                     key={category.id}
@@ -240,19 +225,7 @@ export const AllServicesScreen = () => {
                                         styles.sidebarIconContainer,
                                         isSelected && styles.sidebarIconContainerSelected
                                     ]}>
-                                        {CATEGORY_3D_ICONS[category.name] ? (
-                                            <Image 
-                                                source={CATEGORY_3D_ICONS[category.name]} 
-                                                style={{ width: 34, height: 34, opacity: isSelected ? 1 : 0.6 }} 
-                                                resizeMode="contain"
-                                            />
-                                        ) : (
-                                            <CategoryIcon
-                                                size={24}
-                                                color={isSelected ? colors.primary : colors.textSecondary}
-                                                strokeWidth={isSelected ? 2.4 : 2}
-                                            />
-                                        )}
+                                        <Photo source={photos.category(category)} style={[styles.sidebarPhoto, !isSelected && styles.sidebarPhotoIdle]} contentFit="cover" transition={120} cachePolicy="memory-disk" accessible={false} />
                                     </View>
                                     <Text
                                         style={[
@@ -278,7 +251,7 @@ export const AllServicesScreen = () => {
                                 <View style={styles.categoryBannerText}>
                                     <Text style={styles.categoryBannerTitle}>{selectedCategory.name}</Text>
                                     <Text style={styles.categoryBannerSubtitle} numberOfLines={2}>
-                                        {CATEGORY_TAGLINES[selectedCategory.name] || DEFAULT_TAGLINE}
+                                        {selectedCategory.tagline || CATEGORY_TAGLINES[selectedCategory.name] || DEFAULT_TAGLINE}
                                     </Text>
                                     <View style={styles.categoryBannerPill}>
                                         <Users size={14} color={colors.primary} strokeWidth={2.4} />
@@ -290,20 +263,8 @@ export const AllServicesScreen = () => {
                                         </Text>
                                     )}
                                 </View>
-                                {BannerIcon && !CATEGORY_3D_ICONS[selectedCategory.name] && (
-                                    <View style={styles.categoryBannerArt}>
-                                        <BannerIcon size={44} color={colors.primary} strokeWidth={1.8} />
-                                    </View>
-                                )}
-                                {CATEGORY_3D_ICONS[selectedCategory.name] && (
-                                    <View style={styles.categoryBannerArt3D}>
-                                        <Image 
-                                            source={CATEGORY_3D_ICONS[selectedCategory.name]} 
-                                            style={{ width: 130, height: 130 }} 
-                                            resizeMode="contain"
-                                        />
-                                    </View>
-                                )}
+                                <Photo source={photos.category(selectedCategory)} style={styles.categoryBannerPhoto} contentFit="cover" transition={160} cachePolicy="memory-disk" accessible={false} />
+
                             </View>
                         )}
 
@@ -345,6 +306,7 @@ export const AllServicesScreen = () => {
                                 <ServiceTile
                                     key={service.id}
                                     service={service}
+                                    photo={photos.service(service, categories.find(c => c.id === service.categoryId))}
                                     onPress={() => handleServicePress(service)}
                                 />
                             )) : (
@@ -652,15 +614,16 @@ const styles = StyleSheet.create({
     serviceTileDisabled: {
         opacity: 0.75,
     },
-    serviceTileIconBox: {
-        width: 44,
-        height: 44,
+    serviceTilePhoto: {
+        height: 86,
+        alignSelf: 'stretch',
         borderRadius: 14,
         backgroundColor: colors.primarySurface,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 12,
+        marginBottom: 10,
     },
+    sidebarPhoto: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: colors.primary },
+    sidebarPhotoIdle: { opacity: 0.75, borderColor: 'transparent' },
+    categoryBannerPhoto: { width: 84, height: 84, borderRadius: radii['2xl'] },
     serviceTileTitle: {
         fontSize: 13.5,
         fontWeight: '700',

@@ -20,6 +20,9 @@ a navy fade baked in); the app never loads them from Pexels.
 Category page headers (`hero-*.jpg`) are larger crops of the same photos with a navy fade:
 `hero-plumbing.jpg` (Diva Plavalaguna), `hero-electrical.jpg` (CHIHWEI CHENG), `hero-ac.jpg` (NEOSiAM 18+),
 `hero-painting.jpg` (Polina Tankilevitch, mirrored), `hero-default.jpg` (Sharath G.).
+The other headers (`hero-inspection`, `-computer`, `-printer`, `-cctv`, `-biometric`, `-battery`,
+`-purifier`, `-broadband`, `-tax`, `-travel`, `-solar`, `-washing`) are crops of the service photos
+credited in ../services/CREDITS.md.
 
 Not photos:
 

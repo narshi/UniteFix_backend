@@ -61,6 +61,8 @@ import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
 import { useScreenInsets } from '../../theme/layout';
+import { Image as Photo } from 'expo-image';
+import { photoForName } from '../../utils/servicePhotos';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -336,6 +338,7 @@ function ActiveBookingCard({
 
     const serviceIcon = getServiceIcon(item.serviceType);
     const ServiceIcon = serviceIcon.icon;
+    const photo = photoForName(item.serviceType);
     const needsPayment = item.status === 'pending_payment';
 
     const dateTime = new Date(item.createdAt);
@@ -384,7 +387,9 @@ function ActiveBookingCard({
                                 { backgroundColor: serviceIcon.color + '15' },
                             ]}
                         >
-                            <ServiceIcon size={20} color={serviceIcon.color} strokeWidth={2} />
+                            {photo
+                                ? <Photo source={photo} style={activeCardStyles.iconPhoto} contentFit="cover" accessible={false} />
+                                : <ServiceIcon size={20} color={serviceIcon.color} strokeWidth={2} />}
                         </View>
                         <View style={activeCardStyles.titleBlock}>
                             <Text style={activeCardStyles.serviceType} numberOfLines={1}>
@@ -482,7 +487,9 @@ const activeCardStyles = StyleSheet.create({
         borderRadius: 12,
         justifyContent: 'center',
         alignItems: 'center',
+        overflow: 'hidden',
     },
+    iconPhoto: { width: 40, height: 40 },
     titleBlock: {
         flex: 1,
     },
@@ -581,6 +588,7 @@ function PastBookingCard({
 }) {
     const serviceIcon = getServiceIcon(item.serviceType);
     const ServiceIcon = serviceIcon.icon;
+    const photo = photoForName(item.serviceType);
     const isCancelled = item.status === 'cancelled';
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -630,11 +638,15 @@ function PastBookingCard({
                         { backgroundColor: isCancelled ? colors.errorLight : '#F8FAFC' },
                     ]}
                 >
-                    <ServiceIcon
-                        size={18}
-                        color={isCancelled ? colors.errorDark : serviceIcon.color + '99'}
-                        strokeWidth={2}
-                    />
+                    {photo ? (
+                        <Photo source={photo} style={[pastCardStyles.iconPhoto, isCancelled && { opacity: 0.45 }]} contentFit="cover" accessible={false} />
+                    ) : (
+                        <ServiceIcon
+                            size={18}
+                            color={isCancelled ? colors.errorDark : serviceIcon.color + '99'}
+                            strokeWidth={2}
+                        />
+                    )}
                 </View>
 
                 {/* Content */}
@@ -705,7 +717,9 @@ const pastCardStyles = StyleSheet.create({
         borderRadius: 10,
         justifyContent: 'center',
         alignItems: 'center',
+        overflow: 'hidden',
     },
+    iconPhoto: { width: 36, height: 36 },
     content: {
         flex: 1,
     },
