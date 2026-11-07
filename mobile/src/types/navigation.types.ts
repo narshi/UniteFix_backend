@@ -66,7 +66,7 @@ export type BusinessPartnerStackParamList = {
 // Stack params for nested navigators
 export type HomeStackParamList = {
     Home: undefined;
-    AllServices: undefined;
+    AllServices: { search?: boolean; query?: string } | undefined;
     ServiceRequest: { serviceType?: string; serviceName?: string; serviceId?: number; basePrice?: number; bookingFee?: number; band?: string; selectedAddress?: any };
     ServiceEnquiry: { serviceId: number; serviceName: string; selectedAddress?: any };
     CategoryDetail: { categoryId: number };

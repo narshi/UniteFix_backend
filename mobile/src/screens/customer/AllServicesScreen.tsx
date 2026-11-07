@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
 const { AlertCircle, ArrowLeft, ArrowRight, Search, Users, ShieldCheck, Clock, Headphones, Inbox, X } = LucideIcons;
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CustomerTabParamList, HomeStackParamList } from '../../types/navigation.types';
 import { useAllServices } from '../../hooks/useCustomerData';
@@ -101,12 +101,15 @@ const ServiceTile = ({ service, onPress }: { service: ServiceItem; onPress: () =
 
 export const AllServicesScreen = () => {
     const navigation = useNavigation<NavigationProp>();
+    // The Home search bar opens this screen already searching (and may carry a word).
+    const params = useRoute<RouteProp<HomeStackParamList, 'AllServices'>>().params;
+    const openedToSearch = !!params?.search;
     const { data: categories, isLoading, error } = useAllServices();
 
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState(params?.query ?? '');
+    const [isSearchActive, setIsSearchActive] = useState(openedToSearch);
 
     // Set first category as default when loaded
     useEffect(() => {
@@ -156,10 +159,14 @@ export const AllServicesScreen = () => {
         : categoryItems;
 
     // Search logic: filter across ALL categories if searching
-    const allServices = categories.flatMap(c => c.items || []);
-    const searchResults = searchQuery.trim() === ''
+    // A service matches on its own name or subtitle, or its category's name ("travel", "tax").
+    const q = searchQuery.trim().toLowerCase();
+    const searchResults = q === ''
         ? categoryItems
-        : allServices.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase()));
+        : categories.flatMap(c => {
+            const catHit = c.name.toLowerCase().includes(q);
+            return (c.items || []).filter(s => catHit || s.name.toLowerCase().includes(q) || s.subtitle?.toLowerCase().includes(q));
+        });
 
     const itemsToDisplay = isSearchActive && searchQuery.trim() !== '' ? searchResults : subFilteredItems;
 
@@ -171,7 +178,7 @@ export const AllServicesScreen = () => {
             <View style={styles.header}>
                 {isSearchActive ? (
                     <View style={styles.searchHeaderRow}>
-                        <TouchableOpacity onPress={() => { setIsSearchActive(false); setSearchQuery(''); }} style={styles.backButton}>
+                        <TouchableOpacity onPress={() => { if (openedToSearch) { navigation.goBack(); return; } setIsSearchActive(false); setSearchQuery(''); }} style={styles.backButton}>
                             <ArrowLeft size={22} color={colors.textPrimary} />
                         </TouchableOpacity>
                         <View style={styles.searchInputContainer}>

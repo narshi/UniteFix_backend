@@ -1,89 +1,71 @@
 /**
- * Home Screen — Premium customer landing page (Redesigned)
+ * Home Screen — the customer's landing page.
  *
- * Features:
- * - Dark hero header with avatar + greeting
- * - Location pill with city/state display
- * - Language toggle (ಕನ್ನಡ / EN)
- * - Trust indicators (Verified Experts, Best Rated, Prompt Service)
- * - Service category grid with pricing
- * - "Book a Service" CTA button
- * - Customer Care FAB (opens dialer)
+ *   A  Header: logo, notifications, profile, greeting, headline, location
+ *      (and the ಕನ್ನಡ / EN toggle), over a photo of a home.
+ *   B  Search: opens All Services already searching.
+ *   C  Trust strip: Verified Experts · Quick & Easy · Fair Pricing.
+ *   D  Home Services: Plumbing, Electrical, AC Service, Painting, and View All.
+ *   E  More for You: Travel & Tours, Recharge & Pay, Photo Shoots.
+ *
+ * Every card goes somewhere real. A Home Services card opens the matching
+ * category (or service) in the catalogue the admin keeps, and falls back to a
+ * search for it, so renaming or regrouping categories never leaves a dead card.
+ * Kept from before: the profile gate, a partner's referral banner, the
+ * newspapers card, the not-serviceable notice and the Customer care button.
  */
 
 import React from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    RefreshControl,
-    StatusBar,
-    Alert,
-    Linking,
-} from 'react-native';
-import {
-    Bell,
-    ChevronRight,
-    MapPin,
-    Star,
-    Shield,
-    Clock,
-    Phone,
-    CalendarPlus,
-    Router,
-    PartyPopper,
-} from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking } from 'react-native';
+import { MapPin, Phone, Droplets, Zap, Snowflake, PaintRoller, Plane, Smartphone, Camera } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useProfile, useUnreadNotificationCount, usePublicConfig } from '../../hooks/useCustomerData';
+import * as Location from 'expo-location';
+import { useTranslation } from 'react-i18next';
+import { useProfile, useUnreadNotificationCount, usePublicConfig, useAllServices } from '../../hooks/useCustomerData';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLanguageStore } from '../../stores/languageStore';
-import { colors } from '../../theme/colors';
+import { colors, brand } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing, radii, shadows } from '../../theme/spacing';
-import { Skeleton, CardSkeleton } from '../../components/Skeleton';
-import * as Location from 'expo-location';
-import { customerApi } from '../../api/customer.api';
-import { useTranslation } from 'react-i18next';
-
-import { ServiceCard } from '../../components/services/ServiceCard';
-import { useHomeServices } from '../../hooks/useCustomerData';
-import { ServiceItem } from '../../api/customer.api';
+import { spacing, radii } from '../../theme/spacing';
 import { useScreenInsets } from '../../theme/layout';
+import { customerApi } from '../../api/customer.api';
+import type { ServiceCategory, ServiceItem } from '../../api/customer.api';
 import { useServiceability } from '../../hooks/useServiceability';
+import { openService } from '../../utils/serviceBands';
 import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
-import { FeaturedBanners, CategoryGrid } from '../../components/customer/CategoryShowcase';
-import { useAllServices } from '../../hooks/useCustomerData';
-import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
+import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
+import { HomeHero } from '../../components/home/HomeHero';
+import { SectionHeader, ServicePhotoCard, MoreCard } from '../../components/home/HomeCards';
 
-// Trust indicators — non-committing labels as requested
-const TRUST_ITEMS = [
-    { icon: Shield, labelKey: 'home_extra.verified_experts', fallback: 'Verified Experts' },
-    { icon: Star, labelKey: 'home_extra.best_rated', fallback: 'Best Rated' },
-    { icon: Clock, labelKey: 'home_extra.prompt_service', fallback: 'Prompt Service' },
-];
+const PHOTOS = {
+    plumbing: require('../../../assets/home/plumbing.jpg'),
+    electrical: require('../../../assets/home/electrical.jpg'),
+    ac: require('../../../assets/home/ac-service.jpg'),
+    painting: require('../../../assets/home/painting.jpg'),
+    travel: require('../../../assets/home/travel.jpg'),
+    recharge: require('../../../assets/home/recharge.jpg'),
+    photo: require('../../../assets/home/photo-shoots.jpg'),
+};
+
+/** What each Home Services card looks for in the catalogue, and the word it searches for otherwise. */
+const HOME_SERVICES = [
+    { key: 'plumbing', label: 'Plumbing', Icon: Droplets, match: /plumb/i, query: 'plumb' },
+    { key: 'electrical', label: 'Electrical', Icon: Zap, match: /electric/i, query: 'electric' },
+    { key: 'ac', label: 'AC Service', Icon: Snowflake, match: /\bac\b|a\.c\.|air ?condition/i, query: 'AC' },
+    { key: 'painting', label: 'Painting', Icon: PaintRoller, match: /paint/i, query: 'paint' },
+] as const;
+
+const SIDE = spacing.base;
+const live = (s: ServiceItem) => s.status !== 'DISABLED';
 
 export function HomeScreen() {
     const { headerTop, tabContent, fabBottom } = useScreenInsets();
     const { user } = useAuthStore();
-    const {
-        data: profile,
-        isLoading: isProfileLoading,
-        isRefetching: isProfileRefetching,
-        refetch: refetchProfile,
-    } = useProfile();
-    const {
-        data: homeServices,
-        isLoading: isServicesLoading,
-        isRefetching: isServicesRefetching,
-        refetch: refetchServices,
-    } = useHomeServices();
+    const { data: profile, isLoading: isProfileLoading, isRefetching: isProfileRefetching, refetch: refetchProfile } = useProfile();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
-    // The showcase: categories in the admin's order, with this season's highlights.
-    const { data: categories, isLoading: categoriesLoading } = useAllServices();
+    const { data: categories, isRefetching: isCategoriesRefetching, refetch: refetchCategories } = useAllServices();
     const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
@@ -99,35 +81,27 @@ export function HomeScreen() {
     // state, so the prompt blocks the screen rather than sitting under it.
     const profileGaps = isProfileIncomplete(profile);
 
-    // `isLoading` drives skeletons on first paint; `isRefetching` drives the
-    // pull-to-refresh spinner. Binding the spinner to isLoading made it appear
-    // on initial mount alongside the skeletons.
-    const isLoading = isProfileLoading || isServicesLoading;
-    const isRefreshing = isProfileRefetching || isServicesRefetching;
-
+    const isRefreshing = isProfileRefetching || isCategoriesRefetching;
     const onRefresh = React.useCallback(() => {
         refetchProfile();
-        refetchServices();
-    }, [refetchProfile, refetchServices]);
+        refetchCategories();
+    }, [refetchProfile, refetchCategories]);
 
     const displayName = profile?.username || user?.username || 'User';
-    const firstName = displayName.split(' ')[0];
+    const firstName = isProfileLoading && !profile ? null : displayName.split(' ')[0];
 
-    // Build a short location label: "City, State" from the full address
+    // A short location label: "City, State" from the full address.
     const locationLabel = React.useMemo(() => {
         if (isFetchingLocation) return t('home_extra.detecting', 'Detecting...');
         if (!profile?.homeAddress) return t('home_extra.set_location', 'Set your location');
-        // Try to extract last 2 meaningful parts (city, state) from comma-separated address
         const parts = profile.homeAddress.split(',').map((s: string) => s.trim()).filter(Boolean);
         if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`;
         return profile.homeAddress;
     }, [profile?.homeAddress, isFetchingLocation, t]);
 
     const supportNumber = publicConfig?.whatsappNumber || '919448850679';
-
     const openDialer = React.useCallback(() => {
-        const phoneUrl = `tel:+${supportNumber}`;
-        Linking.openURL(phoneUrl).catch(() => {
+        Linking.openURL(`tel:+${supportNumber}`).catch(() => {
             Alert.alert('Error', 'Unable to open the phone dialer.');
         });
     }, [supportNumber]);
@@ -160,9 +134,33 @@ export function HomeScreen() {
         autoFetchLocation();
     }, [profile?.homeAddress]);
 
+    // ── Where the cards go ────────────────────────────────────────────────
+    const findCategory = React.useCallback((re: RegExp): ServiceCategory | undefined =>
+        categories?.find(c => re.test(c.name) && (c.items ?? []).some(live)), [categories]);
+    const findService = React.useCallback((re: RegExp): ServiceItem | undefined =>
+        categories?.flatMap(c => c.items ?? []).find(s => live(s) && re.test(s.name)), [categories]);
+    const search = React.useCallback((query?: string) => navigation.navigate('AllServices', { search: true, query }), [navigation]);
+
+    /** The category if the admin has one by that name, else a service by that name, else a search for it. */
+    const openByName = React.useCallback((re: RegExp, query: string) => {
+        const cat = findCategory(re);
+        if (cat) return navigation.navigate('CategoryDetail', { categoryId: cat.id });
+        const svc = findService(re);
+        if (svc) return openService(navigation, svc);
+        search(query);
+    }, [findCategory, findService, navigation, search]);
+
+    const openTravel = () => openByName(/travel|tour/i, 'travel');
+    // Photography lives with the event partners (Celebrate) unless the admin gives it its own category.
+    const openPhotoShoots = () => {
+        const cat = findCategory(/photo/i);
+        if (cat) navigation.navigate('CategoryDetail', { categoryId: cat.id });
+        else navigation.navigate('CelebrateTab');
+    };
+
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" backgroundColor={colors.backgroundDark} />
+            <StatusBar barStyle="light-content" backgroundColor={brand.navyDark} />
 
             {/* Waits for the profile to load, so it cannot flash on a slow request. */}
             <ProfileCompletionGate
@@ -171,230 +169,80 @@ export function HomeScreen() {
                 missingPinCode={profileGaps.missingPinCode}
             />
 
-            {/* Hero Header */}
-            <View style={[styles.header, { paddingTop: headerTop }]}>
-                <View style={styles.headerTop}>
-                    <View style={styles.headerLeft}>
-                        {isLoading ? (
-                            <Skeleton width={48} height={48} borderRadius={24} />
-                        ) : (
-                            <View style={styles.avatar}>
-                                <Text style={styles.avatarText}>
-                                    {firstName.charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                        )}
-                        <View>
-                            <Text style={styles.greeting}>{t('home.greeting', 'Hello')},</Text>
-                            {isLoading ? (
-                                <Skeleton width={100} height={20} style={{ marginTop: 4 }} />
-                            ) : (
-                                <Text style={styles.userName}>{firstName}</Text>
-                            )}
-                        </View>
-                    </View>
-                    <TouchableOpacity
-                        style={styles.bellButton}
-                        onPress={() => navigation.navigate('Notifications')}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Notifications"
-                    >
-                        <Bell size={20} color={colors.textInverse} strokeWidth={2} />
-                        {unreadCount > 0 && (
-                            <View style={styles.bellBadge}>
-                                <Text style={styles.bellBadgeText}>
-                                    {unreadCount > 9 ? '9+' : unreadCount}
-                                </Text>
-                            </View>
-                        )}
-                    </TouchableOpacity>
-                </View>
-
-                {/* Location Pill + Language Toggle Row */}
-                <View style={styles.headerBottomRow}>
-                    <TouchableOpacity
-                        style={styles.locationPill}
-                        onPress={() => navigation.navigate('LocationSelection')}
-                        activeOpacity={0.8}
-                    >
-                        <MapPin size={14} color={colors.accent} strokeWidth={2.5} />
-                        <Text style={styles.locationText} numberOfLines={1}>
-                            {locationLabel}
-                        </Text>
-                        <ChevronRight size={14} color="rgba(255,255,255,0.4)" />
-                    </TouchableOpacity>
-
-                    {/* Language Toggle */}
-                    <View style={styles.langToggle}>
-                        <TouchableOpacity
-                            style={[
-                                styles.langOption,
-                                language === 'kn' && styles.langOptionActive,
-                            ]}
-                            onPress={() => setLanguage('kn')}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[
-                                styles.langText,
-                                language === 'kn' && styles.langTextActive,
-                            ]}>ಕನ್ನಡ</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[
-                                styles.langOption,
-                                language === 'en' && styles.langOptionActive,
-                            ]}
-                            onPress={() => setLanguage('en')}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[
-                                styles.langText,
-                                language === 'en' && styles.langTextActive,
-                            ]}>EN</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: tabContent + 48 }]}
+                contentContainerStyle={{ paddingBottom: tabContent + 48 }}
                 showsVerticalScrollIndicator={false}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={isRefreshing}
-                        onRefresh={onRefresh}
-                        colors={[colors.primary]}
-                        tintColor={colors.primary}
-                    />
-                }
+                refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[brand.orange]} tintColor={brand.white} progressViewOffset={headerTop} />}
             >
-                {/* Came through a partner's link: who they are booking with. */}
-                <PartnerRefBanner />
+                {/* A · B · C */}
+                <HomeHero
+                    topInset={headerTop}
+                    firstName={firstName}
+                    unreadCount={unreadCount}
+                    locationLabel={locationLabel}
+                    language={language}
+                    onLanguage={setLanguage}
+                    onBell={() => navigation.navigate('Notifications')}
+                    onAvatar={() => navigation.navigate('ProfileTab')}
+                    onLocation={() => navigation.navigate('LocationSelection')}
+                    onSearch={() => search()}
+                />
 
-                {/* Trust Indicators — inline row */}
-                <View style={styles.trustRow}>
-                    {TRUST_ITEMS.map((item, i) => (
-                        <View key={i} style={styles.trustItem}>
-                            <item.icon size={16} color={colors.textSecondary} strokeWidth={2} />
-                            <Text style={styles.trustLabel}>
-                                {t(item.labelKey, item.fallback)}
-                            </Text>
+                <View style={styles.body}>
+                    {/* Came through a partner's link: who they are booking with. */}
+                    <PartnerRefBanner />
+
+                    {isServiceable === false ? (
+                        <View style={styles.unserviceableCard}>
+                            <MapPin size={24} color={colors.warning} />
+                            <View style={styles.unserviceableContent}>
+                                <Text style={styles.unserviceableTitle}>{t('home_extra.unserviceable_title')}</Text>
+                                <Text style={styles.unserviceableSubtitle}>{t('home_extra.unserviceable_subtitle')}</Text>
+                            </View>
                         </View>
-                    ))}
-                </View>
-
-                {/* Newspapers — today's editions of the papers this customer follows. */}
-                <NewsHomeCard navigation={navigation} />
-
-                {/* Serviceability Check */}
-                {isServiceable === false ? (
-                    <View style={styles.unserviceableCard}>
-                        <MapPin size={24} color={colors.warning} />
-                        <View style={styles.unserviceableContent}>
-                            <Text style={styles.unserviceableTitle}>{t('home_extra.unserviceable_title')}</Text>
-                            <Text style={styles.unserviceableSubtitle}>
-                                {t('home_extra.unserviceable_subtitle')}
-                            </Text>
-                        </View>
-                    </View>
-                ) : (
-                    <>
-                        {/* Broadband. Its own entry rather than a service category:
-                            it is a recharge, not a booking, and shares none of the
-                            service-request flow. */}
-                        <TouchableOpacity
-                            style={styles.broadbandBanner}
-                            onPress={() => navigation.navigate('FTTHOperatorSelect')}
-                            activeOpacity={0.85}
-                        >
-                            <View style={styles.broadbandIcon}>
-                                <Router size={20} color={colors.primary} strokeWidth={2.2} />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.broadbandTitle}>
-                                    {t('home.broadband_title', 'Broadband recharge')}
-                                </Text>
-                                <Text style={styles.broadbandSubtitle}>
-                                    {t('home.broadband_subtitle', 'Pay your fibre bill or get a new connection')}
-                                </Text>
-                            </View>
-                            <ChevronRight size={18} color={colors.textSecondary} />
-                        </TouchableOpacity>
-
-                        {/* Events — planners from the UniteFix Partner Hub. */}
-                        <TouchableOpacity
-                            style={styles.broadbandBanner}
-                            onPress={() => navigation.navigate('CelebrateTab')}
-                            activeOpacity={0.85}
-                        >
-                            <View style={styles.broadbandIcon}>
-                                <PartyPopper size={20} color={colors.primary} strokeWidth={2.2} />
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                                <Text style={styles.broadbandTitle}>
-                                    {t('home.celebrations_title', 'Celebrations')}
-                                </Text>
-                                <Text style={styles.broadbandSubtitle}>
-                                    {t('home.celebrations_subtitle', 'Halls, photographers and planners for your date')}
-                                </Text>
-                            </View>
-                            <ChevronRight size={18} color={colors.textSecondary} />
-                        </TouchableOpacity>
-
-                        {/* In season: banners for the categories the admin highlights now. */}
-                        {!!categories?.length && (
-                            <FeaturedBanners categories={categories} sidePadding={spacing.xl} onOpen={c => navigation.navigate('CategoryDetail', { categoryId: c.id })} />
-                        )}
-
-                        {/* Categories Header with Book a Service button */}
-                        <View style={styles.categoriesHeader}>
-                            <View>
-                                <Text style={styles.categoriesTitle}>
-                                    {t('home.categories', 'Categories')}
-                                </Text>
-                                <Text style={styles.categoriesSubtitle}>
-                                    {t('home.what_do_you_need', 'What do you need help with?')}
-                                </Text>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.bookServiceBtn}
-                                onPress={() => navigation.navigate('AllServices')}
-                                activeOpacity={0.8}
-                            >
-                                <CalendarPlus size={14} color={colors.textInverse} strokeWidth={2.5} />
-                                <Text style={styles.bookServiceBtnText}>
-                                    {t('home.book_service', 'Book a Service')}
-                                </Text>
-                                <ChevronRight size={14} color={colors.textInverse} />
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Every category, in the admin's sort order. */}
-                        {categoriesLoading ? (
-                            <View style={styles.categoryGrid}>
-                                {Array.from({ length: 6 }).map((_, idx) => (
-                                    <View key={idx} style={styles.serviceCardWrapper}><CardSkeleton /></View>
+                    ) : (
+                        <>
+                            {/* D · Home Services */}
+                            <SectionHeader
+                                title={t('home_cards.home_services', 'Home Services')}
+                                action={t('home_cards.view_all', 'View All')}
+                                onAction={() => navigation.navigate('AllServices')}
+                            />
+                            <View style={styles.row}>
+                                {HOME_SERVICES.map((s, i) => (
+                                    <ServicePhotoCard
+                                        key={s.key}
+                                        index={i}
+                                        label={t(`home_cards.${s.key}`, s.label)}
+                                        photo={PHOTOS[s.key]}
+                                        Icon={s.Icon}
+                                        onPress={() => openByName(s.match, s.query)}
+                                    />
                                 ))}
                             </View>
-                        ) : (
-                            <CategoryGrid categories={categories ?? []} onOpen={c => navigation.navigate('CategoryDetail', { categoryId: c.id })} />
-                        )}
-                    </>
-                )}
+
+                            {/* E · More for You */}
+                            <View style={styles.sectionGap} />
+                            <SectionHeader title={t('home_cards.more_for_you', 'More for You')} />
+                            <View style={styles.row}>
+                                <MoreCard index={4} title={t('home_cards.travel', 'Travel & Tours')} line={t('home_cards.travel_line', 'Plan · Book · Explore')} photo={PHOTOS.travel} Icon={Plane} onPress={openTravel} />
+                                {/* Broadband is the recharge UniteFix runs today. */}
+                                <MoreCard index={5} title={t('home_cards.recharge', 'Recharge & Pay')} line={t('home_cards.recharge_line', 'Broadband · Fibre')} photo={PHOTOS.recharge} Icon={Smartphone} onPress={() => navigation.navigate('FTTHOperatorSelect')} />
+                                <MoreCard index={6} title={t('home_cards.photo', 'Photo Shoots')} line={t('home_cards.photo_line', 'Events · Portraits · More')} photo={PHOTOS.photo} Icon={Camera} onPress={openPhotoShoots} />
+                            </View>
+                        </>
+                    )}
+
+                    {/* Newspapers — today's editions of the papers this customer follows. */}
+                    <View style={styles.sectionGap} />
+                    <NewsHomeCard navigation={navigation} />
+                </View>
             </ScrollView>
 
-            {/* Customer Care FAB */}
-            {/* Positioned from the real safe-area inset, not a fixed offset.
-                bottom:90 was measured on one handset; on a device with a taller
-                gesture-navigation bar the floating tab bar sits higher and this
-                button disappeared behind it. */}
-            <TouchableOpacity
-                style={[styles.fab, { bottom: fabBottom }]}
-                onPress={openDialer}
-                activeOpacity={0.85}
-                accessibilityLabel="Customer care"
-            >
+            {/* Customer Care FAB, placed from the real safe-area inset so the
+                floating tab bar never covers it. */}
+            <TouchableOpacity style={[styles.fab, { bottom: fabBottom }]} onPress={openDialer} activeOpacity={0.85} accessibilityLabel="Customer care">
                 <Phone size={18} color="#FFFFFF" strokeWidth={2.5} />
                 <Text style={styles.fabText}>Customer care</Text>
             </TouchableOpacity>
@@ -403,268 +251,23 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: colors.surface,
-    },
+    container: { flex: 1, backgroundColor: brand.background },
+    scrollView: { flex: 1 },
+    body: { paddingHorizontal: SIDE, paddingTop: spacing.sm },
+    row: { flexDirection: 'row', gap: 10 },
+    sectionGap: { height: spacing.xl },
 
-    // Hero Header
-    header: {
-        backgroundColor: colors.backgroundDark,
-        paddingBottom: spacing.xl,
-        paddingHorizontal: spacing.xl,
-        borderBottomLeftRadius: radii['2xl'],
-        borderBottomRightRadius: radii['2xl'],
-    },
-    headerTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    headerLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-    },
-    avatar: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: colors.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 2,
-        borderColor: 'rgba(255,255,255,0.2)',
-    },
-    avatarText: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: colors.textInverse,
-    },
-    greeting: {
-        ...typography.caption,
-        color: 'rgba(255,255,255,0.6)',
-    },
-    userName: {
-        ...typography.h4,
-        color: colors.textInverse,
-    },
-    bellButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    bellBadge: {
-        position: 'absolute',
-        top: 6,
-        right: 6,
-        minWidth: 16,
-        height: 16,
-        borderRadius: 8,
-        paddingHorizontal: 3,
-        backgroundColor: colors.error,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    bellBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+    unserviceableCard: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: colors.warningLight, borderRadius: radii.xl, padding: spacing.lg, gap: spacing.md },
+    unserviceableContent: { flex: 1 },
+    unserviceableTitle: { ...typography.bodyMedium, color: colors.warningDark, marginBottom: 2 },
+    unserviceableSubtitle: { ...typography.caption, color: colors.textSecondary, lineHeight: 20 },
 
-    // Header bottom row: location + language
-    headerBottomRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-        marginTop: spacing.lg,
-    },
-    locationPill: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.xs,
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        paddingVertical: spacing.sm,
-        paddingHorizontal: spacing.base,
-        borderRadius: radii.full,
-    },
-    locationText: {
-        ...typography.small,
-        color: 'rgba(255,255,255,0.7)',
-        flex: 1,
-    },
-
-    // Language Toggle
-    langToggle: {
-        flexDirection: 'row',
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        borderRadius: radii.full,
-        padding: 3,
-    },
-    langOption: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: radii.full,
-    },
-    langOptionActive: {
-        backgroundColor: colors.primary,
-    },
-    langText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.5)',
-    },
-    langTextActive: {
-        color: colors.textInverse,
-    },
-
-    // Scroll
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: spacing.xl,
-        paddingTop: spacing.xl,
-    },
-
-    // Trust Row — inline, no circle backgrounds
-    trustRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: spacing['2xl'],
-        paddingVertical: spacing.md,
-    },
-    trustItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.xs,
-    },
-    trustLabel: {
-        ...typography.small,
-        color: colors.textSecondary,
-    },
-
-    // Broadband entry point
-    broadbandBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.surfaceElevated,
-        borderRadius: radii.lg,
-        padding: spacing.base,
-        marginBottom: spacing.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    broadbandIcon: {
-        width: 42,
-        height: 42,
-        borderRadius: radii.full,
-        backgroundColor: colors.primarySurface,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    broadbandTitle: {
-        ...typography.h4,
-        color: colors.textPrimary,
-    },
-    broadbandSubtitle: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        marginTop: 2,
-    },
-
-    // Categories Section Header
-    categoriesHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: spacing.lg,
-    },
-    categoriesTitle: {
-        ...typography.h3,
-        color: colors.textPrimary,
-    },
-    categoriesSubtitle: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        marginTop: 2,
-    },
-    bookServiceBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: colors.backgroundDark,
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: radii.lg,
-    },
-    bookServiceBtnText: {
-        ...typography.buttonSmall,
-        fontSize: 12,
-        color: colors.textInverse,
-    },
-
-    // Services Grid
-    categoryGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        marginBottom: spacing.xl,
-    },
-    serviceCardWrapper: {
-        width: '47.5%',
-        marginBottom: spacing.md,
-    },
-
-    // Unserviceable
-    unserviceableCard: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        backgroundColor: colors.warningLight,
-        borderRadius: radii.xl,
-        padding: spacing.lg,
-        gap: spacing.md,
-        marginBottom: spacing.xl,
-    },
-    unserviceableContent: {
-        flex: 1,
-    },
-    unserviceableTitle: {
-        ...typography.bodyMedium,
-        color: colors.warningDark,
-        marginBottom: 2,
-    },
-    unserviceableSubtitle: {
-        ...typography.caption,
-        color: colors.textSecondary,
-        lineHeight: 20,
-    },
-
-    // Customer Care FAB — 3D raised effect
+    // Customer Care FAB — 3D raised effect. `bottom` comes from useScreenInsets().fabBottom.
     fab: {
-        position: 'absolute',
-        // `bottom` is supplied at render time from useScreenInsets().fabBottom.
-        right: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        backgroundColor: '#10B981',
-        paddingVertical: 12,
-        paddingHorizontal: 18,
-        borderRadius: radii.full,
-        borderBottomWidth: 4,
-        borderBottomColor: '#059669',
-        shadowColor: '#065F46',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 10,
-        elevation: 12,
+        position: 'absolute', right: 20, flexDirection: 'row', alignItems: 'center', gap: 8,
+        backgroundColor: '#10B981', paddingVertical: 12, paddingHorizontal: 18, borderRadius: radii.full,
+        borderBottomWidth: 4, borderBottomColor: '#059669',
+        shadowColor: '#065F46', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 12,
     },
-    fabText: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#FFFFFF',
-        letterSpacing: 0.2,
-    },
+    fabText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.2 },
 });

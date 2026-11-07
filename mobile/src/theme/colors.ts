@@ -71,3 +71,21 @@ export const colors = {
 } as const;
 
 export type ColorToken = keyof typeof colors;
+
+/**
+ * UniteFix brand palette (navy and orange), used by the customer Home screen.
+ * Kept apart from `colors` so the rest of the app keeps its current look.
+ */
+export const brand = {
+    navy: '#09264A',
+    navyDark: '#061A35',
+    orange: '#FF8A00',
+    background: '#F5F7FA',
+    white: '#FFFFFF',
+    text: '#14243B',
+    textSecondary: '#687588',
+    /** Hairlines and glass on the navy header. */
+    onNavyBorder: 'rgba(255,255,255,0.16)',
+    onNavyMuted: 'rgba(255,255,255,0.72)',
+    cardBorder: '#E6EAF0',
+} as const;

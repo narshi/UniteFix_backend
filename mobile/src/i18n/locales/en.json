@@ -70,7 +70,9 @@
       "prompt_service": "Prompt Service",
       "rated": "4.8★ Rated",
       "fast_response": "60-min Response",
-      "support_247": "24/7 Support"
+      "support_247": "24/7 Support",
+      "quick_easy": "Quick & Easy",
+      "fair_pricing": "Fair Pricing"
     },
     "shop": {
       "coming_soon": "Coming Soon",
@@ -159,6 +161,26 @@
       "something_went_wrong": "Something went wrong",
       "check_connection": "Check your internet connection and try again.",
       "unavailable": "Unavailable"
+    },
+    "home_hero": {
+      "headline_1": "Everyday Services for your",
+      "headline_2": "Home, Life & Travel.",
+      "search": "Find a service, recharge or plan a trip..."
+    },
+    "home_cards": {
+      "home_services": "Home Services",
+      "view_all": "View All",
+      "plumbing": "Plumbing",
+      "electrical": "Electrical",
+      "ac": "AC Service",
+      "painting": "Painting",
+      "more_for_you": "More for You",
+      "travel": "Travel & Tours",
+      "travel_line": "Plan · Book · Explore",
+      "recharge": "Recharge & Pay",
+      "recharge_line": "Broadband · Fibre",
+      "photo": "Photo Shoots",
+      "photo_line": "Events · Portraits · More"
     }
   }
 }
