@@ -56,43 +56,43 @@ export function HomeHero(p: Props) {
                         <Image source={HANDSHAKE} style={styles.handshake} resizeMode="contain" />
                         <View style={styles.brandDivider} />
                         <View>
-                            <Text style={styles.wordmark}>Unite<Text style={styles.wordmarkFix}>fix</Text><Text style={styles.tm}>™</Text></Text>
-                            <Text style={styles.wordTag}>LOCAL SERVICES & MORE</Text>
+                            <Text maxFontSizeMultiplier={1.25} style={styles.wordmark}>Unite<Text maxFontSizeMultiplier={1.25} style={styles.wordmarkFix}>fix</Text><Text maxFontSizeMultiplier={1.25} style={styles.tm}>™</Text></Text>
+                            <Text maxFontSizeMultiplier={1.25} style={styles.wordTag}>LOCAL SERVICES & MORE</Text>
                         </View>
                     </View>
                     <View style={styles.actions}>
                         <Pressable onPress={p.onBell} style={({ pressed }) => [styles.bell, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={p.unreadCount ? `Notifications, ${p.unreadCount} unread` : 'Notifications'} hitSlop={6}>
                             <Bell size={20} color={brand.white} strokeWidth={2} />
                             {p.unreadCount > 0 && (
-                                <View style={styles.badge}><Text style={styles.badgeText}>{p.unreadCount > 9 ? '9+' : p.unreadCount}</Text></View>
+                                <View style={styles.badge}><Text maxFontSizeMultiplier={1.25} style={styles.badgeText}>{p.unreadCount > 9 ? '9+' : p.unreadCount}</Text></View>
                             )}
                         </Pressable>
                         <Pressable onPress={p.onAvatar} style={({ pressed }) => [styles.avatar, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Your profile" hitSlop={6}>
-                            <Text style={styles.avatarText}>{(p.firstName ?? ' ').charAt(0).toUpperCase()}</Text>
+                            <Text maxFontSizeMultiplier={1.25} style={styles.avatarText}>{(p.firstName ?? ' ').charAt(0).toUpperCase()}</Text>
                         </Pressable>
                     </View>
                 </View>
 
                 {/* Greeting and headline */}
-                <Text style={styles.hello} numberOfLines={1}>
+                <Text maxFontSizeMultiplier={1.25} style={styles.hello} numberOfLines={1}>
                     {t('home.greeting', 'Hello')}, {p.firstName ?? '…'} 👋
                 </Text>
-                <Text style={[styles.headline, { maxWidth: Math.min(width * 0.68, 300) }]}>
+                <Text maxFontSizeMultiplier={1.25} style={[styles.headline, { maxWidth: Math.min(width * 0.68, 300) }]}>
                     {t('home_hero.headline_1', 'Everyday Services for your')}{' '}
-                    <Text style={styles.headlineAccent}>{t('home_hero.headline_2', 'Home, Life & Travel.')}</Text>
+                    <Text maxFontSizeMultiplier={1.25} style={styles.headlineAccent}>{t('home_hero.headline_2', 'Home, Life & Travel.')}</Text>
                 </Text>
 
                 {/* Location, and the language toggle (kept from the old header) */}
                 <View style={styles.locationRow}>
                     <Pressable onPress={p.onLocation} style={({ pressed }) => [styles.locationPill, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={`Location: ${p.locationLabel}. Change`}>
                         <MapPin size={16} color={brand.orange} strokeWidth={2.4} />
-                        <Text style={styles.locationText} numberOfLines={1}>{p.locationLabel}</Text>
+                        <Text maxFontSizeMultiplier={1.25} style={styles.locationText} numberOfLines={1}>{p.locationLabel}</Text>
                         <ChevronDown size={16} color={brand.onNavyMuted} strokeWidth={2.4} />
                     </Pressable>
                     <View style={styles.lang}>
                         {(['kn', 'en'] as const).map(l => (
                             <Pressable key={l} onPress={() => p.onLanguage(l)} style={[styles.langOpt, p.language === l && styles.langOptOn]} accessibilityRole="button" accessibilityState={{ selected: p.language === l }} accessibilityLabel={l === 'kn' ? 'Kannada' : 'English'}>
-                                <Text style={[styles.langText, p.language === l && styles.langTextOn]}>{l === 'kn' ? 'ಕನ್ನಡ' : 'EN'}</Text>
+                                <Text maxFontSizeMultiplier={1.25} style={[styles.langText, p.language === l && styles.langTextOn]}>{l === 'kn' ? 'ಕನ್ನಡ' : 'EN'}</Text>
                             </Pressable>
                         ))}
                     </View>
@@ -101,7 +101,7 @@ export function HomeHero(p: Props) {
                 {/* Search: opens All Services already searching. */}
                 <Pressable onPress={p.onSearch} style={({ pressed }) => [styles.search, pressed && styles.searchPressed]} accessibilityRole="search" accessibilityLabel="Search services">
                     <Search size={20} color={brand.navy} strokeWidth={2.4} />
-                    <Text style={styles.searchText} numberOfLines={1}>{t('home_hero.search', 'Find a service, recharge or plan a trip...')}</Text>
+                    <Text maxFontSizeMultiplier={1.25} style={styles.searchText} numberOfLines={1}>{t('home_hero.search', 'Find a service, recharge or plan a trip...')}</Text>
                 </Pressable>
 
                 {/* Trust strip */}
@@ -111,7 +111,7 @@ export function HomeHero(p: Props) {
                             {i > 0 && <View style={styles.trustDivider} />}
                             <View style={[styles.trustItem, compact && styles.trustItemCompact]}>
                                 <Icon size={15} color={brand.orange} strokeWidth={2.2} />
-                                <Text style={[styles.trustText, compact && styles.trustTextCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{label}</Text>
+                                <Text maxFontSizeMultiplier={1.25} style={[styles.trustText, compact && styles.trustTextCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{label}</Text>
                             </View>
                         </React.Fragment>
                     ))}

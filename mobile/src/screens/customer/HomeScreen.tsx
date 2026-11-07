@@ -16,7 +16,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking, useWindowDimensions } from 'react-native';
 import { MapPin, Phone, Droplets, Zap, Snowflake, PaintRoller, Plane, Smartphone, Camera } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -37,7 +37,7 @@ import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
 import { HomeHero } from '../../components/home/HomeHero';
-import { SectionHeader, ServicePhotoCard, MoreCard } from '../../components/home/HomeCards';
+import { SectionHeader, ServicePhotoCard, MoreCard, cardWidth } from '../../components/home/HomeCards';
 
 const PHOTOS = {
     plumbing: require('../../../assets/home/plumbing.jpg'),
@@ -58,6 +58,9 @@ const HOME_SERVICES = [
 ] as const;
 
 const SIDE = spacing.base;
+const GAP = 10;
+/** On tablets and landscape the cards stop growing; the rows centre. */
+const MAX_ROW = 560;
 const live = (s: ServiceItem) => s.status !== 'DISABLED';
 
 export function HomeScreen() {
@@ -70,6 +73,10 @@ export function HomeScreen() {
     const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
     const { language, setLanguage } = useLanguageStore();
+    const { width: screenWidth } = useWindowDimensions();
+    const rowWidth = Math.min(screenWidth - SIDE * 2, MAX_ROW);
+    const serviceW = cardWidth(rowWidth, 4, GAP);
+    const moreW = cardWidth(rowWidth, 3, GAP);
 
     const [isFetchingLocation, setIsFetchingLocation] = React.useState(false);
 
@@ -150,7 +157,11 @@ export function HomeScreen() {
         search(query);
     }, [findCategory, findService, navigation, search]);
 
-    const openTravel = () => openByName(/travel|tour/i, 'travel');
+    // Travel & Tours is a feature on its way, not a category yet.
+    const openTravel = () => Alert.alert(
+        t('home_cards.travel_soon_title', 'Travel & Tours — coming soon'),
+        t('home_cards.travel_soon_body', 'Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready.'),
+    );
     // Photography lives with the event partners (Celebrate) unless the admin gives it its own category.
     const openPhotoShoots = () => {
         const cat = findCategory(/photo/i);
@@ -189,7 +200,7 @@ export function HomeScreen() {
                     onSearch={() => search()}
                 />
 
-                <View style={styles.body}>
+                <View style={[styles.body, { width: rowWidth }]}>
                     {/* Came through a partner's link: who they are booking with. */}
                     <PartnerRefBanner />
 
@@ -209,11 +220,12 @@ export function HomeScreen() {
                                 action={t('home_cards.view_all', 'View All')}
                                 onAction={() => navigation.navigate('AllServices')}
                             />
-                            <View style={styles.row}>
+                            <View style={[styles.row, { width: rowWidth }]}>
                                 {HOME_SERVICES.map((s, i) => (
                                     <ServicePhotoCard
                                         key={s.key}
                                         index={i}
+                                        width={serviceW}
                                         label={t(`home_cards.${s.key}`, s.label)}
                                         photo={PHOTOS[s.key]}
                                         Icon={s.Icon}
@@ -225,11 +237,11 @@ export function HomeScreen() {
                             {/* E · More for You */}
                             <View style={styles.sectionGap} />
                             <SectionHeader title={t('home_cards.more_for_you', 'More for You')} />
-                            <View style={styles.row}>
-                                <MoreCard index={4} title={t('home_cards.travel', 'Travel & Tours')} line={t('home_cards.travel_line', 'Plan · Book · Explore')} photo={PHOTOS.travel} Icon={Plane} onPress={openTravel} />
+                            <View style={[styles.row, { width: rowWidth }]}>
+                                <MoreCard index={4} width={moreW} soon={t('home_cards.coming_soon', 'Coming soon')} title={t('home_cards.travel', 'Travel & Tours')} line={t('home_cards.travel_line', 'Plan · Book · Explore')} photo={PHOTOS.travel} Icon={Plane} onPress={openTravel} />
                                 {/* Broadband is the recharge UniteFix runs today. */}
-                                <MoreCard index={5} title={t('home_cards.recharge', 'Recharge & Pay')} line={t('home_cards.recharge_line', 'Broadband · Fibre')} photo={PHOTOS.recharge} Icon={Smartphone} onPress={() => navigation.navigate('FTTHOperatorSelect')} />
-                                <MoreCard index={6} title={t('home_cards.photo', 'Photo Shoots')} line={t('home_cards.photo_line', 'Events · Portraits · More')} photo={PHOTOS.photo} Icon={Camera} onPress={openPhotoShoots} />
+                                <MoreCard index={5} width={moreW} title={t('home_cards.recharge', 'Recharge & Pay')} line={t('home_cards.recharge_line', 'Broadband · Fibre')} photo={PHOTOS.recharge} Icon={Smartphone} onPress={() => navigation.navigate('FTTHOperatorSelect')} />
+                                <MoreCard index={6} width={moreW} title={t('home_cards.photo', 'Photo Shoots')} line={t('home_cards.photo_line', 'Events · Portraits · More')} photo={PHOTOS.photo} Icon={Camera} onPress={openPhotoShoots} />
                             </View>
                         </>
                     )}
@@ -253,8 +265,8 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: brand.background },
     scrollView: { flex: 1 },
-    body: { paddingHorizontal: SIDE, paddingTop: spacing.sm },
-    row: { flexDirection: 'row', gap: 10 },
+    body: { alignSelf: 'center', paddingTop: spacing.sm },
+    row: { flexDirection: 'row', gap: GAP, alignSelf: 'center' },
     sectionGap: { height: spacing.xl },
 
     unserviceableCard: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: colors.warningLight, borderRadius: radii.xl, padding: spacing.lg, gap: spacing.md },

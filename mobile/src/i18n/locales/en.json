@@ -180,7 +180,10 @@
       "recharge": "Recharge & Pay",
       "recharge_line": "Broadband · Fibre",
       "photo": "Photo Shoots",
-      "photo_line": "Events · Portraits · More"
+      "photo_line": "Events · Portraits · More",
+      "coming_soon": "Coming soon",
+      "travel_soon_title": "Travel & Tours — coming soon",
+      "travel_soon_body": "Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready."
     }
   }
 }
