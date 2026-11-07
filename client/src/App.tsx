@@ -22,6 +22,7 @@ import ServiceCatalogPage from "@/pages/service-catalog";
 import AssignmentQueuePage from "@/pages/assignment-queue";
 import EnquiriesPage from "@/pages/admin/enquiries";
 import HomeScreenPage from "@/pages/admin/home-screen";
+import CallBookingPage from "@/pages/admin/call-booking";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
@@ -344,6 +345,7 @@ function Router() {
           <Route path="/admin/home-screen"><Gate capability="catalog:view" component={HomeScreenPage} /></Route>
           <Route path="/admin/assignments"><Gate capability="bookings:view" component={AssignmentQueuePage} /></Route>
           <Route path="/admin/enquiries"><Gate capability="bookings:view" component={EnquiriesPage} /></Route>
+          <Route path="/admin/book-by-call"><Gate capability="bookings:view" component={CallBookingPage} /></Route>
           <Route path="/admin/support-tickets"><Gate capability="support:view" component={SupportTicketsPage} /></Route>
           <Route path="/admin/marketing"><Gate capability="marketing:view" component={MarketingPage} /></Route>
           <Route path="/settings"><Gate capability="settings:view" component={SettingsPage} /></Route>

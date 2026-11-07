@@ -352,6 +352,9 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                         <td className="p-4">
                           <p className="font-medium text-[hsl(210,20%,90%)]">{service.serviceId || service.id}</p>
                           <p className="text-xs text-[hsl(215,20%,55%)] mt-0.5">#{service.id}</p>
+                          {service.bookedVia === "call" && (
+                            <span title={service.bookingNote || "Booked by UniteFix on the customer's call"} className="mt-1 inline-flex items-center gap-1 rounded-full bg-[rgba(255,138,0,0.14)] px-2 py-0.5 text-[10px] font-semibold text-[#FFB15C]">☎ Booked by call</span>
+                          )}
                         </td>
                         <td className="p-4">
                           {service.categoryName && <p className="text-[10px] uppercase tracking-wider text-[hsl(217,91%,72%)]">{service.categoryName}</p>}

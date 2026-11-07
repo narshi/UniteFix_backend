@@ -110,6 +110,7 @@ const RULES: Rule[] = [
     { test: /^\/assignment-queue(\/|$)/, area: 'bookings' },
     // Referral enquiries are customer requests, handled like bookings.
     { test: /^\/enquiries(\/|$)/, area: 'bookings' },
+    { test: /^\/call-bookings(\/|$)/, area: 'bookings' },
     { test: /^\/services(\/|$)/, area: 'bookings' },
 
     // --- Dashboard --------------------------------------------------------

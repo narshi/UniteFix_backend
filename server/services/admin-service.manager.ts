@@ -179,6 +179,9 @@ export class AdminServiceManager {
                 chosenExpertId: serviceRequests.chosenExpertId,
                 chosenVia: serviceRequests.chosenVia,
                 choiceAppliedAt: serviceRequests.choiceAppliedAt,
+                // Booked by staff on the customer's call (call-booking.service.ts).
+                bookedVia: serviceRequests.bookedVia,
+                bookingNote: serviceRequests.bookingNote,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))
@@ -570,6 +573,9 @@ export class AdminServiceManager {
                 chosenExpertId: serviceRequests.chosenExpertId,
                 chosenVia: serviceRequests.chosenVia,
                 choiceAppliedAt: serviceRequests.choiceAppliedAt,
+                // Booked by staff on the customer's call (call-booking.service.ts).
+                bookedVia: serviceRequests.bookedVia,
+                bookingNote: serviceRequests.bookingNote,
             })
             .from(serviceRequests)
             .leftJoin(users, eq(serviceRequests.userId, users.id))

@@ -66,6 +66,7 @@ import { registerPartRequestRoutes } from "./routes/part-requests.routes";
 import { registerJobProgressRoutes } from "./routes/job-progress.routes";
 import { registerEnquiryRoutes } from "./routes/enquiry.routes";
 import { registerHomeCardRoutes } from "./routes/home-cards.routes";
+import { registerCallBookingRoutes } from "./routes/call-booking.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
 import { registerCelebrationsRoutes } from "./routes/celebrations.routes";
 import { registerPortfolioRoutes } from "./routes/portfolio.routes";
@@ -3920,6 +3921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerJobProgressRoutes(app); // Continue another day; could not fix (follow-up)
   registerEnquiryRoutes(app); // Referral band: free enquiries to partners, then staff
   registerHomeCardRoutes(app); // Home screen cards: staff schedule the Home Services row by season
+  registerCallBookingRoutes(app); // Book by call: staff book for a customer on the phone
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it
   registerCelebrationsRoutes(app); // Halls, the client booking page, reviews, and staff review of public listings
   registerPortfolioRoutes(app); // Photographers: portfolio (albums, photos, clips, films), dates and shoot requests

@@ -20,6 +20,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Support Tickets", href: "/admin/support-tickets", icon: "support_agent", capability: "support:view" },
   { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment", capability: "bookings:view" },
   { name: "Enquiries", href: "/admin/enquiries", icon: "forum", capability: "bookings:view" },
+  { name: "Book by Call", href: "/admin/book-by-call", icon: "phone_in_talk", capability: "bookings:view" },
   { name: "Service Catalog", href: "/admin/catalog", icon: "category", capability: "catalog:view" },
   { name: "Home Screen", href: "/admin/home-screen", icon: "phone_iphone", capability: "catalog:view" },
   { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long", capability: "billing:view" },

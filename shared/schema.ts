@@ -323,6 +323,11 @@ export const serviceRequests = pgTable("service_requests", {
   // How the partner was chosen: 'list' (picked on the booking screen) or
   // 'code' (the partner's link or code) — what partners bring in themselves.
   chosenVia: text("chosen_via"),
+  // Booked by UniteFix staff on the customer's call (admin → Book by call):
+  // 'call'. Null = the customer booked in the app. Who booked it, and their note.
+  bookedVia: text("booked_via"),
+  bookedByAdminId: integer("booked_by_admin_id"),
+  bookingNote: text("booking_note"),
   // The booking band frozen at booking (field_service, inspect_quote, consultation).
   bookingBand: text("booking_band"),
   choiceAppliedAt: timestamp("choice_applied_at"),

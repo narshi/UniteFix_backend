@@ -1356,6 +1356,13 @@ const BLOCKS: Array<[string, string]> = [
     ['catalogue: service duration', `
       ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_label TEXT;
     `],
+    // Bookings staff make on a customer's call (call-booking.service.ts). New nullable columns; no row touched.
+    ['bookings: booked by call', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS booked_via TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS booked_by_admin_id INTEGER;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS booking_note TEXT;
+      CREATE INDEX IF NOT EXISTS service_requests_booked_via_idx ON service_requests (booked_via) WHERE booked_via IS NOT NULL;
+    `],
     // Home screen cards (shared/home-cards.ts). A new table only; staff create the sets.
     ['home screen: card sets', `
       CREATE TABLE IF NOT EXISTS home_card_sets (
