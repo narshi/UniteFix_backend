@@ -75,12 +75,15 @@ export function registerClientFeatureRoutes(app: Express) {
         try {
             const categories = await storage.getAllServiceCategoriesWithServices();
             const fees = await categoryFeeMap();
+            // Home showcase: which categories carry their yearly highlight today (India time).
+            const { CategoryShowcaseService } = await import("../services/category-showcase.service");
             res.json({
                 success: true,
                 data: categories.map(c => ({
                     ...c,
                     bookingFee: fees.feeFor(c.id),
                     ...fees.categoryBand(c.id),
+                    featuredNow: CategoryShowcaseService.isFeaturedNow(c),
                     items: c.items.map(i => ({ ...i, ...fees.itemBand(i) })),
                 })),
             });

@@ -449,8 +449,12 @@ export function registerAdminRoutes(app: Express) {
             // Booking band, inspection fee and colour: checked, never written raw.
             const { BookingBandService } = await import("../services/booking-band.service");
             const band = BookingBandService.clean(req.body ?? {}, { allowInherit: false });
-            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest } = req.body ?? {};
-            const category = await storage.createServiceCategory({ ...rest, ...band, bookingFee: fee.value ?? null });
+            const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rest0 } = req.body ?? {};
+            // Home showcase: tagline and the yearly highlight, checked too.
+            const { CategoryShowcaseService } = await import("../services/category-showcase.service");
+            const showcase = CategoryShowcaseService.clean(req.body ?? {});
+            const { tagline: _t, featureOn: _fo, featureFrom: _ff, featureTo: _ft, featureTitle: _fti, featureSubtitle: _fs, ...rest } = rest0;
+            const category = await storage.createServiceCategory({ ...rest, ...band, ...showcase, bookingFee: fee.value ?? null } as any);
             res.json({ success: true, data: category });
         } catch (error: any) {
             res.status(400).json({ error: error.message });
@@ -469,7 +473,9 @@ export function registerAdminRoutes(app: Express) {
             const id = parseInt(req.params.id);
             const { BookingBandService } = await import("../services/booking-band.service");
             const { bookingBand: _b, inspectionFee: _i, bandColor: _c, ...rawBody } = req.body ?? {};
-            const body: Record<string, any> = { ...rawBody, ...BookingBandService.clean(req.body ?? {}, { allowInherit: false }) };
+            const { CategoryShowcaseService } = await import("../services/category-showcase.service");
+            const { tagline: _t, featureOn: _fo, featureFrom: _ff, featureTo: _ft, featureTitle: _fti, featureSubtitle: _fs, ...cleanBody } = rawBody;
+            const body: Record<string, any> = { ...cleanBody, ...BookingBandService.clean(req.body ?? {}, { allowInherit: false }), ...CategoryShowcaseService.clean(req.body ?? {}) };
             if ('bookingFee' in body) {
                 const fee = parseCategoryBookingFee(body.bookingFee);
                 if (fee.error) return res.status(400).json({ error: fee.error });
@@ -519,6 +525,21 @@ export function registerAdminRoutes(app: Express) {
      * POST /api/admin/catalog/services
      * Create a new service item
      */
+    /**
+     * POST /api/admin/catalog/services/move { serviceIds, categoryId }
+     * Move many services into another category at once (reorganising the catalogue).
+     */
+    app.post("/api/admin/catalog/services/move", async (req: Request, res: Response) => {
+        try {
+            if (!(req as any).user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
+            const { CategoryShowcaseService } = await import("../services/category-showcase.service");
+            const r = await CategoryShowcaseService.moveServices((req as any).admin?.userId, req.body?.serviceIds, req.body?.categoryId);
+            res.json({ success: true, message: `Moved ${r.moved} service${r.moved === 1 ? '' : 's'} to ${r.categoryName}.`, data: r });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    });
+
     app.post("/api/admin/catalog/services", async (req: Request, res: Response) => {
         try {
             if (!(req as any).user?.isAdmin) {

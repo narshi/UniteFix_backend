@@ -37,6 +37,15 @@ const BAND_OPTIONS = [
   { value: 'digital_recharge', label: 'Recharge', short: 'Recharge', color: '#3B82F6', help: 'opens the recharge flow (broadband); nothing is booked.' },
   { value: 'referral', label: 'Free quotes (enquiry)', short: 'Enquiry', color: '#10B981', help: 'a free enquiry to partners in the area, then UniteFix staff; no payment.' },
 ] as const;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** Same rule as the server (category-showcase.service.ts): a yearly window, may cross the new year; India time. */
+const featuredNow = (c: any) => {
+  if (!c?.featureOn || !c.featureFrom || !c.featureTo) return false;
+  const day = new Date(Date.now() + 330 * 60_000).toISOString().slice(5, 10);
+  return c.featureFrom <= c.featureTo ? day >= c.featureFrom && day <= c.featureTo : day >= c.featureFrom || day <= c.featureTo;
+};
+const mmddLabel = (v: string | null | undefined) => v ? `${Number(v.slice(3))} ${MONTHS[Number(v.slice(0, 2)) - 1]}` : '';
 const bandOf = (v: string | null | undefined) => BAND_OPTIONS.find(b => b.value === v) ?? BAND_OPTIONS[0];
 const BAND_COLOURS = [
   { hex: '#4F46E5', name: 'Indigo' }, { hex: '#F59E0B', name: 'Amber' }, { hex: '#10B981', name: 'Emerald' },
@@ -75,6 +84,19 @@ export default function ServiceCatalogPage() {
   // The service dialog's category, tracked so the price breakdown uses that
   // category's booking fee — the one the booking will actually be charged.
   const [svcCategoryId, setSvcCategoryId] = useState<number | null>(null);
+  // Bulk move: services ticked on the cards, and where they go.
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [moveTo, setMoveTo] = useState('');
+  const togglePick = (id: number) => setPicked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const moveMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/admin/catalog/services/move", { serviceIds: Array.from(picked), categoryId: Number(moveTo) }),
+    onSuccess: (r: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/catalog/categories"] });
+      toast({ title: "Moved", description: r?.message });
+      setPicked(new Set()); setMoveTo('');
+    },
+    onError: (error: Error) => toast({ title: "Not moved", description: error.message, variant: "destructive" }),
+  });
   const bookingCharge = feeOfCategory(svcCategoryId);
 
   // Seed the controlled price when the service dialog opens (Radix remounts the
@@ -188,6 +210,13 @@ export default function ServiceCatalogPage() {
       bookingBand: (formData.get('bookingBand') as string) || 'field_service',
       inspectionFee: inspection === '' ? null : Number(inspection),
       bandColor: (formData.get('bandColor') as string) || null,
+      // Home showcase: tagline and the yearly highlight (month-day, India time).
+      tagline: ((formData.get('tagline') as string) || '').trim() || null,
+      featureOn: formData.get('featureOn') === 'on',
+      featureFrom: formData.get('featureFromM') && formData.get('featureFromD') ? `${formData.get('featureFromM')}-${formData.get('featureFromD')}` : null,
+      featureTo: formData.get('featureToM') && formData.get('featureToD') ? `${formData.get('featureToM')}-${formData.get('featureToD')}` : null,
+      featureTitle: ((formData.get('featureTitle') as string) || '').trim() || null,
+      featureSubtitle: ((formData.get('featureSubtitle') as string) || '').trim() || null,
       name: formData.get('name') as string,
       icon: formData.get('icon') as string,
       sortOrder: parseInt(formData.get('sortOrder') as string) || 0,
@@ -302,6 +331,11 @@ export default function ServiceCatalogPage() {
                     <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cat.bandColor || bandOf(cat.bookingBand).color }} aria-hidden />
                     {bandOf(cat.bookingBand).short}
                   </span>
+                  {cat.featureOn && (
+                    <span className={`ml-1 rounded-full px-1.5 text-[9px] uppercase tracking-wide ${featuredNow(cat) ? 'bg-emerald-500/15 text-emerald-300' : 'bg-[rgba(255,255,255,0.06)] text-[hsl(215,20%,65%)]'}`} title={`Highlighted on Home every year, ${mmddLabel(cat.featureFrom)} – ${mmddLabel(cat.featureTo)}`}>
+                      {featuredNow(cat) ? 'Featured now' : 'Seasonal'}
+                    </span>
+                  )}
                   <span className={`ml-auto pl-2 text-[10px] tabular-nums ${cat.bookingFee !== null && cat.bookingFee !== undefined ? 'text-[hsl(38,92%,65%)]' : 'text-[hsl(215,20%,50%)]'}`} title={cat.bookingFee !== null && cat.bookingFee !== undefined ? 'Category booking fee' : 'Platform default booking fee'}>
                     ₹{feeOfCategory(cat.id)}
                   </span>
@@ -354,14 +388,28 @@ export default function ServiceCatalogPage() {
               </div>
             </CardHeader>
             <CardContent className="pt-6">
+              {picked.size > 0 && (
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-[hsla(217,91%,60%,0.3)] bg-[hsla(217,91%,60%,0.08)] p-3 text-sm text-white">
+                  <span>{picked.size} selected — move to</span>
+                  <select value={moveTo} onChange={e => setMoveTo(e.target.value)} aria-label="Move to category" className="rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-2 py-1.5 text-sm text-white">
+                    <option value="">Choose a category…</option>
+                    {categories.map((c: any) => <option key={c.id} value={c.id} className="bg-[hsl(222,47%,11%)]">{c.name}</option>)}
+                  </select>
+                  <Button size="sm" disabled={!moveTo || moveMutation.isPending} onClick={() => moveMutation.mutate()}>{moveMutation.isPending ? 'Moving…' : 'Move'}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>Clear</Button>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {isLoading ? (
                   Array(6).fill(0).map((_, i) => (
                     <div key={i} className="h-48 skeleton-shimmer rounded-xl" />
                   ))
                 ) : filteredServices.map((service: any) => (
-                  <Card key={service.id} className="overflow-hidden group hover:-translate-y-1 transition-all duration-300 bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] shadow-none hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
+                  <Card key={service.id} className={`overflow-hidden group hover:-translate-y-1 transition-all duration-300 bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] shadow-none hover:shadow-[0_8px_30px_rgba(0,0,0,0.4)] ${picked.has(service.id) ? 'ring-2 ring-[hsla(217,91%,60%,0.6)]' : ''}`}>
                     <div className="h-28 bg-[rgba(0,0,0,0.2)] relative overflow-hidden group-hover:after:absolute group-hover:after:inset-0 group-hover:after:bg-white/5">
+                      <label className="absolute left-2 top-2 z-10 flex cursor-pointer items-center rounded-md bg-black/50 p-1 backdrop-blur-md" title="Select to move">
+                        <input type="checkbox" checked={picked.has(service.id)} onChange={() => togglePick(service.id)} aria-label={`Select ${service.name}`} />
+                      </label>
                       {service.bannerImage ? (
                         <img src={service.bannerImage} alt={service.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" referrerPolicy="no-referrer" />
                       ) : (
@@ -458,6 +506,28 @@ export default function ServiceCatalogPage() {
                   What customers pay upfront to book any service in this category; it is deducted from the final bill. Set 0 to make it optional: customers then pay the full price of a priced service when booking, and nothing after (only parts, if any are added). Unpriced services stay free to book. Applies to new bookings only.
                 </p>
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cat-tagline" className="text-[hsl(215,20%,75%)]">Tagline on the app</Label>
+                <Input id="cat-tagline" name="tagline" maxLength={80} defaultValue={editingCategory?.tagline ?? ''} placeholder="e.g. Electrician, plumber, AC, fridge, painting" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">One line under the category on the app's Home. The order on Home is the Sort Order above (lowest first).</p>
+              </div>
+              <fieldset className="grid gap-2 rounded-lg border border-[rgba(255,255,255,0.08)] p-3">
+                <legend className="px-1 text-sm text-[hsl(215,20%,75%)]">Highlight on the app's Home (every year)</legend>
+                <label className="flex items-center gap-2 text-sm text-[hsl(215,20%,75%)]">
+                  <input type="checkbox" name="featureOn" defaultChecked={!!editingCategory?.featureOn} /> Show a banner for this category between these dates
+                </label>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(215,20%,60%)]">
+                  <span>From</span>
+                  <select name="featureFromD" aria-label="From day" defaultValue={editingCategory?.featureFrom?.slice(3) ?? ''} className="rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-2 py-1.5 text-sm text-white"><option value="">Day</option>{Array.from({ length: 31 }, (_, i) => <option key={i} value={pad2(i + 1)}>{i + 1}</option>)}</select>
+                  <select name="featureFromM" aria-label="From month" defaultValue={editingCategory?.featureFrom?.slice(0, 2) ?? ''} className="rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-2 py-1.5 text-sm text-white"><option value="">Month</option>{MONTHS.map((m, i) => <option key={m} value={pad2(i + 1)}>{m}</option>)}</select>
+                  <span>to</span>
+                  <select name="featureToD" aria-label="To day" defaultValue={editingCategory?.featureTo?.slice(3) ?? ''} className="rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-2 py-1.5 text-sm text-white"><option value="">Day</option>{Array.from({ length: 31 }, (_, i) => <option key={i} value={pad2(i + 1)}>{i + 1}</option>)}</select>
+                  <select name="featureToM" aria-label="To month" defaultValue={editingCategory?.featureTo?.slice(0, 2) ?? ''} className="rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-2 py-1.5 text-sm text-white"><option value="">Month</option>{MONTHS.map((m, i) => <option key={m} value={pad2(i + 1)}>{m}</option>)}</select>
+                </div>
+                <Input name="featureTitle" aria-label="Banner title" maxLength={60} defaultValue={editingCategory?.featureTitle ?? ''} placeholder='Banner title, e.g. "ITR season is here"' className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                <Input name="featureSubtitle" aria-label="Banner line" maxLength={120} defaultValue={editingCategory?.featureSubtitle ?? ''} placeholder='A line under it, e.g. "File before 31 July with a CA"' className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                <p className="text-xs text-[hsl(215,20%,55%)]">Comes back on its own every year. A window can run across the new year (e.g. 15 Dec to 10 Jan). Several categories can be highlighted at once; they show in Sort Order.</p>
+              </fieldset>
               <div className="grid gap-2">
                 <Label htmlFor="cat-band" className="text-[hsl(215,20%,75%)]">How customers book</Label>
                 <select id="cat-band" name="bookingBand" defaultValue={editingCategory?.bookingBand ?? 'field_service'} className="w-full rounded-md bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-white">

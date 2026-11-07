@@ -69,6 +69,7 @@ export type HomeStackParamList = {
     AllServices: undefined;
     ServiceRequest: { serviceType?: string; serviceName?: string; serviceId?: number; basePrice?: number; bookingFee?: number; band?: string; selectedAddress?: any };
     ServiceEnquiry: { serviceId: number; serviceName: string; selectedAddress?: any };
+    CategoryDetail: { categoryId: number };
     Notifications: undefined;
     SavedAddresses: { fromCheckout?: boolean; returnTo?: string };
     MapAddressPicker: { editAddressIndex?: number } | undefined;

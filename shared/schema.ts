@@ -415,6 +415,17 @@ export const serviceCategories = pgTable("service_categories", {
   inspectionFee: integer("inspection_fee"),
   /** The band's accent in the app (a theme colour, e.g. #4F46E5). NULL = the band's default. */
   bandColor: text("band_color"),
+  /**
+   * The app's Home showcase (category-showcase.service.ts): a one-line
+   * tagline under the tile, and a yearly highlight — a banner on Home every
+   * year between featureFrom and featureTo (MM-DD, may run Dec → Jan).
+   */
+  tagline: text("tagline"),
+  featureOn: boolean("feature_on").notNull().default(false),
+  featureFrom: text("feature_from"),
+  featureTo: text("feature_to"),
+  featureTitle: text("feature_title"),
+  featureSubtitle: text("feature_subtitle"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

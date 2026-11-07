@@ -25,6 +25,11 @@ export interface ServiceCategory {
     bandLabel?: string;
     bandColor?: string;
     inspectionFee?: number | null;
+    /** Home showcase: a line under the tile, and the yearly highlight (set by the admin). */
+    tagline?: string | null;
+    featuredNow?: boolean;
+    featureTitle?: string | null;
+    featureSubtitle?: string | null;
 }
 
 export interface ServiceItem {

@@ -7,6 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { CustomerTabs } from './CustomerTabs';
 import { ServiceRequestScreen } from '../screens/customer/ServiceRequestScreen';
 import { ServiceEnquiryScreen } from '../screens/customer/ServiceEnquiryScreen';
+import { CategoryDetailScreen } from '../screens/customer/CategoryDetailScreen';
 import { RequestDetailScreen } from '../screens/customer/RequestDetailScreen';
 import { NotificationsScreen } from '../screens/customer/NotificationsScreen';
 import { OtpDisplayScreen } from '../screens/customer/OtpDisplayScreen';
@@ -42,6 +43,8 @@ export function CustomerStack() {
             <Stack.Screen name="ServiceRequest" component={ServiceRequestScreen} />
             {/* Free quotes (referral band): an enquiry to partners near the customer. */}
             <Stack.Screen name="ServiceEnquiry" component={ServiceEnquiryScreen} />
+            {/* A category's page, from the Home showcase. */}
+            <Stack.Screen name="CategoryDetail" component={CategoryDetailScreen} />
             <Stack.Screen name="RequestDetail" component={RequestDetailScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="OtpDisplay" component={OtpDisplayScreen} />

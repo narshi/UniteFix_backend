@@ -1313,6 +1313,16 @@ const BLOCKS: Array<[string, string]> = [
         END IF;
       END $band$;
     `],
+    // Home showcase: categories in admin order, with a yearly highlight. Additive;
+    // every category starts with no highlight.
+    ['catalogue: home showcase', `
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tagline TEXT;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS feature_on BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS feature_from TEXT;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS feature_to TEXT;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS feature_title TEXT;
+      ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS feature_subtitle TEXT;
+    `],
     ['catalogue: referral enquiries', `
       CREATE TABLE IF NOT EXISTS service_enquiries (
         id SERIAL PRIMARY KEY,

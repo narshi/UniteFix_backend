@@ -54,7 +54,8 @@ import { ServiceItem } from '../../api/customer.api';
 import { useScreenInsets } from '../../theme/layout';
 import { useServiceability } from '../../hooks/useServiceability';
 import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
-import { openService } from '../../utils/serviceBands';
+import { FeaturedBanners, CategoryGrid } from '../../components/customer/CategoryShowcase';
+import { useAllServices } from '../../hooks/useCustomerData';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
 
@@ -81,6 +82,8 @@ export function HomeScreen() {
         refetch: refetchServices,
     } = useHomeServices();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
+    // The showcase: categories in the admin's order, with this season's highlights.
+    const { data: categories, isLoading: categoriesLoading } = useAllServices();
     const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
@@ -339,6 +342,11 @@ export function HomeScreen() {
                             <ChevronRight size={18} color={colors.textSecondary} />
                         </TouchableOpacity>
 
+                        {/* In season: banners for the categories the admin highlights now. */}
+                        {!!categories?.length && (
+                            <FeaturedBanners categories={categories} sidePadding={spacing.xl} onOpen={c => navigation.navigate('CategoryDetail', { categoryId: c.id })} />
+                        )}
+
                         {/* Categories Header with Book a Service button */}
                         <View style={styles.categoriesHeader}>
                             <View>
@@ -362,33 +370,16 @@ export function HomeScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.categoryGrid}>
-                            {isServicesLoading ? (
-                                Array.from({ length: 4 }).map((_, idx) => (
-                                    <View key={idx} style={styles.serviceCardWrapper}>
-                                        <CardSkeleton />
-                                    </View>
-                                ))
-                            ) : (
-                                <>
-                                    {homeServices?.slice(0, 5).map((service: ServiceItem) => (
-                                        <View key={service.id} style={styles.serviceCardWrapper}>
-                                            <ServiceCard
-                                                service={service}
-                                                // Visit, inspection, consultation, recharge or free quotes — by the service's band.
-                                                onPress={() => openService(navigation, service)}
-                                            />
-                                        </View>
-                                    ))}
-                                    <View style={styles.serviceCardWrapper}>
-                                        <ServiceCard
-                                            isMoreCard
-                                            onPress={() => navigation.navigate('AllServices')}
-                                        />
-                                    </View>
-                                </>
-                            )}
-                        </View>
+                        {/* Every category, in the admin's sort order. */}
+                        {categoriesLoading ? (
+                            <View style={styles.categoryGrid}>
+                                {Array.from({ length: 6 }).map((_, idx) => (
+                                    <View key={idx} style={styles.serviceCardWrapper}><CardSkeleton /></View>
+                                ))}
+                            </View>
+                        ) : (
+                            <CategoryGrid categories={categories ?? []} onOpen={c => navigation.navigate('CategoryDetail', { categoryId: c.id })} />
+                        )}
                     </>
                 )}
             </ScrollView>
