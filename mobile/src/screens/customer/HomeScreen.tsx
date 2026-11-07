@@ -5,7 +5,10 @@
  *      (and the ಕನ್ನಡ / EN toggle), over a photo of a home.
  *   B  Search: opens All Services already searching.
  *   C  Trust strip: Verified Experts · Quick & Easy · Fair Pricing.
- *   D  Home Services: Plumbing, Electrical, AC Service, Painting, and View All.
+ *   D  Home Services: four cards staff schedule by season in admin → Home screen
+ *      (server: shared/home-cards.ts), and View All. Built-in four (Plumbing,
+ *      Electrical, AC Service, Painting) fill any gap, or stand in if the
+ *      request fails.
  *   E  More for You: Travel & Tours, Recharge & Pay, Photo Shoots.
  *
  * Every card goes somewhere real. A Home Services card opens the matching
@@ -17,12 +20,15 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking, useWindowDimensions } from 'react-native';
-import { MapPin, Phone, Droplets, Zap, Snowflake, PaintRoller, Plane, Smartphone, Camera } from 'lucide-react-native';
+import { MapPin, Phone, Droplets, Zap, Snowflake, PaintRoller, Plane, Smartphone, Camera, Router, PartyPopper, LayoutGrid, LucideIcon } from 'lucide-react-native';
+import type { ImageSourcePropType } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as Location from 'expo-location';
 import { useTranslation } from 'react-i18next';
-import { useProfile, useUnreadNotificationCount, usePublicConfig, useAllServices } from '../../hooks/useCustomerData';
+import { useProfile, useUnreadNotificationCount, usePublicConfig, useAllServices, useHomeCards } from '../../hooks/useCustomerData';
+import { usePhotoResolver, photoByKey, photoForName } from '../../utils/servicePhotos';
+import { getCategoryIcon, getServiceIcon } from '../../utils/serviceIcons';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLanguageStore } from '../../stores/languageStore';
 import { colors, brand } from '../../theme/colors';
@@ -37,7 +43,7 @@ import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
 import { HomeHero } from '../../components/home/HomeHero';
-import { SectionHeader, ServicePhotoCard, MoreCard, cardWidth } from '../../components/home/HomeCards';
+import { SectionHeader, ServicePhotoCard, ServicePhotoCardSkeleton, MoreCard, cardWidth } from '../../components/home/HomeCards';
 
 const PHOTOS = {
     plumbing: require('../../../assets/home/plumbing.jpg'),
@@ -47,6 +53,7 @@ const PHOTOS = {
     travel: require('../../../assets/home/travel.jpg'),
     recharge: require('../../../assets/home/recharge.jpg'),
     photo: require('../../../assets/home/photo-shoots.jpg'),
+    house: require('../../../assets/services/house.jpg'),
 };
 
 /** What each Home Services card looks for in the catalogue, and the word it searches for otherwise. */
@@ -56,6 +63,9 @@ const HOME_SERVICES = [
     { key: 'ac', label: 'AC Service', Icon: Snowflake, match: /\bac\b|a\.c\.|air ?condition/i, query: 'AC' },
     { key: 'painting', label: 'Painting', Icon: PaintRoller, match: /paint/i, query: 'paint' },
 ] as const;
+
+/** A card in the Home Services row, whichever set it came from. */
+type RowCard = { key: string; label: string; photo: ImageSourcePropType; fallback?: ImageSourcePropType; Icon: LucideIcon; onPress: () => void };
 
 const SIDE = spacing.base;
 const GAP = 10;
@@ -69,6 +79,9 @@ export function HomeScreen() {
     const { data: profile, isLoading: isProfileLoading, isRefetching: isProfileRefetching, refetch: refetchProfile } = useProfile();
     const navigation = useNavigation<NativeStackNavigationProp<any>>();
     const { data: categories, isRefetching: isCategoriesRefetching, refetch: refetchCategories } = useAllServices();
+    // The Home Services row staff scheduled for today (admin → Home screen).
+    const { data: homeCards, isLoading: homeCardsLoading, isRefetching: isHomeCardsRefetching, refetch: refetchHomeCards } = useHomeCards();
+    const photos = usePhotoResolver();
     const { data: unreadCount = 0 } = useUnreadNotificationCount();
     const { data: publicConfig } = usePublicConfig();
     const { t } = useTranslation();
@@ -88,11 +101,12 @@ export function HomeScreen() {
     // state, so the prompt blocks the screen rather than sitting under it.
     const profileGaps = isProfileIncomplete(profile);
 
-    const isRefreshing = isProfileRefetching || isCategoriesRefetching;
+    const isRefreshing = isProfileRefetching || isCategoriesRefetching || isHomeCardsRefetching;
     const onRefresh = React.useCallback(() => {
         refetchProfile();
         refetchCategories();
-    }, [refetchProfile, refetchCategories]);
+        refetchHomeCards();
+    }, [refetchProfile, refetchCategories, refetchHomeCards]);
 
     const displayName = profile?.username || user?.username || 'User';
     const firstName = isProfileLoading && !profile ? null : displayName.split(' ')[0];
@@ -157,6 +171,49 @@ export function HomeScreen() {
         search(query);
     }, [findCategory, findService, navigation, search]);
 
+    /**
+     * The Home Services row: today's scheduled cards first, then the built-in
+     * four for any gap (one already on the row by name is skipped), four in all.
+     */
+    const row = React.useMemo((): RowCard[] => {
+        const cats = new Map((categories ?? []).map(c => [c.id, c]));
+        const svcs = new Map((categories ?? []).flatMap(c => (c.items ?? []).map(x => [x.id, x] as const)));
+        const out: RowCard[] = [];
+        for (const c of homeCards?.cards ?? []) {
+            let auto: ImageSourcePropType, Icon: LucideIcon, onPress: () => void;
+            if (c.target === 'category' && c.id != null) {
+                const cat = cats.get(c.id);
+                auto = cat ? photos.category(cat) : (photoForName(c.name) ?? PHOTOS.house);
+                Icon = getCategoryIcon(cat ?? { name: c.name });
+                const id = c.id;
+                onPress = () => navigation.navigate('CategoryDetail', { categoryId: id });
+            } else if (c.target === 'service' && c.id != null) {
+                const svc = svcs.get(c.id);
+                auto = svc ? photos.service(svc, cats.get(svc.categoryId)) : (photoForName(c.name) ?? PHOTOS.house);
+                Icon = getServiceIcon(svc ?? { name: c.name });
+                onPress = () => (svc ? openService(navigation, svc) : search(c.name));
+            } else if (c.screen === 'recharge') {
+                auto = PHOTOS.recharge; Icon = Router; onPress = () => navigation.navigate('FTTHOperatorSelect');
+            } else if (c.screen === 'celebrate') {
+                auto = PHOTOS.photo; Icon = PartyPopper; onPress = () => navigation.navigate('CelebrateTab');
+            } else {
+                auto = PHOTOS.house; Icon = LayoutGrid; onPress = () => navigation.navigate('AllServices');
+            }
+            const photo = c.photo?.kind === 'library' ? (photoByKey(c.photo.key) ?? auto)
+                : c.photo?.kind === 'link' && /^https:\/\//.test(c.photo.url) ? { uri: c.photo.url }
+                : auto;
+            out.push({ key: c.key, label: c.label, photo, fallback: auto, Icon, onPress });
+        }
+        const onRow = (re: RegExp) => (homeCards?.cards ?? []).some(c => re.test(c.name) || re.test(c.label));
+        for (const b of HOME_SERVICES) {
+            if (out.length >= 4) break;
+            if (onRow(b.match)) continue;
+            out.push({ key: `builtin:${b.key}`, label: t(`home_cards.${b.key}`, b.label), photo: PHOTOS[b.key], Icon: b.Icon, onPress: () => openByName(b.match, b.query) });
+        }
+        return out.slice(0, 4);
+    }, [homeCards, categories, photos, navigation, search, openByName, t]);
+    const rowHeading = homeCards?.heading && homeCards.heading !== 'Home Services' ? homeCards.heading : t('home_cards.home_services', 'Home Services');
+
     // Travel & Tours is a feature on its way, not a category yet.
     const openTravel = () => Alert.alert(
         t('home_cards.travel_soon_title', 'Travel & Tours — coming soon'),
@@ -216,22 +273,25 @@ export function HomeScreen() {
                         <>
                             {/* D · Home Services */}
                             <SectionHeader
-                                title={t('home_cards.home_services', 'Home Services')}
+                                title={rowHeading}
                                 action={t('home_cards.view_all', 'View All')}
                                 onAction={() => navigation.navigate('AllServices')}
                             />
                             <View style={[styles.row, { width: rowWidth }]}>
-                                {HOME_SERVICES.map((s, i) => (
-                                    <ServicePhotoCard
-                                        key={s.key}
-                                        index={i}
-                                        width={serviceW}
-                                        label={t(`home_cards.${s.key}`, s.label)}
-                                        photo={PHOTOS[s.key]}
-                                        Icon={s.Icon}
-                                        onPress={() => openByName(s.match, s.query)}
-                                    />
-                                ))}
+                                {homeCardsLoading && !homeCards
+                                    ? [0, 1, 2, 3].map(i => <ServicePhotoCardSkeleton key={i} width={serviceW} />)
+                                    : row.map((c, i) => (
+                                        <ServicePhotoCard
+                                            key={c.key}
+                                            index={i}
+                                            width={serviceW}
+                                            label={c.label}
+                                            photo={c.photo}
+                                            fallback={c.fallback}
+                                            Icon={c.Icon}
+                                            onPress={c.onPress}
+                                        />
+                                    ))}
                             </View>
 
                             {/* E · More for You */}

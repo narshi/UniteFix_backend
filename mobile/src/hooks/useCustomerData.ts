@@ -61,6 +61,7 @@ export const queryKeys = {
     notifications: ['notifications'] as const,
     homeServices: ['homeServices'] as const,
     allServices: ['allServices'] as const,
+    homeCards: ['homeCards'] as const,
     publicConfig: ['publicConfig'] as const,
     partnerProfile: ['partnerProfile'] as const,
 };
@@ -144,6 +145,16 @@ export function useHomeServices() {
             const response = await customerApi.getHomeServices();
             return response.data.data;
         },
+    });
+}
+
+/** The Home Services cards staff scheduled for today. Kept for 5 minutes; Home falls back to its built-in four if this fails. */
+export function useHomeCards() {
+    return useQuery({
+        queryKey: queryKeys.homeCards,
+        queryFn: async () => (await customerApi.getHomeCards()).data.data,
+        staleTime: 5 * 60_000,
+        retry: 1,
     });
 }
 

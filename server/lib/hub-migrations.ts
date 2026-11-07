@@ -1356,6 +1356,26 @@ const BLOCKS: Array<[string, string]> = [
     ['catalogue: service duration', `
       ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_label TEXT;
     `],
+    // Home screen cards (shared/home-cards.ts). A new table only; staff create the sets.
+    ['home screen: card sets', `
+      CREATE TABLE IF NOT EXISTS home_card_sets (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        heading TEXT,
+        schedule TEXT NOT NULL DEFAULT 'yearly',
+        from_mmdd TEXT,
+        to_mmdd TEXT,
+        starts_on TEXT,
+        ends_on TEXT,
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        cards JSONB NOT NULL DEFAULT '[]',
+        created_by INTEGER,
+        updated_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

@@ -143,6 +143,11 @@ export function usePhotoResolver(): PhotoResolver {
     return useMemo(() => makePhotoResolver(data), [data]);
 }
 
+/** One of the bundled photos by its key (admin → Home screen, "from the app's photos"), or null. */
+export function photoByKey(key?: string | null): Photo | null {
+    return key && key in THUMB ? THUMB[key as PhotoKey] : null;
+}
+
 /** A photo for free text such as a booking's service type ("Plumbing", "AC Service"), or null. */
 export function photoForName(name?: string | null): Photo | null {
     const k = photoKeyForService(name) ?? photoKeyForCategory(name);

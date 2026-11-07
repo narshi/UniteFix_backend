@@ -3988,3 +3988,26 @@ export const serviceEnquiries = pgTable("service_enquiries", {
   partnerIdx: index("service_enquiries_partner_idx").on(table.partnerId),
 }));
 export type ServiceEnquiry = typeof serviceEnquiries.$inferSelect;
+
+/**
+ * Home screen cards (shared/home-cards.ts): sets of up to four "Home Services"
+ * cards that staff schedule always, every year between two days, or on dates.
+ */
+export const homeCardSets = pgTable("home_card_sets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),                                 // for staff: "Monsoon", "Tax season"
+  heading: text("heading"),                                     // above the cards on the app; null = "Home Services"
+  schedule: text("schedule").notNull().default('yearly'),       // always | yearly | dates
+  fromMmdd: text("from_mmdd"),                                  // yearly: MM-DD (may be after toMmdd: across the new year)
+  toMmdd: text("to_mmdd"),
+  startsOn: text("starts_on"),                                  // dates: YYYY-MM-DD
+  endsOn: text("ends_on"),
+  priority: integer("priority").notNull().default(0),          // higher wins when sets overlap
+  isActive: boolean("is_active").notNull().default(true),
+  cards: jsonb("cards").notNull().default([]),                  // HomeCard[] in order, at most 4
+  createdBy: integer("created_by"),
+  updatedBy: integer("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type HomeCardSet = typeof homeCardSets.$inferSelect;

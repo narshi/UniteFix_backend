@@ -32,6 +32,20 @@ export interface ServiceCategory {
     featureSubtitle?: string | null;
 }
 
+/** Home screen cards (server: shared/home-cards.ts). Staff schedule them in admin → Home screen. */
+export type HomeCardPhoto = { kind: 'auto' } | { kind: 'library'; key: string } | { kind: 'link'; url: string };
+export interface HomeCardItem {
+    key: string;
+    target: 'category' | 'service' | 'screen';
+    id: number | null;
+    categoryId: number | null;
+    screen: 'recharge' | 'celebrate' | 'all_services' | null;
+    label: string;
+    name: string;
+    photo: HomeCardPhoto;
+}
+export interface HomeCards { date: string; heading: string; setId: number | null; setName: string | null; cards: HomeCardItem[] }
+
 export interface ServiceItem {
     id: number;
     categoryId: number;
@@ -440,6 +454,10 @@ export const customerApi = {
 
     getAllCategories: () =>
         apiClient.get<ApiResponse<ServiceCategory[]>>('/api/services/categories'),
+
+    /** The Home Services cards live today (no sign-in needed). */
+    getHomeCards: () =>
+        apiClient.get<ApiResponse<HomeCards>>('/api/home/cards'),
 
     // Platform Config — shape mirrors GET /api/config/public in client-features.routes.ts
     getPublicConfig: () =>

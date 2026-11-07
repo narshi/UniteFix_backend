@@ -21,6 +21,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment", capability: "bookings:view" },
   { name: "Enquiries", href: "/admin/enquiries", icon: "forum", capability: "bookings:view" },
   { name: "Service Catalog", href: "/admin/catalog", icon: "category", capability: "catalog:view" },
+  { name: "Home Screen", href: "/admin/home-screen", icon: "phone_iphone", capability: "catalog:view" },
   { name: "Manual Bill", href: "/admin/manual-bill", icon: "receipt_long", capability: "billing:view" },
   { name: "Service Expert Types", href: "/admin/technician-types", icon: "engineering", capability: "catalog:view" },
   { name: "Category Expertise", href: "/admin/category-expertise", icon: "hub", capability: "catalog:view" },

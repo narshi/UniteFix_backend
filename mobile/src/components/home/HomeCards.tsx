@@ -11,7 +11,7 @@
  * Android, which stretched the cards into tall strips.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Image, Pressable, Animated, Easing, ImageSourcePropType } from 'react-native';
 import { ArrowRight, ChevronRight, LucideIcon } from 'lucide-react-native';
 import { brand } from '../../theme/colors';
@@ -46,17 +46,28 @@ export function cardWidth(rowWidth: number, count: number, gap: number) {
     return Math.floor((rowWidth - gap * (count - 1)) / count);
 }
 
-export function ServicePhotoCard({ index, width, label, photo, Icon, onPress }: { index: number; width: number; label: string; photo: ImageSourcePropType; Icon: LucideIcon; onPress: () => void }) {
+export function ServicePhotoCard({ index, width, label, photo, fallback, Icon, onPress }: { index: number; width: number; label: string; photo: ImageSourcePropType; fallback?: ImageSourcePropType; Icon: LucideIcon; onPress: () => void }) {
+    const [failed, setFailed] = useState(false);
     return (
         <Rise index={index} style={{ width }}>
             <Pressable onPress={onPress} style={({ pressed }) => [styles.serviceCard, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={label}>
                 <View>
-                    <Image source={photo} style={{ width: width - 2, height: Math.round(width * 0.92) }} resizeMode="cover" />
+                    <Image source={failed && fallback ? fallback : photo} onError={() => setFailed(true)} style={{ width: width - 2, height: Math.round(width * 0.92) }} resizeMode="cover" />
                     <View style={styles.serviceBadge}><Icon size={15} color={brand.orange} strokeWidth={2.4} /></View>
                 </View>
                 <Text style={styles.serviceLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} maxFontSizeMultiplier={1.2}>{label}</Text>
             </Pressable>
         </Rise>
+    );
+}
+
+/** Four grey cards the size of the real ones, while Home's cards load. */
+export function ServicePhotoCardSkeleton({ width }: { width: number }) {
+    return (
+        <View style={[styles.serviceCard, { width, opacity: 0.6 }]}>
+            <View style={{ width: width - 2, height: Math.round(width * 0.92), backgroundColor: brand.cardBorder }} />
+            <View style={{ height: 14, marginHorizontal: 10, marginTop: 16, marginBottom: 12, borderRadius: 7, backgroundColor: brand.cardBorder }} />
+        </View>
     );
 }
 

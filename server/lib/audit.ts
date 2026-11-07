@@ -18,6 +18,7 @@ import logger from './logger';
 export type AuditEntity =
     | 'service_request'
     | 'service_enquiry'   // referral band (enquiry.service.ts)
+    | 'home_card_set'     // Home screen cards (home-cards.service.ts)
     | 'employee'
     | 'user'
     | 'withdrawal'
