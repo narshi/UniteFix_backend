@@ -93,7 +93,7 @@ export class ProviderChoiceService {
         const c = (await PartnerFieldService.dispatchCandidates()).find(x => x.id === bp.id);
         const name = bp.displayName;
         if (!c) return { option: null, info: { code: shareCode, name, available: false, reason: `${name} is not taking bookings in the app right now. UniteFix will send its own expert.` } };
-        if (!catalogServiceId || !c.catalogServiceIds.includes(catalogServiceId)) {
+        if (!catalogServiceId || !PartnerFieldService.takesService(c, await PartnerFieldService.serviceInfo(catalogServiceId))) {
             return { option: null, info: { code: shareCode, name, available: false, reason: `${name} does not take this service. Pick another partner or let UniteFix choose.` } };
         }
         const s = (await this.partnerStats([bp.id])).get(bp.id);
@@ -124,12 +124,18 @@ export class ProviderChoiceService {
         return out;
     }
 
-    /** Ready partners (staff's own dispatch list) that cover the pincode and take this service, best rated first. */
+    /**
+     * Ready partners (staff's own dispatch list) in the customer's area that
+     * take this service, best rated first. Area and service are automatic
+     * (PartnerFieldService.covers / takesService): territories or the partner's
+     * own postal district; listed services or its verticals.
+     */
     static async partnerOptions(input: { catalogServiceId: number | null; pincode: string | null }): Promise<PartnerOption[]> {
         if (!input.catalogServiceId || !input.pincode) return [];
         const { PartnerFieldService } = await import('./partner-field.service');
+        const svc = await PartnerFieldService.serviceInfo(input.catalogServiceId);
         const ready = (await PartnerFieldService.dispatchCandidates())
-            .filter(p => p.pincodes.includes(input.pincode!) && p.catalogServiceIds.includes(input.catalogServiceId!));
+            .filter(p => PartnerFieldService.covers(p, input.pincode) && PartnerFieldService.takesService(p, svc));
         if (!ready.length) return [];
         // A partner's rating: the stars customers gave on jobs that partner did.
         const stats = await this.partnerStats(ready.map(p => p.id));

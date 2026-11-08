@@ -166,10 +166,12 @@ export function registerAdminRoutes(app: Express) {
             const pin = sr.pincode ?? (String(sr.address ?? '').match(/\b(\d{6})\b/)?.[1] ?? null);
             const { PartnerFieldService } = await import("../services/partner-field.service");
             const all = await PartnerFieldService.dispatchCandidates();
+            const svc = await PartnerFieldService.serviceInfo(sr.catalogServiceId);
             const data = all.map(p => ({
                 ...p,
-                covers: !!pin && p.pincodes.includes(pin),
-                offers: !!sr.catalogServiceId && p.catalogServiceIds.includes(sr.catalogServiceId),
+                // The same area and service rules the app's booking screen uses.
+                covers: PartnerFieldService.covers(p, pin),
+                offers: PartnerFieldService.takesService(p, svc),
                 current: p.id === sr.dispatchPartnerId,
             })).sort((a, b) => (Number(b.covers) * 2 + Number(b.offers)) - (Number(a.covers) * 2 + Number(a.offers)) || a.openJobs - b.openJobs);
             const notReady = await PartnerFieldService.notReadyPartners(new Set(all.map(p => p.id)));

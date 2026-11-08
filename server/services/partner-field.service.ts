@@ -103,6 +103,21 @@ function commissionOf(type: string, value: unknown): { type: 'percent' | 'fixed'
     return { type, value: Math.round(v * 100) / 100 };
 }
 
+/** A partner ready for field jobs (dispatchCandidates). */
+export type DispatchCandidate = {
+    id: number; partnerCode: string; name: string; phone: string | null;
+    pincodes: string[]; catalogServiceIds: number[]; technicians: number; openJobs: number;
+    ownPincode: string | null; coveragePincodes: string[]; verticals: string[];
+};
+
+/** Which catalogue work each field vertical covers, matched on "category name + service name". */
+const VERTICAL_SERVICES: Record<string, RegExp> = {
+    computer: /computer|laptop|desktop|printer|biometric|\bups\b|inverter|battery|data backup|\bos\b|software|virus|\bssd\b/,
+    cctv: /cctv|camera|\bdvr\b|\bnvr\b|surveillance/,
+    plumbing: /plumb|\btap\b|faucet|pipe|geyser|water heater|flush|commode|basin|sink|bath ?tub|water tank|tank fitting|purifier/,
+    electrical: /electric|wiring|\bfan\b|light|switch|socket|\bmcb\b|meter|earthing|solar|inverter|\bups\b/,
+};
+
 export class PartnerFieldService {
 
     // ══════════════════════════════════════════════════════════════════════
@@ -379,11 +394,46 @@ export class PartnerFieldService {
      * job's pincode and lists the booked UniteFix service — advice for the
      * choice, not a rule (staff decide).
      */
+/**
+     * Whether a partner works at a pincode. Automatic by area: its approved
+     * territories, its coverage list, or the same postal district as its own
+     * address (the first three digits: 581401 Sirsi and 581301 Karwar are both
+     * 581). A partner with no pincode on file and no territories covers nowhere.
+     */
+    static covers(c: Pick<DispatchCandidate, 'pincodes' | 'coveragePincodes' | 'ownPincode'>, pincode: string | null | undefined): boolean {
+        if (!pincode || !/^\d{6}$/.test(pincode)) return false;
+        if (c.pincodes.includes(pincode) || c.coveragePincodes.includes(pincode)) return true;
+        return !!c.ownPincode && /^\d{6}$/.test(c.ownPincode) && c.ownPincode.slice(0, 3) === pincode.slice(0, 3);
+    }
+
+    /**
+     * Whether a partner takes a catalogue service: the services it listed
+     * (approved rates) when it has any; otherwise every service of its field
+     * verticals, by the service's category or name (a Computer partner takes
+     * Computer, Printer, UPS and Biometric work, and "Computer Service" under
+     * Visiting & Inspection).
+     */
+    static takesService(c: Pick<DispatchCandidate, 'catalogServiceIds' | 'verticals'>, svc: { id: number; name: string; categoryName: string | null } | null): boolean {
+        if (!svc) return false;
+        if (c.catalogServiceIds.length) return c.catalogServiceIds.includes(svc.id);
+        const text = `${svc.categoryName ?? ''} ${svc.name}`.toLowerCase();
+        return c.verticals.some(v => VERTICAL_SERVICES[v]?.test(text));
+    }
+
+    /** A catalogue service's name and category, for takesService. */
+    static async serviceInfo(catalogServiceId: number | null | undefined) {
+        if (!catalogServiceId) return null;
+        const [s] = await db.select({ id: services.id, name: services.name, categoryName: serviceCategories.name })
+            .from(services).leftJoin(serviceCategories, eq(serviceCategories.id, services.categoryId))
+            .where(eq(services.id, catalogServiceId)).limit(1);
+        return s ?? null;
+    }
+
     static async dispatchCandidates() {
         const bps = await db.select().from(businessPartners).where(eq(businessPartners.status, 'active'));
         if (!bps.length) return [];
         const { PartnerHubService } = await import('./partner-hub.service');
-        const out: Array<{ id: number; partnerCode: string; name: string; phone: string | null; pincodes: string[]; catalogServiceIds: number[]; technicians: number; openJobs: number }> = [];
+        const out: DispatchCandidate[] = [];
         for (const bp of bps) {
             const verticals = await BusinessPartnerService.verticalCodesOf(bp.id);
             const modules = await PartnerHubService.modulesOf(bp, verticals);
@@ -400,6 +450,7 @@ export class PartnerFieldService {
             out.push({
                 id: bp.id, partnerCode: bp.partnerCode, name: bp.displayName, phone: bp.fieldSupportPhone ?? bp.contactPhone,
                 pincodes: pins.map(p => p.p), catalogServiceIds: offered.map(o => o.id as number), technicians: techs.n, openJobs: open.n,
+                ownPincode: bp.pincode ?? null, coveragePincodes: (bp.coveragePincodes ?? []).filter(p => /^\d{6}$/.test(p)), verticals,
             });
         }
         return out;
@@ -433,6 +484,9 @@ export class PartnerFieldService {
             if (!t.total) missing.push('No technicians yet. The partner adds them in their Hub under Field service → Team, or an expert joins with the partner’s joining code.');
             else if (!t.verified) missing.push(`${t.total} technician${t.total === 1 ? '' : 's'}, none verified yet. Verify them on the Employees page.`);
             else if (!t.ready) missing.push(`${t.verified} verified technician${t.verified === 1 ? '' : 's'}, all switched off. The partner switches one on under Field service → Team.`);
+            // The booking screen offers a partner in its area (covers()): without a pincode or territories it has none.
+            const [terr] = await db.select({ n: sql<number>`count(*)::int` }).from(partnerTerritories).where(and(eq(partnerTerritories.businessPartnerId, bp.id), eq(partnerTerritories.status, 'active')));
+            if (!bp.pincode && !terr.n && !(bp.coveragePincodes ?? []).length) missing.push("No area yet. Add the partner's pincode in Business partners → Edit: customers in the same postal district (same first three digits) will see it.");
             out.push({ id: bp.id, partnerCode: bp.partnerCode, name: bp.displayName, missing });
         }
         return out;
