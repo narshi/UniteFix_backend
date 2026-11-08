@@ -35,9 +35,12 @@ import { serviceRequests } from "@shared/schema";
  * coalesce this predicate quietly hid every older created booking, which is the
  * opposite of what it is for.
  */
+// A call booking (staff booked it on the phone and sent a payment link) is
+// not an abandoned draft: the customer and staff must see it, to pay or to chase.
 const IS_ABANDONED_DRAFT = sql`(
     ${serviceRequests.status} IN ('created', 'cancelled')
     AND COALESCE(${serviceRequests.bookingFeeStatus}::text, '') = 'pending'
+    AND ${serviceRequests.bookedVia} IS DISTINCT FROM 'call'
 )`;
 
 /** Excludes abandoned, never-paid drafts. */

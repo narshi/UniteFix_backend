@@ -970,6 +970,9 @@ export function registerPaymentRoutes(app: Express) {
                                 // The partner or expert the customer chose gets it now that it is paid.
                                 const { ProviderChoiceService } = await import("../services/provider-choice.service");
                                 void ProviderChoiceService.applyAfterPayment(serviceId).catch(() => {});
+                                // Paid in the app: a payment link sent for this call booking must not be paid as well.
+                                const { CallBookingService } = await import("../services/call-booking.service");
+                                void CallBookingService.afterOtherPayment(serviceId).catch(() => {});
                             }
                         }
                     }

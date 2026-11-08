@@ -206,6 +206,9 @@
       "type": "Type",
       "all": "All",
       "show": "Show services"
+    },
+    "bookings": {
+      "pay_to_confirm": "Pay ₹{{amount}} to confirm"
     }
   }
 }

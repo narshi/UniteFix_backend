@@ -328,6 +328,14 @@ export const serviceRequests = pgTable("service_requests", {
   bookedVia: text("booked_via"),
   bookedByAdminId: integer("booked_by_admin_id"),
   bookingNote: text("booking_note"),
+  // The payment link sent for a call booking's fee (Razorpay payment link):
+  // status created | paid | cancelled | expired, and where it was sent
+  // ([{ channel: sms|email|whatsapp, at, ok, detail? }]).
+  paymentLinkId: text("payment_link_id"),
+  paymentLinkUrl: text("payment_link_url"),
+  paymentLinkStatus: text("payment_link_status"),
+  paymentLinkExpiresAt: timestamp("payment_link_expires_at"),
+  paymentLinkSends: jsonb("payment_link_sends"),
   // The booking band frozen at booking (field_service, inspect_quote, consultation).
   bookingBand: text("booking_band"),
   choiceAppliedAt: timestamp("choice_applied_at"),

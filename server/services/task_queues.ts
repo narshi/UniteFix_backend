@@ -593,6 +593,18 @@ let intervals: NodeJS.Timeout[] = [];
  * created/pending rows are touched: once a booking is assigned, or the fee is
  * paid, or the fee was zero, it is out of scope.
  */
+/**
+ * An app booking left at the payment sheet: created, fee unpaid, over 30
+ * minutes old. Not a call booking — that waits days for its payment link
+ * (closed after 7 days, below). Exported so a test can check one row against it.
+ */
+export const abandonedUnpaidBooking = () => and(
+    eq(serviceRequests.status, 'created' as any),
+    eq(serviceRequests.bookingFeeStatus, 'pending' as any),
+    sql`${serviceRequests.createdAt} < NOW() - INTERVAL '30 minutes'`,
+    sql`${serviceRequests.bookedVia} IS DISTINCT FROM 'call'`,
+);
+
 async function expireAbandonedBookings(): Promise<void> {
     try {
         /**
@@ -612,18 +624,27 @@ async function expireAbandonedBookings(): Promise<void> {
         const result = await db
             .update(serviceRequests)
             .set({ status: 'cancelled' as any, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(serviceRequests.status, 'created' as any),
-                    eq(serviceRequests.bookingFeeStatus, 'pending' as any),
-                    sql`${serviceRequests.createdAt} < NOW() - INTERVAL '30 minutes'`,
-                )
-            );
+            .where(abandonedUnpaidBooking());
 
         const removed = (result as any).rowCount || 0;
         if (removed > 0) {
             logger.info(`[CRON] Cancelled ${removed} abandoned unpaid booking(s)`);
         }
+
+        // Call bookings: staff can resend the link for a week; still unpaid after that, it is closed.
+        const stale = await db
+            .update(serviceRequests)
+            .set({ status: 'cancelled' as any, cancelReason: 'Payment link not paid within 7 days', cancelledAt: new Date(), paymentLinkStatus: 'expired', updatedAt: new Date() } as any)
+            .where(
+                and(
+                    eq(serviceRequests.status, 'created' as any),
+                    eq(serviceRequests.bookingFeeStatus, 'pending' as any),
+                    eq(serviceRequests.bookedVia, 'call'),
+                    sql`${serviceRequests.createdAt} < NOW() - INTERVAL '7 days'`,
+                )
+            );
+        const closed = (stale as any).rowCount || 0;
+        if (closed > 0) logger.info(`[CRON] Closed ${closed} call booking(s) whose payment link was not paid in 7 days`);
     } catch (error: any) {
         logger.error('[CRON] Abandoned-booking cleanup failed', { error: error.message });
     }

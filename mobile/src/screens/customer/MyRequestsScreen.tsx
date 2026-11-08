@@ -11,6 +11,7 @@
  * - Empty states per tab with CTA button
  */
 
+import { useTranslation } from 'react-i18next';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View,
@@ -339,7 +340,11 @@ function ActiveBookingCard({
     const serviceIcon = getServiceIcon(item.serviceType);
     const ServiceIcon = serviceIcon.icon;
     const photo = photoForName(item.serviceType);
+    const { t } = useTranslation();
     const needsPayment = item.status === 'pending_payment';
+    // Booked for them on a call, with a payment link: the booking fee confirms it (paid here or by the link).
+    const feeDue = item.status === 'created' && item.bookingFeeStatus === 'pending';
+    const feeAmount = Number(item.bookingFee ?? 0) > 0 ? Number(item.bookingFee) : Number(item.totalAmount ?? 0);
 
     const dateTime = new Date(item.createdAt);
     const timeStr = dateTime.toLocaleTimeString('en-IN', {
@@ -364,7 +369,7 @@ function ActiveBookingCard({
             <TouchableOpacity
                 style={[
                     activeCardStyles.card,
-                    needsPayment && activeCardStyles.paymentCard,
+                    (needsPayment || feeDue) && activeCardStyles.paymentCard,
                 ]}
                 onPress={onPress}
                 activeOpacity={0.7}
@@ -373,7 +378,7 @@ function ActiveBookingCard({
                 <View
                     style={[
                         activeCardStyles.accentBar,
-                        { backgroundColor: needsPayment ? colors.warning : serviceIcon.color },
+                        { backgroundColor: needsPayment || feeDue ? colors.warning : serviceIcon.color },
                     ]}
                 />
 
@@ -447,6 +452,14 @@ function ActiveBookingCard({
                             <CreditCard size={15} color={colors.textInverse} strokeWidth={2} />
                             <Text style={activeCardStyles.paymentBannerText}>
                                 Complete Payment{item.totalAmount ? ` — ₹${item.totalAmount}` : ''}
+                            </Text>
+                        </View>
+                    )}
+                    {feeDue && (
+                        <View style={activeCardStyles.paymentBanner} accessibilityRole="button" accessibilityLabel={`Pay ₹${feeAmount} to confirm this booking`}>
+                            <CreditCard size={15} color={colors.textInverse} strokeWidth={2} />
+                            <Text style={activeCardStyles.paymentBannerText}>
+                                {t('bookings.pay_to_confirm', { defaultValue: 'Pay ₹{{amount}} to confirm', amount: feeAmount })}
                             </Text>
                         </View>
                     )}

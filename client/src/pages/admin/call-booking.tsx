@@ -1,8 +1,10 @@
 /**
  * Book by call: a customer phones UniteFix and staff book the service for
- * them. Same catalogue price and queue as an app booking; nothing is paid at
- * booking (the customer pays the whole bill after the service); marked
- * "Booked by call" with who booked it. See server/services/call-booking.service.ts.
+ * them. Same catalogue price and queue as an app booking; marked "Booked by
+ * call" with who booked it. Payment: a link for the booking fee (Razorpay SMS
+ * and email, and WhatsApp), which the customer can also pay in the app — the
+ * booking joins the queue once paid — or nothing now and the full bill after
+ * the service. See server/services/call-booking.service.ts.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -14,14 +16,41 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, MapPin, Phone, Search, UserPlus, UserCheck, Minus, Plus } from "lucide-react";
+import { CheckCircle2, MapPin, Phone, Search, UserPlus, UserCheck, Minus, Plus, Copy, MessageCircle, Send, CreditCard, Check, X } from "lucide-react";
 
 type Address = { label: string; address: string; pinCode: string };
-type Lookup = { phone: string; customer: null | { id: number; name: string; isActive: boolean; addresses: Address[]; recent: { id: number; ref: string; serviceType: string; status: string; createdAt: string }[] } };
-type Quote = { service: { id: number; name: string; categoryName: string | null }; band: string; quantity: number; unitPrice: number | null; total: number | null; payNow: number; payAfter: number | null; partnerName: string | null };
+type Lookup = { phone: string; customer: null | { id: number; name: string; email: string | null; isActive: boolean; addresses: Address[]; recent: { id: number; ref: string; serviceType: string; status: string; createdAt: string }[] } };
+type Quote = {
+  service: { id: number; name: string; categoryName: string | null }; band: string; quantity: number; unitPrice: number | null; total: number | null; partnerName: string | null;
+  link: { payNow: number; payAfter: number | null; prepaid: boolean }; afterService: { payNow: number; payAfter: number | null }; linksAvailable: boolean;
+};
+type SendRow = { channel: "sms" | "email" | "whatsapp"; at: string; ok: boolean; detail?: string };
+type PaymentResult = { mode: "link" | "after_service"; amount: number; url: string | null; sends: SendRow[]; whatsappFallbackUrl: string | null };
 type Item = { id: number; name: string; status: string; basePrice: number };
 type Category = { id: number; name: string; isActive: boolean; items: Item[] };
-type Recent = { id: number; ref: string; serviceType: string; status: string; totalAmount: number | null; createdAt: string; note: string | null; customerName: string | null; customerPhone: string | null; bookedBy: string | null };
+type Recent = {
+  id: number; ref: string; serviceType: string; status: string; totalAmount: number | null; createdAt: string; note: string | null; customerName: string | null; customerPhone: string | null; customerEmail: string | null; bookedBy: string | null;
+  payment: "awaiting" | "paid_by_link" | "after_service" | "paid"; amountDue: number | null; paymentLinkUrl: string | null; paymentLinkExpiresAt: string | null; whatsappFallbackUrl: string | null;
+};
+const CHANNEL: Record<string, string> = { sms: "SMS", email: "Email", whatsapp: "WhatsApp" };
+
+/** Copy text; a fallback for browsers that refuse the clipboard. */
+async function copy(text: string, toast: (o: any) => void) {
+  try { await navigator.clipboard.writeText(text); toast({ title: "Link copied" }); }
+  catch { window.prompt("Copy the payment link:", text); }
+}
+
+function Sends({ sends }: { sends: SendRow[] }) {
+  return (
+    <ul className="flex flex-wrap gap-2" aria-label="Where the link was sent">
+      {sends.map((s, i) => (
+        <li key={i} title={s.detail} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${s.ok ? "bg-[rgba(16,185,129,0.12)] text-emerald-300" : "bg-[rgba(245,158,11,0.12)] text-amber-300"}`}>
+          {s.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />} {CHANNEL[s.channel]}{s.ok ? "" : `: ${s.detail ?? "not sent"}`}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const SLOTS = ["Morning (9 am – 12 pm)", "Afternoon (12 – 4 pm)", "Evening (4 – 8 pm)"];
 const field = "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white";
@@ -51,7 +80,9 @@ export default function CallBookingPage() {
   const [urgent, setUrgent] = useState(false);
   const [description, setDescription] = useState("");
   const [note, setNote] = useState("");
-  const [done, setDone] = useState<{ ref: string; id: number; service: string; total: number | null; newCustomer: boolean } | null>(null);
+  const [email, setEmail] = useState("");
+  const [payMode, setPayMode] = useState<"link" | "after_service">("link");
+  const [done, setDone] = useState<{ ref: string; id: number; service: string; total: number | null; newCustomer: boolean; payment: PaymentResult } | null>(null);
 
   const digits = phone.replace(/\D/g, "").slice(-10);
   const phoneOk = /^[6-9]\d{9}$/.test(digits);
@@ -72,18 +103,24 @@ export default function CallBookingPage() {
     enabled: !!serviceId, retry: false,
   });
   const consultation = quote.data?.band === "consultation";
+  const linksAvailable = quote.data?.linksAvailable ?? true;
+  const mode = linksAvailable ? payMode : "after_service";
+  const plan = quote.data ? (mode === "link" ? quote.data.link : quote.data.afterService) : null;
+  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
   const recent = useQuery<Recent[]>({ queryKey: ["/api/admin/call-bookings"], queryFn: async () => (await apiRequest("GET", "/api/admin/call-bookings")).data });
 
   // A known caller: their home address is the usual one.
   useEffect(() => {
     const first = customer?.addresses[0];
     if (first && !address) { setAddress(first.address); if (first.pinCode) setPincode(first.pinCode); }
+    if (customer?.email && !email) setEmail(customer.email);
   }, [customer?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const book = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/admin/call-bookings", {
       phone: digits, name: customer ? undefined : name, catalogServiceId: serviceId, quantity, address, pincode,
       preferredDate: date || undefined, preferredTimeSlot: slot || undefined, urgency: urgent ? "urgent" : "normal", description, note,
+      payment: mode, email: email.trim() || undefined,
     }),
     onSuccess: (r: any) => {
       setDone(r.data);
@@ -94,7 +131,23 @@ export default function CallBookingPage() {
     onError: e => toast({ title: "Not booked", description: apiErrorMessage(e), variant: "destructive" }),
   });
 
-  const reset = () => { setDone(null); setPhone(""); setName(""); setCategoryId(""); setServiceId(""); setQuantity(1); setAddress(""); setPincode(""); setDate(todayIst()); setSlot(SLOTS[0]); setUrgent(false); setDescription(""); setNote(""); };
+  const refreshRecent = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/call-bookings"] });
+  const resend = useMutation({
+    mutationFn: async (v: { id: number; channels: string[] }) => apiRequest("POST", `/api/admin/call-bookings/${v.id}/resend-link`, { channels: v.channels }),
+    onSuccess: (r: any) => {
+      const failed = (r.data?.sends ?? []).filter((x: SendRow) => !x.ok).map((x: SendRow) => CHANNEL[x.channel]);
+      toast({ title: r.message, description: failed.length ? `Not sent by ${failed.join(", ")}: use Copy or WhatsApp Web.` : undefined });
+      refreshRecent();
+    },
+    onError: e => toast({ title: "Not sent", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+  const payAfter = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/admin/call-bookings/${id}/pay-after-service`, {}),
+    onSuccess: (r: any) => { toast({ title: "Switched", description: r.message }); refreshRecent(); },
+    onError: e => toast({ title: "Not changed", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+
+  const reset = () => { setDone(null); setEmail(""); setPayMode("link"); setPhone(""); setName(""); setCategoryId(""); setServiceId(""); setQuantity(1); setAddress(""); setPincode(""); setDate(todayIst()); setSlot(SLOTS[0]); setUrgent(false); setDescription(""); setNote(""); };
   const missing = [
     !phoneOk && "the customer's mobile number",
     phoneOk && lookup.isSuccess && !customer && name.trim().length < 2 && "the new customer's name",
@@ -103,6 +156,7 @@ export default function CallBookingPage() {
     !consultation && address.trim().length < 8 && "the address",
     !/^\d{6}$/.test(pincode) && "the 6-digit pincode",
     consultation && (!date || !slot) && "a day and time for the call",
+    !emailOk && "a valid email (or leave it empty)",
   ].filter(Boolean) as string[];
 
   return (
@@ -110,7 +164,7 @@ export default function CallBookingPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">Book by call</h1>
         <p className="mt-1 max-w-3xl text-sm text-[hsl(215,20%,65%)]">
-          For customers who phone in. The booking goes into the same queue as an app booking, at the catalogue price, marked <span className="text-[#FFB15C]">Booked by call</span>. Nothing is paid now: the customer pays the full bill after the service. They see it in the app when they sign in with this number.
+          For customers who phone in. Same catalogue price and queue as an app booking, marked <span className="text-[#FFB15C]">Booked by call</span>. Send a payment link for the booking fee (SMS, email, WhatsApp; they can also pay in the app under My Bookings): it joins the queue once paid. Or choose pay after the service: nothing now, into the queue at once. They see the booking in the app when they sign in with this number.
         </p>
       </div>
 
@@ -120,8 +174,23 @@ export default function CallBookingPage() {
             <CheckCircle2 className="mt-0.5 h-6 w-6 text-emerald-400" />
             <div className="space-y-1">
               <h2 className="text-lg font-semibold text-white">Booked {done.ref}</h2>
-              <p className="text-sm text-[hsl(215,20%,70%)]">{done.service} · {rupees(done.total)} after the service · {done.newCustomer ? "new customer added" : "existing customer"}</p>
-              <p className="text-sm text-[hsl(215,20%,70%)]">Tell the customer their booking number {done.ref}. They get a confirmation in the app, and an expert is assigned from the queue.</p>
+              <p className="text-sm text-[hsl(215,20%,70%)]">{done.service} · {rupees(done.total)} in all · {done.newCustomer ? "new customer added" : "existing customer"}</p>
+              {done.payment.mode === "link" ? (
+                <div className="space-y-2 pt-1" data-testid="link-result">
+                  <p className="text-sm text-[hsl(215,20%,70%)]">Payment link for <span className="font-semibold text-white">{rupees(done.payment.amount)}</span> sent. The booking joins the queue as soon as they pay (by the link, or in the app under My Bookings).</p>
+                  {done.payment.url && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="rounded bg-[rgba(255,255,255,0.06)] px-2 py-1 text-xs text-white">{done.payment.url}</code>
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => copy(done.payment.url!, toast)}><Copy className="h-3.5 w-3.5" /> Copy</Button>
+                      {done.payment.whatsappFallbackUrl && <a href={done.payment.whatsappFallbackUrl} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="gap-1"><MessageCircle className="h-3.5 w-3.5" /> Open in WhatsApp Web</Button></a>}
+                    </div>
+                  )}
+                  <Sends sends={done.payment.sends} />
+                </div>
+              ) : (
+                <p className="text-sm text-[hsl(215,20%,70%)]">Nothing to pay now; the customer pays the bill after the service. It is in the queue now.</p>
+              )}
+              <p className="text-sm text-[hsl(215,20%,70%)]">Tell the customer their booking number {done.ref}.</p>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Link href="/admin/assignments"><Button variant="outline">Assignment queue</Button></Link>
                 <Link href="/services"><Button variant="outline">Service requests</Button></Link>
@@ -244,17 +313,35 @@ export default function CallBookingPage() {
               <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Customer</dt><dd className="text-right text-white">{customer?.name || name || "—"}{phoneOk ? ` · ${digits}` : ""}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Service</dt><dd className="text-right text-white">{quote.data?.service.name ?? "—"}{quantity > 1 ? ` × ${quantity}` : ""}</dd></div>
               <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Total</dt><dd className="text-right text-white" data-testid="cb-total">{quote.data ? (quote.data.total != null ? rupees(quote.data.total) : "Expert quotes on site") : "—"}</dd></div>
-              <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Pay now</dt><dd className="text-right font-semibold text-emerald-300">₹0</dd></div>
-              <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">After the service</dt><dd className="text-right text-white">{quote.data?.total != null ? rupees(quote.data.total) : "the bill"}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Pay now</dt><dd className="text-right font-semibold text-emerald-300" data-testid="cb-paynow">{plan ? rupees(plan.payNow) : "—"}</dd></div>
+              <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">After the service</dt><dd className="text-right text-white">{plan?.payAfter != null ? rupees(plan.payAfter) : "the bill"}</dd></div>
               {quote.data?.partnerName && <div className="flex justify-between gap-3"><dt className="text-[hsl(215,20%,60%)]">Served by</dt><dd className="text-right text-white">{quote.data.partnerName}</dd></div>}
             </dl>
+            <fieldset className="grid gap-2" aria-label="Payment">
+              <legend className="mb-1 text-sm text-[hsl(215,20%,75%)]">Payment</legend>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${mode === "link" ? "border-[#FF8A00] bg-[rgba(255,138,0,0.08)]" : "border-[rgba(255,255,255,0.08)]"} ${linksAvailable ? "" : "opacity-50"}`}>
+                <input type="radio" name="cb-pay" className="mt-0.5 accent-[#FF8A00]" checked={mode === "link"} disabled={!linksAvailable} onChange={() => setPayMode("link")} />
+                <span><span className="flex items-center gap-1 font-medium text-white"><CreditCard className="h-3.5 w-3.5" /> Send a payment link{quote.data ? ` · ${rupees(quote.data.link.payNow)} now` : ""}</span>
+                  <span className="text-xs text-[hsl(215,20%,60%)]">{linksAvailable ? "By SMS, email and WhatsApp. They can also pay in the app. Joins the queue once paid." : "Razorpay is not set up on this server."}</span></span>
+              </label>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm ${mode === "after_service" ? "border-[#FF8A00] bg-[rgba(255,138,0,0.08)]" : "border-[rgba(255,255,255,0.08)]"}`}>
+                <input type="radio" name="cb-pay" className="mt-0.5 accent-[#FF8A00]" checked={mode === "after_service"} onChange={() => setPayMode("after_service")} />
+                <span><span className="font-medium text-white">Pay after the service</span><span className="block text-xs text-[hsl(215,20%,60%)]">Nothing now; into the queue at once.</span></span>
+              </label>
+              {mode === "link" && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cb-email" className="text-[hsl(215,20%,75%)]">Email for the link (optional)</Label>
+                  <Input id="cb-email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@example.com" className={field} />
+                </div>
+              )}
+            </fieldset>
             <div className="grid gap-1.5">
               <Label htmlFor="cb-note" className="text-[hsl(215,20%,75%)]">Note for the team (not shown to the customer)</Label>
               <textarea id="cb-note" value={note} maxLength={500} onChange={e => setNote(e.target.value)} rows={2} placeholder="e.g. Call before reaching; gate code 1234" className={`${field} rounded-md border px-3 py-2 text-sm`} />
             </div>
             {missing.length > 0 && <p className="text-xs text-[hsl(215,20%,60%)]">Still needed: {missing.join(", ")}.</p>}
             <Button className="w-full" disabled={missing.length > 0 || book.isPending || (customer ? !customer.isActive : false)} onClick={() => book.mutate()}>
-              {book.isPending ? "Booking…" : "Book for the customer"}
+              {book.isPending ? "Booking…" : mode === "link" ? "Book and send the payment link" : "Book for the customer"}
             </Button>
           </aside>
         </div>
@@ -267,16 +354,31 @@ export default function CallBookingPage() {
           <div className="overflow-x-auto rounded-2xl border border-[rgba(255,255,255,0.08)]">
             <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-[rgba(255,255,255,0.03)] text-left text-xs uppercase tracking-wider text-[hsl(215,20%,60%)]">
-                <tr><th className="p-3">Booking</th><th className="p-3">Customer</th><th className="p-3">Service</th><th className="p-3">Total</th><th className="p-3">Status</th><th className="p-3">Booked by</th></tr>
+                <tr><th className="p-3">Booking</th><th className="p-3">Customer</th><th className="p-3">Service</th><th className="p-3">Total</th><th className="p-3">Payment</th><th className="p-3">Status</th><th className="p-3">Booked by</th></tr>
               </thead>
               <tbody>
                 {(recent.data ?? []).map(r => (
-                  <tr key={r.id} className="border-t border-[rgba(255,255,255,0.05)] text-[hsl(210,20%,88%)]">
+                  <tr key={r.id} className="border-t border-[rgba(255,255,255,0.05)] align-top text-[hsl(210,20%,88%)]" data-testid={`recent-${r.ref}`}>
                     <td className="p-3"><span className="font-medium text-white">{r.ref}</span><br /><span className="text-xs text-[hsl(215,20%,55%)]">{new Date(r.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></td>
                     <td className="p-3">{r.customerName ?? "—"}<br /><span className="text-xs text-[hsl(215,20%,55%)]">{r.customerPhone}</span></td>
                     <td className="p-3">{r.serviceType}{r.note ? <><br /><span className="text-xs text-[hsl(215,20%,55%)]">Note: {r.note}</span></> : null}</td>
                     <td className="p-3">{rupees(r.totalAmount)}</td>
-                    <td className="p-3"><Badge variant="outline" className="text-[hsl(215,20%,80%)]">{STATUS[r.status] ?? r.status}</Badge></td>
+                    <td className="p-3">
+                      {r.payment === "awaiting" ? (
+                        <div className="space-y-1.5">
+                          <Badge className="bg-amber-500/20 text-amber-300 hover:bg-amber-500/20">Waiting for {rupees(r.amountDue)}</Badge>
+                          <div className="flex flex-wrap gap-1">
+                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" disabled={resend.isPending} onClick={() => resend.mutate({ id: r.id, channels: ["sms", "whatsapp", ...(r.customerEmail ? ["email"] : [])] })}><Send className="h-3 w-3" /> Resend</Button>
+                            {r.paymentLinkUrl && <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" aria-label={`Copy the payment link for ${r.ref}`} onClick={() => copy(r.paymentLinkUrl!, toast)}><Copy className="h-3 w-3" /></Button>}
+                            {r.whatsappFallbackUrl && <a href={r.whatsappFallbackUrl} target="_blank" rel="noreferrer"><Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" aria-label={`WhatsApp Web for ${r.ref}`}><MessageCircle className="h-3 w-3" /></Button></a>}
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={payAfter.isPending} onClick={() => payAfter.mutate(r.id)}>Pay after service</Button>
+                          </div>
+                        </div>
+                      ) : r.payment === "paid_by_link" ? <Badge className="bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15">Paid by link</Badge>
+                        : r.payment === "after_service" ? <Badge variant="outline" className="text-[hsl(215,20%,80%)]">After the service</Badge>
+                        : <Badge className="bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15">Paid</Badge>}
+                    </td>
+                    <td className="p-3"><Badge variant="outline" className="text-[hsl(215,20%,80%)]">{r.payment === "awaiting" ? "Waiting for payment" : (STATUS[r.status] ?? r.status)}</Badge></td>
                     <td className="p-3">{r.bookedBy ?? "—"}</td>
                   </tr>
                 ))}

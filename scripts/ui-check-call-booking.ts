@@ -1,9 +1,12 @@
 /**
  * Browser check: admin → Book by call. A new caller's number, their name, a
- * service (price shows, ₹0 now), address and pincode → Book → the booking
- * reference, a "Booked by call" row in the database, the recent list, and the
- * badge on Service Requests. Fixtures are removed afterwards. Needs the built server:
- *   npm run build; NODE_ENV=production PORT=3000 node dist/index.js  (localhost:3000 passes CORS)
+ * service (price shows, the booking fee now by payment link), address and
+ * pincode → Book and send the link → the reference, the link and where it went,
+ * a waiting row; "Pay after service" switches it; the badge on Service Requests.
+ * Fixtures are removed afterwards. Needs the built server in TEST mode with fake
+ * payment links and no email/SMS (never real Razorpay links):
+ *   npm run build
+ *   NODE_ENV=test PAYMENT_LINKS_MOCK=1 SMTP_HOST= ADMIN_ALERT_EMAIL= MSG91_API_KEY= PORT=3000 node dist/index.js
  *   npx tsx scripts/ui-check-call-booking.ts
  */
 import { chromium } from 'playwright';
@@ -47,17 +50,30 @@ async function main() {
         await p.getByLabel('Pincode').fill('560011');
         await p.getByLabel('Note for the team (not shown to the customer)').fill('Prefers a morning visit');
         await p.waitForFunction(() => document.querySelector('[data-testid="cb-total"]')?.textContent === '₹698', null, { timeout: 8000 }).catch(() => {});
-        check('the summary shows the price for two and ₹0 now', (await p.getByTestId('cb-total').innerText()) === '₹698' && await p.getByText('₹0', { exact: true }).isVisible());
+        check('the summary shows ₹698 for two, and by link the booking fee now', (await p.getByTestId('cb-total').innerText()) === '₹698' && /^₹\d+$/.test(await p.getByTestId('cb-paynow').innerText()) && (await p.getByTestId('cb-paynow').innerText()) !== '₹0');
+        await p.getByLabel('Email for the link (optional)').fill('qa.caller@example.com');
         await p.screenshot({ path: `${OUT}/call-booking-form.png`, fullPage: true });
 
-        await p.getByRole('button', { name: 'Book for the customer' }).click();
+        await p.getByRole('button', { name: 'Book and send the payment link' }).click();
         await p.getByRole('heading', { name: /^Booked SR\d+/ }).waitFor({ timeout: 10000 });
         const ref = (await p.getByRole('heading', { name: /^Booked SR\d+/ }).innerText()).replace('Booked ', '');
         const [sr] = await db.select().from(serviceRequests).where(eq(serviceRequests.serviceId, ref));
         if (sr) { srIds.push(sr.id); userId = sr.userId; }
-        check('booking shows the reference, and the row is booked by call with the note', !!sr && sr.bookedVia === 'call' && sr.bookingNote === 'Prefers a morning visit' && sr.quantity === 2 && sr.totalAmount === 698 && sr.bookingFee === 0, JSON.stringify(sr ?? null));
-        check('…the recent list shows it with who booked it', await p.getByRole('cell', { name: new RegExp(ref) }).isVisible() && await p.getByRole('cell', { name: sa.username }).first().isVisible());
+        check('booked by call with the note, waiting for its fee, with a link', !!sr && sr.bookedVia === 'call' && sr.bookingNote === 'Prefers a morning visit' && sr.quantity === 2 && sr.totalAmount === 698 && sr.bookingFeeStatus === 'pending' && !!sr.paymentLinkUrl, JSON.stringify(sr ?? null));
+        const result = await p.getByTestId('link-result').innerText();
+        check('…the page shows the link, SMS and email sent, WhatsApp not set up, and a WhatsApp Web button', result.includes(sr!.paymentLinkUrl!) && /SMS/.test(result) && /Email/.test(result) && /WhatsApp: WhatsApp is not set up/.test(result) && await p.getByRole('button', { name: 'Open in WhatsApp Web' }).isVisible(), result);
         await p.screenshot({ path: `${OUT}/call-booking-done.png`, fullPage: true });
+        const recentRow = p.getByTestId(`recent-${ref}`);
+        check('…the recent list shows it waiting, with resend and copy', /Waiting for ₹\d+/.test(await recentRow.innerText()) && await recentRow.getByRole('button', { name: 'Resend' }).isVisible());
+        await recentRow.getByRole('button', { name: 'Resend' }).click();
+        await p.waitForTimeout(1200);
+        const [afterResend] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, sr!.id));
+        check('Resend sends it again (logged on the booking)', ((afterResend.paymentLinkSends as any[]) ?? []).length >= 5);
+        await recentRow.getByRole('button', { name: 'Pay after service' }).click();
+        await p.waitForTimeout(1500);
+        const [switched] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, sr!.id));
+        check('"Pay after service" switches it: no fee, into the queue, the row says so', switched.bookingFeeStatus === 'paid' && switched.bookingFee === 0 && switched.paymentLinkStatus === 'cancelled' && /After the service/.test(await recentRow.innerText()));
+        await p.screenshot({ path: `${OUT}/call-booking-recent.png`, fullPage: true });
 
         await p.goto(BASE + '/services', { waitUntil: 'networkidle' });
         await p.waitForTimeout(1000);
@@ -71,6 +87,7 @@ main().catch(e => { console.error(e); check('no crash', false, e?.message); }).f
     await new Promise(r => setTimeout(r, 2500));   // the booking notification lands in the background
     for (const id of srIds) {
         await db.execute(sql.raw(`DELETE FROM audit_logs WHERE entity_type = 'service_request' AND entity_id = ${id}`)).catch(() => {});
+        await db.execute(sql.raw(`DELETE FROM payment_transactions WHERE service_request_id = ${id}`)).catch(() => {});
         await db.delete(serviceRequests).where(eq(serviceRequests.id, id)).catch(e => console.error('cleanup sr', e.message));
     }
     if (userId) {

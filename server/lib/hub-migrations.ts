@@ -1363,6 +1363,15 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS booking_note TEXT;
       CREATE INDEX IF NOT EXISTS service_requests_booked_via_idx ON service_requests (booked_via) WHERE booked_via IS NOT NULL;
     `],
+    // Payment links for call bookings (call-booking.service.ts). New nullable columns; no row touched.
+    ['bookings: payment links', `
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_id TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_url TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_status TEXT;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_expires_at TIMESTAMP;
+      ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_sends JSONB;
+      CREATE INDEX IF NOT EXISTS service_requests_payment_link_idx ON service_requests (payment_link_id) WHERE payment_link_id IS NOT NULL;
+    `],
     // Home screen cards (shared/home-cards.ts). A new table only; staff create the sets.
     ['home screen: card sets', `
       CREATE TABLE IF NOT EXISTS home_card_sets (

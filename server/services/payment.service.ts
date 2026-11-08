@@ -37,6 +37,11 @@ export class PaymentService {
    * Priority: process.env → platform_config DB table.
    * Env vars are the source of truth for secrets; DB may contain seed placeholders.
    */
+    /** The configured Razorpay client, for features with their own Razorpay objects (payment links). */
+    static async client(): Promise<Razorpay> {
+        return this.getRazorpayInstance();
+    }
+
     private static async getRazorpayInstance(): Promise<Razorpay> {
         if (this.razorpay) return this.razorpay;
 
@@ -419,6 +424,18 @@ export class PaymentService {
         event: string,
         payload: any
     ): Promise<{ success: boolean; message: string }> {
+        // Payment links (call bookings, call-booking.service.ts). Subscribe the
+        // webhook to payment_link.paid / .expired / .cancelled in the Razorpay dashboard.
+        if (event === "payment_link.paid") {
+            const { CallBookingService } = await import('./call-booking.service');
+            const r = await CallBookingService.linkPaid(payload);
+            return { success: true, message: r.handled ? 'Payment link payment recorded' : 'Payment link not for a booking' };
+        }
+        if (event === "payment_link.expired" || event === "payment_link.cancelled") {
+            const { CallBookingService } = await import('./call-booking.service');
+            await CallBookingService.linkEnded(payload, event === "payment_link.expired" ? 'expired' : 'cancelled');
+            return { success: true, message: 'Payment link status updated' };
+        }
         if (event === "payment.captured") {
             const paymentId = payload.payment.entity.id;
             const orderId = payload.payment.entity.order_id;
@@ -501,6 +518,11 @@ export class PaymentService {
                     // The partner or expert the customer chose gets it now that it is paid.
                     const { ProviderChoiceService } = await import('./provider-choice.service');
                     void ProviderChoiceService.applyAfterPayment(parseInt(notes.service_request_id)).catch(() => {});
+                    // Paid in the app: a payment link sent for it (a call booking) must not be paid as well.
+                    if (notes?.booked_via !== 'call') {
+                        const { CallBookingService } = await import('./call-booking.service');
+                        void CallBookingService.afterOtherPayment(parseInt(notes.service_request_id)).catch(() => {});
+                    }
                 } catch (err: any) {
                     logger.warn(`[WEBHOOK] bookingFeeStatus update failed: ${err.message}`);
                 }
