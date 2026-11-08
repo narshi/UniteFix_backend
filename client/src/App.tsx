@@ -23,6 +23,7 @@ import AssignmentQueuePage from "@/pages/assignment-queue";
 import EnquiriesPage from "@/pages/admin/enquiries";
 import HomeScreenPage from "@/pages/admin/home-screen";
 import CallBookingPage from "@/pages/admin/call-booking";
+import WhatsAppPage from "@/pages/admin/whatsapp";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
@@ -349,6 +350,7 @@ function Router() {
           <Route path="/admin/support-tickets"><Gate capability="support:view" component={SupportTicketsPage} /></Route>
           <Route path="/admin/marketing"><Gate capability="marketing:view" component={MarketingPage} /></Route>
           <Route path="/settings"><Gate capability="settings:view" component={SettingsPage} /></Route>
+          <Route path="/admin/whatsapp"><Gate capability="settings:view" component={WhatsAppPage} /></Route>
           <Route component={NotFound} />
         </Switch>
       </div>

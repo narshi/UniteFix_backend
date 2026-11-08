@@ -1372,6 +1372,16 @@ const BLOCKS: Array<[string, string]> = [
       ALTER TABLE service_requests ADD COLUMN IF NOT EXISTS payment_link_sends JSONB;
       CREATE INDEX IF NOT EXISTS service_requests_payment_link_idx ON service_requests (payment_link_id) WHERE payment_link_id IS NOT NULL;
     `],
+    // Outside services staff connect in the admin (WhatsApp). A new table only.
+    ['integrations: settings', `
+      CREATE TABLE IF NOT EXISTS integration_settings (
+        key TEXT PRIMARY KEY,
+        config JSONB NOT NULL DEFAULT '{}',
+        secret TEXT,
+        updated_by INTEGER,
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
     // Home screen cards (shared/home-cards.ts). A new table only; staff create the sets.
     ['home screen: card sets', `
       CREATE TABLE IF NOT EXISTS home_card_sets (

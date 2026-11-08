@@ -4024,3 +4024,16 @@ export const homeCardSets = pgTable("home_card_sets", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 export type HomeCardSet = typeof homeCardSets.$inferSelect;
+
+/**
+ * Connections to outside services that staff set up in the admin (WhatsApp
+ * Cloud API). config holds the non-secret settings; secret is sealed
+ * (server/lib/secret-box.ts) and never sent back to the browser.
+ */
+export const integrationSettings = pgTable("integration_settings", {
+  key: text("key").primaryKey(),                                // 'whatsapp'
+  config: jsonb("config").notNull().default({}),
+  secret: text("secret"),
+  updatedBy: integer("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});

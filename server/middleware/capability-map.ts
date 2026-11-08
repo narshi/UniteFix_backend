@@ -53,6 +53,7 @@ const RULES: Rule[] = [
     { test: /^\/admins(\/|$)/, area: 'accounts' },
     { test: /^\/roles(\/|$)/, area: 'accounts' },
     { test: /^\/config(\/|$)/, area: 'settings' },
+    { test: /^\/integrations(\/|$)/, area: 'settings' },
     // Settings → App updates (force update); saving also needs super admin.
     { test: /^\/app-version(\/|$)/, area: 'settings' },
 

@@ -54,6 +54,7 @@ const navigation: Array<{ name: string; href: string; icon: string; capability: 
   { name: "Roles & Access", href: "/admin/admins", icon: "admin_panel_settings", capability: "accounts:view" },
   { name: "Database Console", href: "/admin/developer", icon: "storage", capability: "db_console:manage" },
   { name: "Settings", href: "/settings", icon: "settings", capability: "settings:view" },
+  { name: "WhatsApp", href: "/admin/whatsapp", icon: "chat", capability: "settings:view" },
 ];
 
 interface SidebarProps {
