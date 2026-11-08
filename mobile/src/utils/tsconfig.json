@@ -1,0 +1,16 @@
+{
+  // Only for servicePhotoRules.ts, which the admin web app also imports
+  // (client/src/pages/admin/home-screen.tsx). The web build (Vite) reads the
+  // nearest tsconfig of every file it compiles; without this one it reads
+  // mobile/tsconfig.json, which extends "expo/tsconfig.base" — and Expo is not
+  // installed on the server that builds the web app, so the build failed.
+  // The mobile app's own typecheck (tsc -p mobile) ignores this file.
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
+  },
+  "files": ["servicePhotoRules.ts"]
+}
