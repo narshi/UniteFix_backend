@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Image, Pressable, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, useWindowDimensions, Animated } from 'react-native';
 import { Bell, MapPin, ChevronDown, Search, ShieldCheck, Zap, Tag } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { brand } from '../../theme/colors';
@@ -168,4 +168,49 @@ const styles = StyleSheet.create({
     trustDivider: { width: 1, height: 18, backgroundColor: brand.onNavyBorder },
 
     fade: { width: '100%', height: 28 },
+});
+
+/**
+ * The collapsed toolbar: when the big header has scrolled away, this stays at
+ * the top of Home — the logo, search, notifications and profile — so the
+ * essentials are always one tap away. HomeScreen fades it in on scroll.
+ */
+export function HomeCompactBar(p: {
+    topInset: number; unreadCount: number; firstName: string | null; style?: any; interactive: boolean;
+    onSearch: () => void; onBell: () => void; onAvatar: () => void;
+}) {
+    const { t } = useTranslation();
+    return (
+        <Animated.View pointerEvents={p.interactive ? 'auto' : 'none'} style={[compact.bar, { paddingTop: p.topInset + 6 }, p.style]}>
+            <Image source={HANDSHAKE} style={compact.logo} resizeMode="contain" accessibilityLabel="UniteFix" />
+            <Pressable onPress={p.onSearch} style={({ pressed }) => [compact.search, pressed && { opacity: 0.9 }]} accessibilityRole="search" accessibilityLabel="Search services">
+                <Search size={17} color={brand.navy} strokeWidth={2.4} />
+                <Text maxFontSizeMultiplier={1.2} style={compact.searchText} numberOfLines={1}>{t('home_hero.search_short', 'Search services')}</Text>
+            </Pressable>
+            <Pressable onPress={p.onBell} style={({ pressed }) => [compact.round, pressed && styles.pressed]} hitSlop={6} accessibilityRole="button" accessibilityLabel={p.unreadCount ? `Notifications, ${p.unreadCount} unread` : 'Notifications'}>
+                <Bell size={18} color={brand.white} strokeWidth={2} />
+                {p.unreadCount > 0 && <View style={compact.dot} />}
+            </Pressable>
+            <Pressable onPress={p.onAvatar} style={({ pressed }) => [compact.avatar, pressed && styles.pressed]} hitSlop={6} accessibilityRole="button" accessibilityLabel="Your profile">
+                <Text maxFontSizeMultiplier={1.2} style={compact.avatarText}>{(p.firstName ?? ' ').charAt(0).toUpperCase()}</Text>
+            </Pressable>
+        </Animated.View>
+    );
+}
+
+const compact = StyleSheet.create({
+    bar: {
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        paddingHorizontal: SIDE, paddingBottom: 10,
+        backgroundColor: brand.navyDark,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 8,
+    },
+    logo: { width: 30, height: 30 },
+    search: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, height: 38, borderRadius: 19, backgroundColor: brand.white, paddingHorizontal: spacing.md },
+    searchText: { flex: 1, fontSize: 13.5, color: brand.textSecondary },
+    round: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+    dot: { position: 'absolute', top: 7, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: brand.orange, borderWidth: 1.5, borderColor: brand.navyDark },
+    avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: brand.orange, alignItems: 'center', justifyContent: 'center' },
+    avatarText: { color: brand.white, fontSize: 15, fontWeight: '800' },
 });

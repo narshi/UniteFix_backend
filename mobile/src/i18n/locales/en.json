@@ -165,7 +165,8 @@
     "home_hero": {
       "headline_1": "Everyday Services for your",
       "headline_2": "Home, Life & Travel.",
-      "search": "Find a service, recharge or plan a trip..."
+      "search": "Find a service, recharge or plan a trip...",
+      "search_short": "Search services"
     },
     "home_cards": {
       "home_services": "Home Services",
@@ -183,7 +184,8 @@
       "photo_line": "Events · Portraits · More",
       "coming_soon": "Coming soon",
       "travel_soon_title": "Travel & Tours — coming soon",
-      "travel_soon_body": "Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready."
+      "travel_soon_body": "Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready.",
+      "call_to_book": "Call to book"
     },
     "category_page": {
       "missing": "This category is not available right now.",

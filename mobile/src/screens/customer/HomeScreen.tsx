@@ -15,11 +15,12 @@
  * category (or service) in the catalogue the admin keeps, and falls back to a
  * search for it, so renaming or regrouping categories never leaves a dead card.
  * Kept from before: the profile gate, a partner's referral banner, the
- * newspapers card, the not-serviceable notice and the Customer care button.
+ * newspapers card, the not-serviceable notice and the Call to book button (rings UniteFix, where staff book by call).
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, RefreshControl, StatusBar, Alert, Linking, useWindowDimensions, Animated } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MapPin, Phone, Droplets, Zap, Snowflake, PaintRoller, Plane, Smartphone, Camera, Router, PartyPopper, LayoutGrid, LucideIcon } from 'lucide-react-native';
 import type { ImageSourcePropType } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -42,7 +43,7 @@ import { openService } from '../../utils/serviceBands';
 import { PartnerRefBanner } from '../../components/customer/PartnerRefBanner';
 import { ProfileCompletionGate, isProfileIncomplete } from '../../components/ProfileCompletionGate';
 import { NewsHomeCard } from '../news/NewsHomeCard';
-import { HomeHero } from '../../components/home/HomeHero';
+import { HomeHero, HomeCompactBar } from '../../components/home/HomeHero';
 import { SectionHeader, ServicePhotoCard, ServicePhotoCardSkeleton, MoreCard, cardWidth } from '../../components/home/HomeCards';
 
 const PHOTOS = {
@@ -87,6 +88,20 @@ export function HomeScreen() {
     const { t } = useTranslation();
     const { language, setLanguage } = useLanguageStore();
     const { width: screenWidth } = useWindowDimensions();
+    const safeTop = useSafeAreaInsets().top;
+    // Collapsing toolbar: once the big header has scrolled away, a compact bar
+    // (logo, search, notifications, profile) stays at the top.
+    const scrollY = React.useRef(new Animated.Value(0)).current;
+    const [heroH, setHeroH] = React.useState(420);
+    const [collapsed, setCollapsed] = React.useState(false);
+    const collapseAt = Math.max(120, heroH - 110);
+    const barOpacity = scrollY.interpolate({ inputRange: [collapseAt - 50, collapseAt], outputRange: [0, 1], extrapolate: 'clamp' });
+    const barShift = scrollY.interpolate({ inputRange: [collapseAt - 50, collapseAt], outputRange: [-12, 0], extrapolate: 'clamp' });
+    const onScroll = React.useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        // Only the compact bar's taps depend on this, so it changes state only when crossing.
+        listener: (e: any) => { const c = e.nativeEvent.contentOffset.y > collapseAt - 25; setCollapsed(prev => (prev === c ? prev : c)); },
+    }), [scrollY, collapseAt]);
     const rowWidth = Math.min(screenWidth - SIDE * 2, MAX_ROW);
     const serviceW = cardWidth(rowWidth, 4, GAP);
     const moreW = cardWidth(rowWidth, 3, GAP);
@@ -237,13 +252,16 @@ export function HomeScreen() {
                 missingPinCode={profileGaps.missingPinCode}
             />
 
-            <ScrollView
+            <Animated.ScrollView
                 style={styles.scrollView}
                 contentContainerStyle={{ paddingBottom: tabContent + 48 }}
                 showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={onScroll}
                 refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} colors={[brand.orange]} tintColor={brand.white} progressViewOffset={headerTop} />}
             >
                 {/* A · B · C */}
+                <View onLayout={e => setHeroH(e.nativeEvent.layout.height)}>
                 <HomeHero
                     topInset={headerTop}
                     firstName={firstName}
@@ -256,6 +274,7 @@ export function HomeScreen() {
                     onLocation={() => navigation.navigate('LocationSelection')}
                     onSearch={() => search()}
                 />
+                </View>
 
                 <View style={[styles.body, { width: rowWidth }]}>
                     {/* Came through a partner's link: who they are booking with. */}
@@ -310,13 +329,25 @@ export function HomeScreen() {
                     <View style={styles.sectionGap} />
                     <NewsHomeCard navigation={navigation} />
                 </View>
-            </ScrollView>
+            </Animated.ScrollView>
+
+            {/* The collapsed toolbar (see HomeCompactBar). */}
+            <HomeCompactBar
+                topInset={safeTop}
+                unreadCount={unreadCount}
+                firstName={firstName}
+                interactive={collapsed}
+                style={{ opacity: barOpacity, transform: [{ translateY: barShift }] }}
+                onSearch={() => search()}
+                onBell={() => navigation.navigate('Notifications')}
+                onAvatar={() => navigation.navigate('ProfileTab')}
+            />
 
             {/* Customer Care FAB, placed from the real safe-area inset so the
                 floating tab bar never covers it. */}
-            <TouchableOpacity style={[styles.fab, { bottom: fabBottom }]} onPress={openDialer} activeOpacity={0.85} accessibilityLabel="Customer care">
+            <TouchableOpacity style={[styles.fab, { bottom: fabBottom }]} onPress={openDialer} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={t('home_cards.call_to_book', 'Call to book')}>
                 <Phone size={18} color="#FFFFFF" strokeWidth={2.5} />
-                <Text style={styles.fabText}>Customer care</Text>
+                <Text style={styles.fabText} maxFontSizeMultiplier={1.2}>{t('home_cards.call_to_book', 'Call to book')}</Text>
             </TouchableOpacity>
         </View>
     );

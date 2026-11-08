@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, TextInput, Animated, Image as RNImage } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LucideIcons from 'lucide-react-native';
 const { AlertCircle, ArrowLeft, ArrowRight, Search, Users, ShieldCheck, Clock, Headphones, Inbox, X } = LucideIcons;
@@ -13,6 +13,10 @@ import { openService, bandOf, bandColorOf, BAND_META } from '../../utils/service
 import { useBackClose } from '../../hooks/useBackClose';
 import { Image as Photo } from 'expo-image';
 import { usePhotoResolver, Photo as PhotoSource } from '../../utils/servicePhotos';
+
+const FADE_TO_NAVY = require('../../../assets/home/fade-to-navy.png');
+/** The category card's height; the slim title strip takes over once it has scrolled past. */
+const BANNER_H = 150;
 
 /** A band colour as a soft tint (the same hue, mostly transparent) for icon boxes and pills. */
 const tint = (hex: string, alpha = '1A') => (/^#[0-9A-Fa-f]{6}$/.test(hex) ? `${hex}${alpha}` : colors.primarySurface);
@@ -93,6 +97,12 @@ export const AllServicesScreen = () => {
     const openedToSearch = !!params?.search;
     const { data: categories, isLoading, error } = useAllServices();
     const photos = usePhotoResolver();
+    // The services pane: as the category card scrolls away, a slim strip with
+    // its name and count stays at the top (native-driven, so it is smooth).
+    const paneY = React.useRef(new Animated.Value(0)).current;
+    const pane = React.useRef<ScrollView>(null);
+    const stripOpacity = paneY.interpolate({ inputRange: [BANNER_H - 70, BANNER_H - 20], outputRange: [0, 1], extrapolate: 'clamp' });
+    const stripShift = paneY.interpolate({ inputRange: [BANNER_H - 70, BANNER_H - 20], outputRange: [-8, 0], extrapolate: 'clamp' });
 
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
@@ -108,8 +118,8 @@ export const AllServicesScreen = () => {
         }
     }, [categories]);
 
-    // Reset the sub-tab whenever the category changes.
-    useEffect(() => { setSelectedSubCategory(null); }, [selectedCategoryId]);
+    // Reset the sub-tab, and the pane's scroll, whenever the category changes.
+    useEffect(() => { setSelectedSubCategory(null); (pane.current as any)?.scrollTo?.({ y: 0, animated: false }); }, [selectedCategoryId]);
 
     // Sub-categories (horizontal tabs) for the selected category. Computed here —
     // above the loading/error early returns — so the hook count is stable across
@@ -244,27 +254,35 @@ export const AllServicesScreen = () => {
 
                 {/* Right Content - Services Grid */}
                 <View style={styles.rightContent}>
-                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.rightContentScroll} keyboardShouldPersistTaps="handled">
+                    <Animated.ScrollView
+                        ref={pane as any}
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.rightContentScroll}
+                        keyboardShouldPersistTaps="handled"
+                        scrollEventThrottle={16}
+                        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: paneY } } }], { useNativeDriver: true })}
+                    >
                         {/* Category banner */}
                         {selectedCategory && !isSearchActive && (
-                            <View style={styles.categoryBanner}>
+                            <View style={styles.categoryBanner} accessibilityRole="header" accessibilityLabel={`${selectedCategory.name}, ${itemsToDisplay.length} services`}>
+                                <Photo source={photos.category(selectedCategory)} style={StyleSheet.absoluteFill} contentFit="cover" transition={160} cachePolicy="memory-disk" accessible={false} />
+                                <View style={[StyleSheet.absoluteFill, styles.categoryBannerScrim]} />
+                                <RNImage source={FADE_TO_NAVY} style={styles.categoryBannerFade} resizeMode="stretch" accessible={false} />
                                 <View style={styles.categoryBannerText}>
-                                    <Text style={styles.categoryBannerTitle}>{selectedCategory.name}</Text>
-                                    <Text style={styles.categoryBannerSubtitle} numberOfLines={2}>
+                                    <Text style={styles.categoryBannerTitle} numberOfLines={2} maxFontSizeMultiplier={1.2}>{selectedCategory.name}</Text>
+                                    <Text style={styles.categoryBannerSubtitle} numberOfLines={2} maxFontSizeMultiplier={1.2}>
                                         {selectedCategory.tagline || CATEGORY_TAGLINES[selectedCategory.name] || DEFAULT_TAGLINE}
                                     </Text>
                                     <View style={styles.categoryBannerPill}>
-                                        <Users size={14} color={colors.primary} strokeWidth={2.4} />
-                                        <Text style={styles.categoryBannerPillText}>{itemsToDisplay.length} services available</Text>
+                                        <Users size={13} color="#FFFFFF" strokeWidth={2.4} />
+                                        <Text style={styles.categoryBannerPillText} numberOfLines={1} maxFontSizeMultiplier={1.2}>{itemsToDisplay.length} services available</Text>
                                     </View>
                                     {!!bandLine(selectedCategory) && (
-                                        <Text style={[styles.categoryBandLine, { color: bandColorOf({ band: selectedCategory.bookingBand, bandColor: selectedCategory.bandColor }) }]}>
+                                        <Text style={styles.categoryBandLineOnPhoto} numberOfLines={2} maxFontSizeMultiplier={1.2}>
                                             {bandLine(selectedCategory)}
                                         </Text>
                                     )}
                                 </View>
-                                <Photo source={photos.category(selectedCategory)} style={styles.categoryBannerPhoto} contentFit="cover" transition={160} cachePolicy="memory-disk" accessible={false} />
-
                             </View>
                         )}
 
@@ -335,7 +353,15 @@ export const AllServicesScreen = () => {
                                 );
                             })}
                         </View>
-                    </ScrollView>
+                    </Animated.ScrollView>
+                    {/* Collapsed: the category's name and count stay in view. */}
+                    {selectedCategory && !isSearchActive && (
+                        <Animated.View pointerEvents="none" style={[styles.collapsedStrip, { opacity: stripOpacity, transform: [{ translateY: stripShift }] }]}>
+                            <Photo source={photos.category(selectedCategory)} style={styles.collapsedPhoto} contentFit="cover" accessible={false} />
+                            <Text style={styles.collapsedTitle} numberOfLines={1} maxFontSizeMultiplier={1.2}>{selectedCategory.name}</Text>
+                            <Text style={styles.collapsedCount} maxFontSizeMultiplier={1.2}>{itemsToDisplay.length}</Text>
+                        </Animated.View>
+                    )}
                 </View>
             </View>
         </SafeAreaView>
@@ -501,65 +527,61 @@ const styles = StyleSheet.create({
         paddingBottom: spacing.xl,
     },
     categoryBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.primarySurface,
+        height: BANNER_H,
         borderRadius: radii['2xl'],
-        padding: spacing.lg,
         marginBottom: spacing.lg,
         overflow: 'hidden',
+        backgroundColor: colors.backgroundDark,
+        justifyContent: 'flex-end',
     },
+    categoryBannerScrim: { backgroundColor: 'rgba(9,38,74,0.25)' },
+    categoryBannerFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '80%' },
     categoryBannerText: {
-        flex: 1,
-        paddingRight: spacing.sm,
+        padding: spacing.md,
     },
     categoryBannerTitle: {
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: '800',
-        lineHeight: 26,
+        lineHeight: 22,
         letterSpacing: -0.3,
-        color: colors.textPrimary,
+        color: '#FFFFFF',
     },
     categoryBannerSubtitle: {
-        fontSize: 13,
-        lineHeight: 18,
-        color: colors.textSecondary,
-        marginTop: spacing.xs,
+        fontSize: 12,
+        lineHeight: 16,
+        color: 'rgba(255,255,255,0.85)',
+        marginTop: 2,
     },
     categoryBannerPill: {
         flexDirection: 'row',
         alignItems: 'center',
         alignSelf: 'flex-start',
-        gap: 6,
-        backgroundColor: colors.surfaceElevated,
+        gap: 5,
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.3)',
         borderRadius: radii.full,
-        paddingHorizontal: spacing.md,
-        paddingVertical: 6,
-        marginTop: spacing.md,
-        ...shadows.xs,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        marginTop: spacing.sm,
     },
     categoryBannerPillText: {
-        fontSize: 12,
+        fontSize: 11.5,
         fontWeight: '700',
-        color: colors.primary,
+        color: '#FFFFFF',
     },
-    categoryBannerArt: {
-        width: 84,
-        height: 84,
-        borderRadius: radii['2xl'],
-        backgroundColor: 'rgba(255, 255, 255, 0.65)',
-        alignItems: 'center',
-        justifyContent: 'center',
+    categoryBandLineOnPhoto: { fontSize: 11, fontWeight: '600', color: '#FFD8A8', marginTop: 4 },
+    collapsedStrip: {
+        position: 'absolute', top: 0, left: 0, right: 0,
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        paddingHorizontal: spacing.base, paddingVertical: 8,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1, borderBottomColor: colors.border,
+        ...shadows.sm,
     },
-    categoryBannerArt3D: {
-        width: 130,
-        height: 130,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: -20, // Pull it slightly off-edge for depth
-        marginTop: -15, // Let it break the bounds slightly
-        marginBottom: -15,
-    },
+    collapsedPhoto: { width: 26, height: 26, borderRadius: 13 },
+    collapsedTitle: { flex: 1, fontSize: 14, fontWeight: '800', color: colors.textPrimary },
+    collapsedCount: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, backgroundColor: colors.background, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, overflow: 'hidden' },
     servicesHeading: {
         ...typography.h3,
         fontSize: 15, // Adjusted to match mockup size
@@ -623,7 +645,6 @@ const styles = StyleSheet.create({
     },
     sidebarPhoto: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: colors.primary },
     sidebarPhotoIdle: { opacity: 0.75, borderColor: 'transparent' },
-    categoryBannerPhoto: { width: 84, height: 84, borderRadius: radii['2xl'] },
     serviceTileTitle: {
         fontSize: 13.5,
         fontWeight: '700',

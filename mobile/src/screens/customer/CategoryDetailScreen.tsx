@@ -15,7 +15,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-    View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, TextInput, Modal,
+    View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, TextInput, Modal, Animated,
     StatusBar, useWindowDimensions, Image as RNImage,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -109,6 +109,22 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
     // Every service and the header get a photo (utils/servicePhotos.ts).
     const photos = usePhotoResolver();
 
+    // Collapsing toolbar: once the photo header has scrolled away, a compact
+    // bar (back, the category's name, search, filter) stays at the top.
+    const list = React.useRef<FlatList<ServiceItem>>(null);
+    const scrollY = React.useRef(new Animated.Value(0)).current;
+    const [headerH, setHeaderH] = useState(380);
+    const [collapsed, setCollapsed] = useState(false);
+    const collapseAt = Math.max(140, headerH - 140);
+    const barOpacity = scrollY.interpolate({ inputRange: [collapseAt - 50, collapseAt], outputRange: [0, 1], extrapolate: 'clamp' });
+    const barShift = scrollY.interpolate({ inputRange: [collapseAt - 50, collapseAt], outputRange: [-12, 0], extrapolate: 'clamp' });
+    const onScroll = useMemo(() => Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        listener: (e: any) => { const c = e.nativeEvent.contentOffset.y > collapseAt - 25; setCollapsed(prev => (prev === c ? prev : c)); },
+    }), [scrollY, collapseAt]);
+    /** Search from the compact bar: back to the top, where the search box opens. */
+    const searchFromBar = useCallback(() => { list.current?.scrollToOffset({ offset: 0, animated: true }); setSearching(true); }, []);
+
     if (!cat) {
         return (
             <View style={[styles.center, { paddingTop: insets.top }]}>
@@ -141,17 +157,21 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
             onFilter={() => setSheetOpen(true)}
             count={items.length}
             total={all.length}
+            onLayout={setHeaderH}
         />
     );
 
     return (
         <View style={styles.screen}>
             <StatusBar barStyle="light-content" backgroundColor={brand.navyDark} />
-            <FlatList
+            <Animated.FlatList
+                ref={list as any}
+                onScroll={onScroll}
+                scrollEventThrottle={16}
                 data={items}
-                keyExtractor={s => String(s.id)}
+                keyExtractor={(s: ServiceItem) => String(s.id)}
                 ListHeaderComponent={header}
-                renderItem={({ item }) => <ServiceRow s={item} cat={cat} photos={photos} photoW={photoW} onOpen={onOpen} />}
+                renderItem={({ item }: { item: ServiceItem }) => <ServiceRow s={item} cat={cat} photos={photos} photoW={photoW} onOpen={onOpen} />}
                 ItemSeparatorComponent={Separator}
                 ListEmptyComponent={
                     <View style={styles.empty}>
@@ -177,6 +197,21 @@ export function CategoryDetailScreen({ navigation, route }: Props) {
                 removeClippedSubviews
             />
 
+            {/* The collapsed toolbar. */}
+            <Animated.View pointerEvents={collapsed ? 'auto' : 'none'} style={[styles.compact, { paddingTop: insets.top + 6, opacity: barOpacity, transform: [{ translateY: barShift }] }]}>
+                <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.compactBtn, pressed && styles.pressed]} hitSlop={6} accessibilityRole="button" accessibilityLabel="Back">
+                    <ArrowLeft size={19} color={brand.white} strokeWidth={2.4} />
+                </Pressable>
+                <Text style={styles.compactTitle} numberOfLines={1} maxFontSizeMultiplier={1.2} accessibilityRole="header">{cat.name}</Text>
+                <Pressable onPress={searchFromBar} style={({ pressed }) => [styles.compactBtn, pressed && styles.pressed]} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Search ${cat.name}`}>
+                    <Search size={18} color={brand.white} strokeWidth={2.4} />
+                </Pressable>
+                <Pressable onPress={() => setSheetOpen(true)} style={({ pressed }) => [styles.compactBtn, pressed && styles.pressed]} hitSlop={6} accessibilityRole="button" accessibilityLabel={filtered ? 'Sort and filter, active' : 'Sort and filter'}>
+                    <SlidersHorizontal size={18} color={brand.white} strokeWidth={2.4} />
+                    {filtered && <View style={styles.dot} />}
+                </Pressable>
+            </Animated.View>
+
             <FilterSheet
                 open={sheetOpen}
                 onClose={() => setSheetOpen(false)}
@@ -196,7 +231,7 @@ const Separator = () => <View style={{ height: spacing.md }} />;
 function CategoryHero(p: {
     cat: ServiceCategory; width: number; hero: ReturnType<PhotoResolver['hero']>; topInset: number; searching: boolean; query: string; filtered: boolean;
     onBack: () => void; onSearch: () => void; onQuery: (q: string) => void; onCloseSearch: () => void; onFilter: () => void;
-    count: number; total: number;
+    count: number; total: number; onLayout?: (height: number) => void;
 }) {
     const { t } = useTranslation();
     const { cat } = p;
@@ -211,7 +246,7 @@ function CategoryHero(p: {
     ];
 
     return (
-        <View>
+        <View onLayout={e => p.onLayout?.(e.nativeEvent.layout.height)}>
             <View style={[styles.hero, { paddingTop: p.topInset + spacing.sm, minHeight: Math.min(p.width * HERO_RATIO, 420) }]}>
                 {/* The photo fills the top part whatever its height (absolute edges give it a definite size),
                     and melts into the navy trust band below on any screen. */}
@@ -388,6 +423,14 @@ const styles = StyleSheet.create({
     missingBtnText: { color: brand.white, fontWeight: '700', fontSize: 14 },
     pressed: { opacity: 0.75, transform: [{ scale: 0.95 }] },
 
+    compact: {
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        paddingHorizontal: SIDE, paddingBottom: 10, backgroundColor: brand.navyDark,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 8,
+    },
+    compactBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+    compactTitle: { flex: 1, fontSize: 17, fontWeight: '800', color: brand.white, letterSpacing: -0.2 },
     hero: { backgroundColor: brand.navy, paddingHorizontal: SIDE, paddingBottom: spacing.xl, overflow: 'hidden' },
     heroFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 96 },
     trustBand: { backgroundColor: brand.navy, paddingHorizontal: SIDE, paddingBottom: spacing.lg },
