@@ -16,7 +16,7 @@
 export const MAX_HOME_CARDS = 4;
 
 export type HomeCardSchedule = 'always' | 'yearly' | 'dates';
-export type HomeCardScreen = 'recharge' | 'celebrate' | 'all_services';
+export type HomeCardScreen = 'recharge' | 'celebrate' | 'travel' | 'all_services';
 export type HomeCardPhoto =
     | { kind: 'auto' }                       // the app picks one from the category or service
     | { kind: 'library'; key: string }       // one of the app's bundled photos (PHOTO_LIBRARY)
@@ -54,6 +54,7 @@ export const DEFAULT_HEADING = 'Home Services';
 export const HOME_CARD_SCREENS: { key: HomeCardScreen; label: string }[] = [
     { key: 'recharge', label: 'Broadband recharge' },
     { key: 'celebrate', label: 'Celebrate (events, halls, photographers)' },
+    { key: 'travel', label: 'Travel planner (trips, cabs, stays)' },
     { key: 'all_services', label: 'All services' },
 ];
 

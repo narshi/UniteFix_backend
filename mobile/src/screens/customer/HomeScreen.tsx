@@ -210,7 +210,9 @@ export function HomeScreen() {
             } else if (c.screen === 'recharge') {
                 auto = PHOTOS.recharge; Icon = Router; onPress = () => navigation.navigate('FTTHOperatorSelect');
             } else if (c.screen === 'celebrate') {
-                auto = PHOTOS.photo; Icon = PartyPopper; onPress = () => navigation.navigate('CelebrateTab');
+                auto = PHOTOS.photo; Icon = PartyPopper; onPress = () => navigation.navigate('Celebrations');
+            } else if (c.screen === 'travel') {
+                auto = PHOTOS.travel; Icon = Plane; onPress = () => navigation.navigate('TravelTab');
             } else {
                 auto = PHOTOS.house; Icon = LayoutGrid; onPress = () => navigation.navigate('AllServices');
             }
@@ -229,16 +231,13 @@ export function HomeScreen() {
     }, [homeCards, categories, photos, navigation, search, openByName, t]);
     const rowHeading = homeCards?.heading && homeCards.heading !== 'Home Services' ? homeCards.heading : t('home_cards.home_services', 'Home Services');
 
-    // Travel & Tours is a feature on its way, not a category yet.
-    const openTravel = () => Alert.alert(
-        t('home_cards.travel_soon_title', 'Travel & Tours — coming soon'),
-        t('home_cards.travel_soon_body', 'Soon you can plan, book and explore trips with UniteFix. We will let you know when it is ready.'),
-    );
+    // Travel & Tours: the trip planner in the Travel tab.
+    const openTravel = () => navigation.navigate('TravelTab');
     // Photography lives with the event partners (Celebrate) unless the admin gives it its own category.
     const openPhotoShoots = () => {
         const cat = findCategory(/photo/i);
         if (cat) navigation.navigate('CategoryDetail', { categoryId: cat.id });
-        else navigation.navigate('CelebrateTab');
+        else navigation.navigate('Celebrations');
     };
 
     return (
@@ -317,7 +316,7 @@ export function HomeScreen() {
                             <View style={styles.sectionGap} />
                             <SectionHeader title={t('home_cards.more_for_you', 'More for You')} />
                             <View style={[styles.row, { width: rowWidth }]}>
-                                <MoreCard index={4} width={moreW} soon={t('home_cards.coming_soon', 'Coming soon')} title={t('home_cards.travel', 'Travel & Tours')} line={t('home_cards.travel_line', 'Plan · Book · Explore')} photo={PHOTOS.travel} Icon={Plane} onPress={openTravel} />
+                                <MoreCard index={4} width={moreW} title={t('home_cards.travel', 'Travel & Tours')} line={t('home_cards.travel_line', 'Plan · Book · Explore')} photo={PHOTOS.travel} Icon={Plane} onPress={openTravel} />
                                 {/* Broadband is the recharge UniteFix runs today. */}
                                 <MoreCard index={5} width={moreW} title={t('home_cards.recharge', 'Recharge & Pay')} line={t('home_cards.recharge_line', 'Broadband · Fibre')} photo={PHOTOS.recharge} Icon={Smartphone} onPress={() => navigation.navigate('FTTHOperatorSelect')} />
                                 <MoreCard index={6} width={moreW} title={t('home_cards.photo', 'Photo Shoots')} line={t('home_cards.photo_line', 'Events · Portraits · More')} photo={PHOTOS.photo} Icon={Camera} onPress={openPhotoShoots} />

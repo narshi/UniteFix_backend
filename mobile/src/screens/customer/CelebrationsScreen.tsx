@@ -12,7 +12,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Activi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
-import { Sparkles, ChevronLeft, ChevronRight, Star, CalendarDays, X } from 'lucide-react-native';
+import { Sparkles, ChevronLeft, ChevronRight, Star, CalendarDays, X, ArrowLeft } from 'lucide-react-native';
 import { apiClient, WEB_BASE_URL } from '../../api/client';
 import { useProfile } from '../../hooks/useCustomerData';
 import { colors } from '../../theme/colors';
@@ -62,7 +62,9 @@ export function DatePick({ value, onChange }: { value: string | null; onChange: 
     );
 }
 
-export function CelebrationsScreen({ navigation }: any) {
+export function CelebrationsScreen({ navigation, route }: any) {
+    // Opened from Home as a screen (no longer a tab): it needs a way back.
+    const stacked = route?.name === 'Celebrations';
     const { data: profile } = useProfile();
     const pin = (profile as any)?.pinCode as string | undefined;
     const [type, setType] = useState<CelebrationType>('halls');
@@ -85,6 +87,11 @@ export function CelebrationsScreen({ navigation }: any) {
     return (
         <SafeAreaView style={s.container} edges={['top']}>
             <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
+                {stacked && (
+                    <TouchableOpacity onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="Back" style={{ alignSelf: 'flex-start', padding: 6, marginLeft: -6, marginBottom: 4 }}>
+                        <ArrowLeft size={22} color={colors.textPrimary} />
+                    </TouchableOpacity>
+                )}
                 <View style={s.hero}>
                     <View style={s.badge}><Sparkles size={14} color="#B5562B" /><Text style={s.badgeText}>CELEBRATIONS</Text></View>
                     <Text style={s.h1}>Your hall, photographer and planner — for your date</Text>

@@ -1402,6 +1402,156 @@ const BLOCKS: Array<[string, string]> = [
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `],
+    // Travel planner (shared/travel.ts). New tables only. The starting regions,
+    // places and pickup points go in once, while the tables are still empty;
+    // after that staff own them in Admin → Travel. Map positions are approximate.
+    ['travel: planner tables', `
+      CREATE TABLE IF NOT EXISTS travel_regions (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        tagline TEXT,
+        photo_key TEXT,
+        photo_url TEXT,
+        best_months JSONB NOT NULL DEFAULT '[]',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS travel_places (
+        id SERIAL PRIMARY KEY,
+        region_id INTEGER REFERENCES travel_regions(id),
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'nature',
+        description TEXT,
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        visit_minutes INTEGER NOT NULL DEFAULT 90,
+        best_months JSONB NOT NULL DEFAULT '[]',
+        featured BOOLEAN NOT NULL DEFAULT false,
+        photo_url TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS travel_pickups (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS travel_trips (
+        id SERIAL PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        customer_user_id INTEGER REFERENCES users(id),
+        contact_name TEXT NOT NULL,
+        contact_phone TEXT NOT NULL,
+        adults INTEGER NOT NULL DEFAULT 1,
+        children INTEGER NOT NULL DEFAULT 0,
+        trip_type TEXT NOT NULL DEFAULT 'round_trip',
+        pickup_id INTEGER,
+        pickup_text TEXT,
+        drop_id INTEGER,
+        drop_text TEXT,
+        region_ids JSONB NOT NULL DEFAULT '[]',
+        place_ids JSONB NOT NULL DEFAULT '[]',
+        plan JSONB,
+        pace TEXT NOT NULL DEFAULT 'balanced',
+        start_date TEXT,
+        days INTEGER,
+        stay TEXT NOT NULL DEFAULT 'standard',
+        rooms INTEGER,
+        needs_cab BOOLEAN NOT NULL DEFAULT true,
+        needs_guide BOOLEAN NOT NULL DEFAULT false,
+        budget_per_person INTEGER,
+        notes TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        manager_admin_id INTEGER REFERENCES admin_users(id),
+        manager_name TEXT,
+        manager_phone TEXT,
+        assigned_at TIMESTAMP,
+        quote_amount INTEGER,
+        quote_note TEXT,
+        quoted_at TIMESTAMP,
+        staff_note TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_trips_status_idx ON travel_trips(status);
+      CREATE INDEX IF NOT EXISTS travel_trips_customer_idx ON travel_trips(customer_user_id);
+      CREATE TABLE IF NOT EXISTS travel_trip_members (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        phone TEXT,
+        status TEXT NOT NULL DEFAULT 'invited',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
+    ['travel: starting places', `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM travel_regions) THEN
+          INSERT INTO travel_regions (name, tagline, photo_key, best_months, sort_order) VALUES
+            ('Murdeshwar to Gokarna', 'Temples, beaches, backwaters and Netrani island', 'coast', '[10,11,12,1,2,3]', 1),
+            ('Sirsi', 'Marikamba, Sahasralinga, Unchalli and Yana', 'sirsi', '[8,9,10,11,12,1,2]', 2),
+            ('Yellapur', 'Magod, Sathodi and the Jenukallu sunset', 'yellapur', '[7,8,9,10,11,12]', 3),
+            ('Dandeli', 'Kali river rafting, caves and the forest', 'dandeli', '[10,11,12,1,2,3,4,5]', 4),
+            ('Mundgod', 'The Tibetan settlement and bird sanctuaries', 'mundgod', '[10,11,12,1,2,3]', 5),
+            ('Karwar', 'Tagore beach, Devbagh and the Kali estuary', 'karwar', '[10,11,12,1,2,3]', 6);
+          INSERT INTO travel_places (region_id, name, kind, description, lat, lng, visit_minutes, best_months, featured, sort_order) VALUES
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Murudeshwar Temple & Shiva statue', 'temple', 'The tall Shiva statue and temple tower on the sea.', 14.0943, 74.4848, 150, '[]', true, 1),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Netrani Island snorkelling & scuba', 'activity', 'Boat from Murdeshwar to coral reefs and clear water.', 14.0167, 74.3333, 300, '[11,12,1,2,3,4]', true, 2),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Idagunji Mahaganapati Temple', 'temple', 'A much-visited Ganapati temple near Honnavar.', 14.2346, 74.5085, 60, '[]', false, 3),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Apsarakonda Falls & beach', 'falls', 'A small falls and quiet beach by Honnavar.', 14.24, 74.431, 90, '[]', false, 4),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Sharavathi backwater boating', 'activity', 'Boat ride through the mangroves and islands of Honnavar.', 14.2799, 74.4439, 120, '[10,11,12,1,2,3]', true, 5),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Kasarkod Eco Beach', 'beach', 'Blue Flag beach, clean and calm.', 14.31, 74.431, 90, '[10,11,12,1,2,3]', false, 6),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Mirjan Fort', 'heritage', 'A laterite fort with moats near Kumta.', 14.4901, 74.4205, 60, '[]', false, 7),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Gokarna Mahabaleshwar Temple', 'temple', 'The Atmalinga temple on Gokarna beach.', 14.5479, 74.3188, 90, '[]', true, 8),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Om Beach', 'beach', 'The beach shaped like the Om symbol.', 14.5196, 74.3243, 120, '[10,11,12,1,2,3]', true, 9),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Kudle Beach', 'beach', 'Sunset beach with cafés, between Gokarna and Om beach.', 14.5326, 74.3175, 120, '[10,11,12,1,2,3]', false, 10),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'coast' ORDER BY id LIMIT 1), 'Half Moon & Paradise beach trek', 'activity', 'A coastal walk to two hidden beaches.', 14.5114, 74.3263, 180, '[10,11,12,1,2,3]', false, 11),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Marikamba Temple', 'temple', 'The goddess temple at the heart of Sirsi.', 14.6195, 74.8354, 60, '[]', true, 12),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Sahasralinga', 'heritage', 'A thousand lingas carved in the Shalmala river bed.', 14.68, 74.77, 90, '[11,12,1,2,3,4]', true, 13),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Unchalli Falls', 'falls', 'A 116 m drop of the Aghanashini, best after the rains.', 14.4, 74.74, 120, '[7,8,9,10,11,12]', true, 14),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Benne Hole Falls', 'falls', 'A forest trek to a tall, quiet waterfall.', 14.45, 74.65, 150, '[7,8,9,10,11,12]', false, 15),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Yana Rocks', 'nature', 'Two black limestone peaks in the forest.', 14.5917, 74.565, 180, '[10,11,12,1,2,3]', true, 16),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Swarnavalli Math, Sonda', 'culture', 'The old matha and temples at Sonda.', 14.7, 74.778, 60, '[]', false, 17),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Banavasi Madhukeshwara Temple', 'heritage', 'The Kadamba capital and its carved temple.', 14.5338, 75.0174, 90, '[]', false, 18),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'sirsi' ORDER BY id LIMIT 1), 'Shivaganga Falls', 'falls', 'Falls on the Sonda river, near Sirsi.', 14.74, 74.82, 120, '[7,8,9,10,11,12]', false, 19),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'yellapur' ORDER BY id LIMIT 1), 'Magod Falls', 'falls', 'The Bedti river falls 200 m in two steps.', 14.8608, 74.7656, 120, '[7,8,9,10,11,12]', true, 20),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'yellapur' ORDER BY id LIMIT 1), 'Jenukallu Gudda sunset point', 'viewpoint', 'A hilltop over the valley, for the sunset.', 14.845, 74.75, 90, '[]', true, 21),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'yellapur' ORDER BY id LIMIT 1), 'Sathodi Falls', 'falls', 'A wide falls in the forest, a short walk from the road.', 14.96, 74.62, 150, '[7,8,9,10,11,12]', true, 22),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'yellapur' ORDER BY id LIMIT 1), 'Kavadikere Lake', 'nature', 'A quiet lake and temple near Yellapur.', 14.91, 74.69, 60, '[]', false, 23),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'yellapur' ORDER BY id LIMIT 1), 'Shirle Falls', 'falls', 'A small falls off the Yellapur road.', 14.98, 74.67, 90, '[7,8,9,10,11,12]', false, 24),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'dandeli' ORDER BY id LIMIT 1), 'Kali river rafting', 'activity', 'White-water rafting on the Kali at Ganeshgudi.', 15.265, 74.55, 180, '[10,11,12,1,2,3,4,5]', true, 25),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'dandeli' ORDER BY id LIMIT 1), 'Syntheri Rocks', 'nature', 'The Kaneri river through a 300 ft granite rock.', 15.21, 74.58, 90, '[]', true, 26),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'dandeli' ORDER BY id LIMIT 1), 'Kavala Caves', 'nature', 'Limestone caves after a forest climb.', 15.285, 74.565, 150, '[10,11,12,1,2,3,4,5]', false, 27),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'dandeli' ORDER BY id LIMIT 1), 'Supa Dam viewpoint', 'viewpoint', 'The Supa reservoir from above.', 15.27, 74.52, 60, '[]', false, 28),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'dandeli' ORDER BY id LIMIT 1), 'Dandeli wildlife safari', 'activity', 'Jeep safari in the Dandeli-Anshi tiger reserve.', 15.249, 74.619, 180, '[10,11,12,1,2,3,4,5]', false, 29),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'mundgod' ORDER BY id LIMIT 1), 'Tibetan settlement & Drepung Monastery', 'culture', 'Monasteries, prayer halls and Tibetan food.', 14.925, 75.06, 180, '[]', true, 30),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'mundgod' ORDER BY id LIMIT 1), 'Attiveri Bird Sanctuary', 'nature', 'Migratory birds on the reservoir, winter mornings.', 15.03, 75.01, 120, '[11,12,1,2,3]', true, 31),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'mundgod' ORDER BY id LIMIT 1), 'Baachanaki Dam', 'nature', 'A reservoir picnic spot near Mundgod.', 14.98, 75.02, 60, '[]', false, 32),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'karwar' ORDER BY id LIMIT 1), 'Rabindranath Tagore Beach', 'beach', 'Karwar''s long town beach and promenade.', 14.8114, 74.1236, 90, '[10,11,12,1,2,3]', true, 33),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'karwar' ORDER BY id LIMIT 1), 'Devbagh Beach', 'beach', 'Beach and casuarina groves where the Kali meets the sea.', 14.856, 74.11, 150, '[10,11,12,1,2,3]', true, 34),
+            ((SELECT id FROM travel_regions WHERE photo_key = 'karwar' ORDER BY id LIMIT 1), 'Sadashivgad Fort', 'heritage', 'A hill fort over the Kali river bridge.', 14.8433, 74.12, 60, '[]', false, 35);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM travel_pickups) THEN
+          INSERT INTO travel_pickups (name, lat, lng, sort_order) VALUES ('Sirsi', 14.6195, 74.8354, 1), ('Kumta', 14.428, 74.418, 2), ('Honnavar', 14.2805, 74.444, 3), ('Bhatkal', 13.9853, 74.5553, 4), ('Murdeshwar', 14.0943, 74.4848, 5), ('Gokarna', 14.5479, 74.3188, 6), ('Karwar', 14.8136, 74.1295, 7), ('Yellapur', 14.9637, 74.7093, 8), ('Dandeli', 15.249, 74.619, 9), ('Mundgod', 14.9706, 75.0367, 10), ('Hubballi', 15.3647, 75.124, 11), ('Hubballi airport', 15.3617, 75.0849, 12), ('Goa airport (Dabolim)', 15.3808, 73.8314, 13), ('Goa airport (Mopa)', 15.744, 73.863, 14), ('Shivamogga', 13.9299, 75.5681, 15), ('Mangaluru', 12.9141, 74.856, 16);
+        END IF;
+        -- A ready-made role for travel managers, created once; staff edit it in Roles & Access.
+        IF NOT EXISTS (SELECT 1 FROM admin_roles WHERE slug = 'travel_manager') THEN
+          INSERT INTO admin_roles (slug, name, description, scope, is_system)
+            VALUES ('travel_manager', 'Travel Manager', 'Handles trip requests: calls customers and sends quotations', 'staff', false);
+          INSERT INTO admin_role_capabilities (role_id, capability)
+            SELECT id, c FROM admin_roles, unnest(ARRAY['travel:manage', 'dashboard:view']) AS c WHERE slug = 'travel_manager';
+        END IF;
+      END $$;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

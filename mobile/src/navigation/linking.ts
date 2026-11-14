@@ -39,6 +39,7 @@ export const linkingConfig: LinkingOptions<any> = {
                         screens: {
                             HomeTab: 'home',
                             BookingsTab: 'bookings',
+                            TravelTab: 'travel',
                             ShopTab: 'shop',
                             OrdersTab: 'orders',
                             ProfileTab: 'profile',
@@ -54,6 +55,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     Checkout: 'checkout',
                     OrderDetail: 'order/:id',
                     SupportTicket: 'support',
+                    TripPlanner: 'travel/plan',
                 },
             },
             EmployeeMain: {

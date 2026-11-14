@@ -29,11 +29,12 @@ import { photoKeyForCategory, photoKeyForService } from "../../../../mobile/src/
 
 // The app's own photos, bundled into this page by Vite (no copies in the repo).
 const SERVICE_PHOTOS = import.meta.glob("../../../../mobile/assets/services/*.jpg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
-const HOME_PHOTOS = import.meta.glob("../../../../mobile/assets/home/{recharge,photo-shoots}.jpg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+const HOME_PHOTOS = import.meta.glob("../../../../mobile/assets/home/{recharge,photo-shoots,travel}.jpg", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 const photoUrl = (key: string) => SERVICE_PHOTOS[`../../../../mobile/assets/services/${key}.jpg`];
 const SCREEN_PHOTO: Record<string, string | undefined> = {
   recharge: HOME_PHOTOS["../../../../mobile/assets/home/recharge.jpg"],
   celebrate: HOME_PHOTOS["../../../../mobile/assets/home/photo-shoots.jpg"],
+  travel: HOME_PHOTOS["../../../../mobile/assets/home/travel.jpg"],
   all_services: photoUrl("house"),
 };
 /** The app's built-in four, used when no set fills the row. */

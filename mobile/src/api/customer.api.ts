@@ -39,7 +39,7 @@ export interface HomeCardItem {
     target: 'category' | 'service' | 'screen';
     id: number | null;
     categoryId: number | null;
-    screen: 'recharge' | 'celebrate' | 'all_services' | null;
+    screen: 'recharge' | 'celebrate' | 'travel' | 'all_services' | null;
     label: string;
     name: string;
     photo: HomeCardPhoto;

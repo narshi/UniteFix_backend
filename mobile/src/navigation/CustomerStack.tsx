@@ -33,6 +33,8 @@ import { FTTHHistoryScreen } from '../screens/ftth/FTTHHistoryScreen';
 import { FTTHRechargeTrackingScreen } from '../screens/ftth/FTTHRechargeTrackingScreen';
 import { EventPlannerScreen } from '../screens/customer/EventPlannerScreen';
 import { CelebrationDetailScreen } from '../screens/customer/CelebrationDetailScreen';
+import { CelebrationsScreen } from '../screens/customer/CelebrationsScreen';
+import { TripPlannerScreen } from '../screens/customer/TripPlannerScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -78,6 +80,10 @@ export function CustomerStack() {
             <Stack.Screen name="EventPlanner" component={EventPlannerScreen} />
             {/* Celebrations: a hall, photographer or planner from the Celebrate tab. */}
             <Stack.Screen name="CelebrationDetail" component={CelebrationDetailScreen} />
+            {/* Celebrations moved off the tab bar (Travel took its place); opened from Home. */}
+            <Stack.Screen name="Celebrations" component={CelebrationsScreen} />
+            {/* Travel planner: four steps, then a travel manager calls with a quotation. */}
+            <Stack.Screen name="TripPlanner" component={TripPlannerScreen} />
         </Stack.Navigator>
     );
 }

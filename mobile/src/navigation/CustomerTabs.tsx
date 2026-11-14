@@ -12,7 +12,7 @@ import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, ClipboardList, ShoppingBag, User, Sparkles } from 'lucide-react-native';
+import { Home, ClipboardList, ShoppingBag, User, Plane } from 'lucide-react-native';
 import { CustomerTabParamList } from '../types/navigation.types';
 import { colors } from '../theme/colors';
 import { radii, spacing, shadows } from '../theme/spacing';
@@ -22,7 +22,7 @@ import { HomeScreen } from '../screens/customer/HomeScreen';
 import { MyRequestsScreen } from '../screens/customer/MyRequestsScreen';
 import { ProfileScreen } from '../screens/customer/ProfileScreen';
 import { ShopScreen } from '../screens/shop/ShopScreen';
-import { CelebrationsScreen } from '../screens/customer/CelebrationsScreen';
+import { TravelScreen } from '../screens/customer/TravelScreen';
 import { useTranslation } from 'react-i18next';
 
 const Tab = createBottomTabNavigator<CustomerTabParamList>();
@@ -111,14 +111,14 @@ export function CustomerTabs() {
                     ),
                 }}
             />
-            {/* Celebrations: halls, photographers and event planners. */}
+            {/* Travel: plan a trip, a travel manager calls with a quotation. Celebrations open from Home. */}
             <Tab.Screen
-                name="CelebrateTab"
-                component={CelebrationsScreen}
+                name="TravelTab"
+                component={TravelScreen}
                 options={{
-                    tabBarLabel: t('tabs.celebrate', 'Celebrate'),
+                    tabBarLabel: t('tabs.travel', 'Travel'),
                     tabBarIcon: ({ color, focused }) => (
-                        <TabIcon icon={Sparkles} color={color} focused={focused} />
+                        <TabIcon icon={Plane} color={color} focused={focused} />
                     ),
                 }}
             />

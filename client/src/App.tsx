@@ -24,6 +24,8 @@ import EnquiriesPage from "@/pages/admin/enquiries";
 import HomeScreenPage from "@/pages/admin/home-screen";
 import CallBookingPage from "@/pages/admin/call-booking";
 import WhatsAppPage from "@/pages/admin/whatsapp";
+import TravelTripsPage from "@/pages/admin/travel-trips";
+import TravelPlacesPage from "@/pages/admin/travel-places";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
@@ -346,6 +348,8 @@ function Router() {
           <Route path="/admin/home-screen"><Gate capability="catalog:view" component={HomeScreenPage} /></Route>
           <Route path="/admin/assignments"><Gate capability="bookings:view" component={AssignmentQueuePage} /></Route>
           <Route path="/admin/enquiries"><Gate capability="bookings:view" component={EnquiriesPage} /></Route>
+          <Route path="/admin/travel/trips"><Gate capability="travel:view" component={TravelTripsPage} /></Route>
+          <Route path="/admin/travel/places"><Gate capability="travel:view" component={TravelPlacesPage} /></Route>
           <Route path="/admin/book-by-call"><Gate capability="bookings:view" component={CallBookingPage} /></Route>
           <Route path="/admin/support-tickets"><Gate capability="support:view" component={SupportTicketsPage} /></Route>
           <Route path="/admin/marketing"><Gate capability="marketing:view" component={MarketingPage} /></Route>

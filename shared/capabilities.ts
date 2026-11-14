@@ -45,6 +45,8 @@ export const CAPABILITY_AREAS: CapabilityArea[] = [
       description: 'Bookings, assignment queue, status overrides and OTPs' },
     { key: 'support', label: 'Support Tickets', group: 'Operations', scope: 'staff',
       description: 'Customer support tickets and replies' },
+    { key: 'travel', label: 'Travel', group: 'Operations', scope: 'staff',
+      description: 'Trip requests, travel managers and quotations; the places and pickup points the planner offers' },
     { key: 'orders', label: 'Product Orders', group: 'Operations', scope: 'staff',
       description: 'Shop orders, shipments and returns' },
     { key: 'inventory', label: 'Inventory', group: 'Operations', scope: 'staff',

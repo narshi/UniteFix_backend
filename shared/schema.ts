@@ -4037,3 +4037,103 @@ export const integrationSettings = pgTable("integration_settings", {
   updatedBy: integer("updated_by"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+/**
+ * Travel planner (shared/travel.ts). Staff manage regions ("Sirsi tourism"),
+ * the places in them and the pickup points; customers send a trip plan for a
+ * quotation, and a travel manager is assigned to call them.
+ */
+export const travelRegions = pgTable("travel_regions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),                                 // "Murdeshwar to Gokarna"
+  tagline: text("tagline"),                                     // "Temples, beaches and the island"
+  photoKey: text("photo_key"),                                  // bundled app photo, e.g. 'coast'
+  photoUrl: text("photo_url"),
+  bestMonths: jsonb("best_months").notNull().default([]),       // 1-12
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TravelRegion = typeof travelRegions.$inferSelect;
+
+export const travelPlaces = pgTable("travel_places", {
+  id: serial("id").primaryKey(),
+  regionId: integer("region_id").references(() => travelRegions.id),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default('nature'),              // PLACE_KINDS
+  description: text("description"),
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  visitMinutes: integer("visit_minutes").notNull().default(90),
+  bestMonths: jsonb("best_months").notNull().default([]),
+  featured: boolean("featured").notNull().default(false),      // "Best pick" in the app
+  photoUrl: text("photo_url"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TravelPlace = typeof travelPlaces.$inferSelect;
+
+export const travelPickups = pgTable("travel_pickups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),                                 // "Sirsi", "Hubballi airport"
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export type TravelPickup = typeof travelPickups.$inferSelect;
+
+export const travelTrips = pgTable("travel_trips", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),                        // "TR-7K2M9Q", what the customer and manager quote
+  customerUserId: integer("customer_user_id").references(() => users.id),
+  contactName: text("contact_name").notNull(),
+  contactPhone: text("contact_phone").notNull(),
+  adults: integer("adults").notNull().default(1),
+  children: integer("children").notNull().default(0),
+  tripType: text("trip_type").notNull().default('round_trip'), // round_trip | one_way
+  pickupId: integer("pickup_id"),
+  pickupText: text("pickup_text"),                              // the name, or what the customer typed
+  dropId: integer("drop_id"),
+  dropText: text("drop_text"),
+  regionIds: jsonb("region_ids").notNull().default([]),
+  placeIds: jsonb("place_ids").notNull().default([]),           // in the planned order
+  plan: jsonb("plan"),                                          // TripPlan when sent
+  pace: text("pace").notNull().default('balanced'),
+  startDate: text("start_date"),                                // YYYY-MM-DD
+  days: integer("days"),
+  stay: text("stay").notNull().default('standard'),            // StayChoice
+  rooms: integer("rooms"),
+  needsCab: boolean("needs_cab").notNull().default(true),
+  needsGuide: boolean("needs_guide").notNull().default(false),
+  budgetPerPerson: integer("budget_per_person"),                // rupees
+  notes: text("notes"),
+  status: text("status").notNull().default('new'),             // TRIP_STATUSES
+  managerAdminId: integer("manager_admin_id").references(() => adminUsers.id),
+  managerName: text("manager_name"),
+  managerPhone: text("manager_phone"),
+  assignedAt: timestamp("assigned_at"),
+  quoteAmount: integer("quote_amount"),                         // rupees, for the whole group
+  quoteNote: text("quote_note"),
+  quotedAt: timestamp("quoted_at"),
+  staffNote: text("staff_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  statusIdx: index("travel_trips_status_idx").on(t.status),
+  customerIdx: index("travel_trips_customer_idx").on(t.customerUserId),
+}));
+export type TravelTrip = typeof travelTrips.$inferSelect;
+
+export const travelTripMembers = pgTable("travel_trip_members", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  status: text("status").notNull().default('invited'),         // invited
+  createdAt: timestamp("created_at").defaultNow(),
+});
