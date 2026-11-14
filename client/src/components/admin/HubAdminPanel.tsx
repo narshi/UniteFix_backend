@@ -74,9 +74,12 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
           <span>{d.onboarding.bank.last4 ? `${d.onboarding.bank.beneficiaryName} · ····${d.onboarding.bank.last4} · ${d.onboarding.bank.ifsc}` : "not added"} · <Badge variant="secondary">{d.onboarding.bank.status}</Badge></span>
         </div>
         {d.onboarding.bank.last4 && d.onboarding.bank.status !== "verified" && (
+          <p className="text-xs text-muted-foreground">Not checked with the bank automatically. Match the name, account number and IFSC against the cancelled cheque below, then verify the cheque (or note how you checked it here).</p>
+        )}
+        {d.onboarding.bank.last4 && d.onboarding.bank.status !== "verified" && (
           <div className="flex flex-wrap gap-2">
             <Input className="h-8 flex-1 min-w-[220px]" placeholder="How you checked it, e.g. 'cancelled cheque matched'" value={bankRef} onChange={e => setBankRef(e.target.value)} />
-            <Button size="sm" disabled={bankRef.trim().length < 3} onClick={() => act.mutate({ path: "/bank-verified", body: { reference: bankRef } })}>Mark verified</Button>
+            <Button size="sm" disabled={bankRef.trim().length < 3} onClick={() => act.mutate({ path: "/bank-verified", body: { reference: bankRef } })}>Mark bank verified</Button>
           </div>
         )}
       </div>
@@ -91,7 +94,9 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
                 <>
                   <a href={doc.document.fileUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 text-xs">{doc.document.fileName ?? "open"}</a>
                   <Badge variant="secondary">{doc.document.status}</Badge>
-                  {doc.document.status !== "verified" && <Button size="sm" variant="outline" onClick={() => act.mutate({ path: `/documents/${doc.document!.id}/review`, body: { status: "verified" } })}>Verify</Button>}
+                  {doc.document.status !== "verified" && <Button size="sm" variant="outline" onClick={() => act.mutate({ path: `/documents/${doc.document!.id}/review`, body: { status: "verified" } })}>
+                    {doc.code === "bank_proof" && d.onboarding.bank.last4 && d.onboarding.bank.status !== "verified" ? `Verify · matches ····${d.onboarding.bank.last4}` : "Verify"}
+                  </Button>}
                   <Input className="h-8 w-48" placeholder="Reason to reject" value={note[doc.document.id] ?? ""} onChange={e => setNote({ ...note, [doc.document!.id]: e.target.value })} />
                   <Button size="sm" variant="ghost" disabled={!(note[doc.document.id] ?? "").trim()} onClick={() => act.mutate({ path: `/documents/${doc.document!.id}/review`, body: { status: "rejected", note: note[doc.document!.id] } })}>Reject</Button>
                 </>

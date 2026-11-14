@@ -327,6 +327,14 @@ export class PartnerHubService {
         const ifsc = input.ifsc.trim().toUpperCase();
         if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) throw new HubError('IFSC must be 4 letters, a zero, then 6 letters or digits.', 'BAD_IFSC');
 
+        // Saving the same account again (say, the onboarding form resubmitted)
+        // keeps a verification staff already made; only a new account resets it.
+        if (bp.bankStatus === 'verified' && bp.bankAccountNumber === acct && bp.bankIfsc === ifsc) {
+            const [kept] = await db.update(businessPartners).set({ beneficiaryName: input.beneficiaryName.trim(), updatedAt: new Date() })
+                .where(eq(businessPartners.id, bpId)).returning();
+            return { partner: kept, check: { status: 'verified' as const, nameAtBank: bp.bankHolderNameAtBank ?? null, reference: bp.bankVerificationRef ?? null } };
+        }
+
         const check = await verifyBankAccount({ accountNumber: acct, ifsc, name: input.beneficiaryName });
         const [updated] = await db.update(businessPartners).set({
             beneficiaryName: input.beneficiaryName.trim(),

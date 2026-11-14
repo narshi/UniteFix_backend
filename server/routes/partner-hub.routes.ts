@@ -17,6 +17,7 @@ import { HUB_ROLES, DOC_TYPES, VERTICAL_MODULES, PLAN_LIMITS, MODULE_LABEL, chec
 import { validateBody } from '../middleware/validate';
 import { operatorApplyLimiter } from '../middleware/rate-limit';
 import { authenticateAdmin, requireSuperAdmin } from '../middleware/auth.middleware';
+import { SYSTEM_ROLES } from '@shared/capabilities';
 import { authenticateHub, hubCan, hubError, HubRequest } from '../middleware/hub-auth';
 import { PartnerHubService, HubError } from '../services/partner-hub.service';
 import { BusinessPartnerService } from '../services/business-partner.service';
@@ -303,7 +304,7 @@ export function registerPartnerHubRoutes(app: Express) {
 
     app.post('/api/admin/hub/partners/:id/documents/:docId/review', authenticateAdmin, async (req, res, next) => {
         try {
-            const admin = (req as any).admin as { userId: number };
+            const admin = (req as any).admin as { userId: number; role?: string };
             const status = req.body?.status === 'verified' ? 'verified' : req.body?.status === 'rejected' ? 'rejected' : null;
             if (!status) throw new HubError('status must be verified or rejected', 'BAD_STATUS');
             const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 300) : null;
@@ -313,7 +314,27 @@ export function registerPartnerHubRoutes(app: Express) {
             if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
             const row = await PartnerHubService.reviewDocument(doc.id, status, note, admin.userId);
             await recordAudit({ entityType: 'business_partner', entityId: doc.businessPartnerId, action: `hub_document_${status}`, changedBy: admin.userId, metadata: { docId: doc.id, docType: doc.docType, note } });
-            res.json({ success: true, data: row });
+
+            // Verifying the cancelled cheque is how a bank account is checked by
+            // hand (no automatic penny-drop), so it verifies the bank too. Where
+            // money goes is a super-admin decision, as on "Mark verified".
+            let message = status === 'verified' ? 'Document verified.' : 'Document rejected.';
+            if (status === 'verified' && doc.docType === 'bank_proof') {
+                const bp = await BusinessPartnerService.byId(doc.businessPartnerId);
+                if (!bp?.bankAccountNumber) {
+                    message = 'Cheque verified. The partner has not entered bank details yet, so the bank account is still not verified.';
+                } else if (bp.bankStatus !== 'verified') {
+                    if (admin.role === SYSTEM_ROLES.SUPER_ADMIN) {
+                        const reference = `cheque matched (document #${doc.id})`;
+                        await PartnerHubService.markBankVerified(bp.id, admin.userId, reference);
+                        await recordAudit({ entityType: 'business_partner', entityId: bp.id, action: 'hub_bank_verified_manual', changedBy: admin.userId, metadata: { reference } });
+                        message = `Cheque verified, and the bank account ending ${bp.bankAccountNumber.slice(-4)} is now verified.`;
+                    } else {
+                        message = 'Cheque verified. The bank account still needs a super admin to mark it verified.';
+                    }
+                }
+            }
+            res.json({ success: true, message, data: row });
         } catch (e) { hubError(e, res, next); }
     });
 
