@@ -35,8 +35,13 @@ export interface MyTrip {
     id: number; code: string; status: TripStatus; statusLabel: string; tripType: TripType; from: string | null; to: string | null;
     startDate: string | null; days: number | null; adults: number; children: number; stay: StayChoice; needsCab: boolean; needsGuide: boolean;
     places: string[]; totalKm: number | null; manager: { name: string; phone: string | null } | null;
-    quote: { amount: number; note: string | null; at: string | null } | null; members: Array<{ name: string; phone: string | null }>;
-    createdAt: string; canCancel: boolean;
+    quote: {
+        amount: number; note: string | null; at: string | null; validUntil: string | null; expired: boolean;
+        advancePercent: number; advanceAmount: number; balance: number;
+    } | null;
+    advance: { status: 'none' | 'due' | 'paid'; paidAt: string | null };
+    canPay: boolean; members: Array<{ name: string; phone: string | null }>;
+    createdAt: string; canCancel: boolean; cancelKeepsAdvance: boolean;
 }
 
 export interface PlanRequest {
@@ -52,8 +57,10 @@ export interface TripRequest extends PlanRequest {
 export const travelApi = {
     catalog: async (): Promise<TravelCatalog> => (await apiClient.get('/api/travel/catalog')).data.data,
     plan: async (body: PlanRequest): Promise<TripPlan> => (await apiClient.post('/api/travel/plan', body)).data.data,
-    send: async (body: TripRequest): Promise<{ id: number; code: string; message: string }> => (await apiClient.post('/api/travel/trips', body)).data.data,
+    send: async (body: TripRequest): Promise<{ id: number; code: string; message: string; manager: { name: string; phone: string } | null }> => (await apiClient.post('/api/travel/trips', body)).data.data,
     mine: async (): Promise<MyTrip[]> => (await apiClient.get('/api/travel/trips/mine')).data.data ?? [],
+    /** A payment link for the advance on the quotation. */
+    payAdvance: async (id: number): Promise<{ url: string; amount: number }> => (await apiClient.post(`/api/travel/trips/${id}/advance`, {})).data.data,
     cancel: async (id: number) => (await apiClient.post(`/api/travel/trips/${id}/cancel`, {})).data,
 };
 

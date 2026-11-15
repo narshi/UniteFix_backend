@@ -270,7 +270,28 @@
       "see_trips": "See my trips",
       "see_plan": "See my plan",
       "next_where": "Next: where to go",
-      "next_details": "Next: a few details"
+      "next_details": "Next: a few details",
+      "why_title": "Why an advance?",
+      "why": "Why?",
+      "why1": "Your driver, hotel and guide keep these dates only for you, and turn away other customers for them.",
+      "why2": "If the trip is cancelled, they lose that day's work and can rarely fill it at short notice.",
+      "why3": "So the {{pct}}% advance ({{amount}}) is not refundable. It is part of your trip price: you pay the balance of {{balance}} during the trip.",
+      "why4": "Driver and hotel prices change as dates fill up, so your price is held only for a short time.",
+      "got_it": "Got it",
+      "book_now": "Book now · pay {{amount}}",
+      "price_held": "Price held for {{left}}",
+      "fomo": "Your cab and stay are reserved only once the advance is paid. Until then, other travellers can take these dates.",
+      "advance_line": "{{pct}}% advance, not refundable · balance {{balance}} on the trip",
+      "price_expired": "This price is no longer held. Call {{name}} to renew it.",
+      "booked": "Booked!",
+      "advance_paid": "advance paid",
+      "balance_on_trip": "Balance {{balance}} during the trip. {{name}} will share the driver and stay details before you leave.",
+      "manager_will_call": "{{name}} is checking cabs and stays for your dates and will call you with a price.",
+      "cancel_body_paid": "Your {{amount}} advance is not refunded: your driver and hosts kept these dates for you.",
+      "sent_body_manager": "{{name}}, your travel manager, will call you soon with a quotation.",
+      "next1_named": "{{name}} checks our team and local partners for the best price",
+      "next3_book": "You get the price here: book it with a small advance",
+      "not_booked": "Could not open the payment"
     }
   }
 }

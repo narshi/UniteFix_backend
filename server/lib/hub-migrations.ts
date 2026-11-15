@@ -1552,6 +1552,50 @@ const BLOCKS: Array<[string, string]> = [
         END IF;
       END $$;
     `],
+    // Travel v2: the customer quotation and its 20% advance, travel partners and
+    // the supplier prices a travel manager collects. New columns and tables only.
+    ['travel: quotes, partners and advance', `
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS quote_valid_until TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS chosen_quote_id INTEGER;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS cost_amount INTEGER;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS advance_percent INTEGER;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS advance_amount INTEGER;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS advance_status TEXT NOT NULL DEFAULT 'none';
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS advance_paid_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS advance_payment_id TEXT;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS payment_link_id TEXT;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS payment_link_url TEXT;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS payment_link_status TEXT;
+      CREATE TABLE IF NOT EXISTS travel_partners (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        kinds JSONB NOT NULL DEFAULT '[]',
+        base_town TEXT,
+        region_ids JSONB NOT NULL DEFAULT '[]',
+        contact_name TEXT,
+        phone TEXT,
+        notes TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS travel_trip_quotes (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        source TEXT NOT NULL,
+        partner_id INTEGER REFERENCES travel_partners(id),
+        label TEXT NOT NULL,
+        covers TEXT,
+        amount INTEGER,
+        status TEXT NOT NULL DEFAULT 'asked',
+        note TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_trip_quotes_trip_idx ON travel_trip_quotes(trip_id);
+      CREATE INDEX IF NOT EXISTS travel_trips_link_idx ON travel_trips(payment_link_id);
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

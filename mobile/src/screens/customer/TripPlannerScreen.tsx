@@ -136,7 +136,7 @@ export function TripPlannerScreen({ navigation, route }: any) {
     const [budget, setBudget] = useState('');
     const [notes, setNotes] = useState('');
     const [phone, setPhone] = useState('');
-    const [sent, setSent] = useState<{ code: string; message: string } | null>(null);
+    const [sent, setSent] = useState<{ code: string; message: string; manager: { name: string; phone: string } | null } | null>(null);
 
     useEffect(() => {
         if (profile && !host) setHost((profile as any).username ?? '');
@@ -189,7 +189,7 @@ export function TripPlannerScreen({ navigation, route }: any) {
             needsCab, needsGuide, budgetPerPerson: budget ? Number(budget) : null, notes: notes.trim() || null,
             contactName: host.trim(), contactPhone: phone.replace(/\D/g, '').slice(-10),
         }),
-        onSuccess: (r) => { setSent({ code: r.code, message: r.message }); setStep(4); qc.invalidateQueries({ queryKey: ['myTrips'] }); },
+        onSuccess: (r) => { setSent({ code: r.code, message: r.message, manager: r.manager ?? null }); setStep(4); qc.invalidateQueries({ queryKey: ['myTrips'] }); },
     });
 
     const STEPS = [t('travel.step_who', "Who's going"), t('travel.step_where', 'Where'), t('travel.step_plan', 'Your plan'), t('travel.step_details', 'Details')];
@@ -216,10 +216,12 @@ export function TripPlannerScreen({ navigation, route }: any) {
                 <ScrollView contentContainerStyle={s.doneBody}>
                     <View style={s.doneIcon}><CheckCircle2 size={56} color="#047857" /></View>
                     <Text style={s.doneTitle}>{t('travel.sent_title', 'Your plan is sent!')}</Text>
-                    <Text style={s.doneText}>{t('travel.sent_body', 'Your travel manager will be assigned and will call you soon with a quotation.')}</Text>
+                    <Text style={s.doneText}>{sent.manager
+                        ? t('travel.sent_body_manager', '{{name}}, your travel manager, will call you soon with a quotation.', { name: sent.manager.name })
+                        : t('travel.sent_body', 'Your travel manager will be assigned and will call you soon with a quotation.')}</Text>
                     <View style={s.codeBox}><Text style={s.codeLabel}>{t('travel.trip_code', 'Trip code')}</Text><Text style={s.code}>{sent.code}</Text></View>
                     <View style={s.doneSteps}>
-                        {[[Headset, t('travel.next1', 'A travel manager is assigned to your trip')], [Car, t('travel.next2', 'They call you to fix the cab, stay and guide')], [Check, t('travel.next3', 'You get the quotation here and on your phone')]].map(([Icon, text]: any, i) => (
+                        {[[Headset, sent.manager ? t('travel.next1_named', '{{name}} checks our team and local partners for the best price', { name: sent.manager.name }) : t('travel.next1', 'A travel manager is assigned to your trip')], [Car, t('travel.next2', 'They call you to fix the cab, stay and guide')], [Check, t('travel.next3_book', 'You get the price here: book it with a small advance')]].map(([Icon, text]: any, i) => (
                             <View key={i} style={s.doneStep}><View style={s.doneStepIcon}><Icon size={16} color={brand.navy} /></View><Text style={s.doneStepText}>{text}</Text></View>
                         ))}
                     </View>

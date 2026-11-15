@@ -21,7 +21,7 @@ export const TRIP_STATUS_LABEL: Record<TripStatus, string> = {
     assigned: 'Travel manager assigned',
     contacted: 'In discussion',
     quoted: 'Quotation sent',
-    confirmed: 'Confirmed',
+    confirmed: 'Booked',
     cancelled: 'Cancelled',
 };
 
@@ -217,3 +217,23 @@ export function suggestedVehicle(people: number): string {
     if (people <= 17) return 'Tempo Traveller (17 seats)';
     return 'Mini bus';
 }
+
+/** What a travel partner provides. */
+export const TRAVEL_PARTNER_KINDS = ['cab', 'stay', 'homestay', 'guide', 'boating', 'activity', 'bus'] as const;
+export type TravelPartnerKind = typeof TRAVEL_PARTNER_KINDS[number];
+export const TRAVEL_PARTNER_KIND_LABEL: Record<TravelPartnerKind, string> = {
+    cab: 'Cabs', stay: 'Hotels', homestay: 'Homestays', guide: 'Guides', boating: 'Boating', activity: 'Rafting & activities', bus: 'Tempo / bus',
+};
+
+/** Staff settings for travel (integration_settings key 'travel'). */
+export interface TravelSettings {
+    /** Assigned to every new trip, so the customer knows at once who will call. */
+    defaultManager: { adminId: number | null; name: string; phone: string } | null;
+    /** Share of the quotation paid to book; not refundable. */
+    advancePercent: number;
+    /** How long a quotation's price is held. */
+    quoteValidHours: number;
+}
+export const DEFAULT_TRAVEL_SETTINGS: TravelSettings = { defaultManager: null, advancePercent: 20, quoteValidHours: 48 };
+
+export const advanceFor = (amount: number, percent: number) => Math.round(amount * percent / 100);

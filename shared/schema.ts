@@ -4121,6 +4121,19 @@ export const travelTrips = pgTable("travel_trips", {
   quoteNote: text("quote_note"),
   quotedAt: timestamp("quoted_at"),
   staffNote: text("staff_note"),
+  // The customer quotation and its advance (travel.service.ts): the price is held until
+  // quoteValidUntil; booking takes advancePercent of it, not refundable.
+  quoteValidUntil: timestamp("quote_valid_until"),
+  chosenQuoteId: integer("chosen_quote_id"),
+  costAmount: integer("cost_amount"),                          // what the chosen supplier charges us
+  advancePercent: integer("advance_percent"),
+  advanceAmount: integer("advance_amount"),                    // rupees
+  advanceStatus: text("advance_status").notNull().default('none'), // none | due | paid
+  advancePaidAt: timestamp("advance_paid_at"),
+  advancePaymentId: text("advance_payment_id"),
+  paymentLinkId: text("payment_link_id"),
+  paymentLinkUrl: text("payment_link_url"),
+  paymentLinkStatus: text("payment_link_status"),              // created | paid | expired | cancelled
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
@@ -4137,3 +4150,40 @@ export const travelTripMembers = pgTable("travel_trip_members", {
   status: text("status").notNull().default('invited'),         // invited
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+/**
+ * Travel partners: cab operators, hotels, homestays, guides and boat or
+ * activity operators in each area. The travel manager asks them for prices
+ * (by phone or WhatsApp) and records each quote on the trip.
+ */
+export const travelPartners = pgTable("travel_partners", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  kinds: jsonb("kinds").notNull().default([]),                  // TRAVEL_PARTNER_KINDS
+  baseTown: text("base_town"),
+  regionIds: jsonb("region_ids").notNull().default([]),         // regions they serve
+  contactName: text("contact_name"),
+  phone: text("phone"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TravelPartner = typeof travelPartners.$inferSelect;
+
+/** One supplier price for a trip: our own team or a travel partner. */
+export const travelTripQuotes = pgTable("travel_trip_quotes", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  source: text("source").notNull(),                             // own | partner
+  partnerId: integer("partner_id").references(() => travelPartners.id),
+  label: text("label").notNull(),                               // name when asked
+  covers: text("covers"),
+  amount: integer("amount"),                                    // rupees, null while waiting
+  status: text("status").notNull().default('asked'),           // asked | quoted | declined
+  note: text("note"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type TravelTripQuote = typeof travelTripQuotes.$inferSelect;

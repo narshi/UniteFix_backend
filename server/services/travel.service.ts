@@ -11,8 +11,11 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { and, asc, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { travelRegions, travelPlaces, travelPickups, travelTrips, travelTripMembers, adminUsers, adminRoleCapabilities, users } from '@shared/schema';
-import { planTrip, PLACE_KINDS, TRIP_STATUSES, TRIP_STATUS_LABEL, suggestedVehicle, type PlanPlace, type TripPlan, type TripStatus } from '@shared/travel';
+import { travelRegions, travelPlaces, travelPickups, travelTrips, travelTripMembers, travelPartners, travelTripQuotes, integrationSettings, adminUsers, adminRoleCapabilities, users } from '@shared/schema';
+import {
+    planTrip, PLACE_KINDS, TRIP_STATUSES, TRIP_STATUS_LABEL, TRAVEL_PARTNER_KINDS, DEFAULT_TRAVEL_SETTINGS, advanceFor, suggestedVehicle,
+    type PlanPlace, type TripPlan, type TripStatus, type TravelSettings,
+} from '@shared/travel';
 import { SYSTEM_ROLES } from '@shared/capabilities';
 import { NotificationService } from './notification.service';
 import { recordAudit } from '../lib/audit';
@@ -94,6 +97,30 @@ const pickupInput = z.object({
 });
 
 const OPEN: TripStatus[] = ['new', 'assigned', 'contacted', 'quoted'];
+const SETTINGS_KEY = 'travel';
+/** Payment links are faked in tests and local runs (never in production), as for call bookings. */
+const mockLinks = () => process.env.PAYMENT_LINKS_MOCK === '1' && process.env.NODE_ENV !== 'production';
+const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+const partnerInput = z.object({
+    name: z.string().trim().min(2).max(100),
+    kinds: z.array(z.enum(TRAVEL_PARTNER_KINDS)).min(1, 'say what they provide').max(TRAVEL_PARTNER_KINDS.length),
+    baseTown: z.string().trim().max(80).nullish(),
+    regionIds: z.array(z.number().int().positive()).max(30).default([]),
+    contactName: z.string().trim().max(80).nullish(),
+    phone: phone.nullish().or(z.literal('').transform(() => null)),
+    notes: z.string().trim().max(500).nullish(),
+    isActive: z.boolean().default(true),
+});
+const quoteInput = z.object({
+    source: z.enum(['own', 'partner']),
+    partnerId: z.number().int().positive().nullish(),
+    label: z.string().trim().max(100).nullish(),
+    covers: z.string().trim().max(400).nullish(),
+    amount: z.number().int().min(0).max(10_000_000).nullish(),
+    status: z.enum(['asked', 'quoted', 'declined']).optional(),
+    note: z.string().trim().max(400).nullish(),
+});
 const idList = (v: unknown): number[] => (Array.isArray(v) ? v.map(Number).filter(n => Number.isInteger(n)) : []);
 
 export class TravelService {
@@ -200,9 +227,22 @@ export class TravelService {
             await db.insert(travelTripMembers).values(b.members.map(m => ({ tripId: trip!.id, name: m.name, phone: m.phone ? m.phone.slice(-10) : null })));
         }
         logger.info(`[TRAVEL] Trip ${trip.code} sent by user #${userId}: ${plan.order.length} places, ${plan.days.length} days`);
+        // The default travel manager takes every new trip, so the customer knows at once who will call.
+        const m = (await this.settings()).defaultManager;
+        if (m?.name && m.phone) {
+            await db.update(travelTrips).set({ managerAdminId: m.adminId ?? null, managerName: m.name, managerPhone: m.phone, assignedAt: new Date(), status: 'assigned', updatedAt: new Date() })
+                .where(eq(travelTrips.id, trip.id));
+            void NotificationService.sendToUser(userId, 'Your travel manager will call you',
+                `${m.name} is your travel manager for trip ${trip.code} and will call you soon with a quotation.`,
+                'travel_trip', { tripId: trip.id, code: trip.code, url: 'unitefix://travel' }).catch(() => {});
+        }
+        void NotificationService.sendToAdmins('New trip request', `${trip.code}: ${b.adults + b.children} people, ${plan.days.length} days from ${pickupText ?? '?'}${m?.name ? `, with ${m.name}` : ''}.`, { tripId: trip.id }).catch(() => {});
         return {
             id: trip.id, code: trip.code,
-            message: 'Your plan is sent. A travel manager will be assigned and will call you soon with a quotation.',
+            manager: m?.name && m.phone ? { name: m.name, phone: m.phone } : null,
+            message: m?.name && m.phone
+                ? `Your plan is sent. ${m.name}, your travel manager, will call you soon with a quotation.`
+                : 'Your plan is sent. A travel manager will be assigned and will call you soon with a quotation.',
         };
     }
 
@@ -223,18 +263,31 @@ export class TravelService {
             places: plan ? plan.days.flatMap(d => d.stops.filter(s => s.type === 'place').map(s => s.name)) : [],
             totalKm: plan?.totalKm ?? null,
             manager: t.managerName ? { name: t.managerName, phone: t.managerPhone } : null,
-            quote: t.quoteAmount != null ? { amount: t.quoteAmount, note: t.quoteNote, at: t.quotedAt } : null,
+            quote: t.quoteAmount != null ? {
+                amount: t.quoteAmount, note: t.quoteNote, at: t.quotedAt,
+                validUntil: t.quoteValidUntil, expired: !!t.quoteValidUntil && t.quoteValidUntil.getTime() < Date.now() && t.advanceStatus !== 'paid',
+                advancePercent: t.advancePercent ?? DEFAULT_TRAVEL_SETTINGS.advancePercent,
+                advanceAmount: t.advanceAmount ?? advanceFor(t.quoteAmount, t.advancePercent ?? DEFAULT_TRAVEL_SETTINGS.advancePercent),
+                balance: t.quoteAmount - (t.advanceAmount ?? advanceFor(t.quoteAmount, t.advancePercent ?? DEFAULT_TRAVEL_SETTINGS.advancePercent)),
+            } : null,
+            advance: { status: t.advanceStatus as 'none' | 'due' | 'paid', paidAt: t.advancePaidAt },
+            canPay: status === 'quoted' && t.advanceStatus !== 'paid' && t.quoteAmount != null && (!t.quoteValidUntil || t.quoteValidUntil.getTime() > Date.now()),
             members: members.map(m => ({ name: m.name, phone: m.phone })),
             createdAt: t.createdAt,
-            canCancel: OPEN.includes(status),
+            canCancel: OPEN.includes(status) || status === 'confirmed',
+            cancelKeepsAdvance: t.advanceStatus === 'paid',
         };
     }
 
     static async cancelMine(userId: number, tripId: number) {
         const [t] = await db.select().from(travelTrips).where(and(eq(travelTrips.id, tripId), eq(travelTrips.customerUserId, userId))).limit(1);
         if (!t) throw new TravelError('Trip not found.', 404);
-        if (!OPEN.includes(t.status as TripStatus)) throw new TravelError('This trip can no longer be cancelled here. Call your travel manager.');
+        if (!OPEN.includes(t.status as TripStatus) && t.status !== 'confirmed') throw new TravelError('This trip can no longer be cancelled here. Call your travel manager.');
         await db.update(travelTrips).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(travelTrips.id, t.id));
+        if (t.paymentLinkId && t.paymentLinkStatus === 'created') await this.cancelLink(t.paymentLinkId);
+        // The advance stays with the booking: the driver and hosts kept these dates.
+        void NotificationService.sendToAdmins('Trip cancelled by the customer',
+            `${t.code} was cancelled${t.advanceStatus === 'paid' ? `; the ${rupees(t.advanceAmount ?? 0)} advance is kept` : ''}. Tell the partners.`, { tripId: t.id }).catch(() => {});
     }
 
     // ── Staff: places ───────────────────────────────────────────────────
@@ -306,6 +359,7 @@ export class TravelService {
         const rows = await db.select().from(travelTrips).where(where.length ? and(...where) : undefined).orderBy(desc(travelTrips.createdAt)).limit(200);
         const ids = rows.map(r => r.id);
         const members = ids.length ? await db.select().from(travelTripMembers).where(inArray(travelTripMembers.tripId, ids)) : [];
+        const quotes = ids.length ? await db.select().from(travelTripQuotes).where(inArray(travelTripQuotes.tripId, ids)).orderBy(asc(travelTripQuotes.id)) : [];
         const [counts] = await db.select({
             new: sql<number>`count(*) filter (where status = 'new')::int`,
             open: sql<number>`count(*) filter (where status in ('new','assigned','contacted','quoted'))::int`,
@@ -318,6 +372,7 @@ export class TravelService {
                 return {
                     ...t, plan, people, vehicle: suggestedVehicle(people),
                     members: members.filter(m => m.tripId === t.id).map(m => ({ id: m.id, name: m.name, phone: m.phone, status: m.status })),
+                    quotes: quotes.filter(q => q.tripId === t.id),
                 };
             }),
         };
@@ -362,32 +417,234 @@ export class TravelService {
         return row;
     }
 
+    /**
+     * Staff update a trip. Entering a quotation amount sends it to the customer:
+     * the price is held for the validity hours and booking takes the advance.
+     */
     static async update(adminId: number, tripId: number, body: unknown) {
         const b = parse(z.object({
             status: z.enum(TRIP_STATUSES).optional(),
             quoteAmount: z.number().int().min(0).max(10_000_000).nullish(),
             quoteNote: z.string().trim().max(1000).nullish(),
             staffNote: z.string().trim().max(2000).nullish(),
+            validHours: z.number().int().min(1).max(24 * 30).optional(),
+            chosenQuoteId: z.number().int().positive().nullish(),
         }), body);
         const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
         if (!t) throw new TravelError('Trip not found.', 404);
         const quoted = b.quoteAmount != null && b.quoteAmount !== t.quoteAmount;
+        if (quoted && t.advanceStatus === 'paid') throw new TravelError('The advance is already paid on this price. Change it with the customer first.');
         let status = b.status ?? t.status;
         if (quoted && !b.status && OPEN.includes(t.status as TripStatus)) status = 'quoted';
         if (status !== 'new' && status !== 'cancelled' && !t.managerName) throw new TravelError('Assign a travel manager first.');
         const set: Record<string, unknown> = { status, updatedAt: new Date() };
-        if (b.quoteAmount !== undefined) { set.quoteAmount = b.quoteAmount; if (quoted) set.quotedAt = new Date(); }
+        const cfg = await this.settings();
+        if (b.quoteAmount !== undefined) {
+            set.quoteAmount = b.quoteAmount;
+            if (quoted) {
+                set.quotedAt = new Date();
+                set.quoteValidUntil = new Date(Date.now() + (b.validHours ?? cfg.quoteValidHours) * 3600_000);
+                set.advancePercent = cfg.advancePercent;
+                set.advanceAmount = advanceFor(b.quoteAmount!, cfg.advancePercent);
+                set.advanceStatus = 'due';
+                if (t.paymentLinkId && t.paymentLinkStatus === 'created') { await this.cancelLink(t.paymentLinkId); set.paymentLinkStatus = 'cancelled'; }
+            }
+        } else if (b.validHours && t.quoteAmount != null && t.advanceStatus !== 'paid') {
+            set.quoteValidUntil = new Date(Date.now() + b.validHours * 3600_000);   // hold the same price longer
+        }
+        if (b.chosenQuoteId !== undefined) {
+            if (b.chosenQuoteId) {
+                const [q] = await db.select().from(travelTripQuotes).where(and(eq(travelTripQuotes.id, b.chosenQuoteId), eq(travelTripQuotes.tripId, tripId))).limit(1);
+                if (!q) throw new TravelError('That supplier price is not on this trip.');
+                set.chosenQuoteId = q.id; set.costAmount = q.amount;
+            } else { set.chosenQuoteId = null; set.costAmount = null; }
+        }
         if (b.quoteNote !== undefined) set.quoteNote = b.quoteNote;
         if (b.staffNote !== undefined) set.staffNote = b.staffNote;
         const [row] = await db.update(travelTrips).set(set as any).where(eq(travelTrips.id, tripId)).returning();
-        await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_trip_updated', changedBy: adminId, fromState: t.status, toState: status, metadata: { code: t.code, quoteAmount: b.quoteAmount ?? undefined } });
+        await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_trip_updated', changedBy: adminId, fromState: t.status, toState: status, metadata: { code: t.code, quoteAmount: b.quoteAmount ?? undefined, costAmount: (set.costAmount as number | undefined) ?? undefined } });
         if (t.customerUserId) {
             const tell = (title: string, text: string) => void NotificationService.sendToUser(t.customerUserId!, title, text, 'travel_trip', { tripId, code: t.code, url: 'unitefix://travel' }).catch(() => {});
-            if (quoted) tell('Your trip quotation', `Trip ${t.code}: ₹${b.quoteAmount!.toLocaleString('en-IN')} for your group. ${t.managerName ?? 'Your travel manager'} will go through it with you.`);
-            else if (status === 'confirmed' && t.status !== 'confirmed') tell('Trip confirmed', `Trip ${t.code} is confirmed. Have a great journey!`);
+            if (quoted) {
+                const hrs = b.validHours ?? cfg.quoteValidHours;
+                tell('Your trip quotation is ready', `Trip ${t.code}: ${rupees(b.quoteAmount!)} for your group. Book with ${cfg.advancePercent}% (${rupees(advanceFor(b.quoteAmount!, cfg.advancePercent))}) — this price is held for ${hrs >= 24 ? `${Math.round(hrs / 24)} day${hrs >= 48 ? 's' : ''}` : `${hrs} hours`}.`);
+            } else if (status === 'confirmed' && t.status !== 'confirmed') tell('Trip confirmed', `Trip ${t.code} is confirmed. Have a great journey!`);
             else if (status === 'cancelled' && t.status !== 'cancelled') tell('Trip cancelled', `Trip ${t.code} was cancelled. Call your travel manager if this is a mistake.`);
         }
         return row;
+    }
+
+    // ── Settings ────────────────────────────────────────────────────────
+
+    static async settings(): Promise<TravelSettings> {
+        const [row] = await db.select().from(integrationSettings).where(eq(integrationSettings.key, SETTINGS_KEY)).limit(1);
+        const c = (row?.config ?? {}) as Partial<TravelSettings>;
+        return {
+            defaultManager: c.defaultManager?.name && c.defaultManager.phone ? c.defaultManager : null,
+            advancePercent: Number.isInteger(c.advancePercent) ? c.advancePercent! : DEFAULT_TRAVEL_SETTINGS.advancePercent,
+            quoteValidHours: Number.isInteger(c.quoteValidHours) ? c.quoteValidHours! : DEFAULT_TRAVEL_SETTINGS.quoteValidHours,
+        };
+    }
+
+    static async saveSettings(adminId: number, body: unknown) {
+        const b = parse(z.object({
+            defaultManager: z.object({ adminId: z.number().int().positive().nullish(), name: z.string().trim().min(2).max(80), phone }).nullable(),
+            advancePercent: z.number().int().min(0).max(100),
+            quoteValidHours: z.number().int().min(1).max(24 * 30),
+        }), body);
+        if (b.defaultManager?.adminId && !(await this.managers()).some(m => m.id === b.defaultManager!.adminId)) {
+            throw new TravelError('That staff member cannot take trips. Give their role the Travel area in Roles & Access.');
+        }
+        const config: TravelSettings = {
+            defaultManager: b.defaultManager ? { adminId: b.defaultManager.adminId ?? null, name: b.defaultManager.name, phone: b.defaultManager.phone.slice(-10) } : null,
+            advancePercent: b.advancePercent, quoteValidHours: b.quoteValidHours,
+        };
+        await db.insert(integrationSettings).values({ key: SETTINGS_KEY, config, updatedBy: adminId } as any)
+            .onConflictDoUpdate({ target: integrationSettings.key, set: { config, updatedBy: adminId, updatedAt: new Date() } as any });
+        await recordAudit({ entityType: 'travel', entityId: 0, action: 'travel_settings_updated', changedBy: adminId, metadata: { defaultManager: config.defaultManager?.name ?? null, advancePercent: config.advancePercent, quoteValidHours: config.quoteValidHours } });
+        return config;
+    }
+
+    // ── Travel partners ─────────────────────────────────────────────────
+
+    static async partners() {
+        return db.select().from(travelPartners).orderBy(desc(travelPartners.isActive), asc(travelPartners.name));
+    }
+    static async savePartner(adminId: number, id: number | null, body: unknown) {
+        const b = parse(id ? partnerInput.partial() : partnerInput, body);
+        const v: Record<string, unknown> = { ...b };
+        if (typeof b.phone === 'string') v.phone = b.phone.slice(-10);
+        const [row] = id
+            ? await db.update(travelPartners).set({ ...v, updatedAt: new Date() } as any).where(eq(travelPartners.id, id)).returning()
+            : await db.insert(travelPartners).values(v as any).returning();
+        if (!row) throw new TravelError('Travel partner not found.', 404);
+        await recordAudit({ entityType: 'travel', entityId: row.id, action: id ? 'travel_partner_updated' : 'travel_partner_created', changedBy: adminId, metadata: { name: row.name } });
+        return row;
+    }
+    /** A partner with quotes on trips is hidden, not deleted, so the trips keep their history. */
+    static async deletePartner(adminId: number, id: number) {
+        const [used] = await db.select({ n: sql<number>`count(*)::int` }).from(travelTripQuotes).where(eq(travelTripQuotes.partnerId, id));
+        if (used.n > 0) {
+            await db.update(travelPartners).set({ isActive: false, updatedAt: new Date() }).where(eq(travelPartners.id, id));
+        } else {
+            const [row] = await db.delete(travelPartners).where(eq(travelPartners.id, id)).returning();
+            if (!row) throw new TravelError('Travel partner not found.', 404);
+        }
+        await recordAudit({ entityType: 'travel', entityId: id, action: used.n > 0 ? 'travel_partner_hidden' : 'travel_partner_deleted', changedBy: adminId });
+    }
+
+    // ── Supplier prices on a trip ───────────────────────────────────────
+
+    static async addQuote(adminId: number, tripId: number, body: unknown) {
+        const b = parse(quoteInput, body);
+        const [t] = await db.select({ id: travelTrips.id }).from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        let label = b.label?.trim() || 'Our team (UniteFix experts)';
+        if (b.source === 'partner') {
+            if (!b.partnerId) throw new TravelError('Choose the travel partner.');
+            const [p] = await db.select().from(travelPartners).where(eq(travelPartners.id, b.partnerId)).limit(1);
+            if (!p) throw new TravelError('Travel partner not found.', 404);
+            label = p.name;
+        }
+        const [row] = await db.insert(travelTripQuotes).values({
+            tripId, source: b.source, partnerId: b.source === 'partner' ? b.partnerId! : null, label, covers: b.covers ?? null,
+            amount: b.amount ?? null, status: b.status ?? (b.amount != null ? 'quoted' : 'asked'), note: b.note ?? null, createdBy: adminId,
+        }).returning();
+        return row;
+    }
+    static async updateQuote(adminId: number, tripId: number, quoteId: number, body: unknown) {
+        const b = parse(quoteInput.partial(), body);
+        const set: Record<string, unknown> = { updatedAt: new Date() };
+        for (const k of ['covers', 'amount', 'note', 'status'] as const) if (b[k] !== undefined) set[k] = b[k];
+        if (b.amount != null && !b.status) set.status = 'quoted';
+        const [row] = await db.update(travelTripQuotes).set(set as any).where(and(eq(travelTripQuotes.id, quoteId), eq(travelTripQuotes.tripId, tripId))).returning();
+        if (!row) throw new TravelError('Supplier price not found.', 404);
+        void adminId;
+        return row;
+    }
+    static async deleteQuote(tripId: number, quoteId: number) {
+        await db.update(travelTrips).set({ chosenQuoteId: null, costAmount: null }).where(and(eq(travelTrips.id, tripId), eq(travelTrips.chosenQuoteId, quoteId)));
+        const [row] = await db.delete(travelTripQuotes).where(and(eq(travelTripQuotes.id, quoteId), eq(travelTripQuotes.tripId, tripId))).returning();
+        if (!row) throw new TravelError('Supplier price not found.', 404);
+    }
+
+    // ── The advance ─────────────────────────────────────────────────────
+
+    /** A payment link for the advance on the customer's quotation (reused while it is still open). */
+    static async startAdvance(userId: number, tripId: number) {
+        const [t] = await db.select().from(travelTrips).where(and(eq(travelTrips.id, tripId), eq(travelTrips.customerUserId, userId))).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        if (t.advanceStatus === 'paid') throw new TravelError('The advance is already paid. Your trip is booked.');
+        if (t.status !== 'quoted' || t.quoteAmount == null) throw new TravelError('There is no quotation to book yet. Your travel manager will send one.');
+        const left = t.quoteValidUntil ? t.quoteValidUntil.getTime() - Date.now() : 48 * 3600_000;
+        if (left < 20 * 60_000) throw new TravelError('This price is no longer held. Ask your travel manager to renew it.');
+        const amount = t.advanceAmount ?? advanceFor(t.quoteAmount, t.advancePercent ?? DEFAULT_TRAVEL_SETTINGS.advancePercent);
+        if (amount < 1) throw new TravelError('This quotation has no advance to pay. Your travel manager will confirm it.');
+        if (t.paymentLinkId && t.paymentLinkStatus === 'created' && t.paymentLinkUrl) return { url: t.paymentLinkUrl, amount };
+        const expiresAt = new Date(Date.now() + left);
+        let link: { id: string; url: string };
+        if (mockLinks()) link = { id: `plink_test_trip_${t.id}_${Date.now().toString(36)}`, url: `https://rzp.io/i/test-${t.code}` };
+        else {
+            const { PaymentService } = await import('./payment.service');
+            const rp: any = await PaymentService.client();
+            const l = await rp.paymentLink.create({
+                amount: Math.round(amount * 100), currency: 'INR', accept_partial: false,
+                description: `UniteFix trip ${t.code}: ${t.advancePercent ?? DEFAULT_TRAVEL_SETTINGS.advancePercent}% advance (not refundable)`,
+                reference_id: `${t.code}-${Date.now().toString(36)}`,
+                customer: { name: t.contactName || 'Customer', contact: `+91${t.contactPhone}` },
+                notify: { sms: false, email: false }, reminder_enable: false,
+                expire_by: Math.floor(expiresAt.getTime() / 1000),
+                notes: { travel_trip_id: String(t.id), payment_type: 'travel_advance', trip_code: t.code },
+            });
+            link = { id: l.id, url: l.short_url };
+        }
+        await db.update(travelTrips).set({ paymentLinkId: link.id, paymentLinkUrl: link.url, paymentLinkStatus: 'created', updatedAt: new Date() }).where(eq(travelTrips.id, t.id));
+        return { url: link.url, amount };
+    }
+
+    /**
+     * The advance arrived (webhook payment_link.paid, or payment.captured as a
+     * backup; whichever comes first). The trip is booked; a second delivery is a no-op.
+     */
+    static async advancePaid(tripId: number, p: { paymentId: string; amountPaise: number; linkId?: string | null }) {
+        const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+        if (!t) return { handled: false };
+        const closed = t.status === 'cancelled';
+        const [u] = await db.update(travelTrips).set({
+            advanceStatus: 'paid', advancePaidAt: new Date(), advancePaymentId: p.paymentId, paymentLinkStatus: 'paid',
+            ...(closed ? {} : { status: 'confirmed' }), updatedAt: new Date(),
+        }).where(and(eq(travelTrips.id, tripId), sql`${travelTrips.advanceStatus} IS DISTINCT FROM 'paid'`)).returning({ id: travelTrips.id });
+        if (!u) return { handled: true, repeat: true };
+        await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_advance_paid', fromState: t.status, toState: closed ? t.status : 'confirmed', metadata: { code: t.code, paymentId: p.paymentId, amountPaise: p.amountPaise, linkId: p.linkId ?? null } });
+        if (closed) {
+            void NotificationService.sendToAdmins('Advance paid on a cancelled trip', `${t.code} was paid after it was cancelled. Call the customer: rebook or refund.`, { tripId }).catch(() => {});
+            return { handled: true, closed: true };
+        }
+        if (t.customerUserId) {
+            void NotificationService.sendToUser(t.customerUserId, 'Your trip is booked!',
+                `Trip ${t.code}: ${rupees(Math.round(p.amountPaise / 100))} advance received. ${t.managerName ?? 'Your travel manager'} will share the driver and stay details before you leave.`,
+                'travel_trip', { tripId, code: t.code, url: 'unitefix://travel' }).catch(() => {});
+        }
+        void NotificationService.sendToAdmins('Trip booked', `${t.code}: advance ${rupees(Math.round(p.amountPaise / 100))} paid. Confirm the partners.`, { tripId }).catch(() => {});
+        return { handled: true };
+    }
+
+    /** Webhook payment_link.paid for a trip advance; false when the link is not a trip's. */
+    static async linkPaid(payload: any) {
+        const link = payload?.payment_link?.entity, pay = payload?.payment?.entity;
+        const tripId = Number(link?.notes?.travel_trip_id);
+        if (!Number.isInteger(tripId) || !pay?.id) return { handled: false };
+        return this.advancePaid(tripId, { paymentId: pay.id, amountPaise: pay.amount, linkId: link?.id });
+    }
+    static async linkEnded(payload: any, status: 'expired' | 'cancelled') {
+        const id = payload?.payment_link?.entity?.id;
+        if (!id) return;
+        await db.update(travelTrips).set({ paymentLinkStatus: status }).where(and(eq(travelTrips.paymentLinkId, id), eq(travelTrips.paymentLinkStatus, 'created')));
+    }
+    private static async cancelLink(id: string) {
+        if (mockLinks() || id.startsWith('plink_test_')) return;
+        try { const { PaymentService } = await import('./payment.service'); const rp: any = await PaymentService.client(); await rp.paymentLink.cancel(id); }
+        catch (e: any) { logger.warn(`[TRAVEL] Could not cancel payment link ${id}: ${e?.message}`); }
     }
 
     static async customerName(userId: number) {

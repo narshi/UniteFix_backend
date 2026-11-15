@@ -16,7 +16,7 @@ import { users, travelTrips, travelPlaces } from '../shared/schema';
 const BASE = process.env.UI_BASE ?? 'http://localhost:3000';
 const OUT = process.env.SHOTS ?? '.';
 const stamp = Date.now().toString(36);
-let adminId = 0; const userIds: number[] = []; let tripId = 0;
+let adminId = 0; const userIds: number[] = []; let tripId = 0; let partnerId = 0;
 const api = async (method: string, p: string, body?: unknown, token?: string) => {
     const r = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => null) as any };
@@ -38,6 +38,8 @@ async function main() {
     tripId = sent.body?.data?.id; const code = sent.body?.data?.code;
     check('a trip is sent from the app', sent.status === 201 && !!code);
 
+    const partner = await api('POST', '/api/admin/travel/partners', { name: `QA UI Cabs ${stamp}`, kinds: ['cab'], baseTown: 'Kumta', phone: '9876500009' }, login.token);
+    partnerId = partner.body?.data?.id;
     const b = await chromium.launch();
     try {
         const p = await b.newPage({ viewport: { width: 1360, height: 1100 } });
@@ -58,12 +60,29 @@ async function main() {
         let mine = (await api('GET', '/api/travel/trips/mine', undefined, ct)).body.data[0];
         check('assigning shows the manager in the customer\'s app', mine.status === 'assigned' && mine.manager?.name === 'Kiran');
         const card2 = p.getByTestId(`trip-${code}`);
-        await card2.getByLabel('Quotation, whole group (₹)').fill('36500');
-        await card2.getByLabel('What the quotation covers (the customer sees this)').fill('Innova 2 days, homestay 2 rooms');
-        await card2.getByRole('button', { name: 'Save' }).click();
+        // Supplier prices: our team first, then a partner; pick the lowest; send the customer a price.
+        await card2.getByLabel('From', { exact: true }).selectOption('own');
+        await card2.getByLabel('For', { exact: true }).fill('Our Innova, 2 days');
+        await card2.getByLabel('Price (blank = ask)').fill('31000');
+        await card2.getByRole('button', { name: 'Add price' }).click();
+        await p.waitForTimeout(800);
+        await card2.getByLabel('From', { exact: true }).selectOption(String(partnerId));
+        await card2.getByRole('button', { name: 'Ask', exact: true }).click();
+        await p.waitForTimeout(800);
+        check('asking a partner gives a WhatsApp message to send them', /wa\.me\/919876500009\?text=.*UniteFix%20travel%20enquiry/.test(await card2.getByRole('link', { name: 'Ask on WhatsApp' }).getAttribute('href') ?? ''));
+        await card2.getByLabel(`Price from QA UI Cabs ${stamp}`).fill('28500');
+        await card2.getByRole('button', { name: 'Save price' }).click();
+        await p.waitForTimeout(800);
+        check('the partner\'s lower price is marked Lowest', /QA UI Cabs[\s\S]*Lowest/.test(await card2.innerText()));
+        await card2.getByRole('button', { name: 'Use this' }).last().click();
+        await p.waitForTimeout(800);
+        await card2.getByLabel('Whole group (₹)').fill('36500');
+        check('the manager sees the advance and our margin before sending', /books with 20%: ₹7,300/.test(await card2.innerText()) && /margin over QA UI Cabs[^:]*: ₹8,000/.test(await card2.innerText()));
+        await card2.getByLabel('What it covers (the customer sees this)').fill('Innova 2 days, homestay 2 rooms');
+        await card2.getByRole('button', { name: 'Send to customer' }).click();
         await p.waitForTimeout(1200);
         mine = (await api('GET', '/api/travel/trips/mine', undefined, ct)).body.data[0];
-        check('the quotation reaches the customer: Quotation sent, ₹36,500', mine.status === 'quoted' && mine.quote?.amount === 36500 && /homestay/.test(mine.quote?.note ?? ''));
+        check('the customer gets the price with a ₹7,300 advance to book', mine.status === 'quoted' && mine.quote?.amount === 36500 && mine.quote?.advanceAmount === 7300 && mine.canPay === true);
         await p.getByRole('button', { name: 'Quoted' }).click();
         await p.waitForTimeout(800);
         check('…and the trip moves to the Quoted filter', await p.getByTestId(`trip-${code}`).isVisible());
@@ -89,6 +108,7 @@ async function main() {
 main().catch(e => { console.error(e); check('no crash', false, e?.message); }).finally(async () => {
     if (tripId) await db.delete(travelTrips).where(inArray(travelTrips.id, [tripId])).catch(() => {});
     await db.execute(sql.raw(`DELETE FROM travel_places WHERE name LIKE 'QA Lookout ${stamp}'`)).catch(() => {});
+    if (partnerId) await db.execute(sql.raw(`DELETE FROM travel_partners WHERE id = ${partnerId}`)).catch(() => {});
     if (userIds.length) { await db.execute(sql.raw(`DELETE FROM notifications WHERE user_id IN (${userIds.join(',')})`)).catch(() => {}); await db.delete(users).where(inArray(users.id, userIds)).catch(() => {}); }
     await db.execute(sql.raw(`DELETE FROM audit_logs WHERE changed_by = ${adminId || 0}`)).catch(() => {});
     await db.execute(sql.raw(`DELETE FROM admin_users WHERE id = ${adminId || 0}`)).catch(() => {});

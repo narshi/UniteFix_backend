@@ -1,18 +1,19 @@
 /**
  * Travel tab. A photo header, the regions to explore (staff-managed in
  * Admin → Travel Places), "Plan a trip", and the customer's trips with where
- * each stands: waiting for a travel manager, the manager to call, the
- * quotation.
+ * each stands: the travel manager who will call, the quotation (held for a
+ * while) and booking it with the advance, which is not refundable — "Why?"
+ * explains that the driver and hosts turn other customers away for these dates.
  */
 
-import React, { useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, Alert, Linking, Share, RefreshControl, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated, ActivityIndicator, Alert, Linking, Share, RefreshControl, useWindowDimensions, Modal, AppState } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plane, MapPin, Phone, CalendarDays, Users, ChevronRight, Sparkles, Route, Headset, FileText, Share2, X } from 'lucide-react-native';
+import { Plane, MapPin, Phone, CalendarDays, Users, ChevronRight, Sparkles, Route, Headset, FileText, Share2, X, Info, Clock, BadgeCheck, Lock, Car, CalendarX } from 'lucide-react-native';
 import { useTravelCatalog, useMyTrips, travelApi, regionPhoto, TRAVEL_HEADER, type MyTrip, type TravelRegion } from '../../api/travel.api';
 import { getApiErrorMessage } from '../../api/client';
 import { brand } from '../../theme/colors';
@@ -23,6 +24,105 @@ const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
     new: { bg: '#FFF4E5', fg: '#B45309' }, assigned: { bg: '#E8F1FF', fg: '#1D4ED8' }, contacted: { bg: '#F1ECFF', fg: '#6D28D9' },
     quoted: { bg: '#E7F8F0', fg: '#047857' }, confirmed: { bg: '#E7F8F0', fg: '#047857' }, cancelled: { bg: '#F1F3F6', fg: '#687588' },
 };
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+/** "1 day 6 h", "5 h 20 min", "12 min" until a time. */
+function timeLeft(until: string | null, now: number): string | null {
+    if (!until) return null;
+    const ms = new Date(until).getTime() - now;
+    if (ms <= 0) return null;
+    const m = Math.floor(ms / 60_000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d >= 1) return `${d} day${d > 1 ? 's' : ''}${h % 24 ? ` ${h % 24} h` : ''}`;
+    if (h >= 1) return `${h} h${m % 60 ? ` ${m % 60} min` : ''}`;
+    return `${m} min`;
+}
+
+/** Why the advance is not refundable, in plain words. */
+function WhyAdvance({ trip, onClose }: { trip: MyTrip; onClose: () => void }) {
+    const { t } = useTranslation();
+    const q = trip.quote!;
+    const rows: Array<[any, string]> = [
+        [Car, t('travel.why1', 'Your driver, hotel and guide keep these dates only for you, and turn away other customers for them.')],
+        [CalendarX, t('travel.why2', 'If the trip is cancelled, they lose that day\'s work and can rarely fill it at short notice.')],
+        [Lock, t('travel.why3', 'So the {{pct}}% advance ({{amount}}) is not refundable. It is part of your trip price: you pay the balance of {{balance}} during the trip.', { pct: q.advancePercent, amount: inr(q.advanceAmount), balance: inr(q.balance) })],
+        [Clock, t('travel.why4', 'Driver and hotel prices change as dates fill up, so your price is held only for a short time.')],
+    ];
+    return (
+        <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+            <Pressable style={st.sheetShade} onPress={onClose} accessibilityLabel={t('common.close', 'Close')} />
+            <View style={st.sheet} accessibilityViewIsModal>
+                <View style={st.sheetGrip} />
+                <Text style={st.sheetTitle}>{t('travel.why_title', 'Why an advance?')}</Text>
+                {rows.map(([Icon, text], i) => (
+                    <View key={i} style={st.whyRow}><View style={st.whyIcon}><Icon size={16} color={brand.navy} /></View><Text style={st.whyText}>{text}</Text></View>
+                ))}
+                <Pressable onPress={onClose} style={[st.payBtn, { marginTop: spacing.md }]} accessibilityRole="button"><Text style={st.payText}>{t('travel.got_it', 'Got it')}</Text></Pressable>
+            </View>
+        </Modal>
+    );
+}
+
+/** The quotation: price, what it covers, how long it is held, and Book now. */
+function QuoteBox({ trip, onPaid }: { trip: MyTrip; onPaid: () => void }) {
+    const { t } = useTranslation();
+    const [now, setNow] = useState(Date.now());
+    const [why, setWhy] = useState(false);
+    const [busy, setBusy] = useState(false);
+    useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(i); }, []);
+    const q = trip.quote!;
+    const left = timeLeft(q.validUntil, now);
+    const paid = trip.advance.status === 'paid';
+    const urgent = !!q.validUntil && new Date(q.validUntil).getTime() - now < 6 * 3600_000;
+    const book = async () => {
+        setBusy(true);
+        try { const r = await travelApi.payAdvance(trip.id); await Linking.openURL(r.url); onPaid(); }
+        catch (e) { Alert.alert(t('travel.not_booked', 'Could not open the payment'), getApiErrorMessage(e)); }
+        finally { setBusy(false); }
+    };
+    if (paid) {
+        return (
+            <View style={st.booked}>
+                <BadgeCheck size={20} color="#047857" />
+                <View style={{ flex: 1 }}>
+                    <Text style={st.bookedTitle}>{t('travel.booked', 'Booked!')} {inr(q.advanceAmount)} {t('travel.advance_paid', 'advance paid')}</Text>
+                    <Text style={st.bookedText}>{t('travel.balance_on_trip', 'Balance {{balance}} during the trip. {{name}} will share the driver and stay details before you leave.', { balance: inr(q.balance), name: trip.manager?.name ?? t('travel.your_manager', 'Your travel manager') })}</Text>
+                </View>
+            </View>
+        );
+    }
+    return (
+        <View style={st.quote}>
+            <View style={st.quoteTop}>
+                <FileText size={16} color="#047857" />
+                <Text style={st.quoteAmount}>{inr(q.amount)} <Text style={st.quoteFor}>{t('travel.for_group', 'for your group')}</Text></Text>
+            </View>
+            {q.note ? <Text style={st.quoteNote}>{q.note}</Text> : null}
+            {q.expired || !left ? (
+                <View style={st.expired}><Clock size={14} color="#92400E" /><Text style={st.expiredText}>{t('travel.price_expired', 'This price is no longer held. Call {{name}} to renew it.', { name: trip.manager?.name ?? t('travel.your_manager', 'your travel manager') })}</Text></View>
+            ) : (
+                <>
+                    <View style={[st.hold, urgent && st.holdUrgent]}>
+                        <Clock size={14} color={urgent ? '#B91C1C' : '#92400E'} />
+                        <Text style={[st.holdText, urgent && { color: '#B91C1C' }]}>{t('travel.price_held', 'Price held for {{left}}', { left })}</Text>
+                    </View>
+                    <Text style={st.fomo}>{t('travel.fomo', 'Your cab and stay are reserved only once the advance is paid. Until then, other travellers can take these dates.')}</Text>
+                    {trip.canPay && (
+                        <Pressable onPress={book} disabled={busy} style={({ pressed }) => [st.payBtn, (pressed || busy) && { opacity: 0.85 }]} accessibilityRole="button">
+                            {busy ? <ActivityIndicator color="#fff" /> : <Text style={st.payText}>{t('travel.book_now', 'Book now · pay {{amount}}', { amount: inr(q.advanceAmount) })}</Text>}
+                        </Pressable>
+                    )}
+                    <View style={st.payMeta}>
+                        <Text style={st.payMetaText}>{t('travel.advance_line', '{{pct}}% advance, not refundable · balance {{balance}} on the trip', { pct: q.advancePercent, balance: inr(q.balance) })}</Text>
+                        <Pressable onPress={() => setWhy(true)} hitSlop={10} style={st.whyBtn} accessibilityRole="button" accessibilityLabel={t('travel.why_title', 'Why an advance?')}>
+                            <Info size={14} color={brand.navy} /><Text style={st.whyLink}>{t('travel.why', 'Why?')}</Text>
+                        </Pressable>
+                    </View>
+                </>
+            )}
+            {why && <WhyAdvance trip={trip} onClose={() => setWhy(false)} />}
+        </View>
+    );
+}
+
 const niceDate = (d: string | null) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) : '');
 
 function RegionCard({ r, width, onPress }: { r: TravelRegion; width: number; onPress: () => void }) {
@@ -40,7 +140,7 @@ function RegionCard({ r, width, onPress }: { r: TravelRegion; width: number; onP
     );
 }
 
-function TripCard({ trip, onCancel }: { trip: MyTrip; onCancel: () => void }) {
+function TripCard({ trip, onCancel, onPaid }: { trip: MyTrip; onCancel: () => void; onPaid: () => void }) {
     const { t } = useTranslation();
     const tone = STATUS_TONE[trip.status] ?? STATUS_TONE.new;
     const people = trip.adults + trip.children;
@@ -62,7 +162,7 @@ function TripCard({ trip, onCancel }: { trip: MyTrip; onCancel: () => void }) {
             </View>
             {trip.places.length > 0 && <Text style={st.places} numberOfLines={2}>{trip.places.join('  ·  ')}</Text>}
 
-            {trip.status === 'new' && (
+            {trip.status === 'new' && !trip.manager && (
                 <View style={st.note}><Headset size={16} color="#B45309" /><Text style={st.noteText}>{t('travel.waiting_manager', 'A travel manager will be assigned and will call you soon.')}</Text></View>
             )}
             {trip.manager && trip.status !== 'cancelled' && (
@@ -79,15 +179,10 @@ function TripCard({ trip, onCancel }: { trip: MyTrip; onCancel: () => void }) {
                     )}
                 </View>
             )}
-            {trip.quote && (
-                <View style={st.quote}>
-                    <FileText size={16} color="#047857" />
-                    <View style={{ flex: 1 }}>
-                        <Text style={st.quoteAmount}>₹{trip.quote.amount.toLocaleString('en-IN')} <Text style={st.quoteFor}>{t('travel.for_group', 'for your group')}</Text></Text>
-                        {trip.quote.note ? <Text style={st.quoteNote}>{trip.quote.note}</Text> : null}
-                    </View>
-                </View>
+            {trip.manager && !trip.quote && trip.status !== 'cancelled' && (
+                <View style={st.note}><Headset size={16} color="#B45309" /><Text style={st.noteText}>{t('travel.manager_will_call', '{{name}} is checking cabs and stays for your dates and will call you with a price.', { name: trip.manager.name })}</Text></View>
             )}
+            {trip.quote && trip.status !== 'cancelled' && <QuoteBox trip={trip} onPaid={onPaid} />}
             <View style={st.tripActions}>
                 <Pressable onPress={share} style={st.linkBtn} accessibilityRole="button"><Share2 size={15} color={brand.navy} /><Text style={st.linkText}>{t('travel.share_group', 'Share with your group')}</Text></Pressable>
                 {trip.canCancel && <Pressable onPress={onCancel} style={st.linkBtn} accessibilityRole="button"><X size={15} color={brand.textSecondary} /><Text style={[st.linkText, { color: brand.textSecondary }]}>{t('travel.cancel_trip', 'Cancel')}</Text></Pressable>}
@@ -108,9 +203,15 @@ export function TravelScreen({ navigation }: any) {
     const HERO_H = Math.min(360, Math.round(width * 0.82));
     const barOpacity = scrollY.interpolate({ inputRange: [HERO_H - 140, HERO_H - 80], outputRange: [0, 1], extrapolate: 'clamp' });
     useFocusEffect(useCallback(() => { trips.refetch(); }, [])); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', st => { if (st === 'active') trips.refetch(); });
+        return () => sub.remove();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const plan = (regionId?: number) => navigation.navigate('TripPlanner', regionId ? { regionId } : {});
-    const cancel = (trip: MyTrip) => Alert.alert(t('travel.cancel_title', 'Cancel trip {{code}}?', { code: trip.code }), t('travel.cancel_body', 'Your travel manager will stop working on it.'), [
+    const cancel = (trip: MyTrip) => Alert.alert(t('travel.cancel_title', 'Cancel trip {{code}}?', { code: trip.code }), trip.cancelKeepsAdvance && trip.quote
+        ? t('travel.cancel_body_paid', 'Your {{amount}} advance is not refunded: your driver and hosts kept these dates for you.', { amount: inr(trip.quote.advanceAmount) })
+        : t('travel.cancel_body', 'Your travel manager will stop working on it.'), [
         { text: t('common.keep', 'Keep it'), style: 'cancel' },
         { text: t('travel.cancel_trip', 'Cancel'), style: 'destructive', onPress: async () => {
             try { await travelApi.cancel(trip.id); qc.invalidateQueries({ queryKey: ['myTrips'] }); } catch (e) { Alert.alert(t('travel.not_cancelled', 'Not cancelled'), getApiErrorMessage(e)); }
@@ -175,7 +276,7 @@ export function TravelScreen({ navigation }: any) {
                             <Text style={st.emptyTitle}>{t('travel.no_trips', 'No trips yet')}</Text>
                             <Text style={st.muted}>{t('travel.no_trips_body', 'Plans you send for a quotation show here, with your travel manager and the price.')}</Text>
                         </View>
-                    ) : myTrips.map(trip => <TripCard key={trip.id} trip={trip} onCancel={() => cancel(trip)} />)}
+                    ) : myTrips.map(trip => <TripCard key={trip.id} trip={trip} onCancel={() => cancel(trip)} onPaid={() => trips.refetch()} />)}
                 </View>
             </Animated.ScrollView>
 
@@ -232,7 +333,30 @@ const st = StyleSheet.create({
     managerName: { fontSize: 15, fontWeight: '700', color: brand.text },
     callBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#047857', borderRadius: radii.full, paddingHorizontal: 14, paddingVertical: 9 },
     callText: { color: '#fff', fontWeight: '700' },
-    quote: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: '#ECFBF3', borderRadius: radii.lg, padding: 10 },
+    quote: { gap: 8, backgroundColor: '#ECFBF3', borderRadius: radii.lg, padding: 12 },
+    quoteTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    hold: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: '#FFF4E5', borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4 },
+    holdUrgent: { backgroundColor: '#FEE2E2' },
+    holdText: { fontSize: 12, fontWeight: '700', color: '#92400E' },
+    fomo: { fontSize: 12, color: '#065F46', lineHeight: 17 },
+    payBtn: { alignItems: 'center', justifyContent: 'center', backgroundColor: brand.orange, borderRadius: radii.full, paddingVertical: 13 },
+    payText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+    payMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    payMetaText: { flex: 1, fontSize: 12, color: brand.textSecondary, lineHeight: 17 },
+    whyBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#fff', borderRadius: radii.full, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: brand.cardBorder },
+    whyLink: { fontSize: 12, fontWeight: '700', color: brand.navy },
+    expired: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FFF4E5', borderRadius: radii.md, padding: 8 },
+    expiredText: { flex: 1, fontSize: 13, color: '#92400E', lineHeight: 18 },
+    booked: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: '#ECFBF3', borderRadius: radii.lg, padding: 12, borderWidth: 1, borderColor: '#A7F3D0' },
+    bookedTitle: { fontSize: 15, fontWeight: '800', color: '#065F46' },
+    bookedText: { fontSize: 13, color: '#065F46', marginTop: 2, lineHeight: 18 },
+    sheetShade: { flex: 1, backgroundColor: 'rgba(6,26,53,0.45)' },
+    sheet: { backgroundColor: '#fff', borderTopLeftRadius: radii['2xl'], borderTopRightRadius: radii['2xl'], padding: spacing.xl, paddingBottom: spacing['2xl'], gap: spacing.md },
+    sheetGrip: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: brand.cardBorder, marginBottom: 4 },
+    sheetTitle: { fontSize: 19, fontWeight: '800', color: brand.text },
+    whyRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+    whyIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#EAF0F8', alignItems: 'center', justifyContent: 'center' },
+    whyText: { flex: 1, fontSize: 14, color: brand.text, lineHeight: 20 },
     quoteAmount: { fontSize: 18, fontWeight: '800', color: '#065F46' },
     quoteFor: { fontSize: 13, fontWeight: '500', color: '#047857' },
     quoteNote: { fontSize: 13, color: '#065F46', marginTop: 2, lineHeight: 18 },

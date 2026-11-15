@@ -1,7 +1,10 @@
 /**
  * Trip requests from the app's travel planner (server/services/travel.service.ts).
- * Staff assign a travel manager, who calls the customer and sends the
- * quotation by hand; the amount entered here shows in the customer's app.
+ *
+ * The default travel manager takes every new trip. For each trip the manager
+ * collects supplier prices — our own team first, then travel partners — picks
+ * one, and sends the customer a price that is held for a while. The customer
+ * books by paying the advance (not refundable) in the app.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -12,22 +15,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Search, Phone, MessageCircle, Users, MapPin, CalendarDays, BedDouble, Car, Compass, ChevronDown, ChevronUp, Route } from "lucide-react";
-import { TRIP_STATUS_LABEL, type TripPlan, type TripStatus } from "@shared/travel";
+import { Search, Phone, MessageCircle, Users, MapPin, CalendarDays, BedDouble, Car, Compass, ChevronDown, ChevronUp, Route, Settings2, Trash2, Check, Clock, BadgeCheck } from "lucide-react";
+import { TRIP_STATUS_LABEL, TRAVEL_PARTNER_KIND_LABEL, advanceFor, type TripPlan, type TripStatus, type TravelSettings, type TravelPartnerKind } from "@shared/travel";
 
+type Quote = { id: number; source: "own" | "partner"; partnerId: number | null; label: string; covers: string | null; amount: number | null; status: "asked" | "quoted" | "declined"; note: string | null };
 type Trip = {
   id: number; code: string; contactName: string; contactPhone: string; adults: number; children: number; people: number; vehicle: string;
   tripType: "round_trip" | "one_way"; pickupText: string | null; dropText: string | null; startDate: string | null; days: number | null; pace: string;
-  stay: string; rooms: number | null; needsCab: boolean; needsGuide: boolean; budgetPerPerson: number | null; notes: string | null;
+  stay: string; rooms: number | null; needsCab: boolean; needsGuide: boolean; budgetPerPerson: number | null; notes: string | null; regionIds: number[];
   status: TripStatus; managerAdminId: number | null; managerName: string | null; managerPhone: string | null; assignedAt: string | null;
-  quoteAmount: number | null; quoteNote: string | null; quotedAt: string | null; staffNote: string | null; createdAt: string;
-  plan: TripPlan | null; members: Array<{ id: number; name: string; phone: string | null; status: string }>;
+  quoteAmount: number | null; quoteNote: string | null; quotedAt: string | null; quoteValidUntil: string | null; staffNote: string | null; createdAt: string;
+  chosenQuoteId: number | null; costAmount: number | null; advancePercent: number | null; advanceAmount: number | null; advanceStatus: "none" | "due" | "paid"; advancePaidAt: string | null;
+  plan: TripPlan | null; members: Array<{ id: number; name: string; phone: string | null; status: string }>; quotes: Quote[];
 };
 type Manager = { id: number; name: string; email: string; role: string };
+type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean };
 
 const FILTERS: Array<{ key: string; label: string }> = [
   { key: "open", label: "Open" }, { key: "new", label: "New" }, { key: "assigned", label: "Assigned" }, { key: "contacted", label: "In discussion" },
-  { key: "quoted", label: "Quoted" }, { key: "confirmed", label: "Confirmed" }, { key: "cancelled", label: "Cancelled" }, { key: "", label: "All" },
+  { key: "quoted", label: "Quoted" }, { key: "confirmed", label: "Booked" }, { key: "cancelled", label: "Cancelled" }, { key: "", label: "All" },
 ];
 const STAY: Record<string, string> = { none: "No stay", budget: "Budget stay", standard: "Standard hotel", premium: "Premium hotel", homestay: "Homestay" };
 const TONE: Record<TripStatus, string> = {
@@ -38,9 +44,12 @@ const TONE: Record<TripStatus, string> = {
 const field = "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white";
 const select = "h-10 w-full rounded-md border border-[rgba(255,255,255,0.08)] bg-[hsl(222,47%,11%)] px-3 text-sm text-white";
 const panel = "rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)]";
+const box = "space-y-2 rounded-xl border border-white/5 p-3";
 const rupees = (n: number | null | undefined) => (n == null ? "—" : `₹${Number(n).toLocaleString("en-IN")}`);
 const hours = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`);
 const dateText = (d: string | null) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : "—");
+const when = (d: string | null) => (d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
+const STAFF_ROLE = (r: string) => r.replace(/_/g, " ");
 
 function Itinerary({ plan }: { plan: TripPlan }) {
   return (
@@ -49,16 +58,14 @@ function Itinerary({ plan }: { plan: TripPlan }) {
         <li key={d.day} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
           <div className="mb-1.5 flex items-center justify-between text-xs text-slate-400">
             <span className="font-semibold text-slate-200">Day {d.day}</span>
-            <span>{d.km} km · {hours(d.minutes)}{d.stayNear ? ` · stay near ${d.stayNear}` : ""}</span>
+            <span>{d.km} km · {hours(d.minutes)}{d.stayNear ? ` · night near ${d.stayNear}` : ""}</span>
           </div>
           <ul className="space-y-1 text-sm">
             {d.stops.map((s, i) => (
               <li key={i} className="flex items-baseline gap-2">
                 <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${s.type === "place" ? "bg-sky-400" : "bg-slate-500"}`} />
                 <span className="text-slate-200">{s.name}</span>
-                <span className="text-xs text-slate-500">
-                  {s.driveKm ? `${s.driveKm} km drive` : ""}{s.visitMinutes ? `${s.driveKm ? " · " : ""}${hours(s.visitMinutes)} there` : ""}
-                </span>
+                <span className="text-xs text-slate-500">{s.driveKm ? `${s.driveKm} km drive` : ""}{s.visitMinutes ? `${s.driveKm ? " · " : ""}${hours(s.visitMinutes)} there` : ""}</span>
               </li>
             ))}
           </ul>
@@ -68,52 +75,161 @@ function Itinerary({ plan }: { plan: TripPlan }) {
   );
 }
 
-function TripCard({ t, managers, onDone }: { t: Trip; managers: Manager[]; onDone: () => void }) {
+/** The message a manager sends a partner to ask for their price (no customer contact details). */
+function askText(t: Trip, p: Partner) {
+  const places = t.plan ? t.plan.days.flatMap((d) => d.stops.filter((s) => s.type === "place").map((s) => s.name)).join(", ") : "";
+  const needs = [t.needsCab ? `cab (${t.vehicle})` : null, t.stay !== "none" ? `${STAY[t.stay] ?? t.stay}${t.rooms ? `, ${t.rooms} room${t.rooms === 1 ? "" : "s"}` : ""}${t.plan?.nights ? `, ${t.plan.nights} night${t.plan.nights === 1 ? "" : "s"}` : ""}` : null, t.needsGuide ? "guide" : null].filter(Boolean).join("; ");
+  return `Hello ${p.name}, UniteFix travel enquiry ${t.code}.\n${t.adults + t.children} people, from ${dateText(t.startDate)} for ${t.days ?? "?"} day${t.days === 1 ? "" : "s"}.\nFrom ${t.pickupText ?? "?"}${t.tripType === "round_trip" ? " (round trip)" : ` to ${t.dropText ?? "?"}`}.\nPlaces: ${places}.\nWe need: ${needs || "—"}.\nPlease send your best price.`;
+}
+
+function SupplierPrices({ t, partners, onDone }: { t: Trip; partners: Partner[]; onDone: () => void }) {
   const { toast } = useToast();
-  // Open trips start unfolded; the card keeps its state while staff work on it.
-  const [open, setOpen] = useState(["new", "assigned", "contacted"].includes(t.status));
+  const [source, setSource] = useState<string>("own");
+  const [covers, setCovers] = useState("");
+  const [amount, setAmount] = useState("");
+  const [edit, setEdit] = useState<Record<number, string>>({});
+  const err = (title: string) => (e: unknown) => toast({ title, description: apiErrorMessage(e), variant: "destructive" });
+  const add = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/quotes`, source === "own"
+      ? { source: "own", covers: covers || null, amount: amount ? Number(amount) : null }
+      : { source: "partner", partnerId: Number(source), covers: covers || null, amount: amount ? Number(amount) : null }),
+    onSuccess: () => { setCovers(""); setAmount(""); onDone(); }, onError: err("Not added"),
+  });
+  const save = useMutation({ mutationFn: async (v: { id: number; body: Record<string, unknown> }) => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}/quotes/${v.id}`, v.body), onSuccess: () => onDone(), onError: err("Not saved") });
+  const remove = useMutation({ mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/travel/trips/${t.id}/quotes/${id}`), onSuccess: () => onDone(), onError: err("Not removed") });
+  const choose = useMutation({ mutationFn: async (id: number | null) => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}`, { chosenQuoteId: id }), onSuccess: () => onDone(), onError: err("Not saved") });
+
+  const priced = t.quotes.filter((q) => q.status === "quoted" && q.amount != null);
+  const lowest = priced.length ? Math.min(...priced.map((q) => q.amount!)) : null;
+  // Partners for this trip's regions first, then the rest.
+  const active = partners.filter((p) => p.isActive);
+  const near = active.filter((p) => p.regionIds.some((r) => t.regionIds.includes(r)));
+  const others = active.filter((p) => !near.includes(p));
+  const byId = new Map(partners.map((p) => [p.id, p]));
+  const paid = t.advanceStatus === "paid";
+
+  return (
+    <section className={box}>
+      <p className="text-sm font-semibold text-white">2. Supplier prices</p>
+      <p className="text-xs text-slate-400">Check our own team first, then ask travel partners. The lowest price is marked.</p>
+      {t.quotes.length > 0 && (
+        <ul className="space-y-2">
+          {t.quotes.map((q) => {
+            const p = q.partnerId ? byId.get(q.partnerId) : null;
+            const isLow = q.status === "quoted" && q.amount != null && q.amount === lowest;
+            const chosen = t.chosenQuoteId === q.id;
+            return (
+              <li key={q.id} className={`rounded-lg border p-2.5 ${chosen ? "border-emerald-500/40 bg-emerald-500/5" : "border-white/5"}`} data-testid={`quote-${q.id}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-white">{q.label}</span>
+                  {q.source === "own" && <Badge className="bg-sky-500/20 text-sky-200 hover:bg-sky-500/20">Our team</Badge>}
+                  {isLow && <Badge className="bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/20">Lowest</Badge>}
+                  {chosen && <Badge className="bg-emerald-600 text-white hover:bg-emerald-600"><Check className="mr-1 h-3 w-3" />Chosen</Badge>}
+                  <span className="ml-auto text-sm font-semibold text-white">{q.status === "declined" ? <span className="text-slate-500">Declined</span> : q.amount != null ? rupees(q.amount) : <span className="text-amber-300">Waiting</span>}</span>
+                </div>
+                {q.covers && <p className="mt-0.5 text-xs text-slate-400">{q.covers}</p>}
+                {!paid && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {q.status !== "quoted" && (
+                      <>
+                        <Input aria-label={`Price from ${q.label}`} className={`${field} h-8 w-32`} inputMode="numeric" placeholder="₹ price" value={edit[q.id] ?? ""} onChange={(e) => setEdit({ ...edit, [q.id]: e.target.value.replace(/\D/g, "") })} />
+                        <Button size="sm" variant="outline" className="h-8" disabled={!edit[q.id]} onClick={() => save.mutate({ id: q.id, body: { amount: Number(edit[q.id]) } })}>Save price</Button>
+                        {q.status === "asked" && <Button size="sm" variant="ghost" className="h-8 text-slate-400" onClick={() => save.mutate({ id: q.id, body: { status: "declined" } })}>Declined</Button>}
+                      </>
+                    )}
+                    {q.status === "quoted" && !chosen && <Button size="sm" variant="outline" className="h-8" onClick={() => choose.mutate(q.id)}>Use this</Button>}
+                    {p?.phone && (
+                      <a className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-500/30 px-2.5 text-xs text-emerald-300 hover:bg-emerald-500/10" target="_blank" rel="noreferrer"
+                        href={`https://wa.me/91${p.phone}?text=${encodeURIComponent(askText(t, p))}`}><MessageCircle className="h-3.5 w-3.5" /> Ask on WhatsApp</a>
+                    )}
+                    {p?.phone && <a className="inline-flex h-8 items-center gap-1 rounded-md border border-white/10 px-2.5 text-xs text-slate-200 hover:bg-white/5" href={`tel:+91${p.phone}`}><Phone className="h-3.5 w-3.5" /> {p.phone}</a>}
+                    <Button size="sm" variant="ghost" className="h-8 px-2 text-slate-500" title="Remove" onClick={() => remove.mutate(q.id)}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!paid && (
+        <div className="grid gap-2 sm:grid-cols-[1.3fr_1.3fr_0.8fr_auto] sm:items-end">
+          <div>
+            <Label htmlFor={`src-${t.id}`} className="text-xs text-slate-400">From</Label>
+            <select id={`src-${t.id}`} className={select} value={source} onChange={(e) => setSource(e.target.value)}>
+              <option value="own">Our team (UniteFix experts)</option>
+              {near.length > 0 && <optgroup label="Serve these places">{near.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.kinds.map((k) => TRAVEL_PARTNER_KIND_LABEL[k] ?? k).join(", ")}</option>)}</optgroup>}
+              {others.length > 0 && <optgroup label="Other partners">{others.map((p) => <option key={p.id} value={p.id}>{p.name}{p.baseTown ? ` (${p.baseTown})` : ""}</option>)}</optgroup>}
+            </select>
+          </div>
+          <div><Label htmlFor={`cov-${t.id}`} className="text-xs text-slate-400">For</Label><Input id={`cov-${t.id}`} className={field} value={covers} onChange={(e) => setCovers(e.target.value)} placeholder="Innova 3 days + 2 rooms" /></div>
+          <div><Label htmlFor={`amt-${t.id}`} className="text-xs text-slate-400">Price (blank = ask)</Label><Input id={`amt-${t.id}`} className={field} value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="₹" /></div>
+          <Button size="sm" className="h-10" onClick={() => add.mutate()} disabled={add.isPending}>{amount ? "Add price" : "Ask"}</Button>
+        </div>
+      )}
+      {partners.length === 0 && <p className="text-xs text-slate-500">No travel partners yet. Add them in Travel → Travel Partners.</p>}
+    </section>
+  );
+}
+
+function TripCard({ t, managers, partners, settings, onDone }: { t: Trip; managers: Manager[]; partners: Partner[]; settings: TravelSettings | undefined; onDone: () => void }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(["new", "assigned", "contacted", "quoted"].includes(t.status));
   const [mgr, setMgr] = useState<string>(t.managerAdminId ? String(t.managerAdminId) : "");
   const [mgrName, setMgrName] = useState(t.managerName ?? "");
   const [mgrPhone, setMgrPhone] = useState(t.managerPhone ?? "");
   const [status, setStatus] = useState<TripStatus>(t.status);
-  const [quote, setQuote] = useState(t.quoteAmount != null ? String(t.quoteAmount) : "");
+  const chosen = t.quotes.find((q) => q.id === t.chosenQuoteId) ?? null;
+  const [price, setPrice] = useState(t.quoteAmount != null ? String(t.quoteAmount) : "");
   const [quoteNote, setQuoteNote] = useState(t.quoteNote ?? "");
+  const [holdHours, setHoldHours] = useState(String(settings?.quoteValidHours ?? 48));
   const [staffNote, setStaffNote] = useState(t.staffNote ?? "");
-  // The server moves the status on (assigned, quoted); follow it unless staff pick one.
   useEffect(() => { setStatus(t.status); }, [t.status]);
+  // Picking a supplier fills in the customer price and what it covers, to adjust.
+  useEffect(() => { if (chosen && t.quoteAmount == null) { setPrice(chosen.amount != null ? String(chosen.amount) : ""); if (!quoteNote && chosen.covers) setQuoteNote(chosen.covers); } }, [chosen?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const err = (title: string) => (e: unknown) => toast({ title, description: apiErrorMessage(e), variant: "destructive" });
   const assign = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/assign`, { managerAdminId: mgr ? Number(mgr) : null, managerName: mgrName, managerPhone: mgrPhone }),
-    onSuccess: (r: any) => { toast({ title: "Assigned", description: r?.message }); onDone(); },
-    onError: (e) => toast({ title: "Not assigned", description: apiErrorMessage(e), variant: "destructive" }),
+    onSuccess: (r: any) => { toast({ title: "Assigned", description: r?.message }); onDone(); }, onError: err("Not assigned"),
+  });
+  const sendQuote = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}`, { quoteAmount: Number(price), quoteNote: quoteNote.trim() || null, validHours: Number(holdHours) || undefined }),
+    onSuccess: (r: any) => { toast({ title: r?.message ?? "Sent" }); onDone(); }, onError: err("Not sent"),
+  });
+  const hold = useMutation({
+    mutationFn: async () => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}`, { validHours: Number(holdHours) || 24 }),
+    onSuccess: () => { toast({ title: "Price held again", description: "The customer can book it now." }); onDone(); }, onError: err("Not saved"),
   });
   const save = useMutation({
-    mutationFn: async () => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}`, {
-      status: status !== t.status ? status : undefined, quoteAmount: quote.trim() === "" ? null : Number(quote), quoteNote: quoteNote.trim() || null, staffNote: staffNote.trim() || null,
-    }),
-    onSuccess: () => { toast({ title: "Saved" }); onDone(); },
-    onError: (e) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" }),
+    mutationFn: async () => apiRequest("PATCH", `/api/admin/travel/trips/${t.id}`, { status: status !== t.status ? status : undefined, staffNote: staffNote.trim() || null }),
+    onSuccess: () => { toast({ title: "Saved" }); onDone(); }, onError: err("Not saved"),
   });
 
   const people = `${t.adults} adult${t.adults === 1 ? "" : "s"}${t.children ? `, ${t.children} child${t.children === 1 ? "" : "ren"}` : ""}`;
   const route = t.tripType === "round_trip" ? `${t.pickupText ?? "?"} ⇄ round trip` : `${t.pickupText ?? "?"} → ${t.dropText ?? "?"}`;
-  const wa = `https://wa.me/91${t.contactPhone.slice(-10)}?text=${encodeURIComponent(`Hello ${t.contactName}, this is your UniteFix travel manager about trip ${t.code}.`)}`;
+  const wa = `https://wa.me/91${t.contactPhone.slice(-10)}?text=${encodeURIComponent(`Hello ${t.contactName}, this is ${t.managerName ?? "your UniteFix travel manager"} about your trip ${t.code}.`)}`;
+  const paid = t.advanceStatus === "paid";
+  const expired = !!t.quoteValidUntil && new Date(t.quoteValidUntil).getTime() < Date.now() && !paid;
+  const priceN = Number(price) || 0;
+  const pct = settings?.advancePercent ?? 20;
+  const margin = chosen?.amount != null && priceN ? priceN - chosen.amount : null;
+  const closed = t.status === "cancelled";
 
   return (
     <li className={panel} data-testid={`trip-${t.code}`}>
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 p-4 text-left">
         <span className="font-mono text-sm text-sky-300">{t.code}</span>
-        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE[t.status]}`}>{TRIP_STATUS_LABEL[t.status]}</span>
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE[t.status]}`}>{t.status === "confirmed" ? "Booked" : TRIP_STATUS_LABEL[t.status]}</span>
         <span className="font-semibold text-white">{t.contactName}</span>
         <span className="text-sm text-slate-400">{people} · {route}</span>
         <span className="text-sm text-slate-400">{dateText(t.startDate)} · {t.days ?? "?"} day{t.days === 1 ? "" : "s"}</span>
         {t.managerName && <span className="text-xs text-slate-400">Manager: {t.managerName}</span>}
-        {t.quoteAmount != null && <span className="text-sm font-semibold text-emerald-300">{rupees(t.quoteAmount)}</span>}
+        {t.quoteAmount != null && <span className="text-sm font-semibold text-emerald-300">{rupees(t.quoteAmount)}{paid ? " · advance paid" : expired ? " · price expired" : ""}</span>}
         <span className="ml-auto text-slate-500">{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
       </button>
       {open && (
-        <div className="grid gap-5 border-t border-white/5 p-4 lg:grid-cols-[1.2fr_1fr]">
-          <div className="space-y-4 min-w-0">
+        <div className="grid gap-5 border-t border-white/5 p-4 lg:grid-cols-[1fr_1.15fr]">
+          <div className="min-w-0 space-y-4">
             <div className="flex flex-wrap gap-2">
               <a href={`tel:+91${t.contactPhone.slice(-10)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/5"><Phone className="h-4 w-4" /> {t.contactPhone}</a>
               <a href={wa} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-500/10"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
@@ -142,44 +258,120 @@ function TripCard({ t, managers, onDone }: { t: Trip; managers: Manager[]; onDon
             )}
           </div>
 
-          <div className="space-y-5 min-w-0">
-            <section className="space-y-2 rounded-xl border border-white/5 p-3">
+          <div className="min-w-0 space-y-4">
+            <section className={box}>
               <p className="text-sm font-semibold text-white">1. Travel manager</p>
-              <Label htmlFor={`mgr-${t.id}`} className="text-xs text-slate-400">Staff member</Label>
-              <select id={`mgr-${t.id}`} className={select} value={mgr} onChange={(e) => { setMgr(e.target.value); const m = managers.find((x) => String(x.id) === e.target.value); if (m && !mgrName) setMgrName(m.name); }}>
+              <select aria-label="Staff member" className={select} value={mgr} onChange={(e) => { setMgr(e.target.value); const m = managers.find((x) => String(x.id) === e.target.value); if (m) setMgrName(m.name); }}>
                 <option value="">Someone outside the admin</option>
-                {managers.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.role.replace(/_/g, " ")})</option>)}
+                {managers.map((m) => <option key={m.id} value={m.id}>{m.name} ({STAFF_ROLE(m.role)})</option>)}
               </select>
               <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor={`mgrn-${t.id}`} className="text-xs text-slate-400">Name the customer sees</Label><Input id={`mgrn-${t.id}`} className={field} value={mgrName} onChange={(e) => setMgrName(e.target.value)} placeholder="Kiran" /></div>
                 <div><Label htmlFor={`mgrp-${t.id}`} className="text-xs text-slate-400">Their phone</Label><Input id={`mgrp-${t.id}`} className={field} value={mgrPhone} onChange={(e) => setMgrPhone(e.target.value)} placeholder="98450 12345" inputMode="tel" /></div>
               </div>
-              <Button size="sm" onClick={() => assign.mutate()} disabled={assign.isPending || mgrName.trim().length < 2 || mgrPhone.replace(/\D/g, "").length < 10 || t.status === "cancelled" || t.status === "confirmed"}>
+              <Button size="sm" variant={t.managerName ? "outline" : "default"} onClick={() => assign.mutate()} disabled={assign.isPending || mgrName.trim().length < 2 || mgrPhone.replace(/\D/g, "").length < 10 || closed || paid}>
                 {t.managerName ? "Change manager" : "Assign and tell the customer"}
               </Button>
             </section>
 
-            <section className="space-y-2 rounded-xl border border-white/5 p-3">
-              <p className="text-sm font-semibold text-white">2. Quotation and status</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label htmlFor={`st-${t.id}`} className="text-xs text-slate-400">Status</Label>
-                  <select id={`st-${t.id}`} className={select} value={status} onChange={(e) => setStatus(e.target.value as TripStatus)}>
-                    {(Object.keys(TRIP_STATUS_LABEL) as TripStatus[]).map((s) => <option key={s} value={s}>{TRIP_STATUS_LABEL[s]}</option>)}
-                  </select>
+            <SupplierPrices t={t} partners={partners} onDone={onDone} />
+
+            <section className={box}>
+              <p className="text-sm font-semibold text-white">3. Price for the customer</p>
+              {paid ? (
+                <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>Booked: {rupees(t.advanceAmount)} advance paid {when(t.advancePaidAt)}. Balance {rupees((t.quoteAmount ?? 0) - (t.advanceAmount ?? 0))} on the trip.{t.costAmount != null ? ` Supplier cost ${rupees(t.costAmount)}.` : ""}</div>
                 </div>
-                <div><Label htmlFor={`q-${t.id}`} className="text-xs text-slate-400">Quotation, whole group (₹)</Label><Input id={`q-${t.id}`} className={field} value={quote} onChange={(e) => setQuote(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="42000" /></div>
-              </div>
-              <div><Label htmlFor={`qn-${t.id}`} className="text-xs text-slate-400">What the quotation covers (the customer sees this)</Label><Input id={`qn-${t.id}`} className={field} value={quoteNote} onChange={(e) => setQuoteNote(e.target.value)} placeholder="Innova for 3 days, 2 rooms × 2 nights, guide at Gokarna" /></div>
-              <div><Label htmlFor={`sn-${t.id}`} className="text-xs text-slate-400">Staff note (not shown to the customer)</Label><Input id={`sn-${t.id}`} className={field} value={staffNote} onChange={(e) => setStaffNote(e.target.value)} placeholder="Called at 4 pm; wants a sea-view room" /></div>
-              <p className="text-xs text-slate-500">Entering an amount sends the customer a notification and shows it in their app.</p>
-              <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label htmlFor={`q-${t.id}`} className="text-xs text-slate-400">Whole group (₹)</Label><Input id={`q-${t.id}`} className={field} value={price} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="42000" /></div>
+                    <div><Label htmlFor={`h-${t.id}`} className="text-xs text-slate-400">Hold the price for (hours)</Label><Input id={`h-${t.id}`} className={field} value={holdHours} onChange={(e) => setHoldHours(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
+                  </div>
+                  <div><Label htmlFor={`qn-${t.id}`} className="text-xs text-slate-400">What it covers (the customer sees this)</Label><Input id={`qn-${t.id}`} className={field} value={quoteNote} onChange={(e) => setQuoteNote(e.target.value)} placeholder="Innova for 3 days, 2 rooms × 2 nights, guide at Gokarna" /></div>
+                  {priceN > 0 && (
+                    <p className="text-xs text-slate-400">
+                      Customer books with {pct}%: <b className="text-slate-200">{rupees(advanceFor(priceN, pct))}</b> (not refundable), balance {rupees(priceN - advanceFor(priceN, pct))} on the trip.
+                      {margin != null && <> Our margin over {chosen!.label}: <b className={margin < 0 ? "text-red-300" : "text-emerald-300"}>{rupees(margin)}</b>{priceN ? ` (${Math.round((margin / priceN) * 100)}%)` : ""}.</>}
+                    </p>
+                  )}
+                  {t.quoteAmount != null && (
+                    <p className={`flex items-center gap-1.5 text-xs ${expired ? "text-amber-300" : "text-slate-400"}`}>
+                      <Clock className="h-3.5 w-3.5" /> {rupees(t.quoteAmount)} sent {when(t.quotedAt)} · {expired ? "hold ran out" : `held until ${when(t.quoteValidUntil)}`}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => sendQuote.mutate()} disabled={sendQuote.isPending || !priceN || !t.managerName || closed}>{t.quoteAmount != null && Number(price) === t.quoteAmount ? "Send again" : "Send to customer"}</Button>
+                    {expired && <Button size="sm" variant="outline" onClick={() => hold.mutate()} disabled={hold.isPending}>Hold the same price again</Button>}
+                  </div>
+                </>
+              )}
             </section>
-            <p className="text-xs text-slate-500">Sent {new Date(t.createdAt).toLocaleString("en-IN")}{t.assignedAt ? ` · assigned ${new Date(t.assignedAt).toLocaleString("en-IN")}` : ""}{t.quotedAt ? ` · quoted ${new Date(t.quotedAt).toLocaleString("en-IN")}` : ""}</p>
+
+            <section className={box}>
+              <p className="text-sm font-semibold text-white">4. Status and notes</p>
+              <div className="grid grid-cols-[1fr_2fr] gap-2">
+                <select aria-label="Status" className={select} value={status} onChange={(e) => setStatus(e.target.value as TripStatus)}>
+                  {(Object.keys(TRIP_STATUS_LABEL) as TripStatus[]).map((s) => <option key={s} value={s}>{s === "confirmed" ? "Booked" : TRIP_STATUS_LABEL[s]}</option>)}
+                </select>
+                <Input aria-label="Staff note" className={field} value={staffNote} onChange={(e) => setStaffNote(e.target.value)} placeholder="Staff note: called at 4 pm, wants a sea-view room" />
+              </div>
+              <Button size="sm" variant="outline" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
+            </section>
+            <p className="text-xs text-slate-500">Sent {when(t.createdAt)}{t.assignedAt ? ` · assigned ${when(t.assignedAt)}` : ""}{t.quotedAt ? ` · quoted ${when(t.quotedAt)}` : ""}</p>
           </div>
         </div>
       )}
     </li>
+  );
+}
+
+function SettingsPanel({ settings, managers }: { settings: TravelSettings; managers: Manager[] }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(!settings.defaultManager);
+  const [mgr, setMgr] = useState(settings.defaultManager?.adminId ? String(settings.defaultManager.adminId) : "");
+  const [name, setName] = useState(settings.defaultManager?.name ?? "");
+  const [phone, setPhone] = useState(settings.defaultManager?.phone ?? "");
+  const [pct, setPct] = useState(String(settings.advancePercent));
+  const [hrs, setHrs] = useState(String(settings.quoteValidHours));
+  const save = useMutation({
+    mutationFn: async () => apiRequest("PUT", "/api/admin/travel/settings", {
+      defaultManager: name.trim() ? { adminId: mgr ? Number(mgr) : null, name: name.trim(), phone } : null,
+      advancePercent: Number(pct), quoteValidHours: Number(hrs),
+    }),
+    onSuccess: () => { toast({ title: "Travel settings saved" }); queryClient.invalidateQueries({ queryKey: ["/api/admin/travel/settings"] }); setOpen(false); },
+    onError: (e) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+  return (
+    <section className={`${panel} p-4`}>
+      <button type="button" className="flex w-full items-center gap-2 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Settings2 className="h-4 w-4 text-slate-400" />
+        <span className="font-semibold text-white">Travel settings</span>
+        <span className="text-sm text-slate-400">
+          {settings.defaultManager ? `New trips go to ${settings.defaultManager.name}` : "No default manager: new trips wait for one"} · {settings.advancePercent}% advance · prices held {settings.quoteValidHours} h
+        </span>
+        <span className="ml-auto text-slate-500">{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
+      </button>
+      {open && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-[2fr_1fr_1fr]">
+          <div className="space-y-2">
+            <Label className="text-xs text-slate-400">Default travel manager: takes every new trip, and the customer sees their name at once</Label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <select aria-label="Default manager" className={select} value={mgr} onChange={(e) => { setMgr(e.target.value); const m = managers.find((x) => String(x.id) === e.target.value); if (m) setName(m.name); }}>
+                <option value="">Someone outside the admin</option>
+                {managers.map((m) => <option key={m.id} value={m.id}>{m.name} ({STAFF_ROLE(m.role)})</option>)}
+              </select>
+              <Input aria-label="Default manager name" className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the customer sees (blank = none)" />
+              <Input aria-label="Default manager phone" className={field} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" inputMode="tel" />
+            </div>
+          </div>
+          <div className="space-y-2"><Label htmlFor="ts-pct" className="text-xs text-slate-400">Advance to book (%), not refundable</Label><Input id="ts-pct" className={field} value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
+          <div className="space-y-2"><Label htmlFor="ts-hrs" className="text-xs text-slate-400">Hold a price for (hours)</Label><Input id="ts-hrs" className={field} value={hrs} onChange={(e) => setHrs(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
+          <div className="lg:col-span-3"><Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || (!!name.trim() && phone.replace(/\D/g, "").length < 10)}>Save settings</Button></div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -193,14 +385,17 @@ export default function TravelTripsPage() {
     queryFn: async () => (await apiRequest("GET", `/api/admin/travel/trips?${qs}`)).data,
   });
   const { data: managers = [] } = useQuery<Manager[]>({ queryKey: ["/api/admin/travel/managers"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/managers")).data });
+  const { data: partners = [] } = useQuery<Partner[]>({ queryKey: ["/api/admin/travel/partners"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/partners")).data });
+  const { data: settings } = useQuery<TravelSettings>({ queryKey: ["/api/admin/travel/settings"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/settings")).data });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/travel/trips"] });
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <header className="space-y-1">
         <h1 className="text-2xl font-bold text-white">Trip requests</h1>
-        <p className="max-w-3xl text-sm text-slate-400">Plans customers send from the app's travel planner. Assign a travel manager: the customer is told who will call. The manager calls, agrees the details and sends the quotation; enter the amount here so it shows in the customer's app.</p>
+        <p className="max-w-3xl text-sm text-slate-400">Plans customers send from the app. The travel manager calls, checks our own team first, asks travel partners for prices, picks one and sends the customer a price. The customer books by paying the advance in the app.</p>
       </header>
+      {settings && <SettingsPanel key={JSON.stringify(settings)} settings={settings} managers={managers} />}
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <button key={f.key || "all"} type="button" onClick={() => setFilter(f.key)} aria-pressed={filter === f.key}
@@ -216,9 +411,9 @@ export default function TravelTripsPage() {
         </div>
       </div>
       {isLoading ? <p className="text-sm text-slate-400">Loading…</p> : !data?.trips.length ? (
-        <div className={`${panel} p-8 text-center text-slate-400`}>No trips here yet. When customers send a plan from the app's Travel tab, it appears under New.</div>
+        <div className={`${panel} p-8 text-center text-slate-400`}>No trips here yet. When customers send a plan from the app's Travel tab, it appears under Open.</div>
       ) : (
-        <ul className="space-y-3">{data.trips.map((t) => <TripCard key={t.id} t={t} managers={managers} onDone={refresh} />)}</ul>
+        <ul className="space-y-3">{data.trips.map((t) => <TripCard key={t.id} t={t} managers={managers} partners={partners} settings={settings} onDone={refresh} />)}</ul>
       )}
     </div>
   );

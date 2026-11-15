@@ -427,6 +427,12 @@ export class PaymentService {
         // Payment links (call bookings, call-booking.service.ts). Subscribe the
         // webhook to payment_link.paid / .expired / .cancelled in the Razorpay dashboard.
         if (event === "payment_link.paid") {
+            // A trip advance (travel.service.ts) carries travel_trip_id; everything else is a call booking.
+            if (payload?.payment_link?.entity?.notes?.travel_trip_id) {
+                const { TravelService } = await import('./travel.service');
+                const t = await TravelService.linkPaid(payload);
+                return { success: true, message: t.handled ? 'Trip advance recorded' : 'Payment link not for a trip' };
+            }
             const { CallBookingService } = await import('./call-booking.service');
             const r = await CallBookingService.linkPaid(payload);
             return { success: true, message: r.handled ? 'Payment link payment recorded' : 'Payment link not for a booking' };
@@ -434,6 +440,8 @@ export class PaymentService {
         if (event === "payment_link.expired" || event === "payment_link.cancelled") {
             const { CallBookingService } = await import('./call-booking.service');
             await CallBookingService.linkEnded(payload, event === "payment_link.expired" ? 'expired' : 'cancelled');
+            const { TravelService } = await import('./travel.service');
+            await TravelService.linkEnded(payload, event === "payment_link.expired" ? 'expired' : 'cancelled');
             return { success: true, message: 'Payment link status updated' };
         }
         if (event === "payment.captured") {
@@ -506,6 +514,12 @@ export class PaymentService {
                 return { success: true, message: `Payment ${paymentId} already recorded` };
             }
 
+
+            // A trip advance paid by link: book the trip if payment_link.paid has not already.
+            if (notes?.payment_type === 'travel_advance' && notes?.travel_trip_id) {
+                const { TravelService } = await import('./travel.service');
+                void TravelService.advancePaid(parseInt(notes.travel_trip_id), { paymentId, amountPaise }).catch((e: any) => logger.warn(`[WEBHOOK] travel advance failed: ${e?.message}`));
+            }
 
             // Also update bookingFeeStatus on the service_requests table
             if (notes?.payment_type === 'booking_charge' && notes?.service_request_id) {

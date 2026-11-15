@@ -6,12 +6,17 @@
  *          POST   /api/travel/trips                 send a plan for a quotation (signed in)
  *          GET    /api/travel/trips/mine            the customer's trips and where each stands
  *          POST   /api/travel/trips/:id/cancel
+ *          POST   /api/travel/trips/:id/advance    a payment link for the advance on the quotation
  *   Staff  GET    /api/admin/travel/catalog         every region, place and pickup, hidden ones too
  *          POST   /api/admin/travel/regions|places|pickups          PATCH/DELETE …/:id
  *          GET    /api/admin/travel/trips?status=open|new|…&search=&mine=1
  *          GET    /api/admin/travel/managers        staff who can take trips
  *          POST   /api/admin/travel/trips/:id/assign  { managerAdminId?, managerName, managerPhone }
- *          PATCH  /api/admin/travel/trips/:id       { status?, quoteAmount?, quoteNote?, staffNote? }
+ *          PATCH  /api/admin/travel/trips/:id       { status?, quoteAmount?, quoteNote?, staffNote?, validHours?, chosenQuoteId? }
+ *          POST   /api/admin/travel/trips/:id/quotes   a supplier price { source: own|partner, partnerId?, covers?, amount?, status?, note? }
+ *          PATCH/DELETE /api/admin/travel/trips/:id/quotes/:quoteId
+ *          GET|POST /api/admin/travel/partners     PATCH/DELETE …/:id
+ *          GET|PUT  /api/admin/travel/settings     default manager, advance %, how long a price is held
  * Staff paths need the Travel capability (capability-map.ts).
  */
 
@@ -44,6 +49,9 @@ export function registerTravelRoutes(app: Express) {
     app.get('/api/travel/trips/mine', authenticateToken, async (req, res, next) => {
         try { res.json({ success: true, data: await TravelService.myTrips((req as any).user.userId) }); } catch (e) { fail(e, res, next); }
     });
+    app.post('/api/travel/trips/:id/advance', authenticateToken, async (req, res, next) => {
+        try { res.json({ success: true, data: await TravelService.startAdvance((req as any).user.userId, id(req)) }); } catch (e) { fail(e, res, next); }
+    });
     app.post('/api/travel/trips/:id/cancel', authenticateToken, async (req, res, next) => {
         try { await TravelService.cancelMine((req as any).user.userId, id(req)); res.json({ success: true, message: 'Trip cancelled.' }); } catch (e) { fail(e, res, next); }
     });
@@ -67,6 +75,26 @@ export function registerTravelRoutes(app: Express) {
     crud('regions', TravelService.saveRegion, TravelService.deleteRegion, 'Region');
     crud('places', TravelService.savePlace, TravelService.deletePlace, 'Place');
     crud('pickups', TravelService.savePickup, TravelService.deletePickup, 'Pickup point');
+    crud('partners', TravelService.savePartner, TravelService.deletePartner, 'Travel partner');
+    app.get(`${base}/partners`, authenticateAdmin, async (_req, res, next) => {
+        try { res.json({ success: true, data: await TravelService.partners() }); } catch (e) { fail(e, res, next); }
+    });
+    app.get(`${base}/settings`, authenticateAdmin, async (_req, res, next) => {
+        try { res.json({ success: true, data: await TravelService.settings() }); } catch (e) { fail(e, res, next); }
+    });
+    app.put(`${base}/settings`, authenticateAdmin, async (req, res, next) => {
+        try { res.json({ success: true, message: 'Travel settings saved.', data: await TravelService.saveSettings(adminId(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    const qid = (req: Request) => { const n = Number(req.params.quoteId); if (!Number.isInteger(n) || n <= 0) throw new TravelError('Not found.', 404); return n; };
+    app.post(`${base}/trips/:id/quotes`, authenticateAdmin, async (req, res, next) => {
+        try { res.status(201).json({ success: true, message: 'Supplier price added.', data: await TravelService.addQuote(adminId(req), id(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.patch(`${base}/trips/:id/quotes/:quoteId`, authenticateAdmin, async (req, res, next) => {
+        try { res.json({ success: true, message: 'Saved.', data: await TravelService.updateQuote(adminId(req), id(req), qid(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.delete(`${base}/trips/:id/quotes/:quoteId`, authenticateAdmin, async (req, res, next) => {
+        try { await TravelService.deleteQuote(id(req), qid(req)); res.json({ success: true, message: 'Removed.' }); } catch (e) { fail(e, res, next); }
+    });
 
     app.get(`${base}/trips`, authenticateAdmin, async (req, res, next) => {
         try {
@@ -84,6 +112,6 @@ export function registerTravelRoutes(app: Express) {
         try { await TravelService.assign(adminId(req), id(req), req.body ?? {}); res.json({ success: true, message: 'Travel manager assigned. The customer is told they will get a call.' }); } catch (e) { fail(e, res, next); }
     });
     app.patch(`${base}/trips/:id`, authenticateAdmin, async (req, res, next) => {
-        try { await TravelService.update(adminId(req), id(req), req.body ?? {}); res.json({ success: true, message: 'Trip updated.' }); } catch (e) { fail(e, res, next); }
+        try { const r = await TravelService.update(adminId(req), id(req), req.body ?? {}); res.json({ success: true, message: req.body?.quoteAmount != null && r.status === 'quoted' ? 'Quotation sent to the customer.' : 'Trip updated.' }); } catch (e) { fail(e, res, next); }
     });
 }
