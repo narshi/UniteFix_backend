@@ -556,7 +556,7 @@ export function registerPaymentRoutes(app: Express) {
         try {
             const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
             if (!webhookSecret) {
-                console.error('RAZORPAY_WEBHOOK_SECRET not configured');
+                logger.error('[WEBHOOK] RAZORPAY_WEBHOOK_SECRET not configured');
                 return res.status(500).json({ error: "Webhook not configured" });
             }
             const signature = req.headers["x-razorpay-signature"] as string;
@@ -569,7 +569,7 @@ export function registerPaymentRoutes(app: Express) {
             // express.json verify hook; JSON.stringify(req.body) re-serialises and
             // will not byte-match, so it failed every signature check with 401.
             if (!req.rawBody) {
-                console.error('[WEBHOOK] rawBody missing — cannot verify signature');
+                logger.error('[WEBHOOK] rawBody missing — cannot verify signature');
                 return res.status(500).json({ error: "Webhook body capture unavailable" });
             }
 
@@ -624,7 +624,7 @@ export function registerPaymentRoutes(app: Express) {
         try {
             const webhookSecret = process.env.RAZORPAYX_WEBHOOK_SECRET;
             if (!webhookSecret) {
-                console.error('RAZORPAYX_WEBHOOK_SECRET not configured');
+                logger.error('[WEBHOOK] RAZORPAYX_WEBHOOK_SECRET not configured');
                 return res.status(500).json({ error: "Webhook not configured" });
             }
             
@@ -633,7 +633,7 @@ export function registerPaymentRoutes(app: Express) {
 
             // Same raw-bytes requirement as the Razorpay webhook above.
             if (!req.rawBody) {
-                console.error('[WEBHOOK] rawBody missing — cannot verify signature');
+                logger.error('[WEBHOOK] rawBody missing — cannot verify signature');
                 return res.status(500).json({ error: "Webhook body capture unavailable" });
             }
             const isValid = PaymentService.verifyWebhookSignature(
@@ -710,7 +710,7 @@ export function registerPaymentRoutes(app: Express) {
 
             res.json({ received: true });
         } catch (error: any) {
-            console.error("RazorpayX Webhook Error:", error);
+            logger.error('[WEBHOOK] RazorpayX webhook error', { error: error?.message });
             res.status(500).json({ error: error.message });
         }
     });
@@ -839,8 +839,12 @@ export function registerPaymentRoutes(app: Express) {
                     .update(`${razorpay_order_id}|${razorpay_payment_id}`)
                     .digest("hex");
 
-                if (expectedSignature !== razorpay_signature) {
-                    console.error(`[PAYMENT] Signature mismatch for order ${razorpay_order_id}`);
+                // Constant-time, as every other signature check here is: a plain !== answers
+                // faster the more leading characters were right.
+                const given = typeof razorpay_signature === 'string' ? Buffer.from(razorpay_signature, 'utf8') : null;
+                const wanted = Buffer.from(expectedSignature, 'utf8');
+                if (!given || given.length !== wanted.length || !crypto.timingSafeEqual(given, wanted)) {
+                    logger.warn(`[PAYMENT] Signature mismatch for order ${razorpay_order_id}`);
                     return res.status(400).json({ success: false, message: "Invalid payment signature" });
                 }
             }
@@ -1086,13 +1090,13 @@ export function registerPaymentRoutes(app: Express) {
                     }
                 }
             } catch (dbErr: any) {
-                console.warn(`[PAYMENT] bookingFeeStatus update skipped: ${dbErr.message}`);
+                logger.warn(`[PAYMENT] bookingFeeStatus update skipped: ${dbErr.message}`);
             }
 
-            console.log(`[PAYMENT] ✅ Verified payment ${razorpay_payment_id} for order ${razorpay_order_id}`);
+            logger.info(`[PAYMENT] Verified payment ${razorpay_payment_id} for order ${razorpay_order_id}`);
             res.json({ success: true, message: "Payment verified successfully" });
         } catch (error: any) {
-            console.error('[PAYMENT] Verification error:', error.message);
+            logger.error('[PAYMENT] Verification error', { error: error.message });
             res.status(500).json({ success: false, message: error.message });
         }
     });
@@ -1151,7 +1155,7 @@ export function registerPaymentRoutes(app: Express) {
                 metadata: { paymentType: 'product_order', customerId },
             });
 
-            console.log(`[SHOP] Razorpay order ${order.id} created for customer ${customerId}, amount: ₹${amount}`);
+            logger.info(`[SHOP] Razorpay order ${order.id} created for customer ${customerId}, amount: ₹${amount}`);
 
             res.json({
                 success: true,
@@ -1162,7 +1166,7 @@ export function registerPaymentRoutes(app: Express) {
                 },
             });
         } catch (error: any) {
-            console.error('[SHOP] Order creation failed:', error.message);
+            logger.error('[SHOP] Order creation failed', { error: error.message });
             res.status(500).json({ success: false, message: error.message });
         }
     });

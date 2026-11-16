@@ -49,6 +49,19 @@ interface AuthenticatedRequest extends Request {
     user?: { userId: number; role: string };
 }
 
+/**
+ * Is this the address of a file WE put on Cloudinary — https, Cloudinary's own
+ * delivery host, under our cloud name (when it is configured)?
+ */
+function isOwnUploadUrl(value: unknown): boolean {
+    if (typeof value !== 'string' || value.length > 500) return false;
+    let u: URL;
+    try { u = new URL(value); } catch { return false; }
+    if (u.protocol !== 'https:' || u.hostname !== 'res.cloudinary.com' || u.username || u.password) return false;
+    const cloud = process.env.CLOUDINARY_CLOUD_NAME;
+    return cloud ? u.pathname.startsWith(`/${cloud}/`) : true;
+}
+
 export function registerClientFeatureRoutes(app: Express) {
 
     // ==================== SERVICE CATALOG ====================
@@ -569,8 +582,14 @@ export function registerClientFeatureRoutes(app: Express) {
                 });
                 profilePictureUrl = result.url;
             } else if (req.body.imageUrl) {
-                // Backward-compatible: accept a direct URL
-                profilePictureUrl = req.body.imageUrl;
+                // Backward-compatible: a URL, but only one of OUR uploads. This stored
+                // whatever string the caller sent, and the dashboard then loads it as
+                // an <img> on every staff page that shows the user — a tracking pixel
+                // aimed at staff, or a link to something that is not a picture.
+                if (!isOwnUploadUrl(req.body.imageUrl)) {
+                    return res.status(400).json({ success: false, message: "Upload the picture from the app; a link to somewhere else cannot be used." });
+                }
+                profilePictureUrl = String(req.body.imageUrl);
             } else {
                 return res.status(400).json({ success: false, message: "Image file or URL is required" });
             }

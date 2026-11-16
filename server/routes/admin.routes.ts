@@ -608,42 +608,8 @@ export function registerAdminRoutes(app: Express) {
 
     // ==================== ORDER MANAGEMENT ====================
 
-    /**
-     * GET /api/admin/orders
-     * View all product orders
-     */
-    app.get("/api/admin/orders", async (req: Request, res: Response) => {
-        try {
-            if (!(req as any).user?.isAdmin) {
-                return res.status(403).json({ error: "Admin access required" });
-            }
-
-            const listOptions = { defaultSort: 'createdAt', sortable: AdminOrderManager.SORTABLE };
-            const params = parseListParams(req.query, listOptions);
-            const status = req.query.status as string;
-
-            const result = await AdminOrderManager.getOrders(
-                status && status !== 'all' ? status : undefined,
-                params.page,
-                params.limit,
-                {
-                    q: params.q || undefined,
-                    from: params.from,
-                    to: params.to,
-                    orderBy: buildOrderBy(params, listOptions),
-                },
-            );
-
-            res.json({
-                success: true,
-                data: result.orders,
-                orders: result.orders,
-                pagination: paginationMeta(params, result.total),
-            });
-        } catch (error: any) {
-            res.status(500).json({ error: error.message });
-        }
-    });
+    // GET /api/admin/orders (the list) lives in routes.ts, which registers first;
+    // a second copy here could never be reached and had begun to drift from it.
 
     /**
      * GET /api/admin/orders/:orderId

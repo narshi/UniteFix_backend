@@ -405,37 +405,11 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
   }
 });
 
-// ── Route: Save Email to Profile (Authenticated) ─────────────────────
-// NOTE: Email OTP verification is temporarily disabled.
-// This route now just validates the email format and saves it directly.
-// TODO: Re-enable OTP verification when SMTP/Resend is configured.
-
-router.post('/email/verify-request', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const user = (req as any).user;
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Authentication required' });
-    }
-
-    const { email } = req.body;
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ success: false, message: 'Valid email address is required' });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Save email directly to profile (no OTP for now)
-    await storage.updateUser(user.userId, {
-      email: normalizedEmail,
-      emailVerified: false, // Will be set to true once OTP verification is re-enabled
-    });
-
-    logger.info(`[EMAIL] Email saved to profile: ${normalizedEmail} for user ${user.userId}`);
-    res.json({ success: true, message: 'Email saved successfully' });
-  } catch (error) {
-    next(error);
-  }
-});
+// REMOVED: POST /api/auth/email/verify-request. It read req.user, but nothing on this
+// router authenticates, so it could only ever answer 401 — and no screen calls it. The
+// way to change an email is PATCH /api/client/profile (client-features.routes.ts), which
+// keeps a new address unconfirmed and refuses the change on an account whose phone number
+// was never proven.
 
 // ── Route: Email Verification Confirm — TEMPORARILY DISABLED ──────────
 // TODO: Uncomment when email OTP verification is re-enabled

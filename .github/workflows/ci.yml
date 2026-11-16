@@ -76,6 +76,9 @@ jobs:
       - name: Medium findings (start code, holds, disputes, wallet, webhooks)
         run: npm run smoke:medium-fixes
 
+      - name: Low findings (codes stored hashed, cancel claim, profile pictures)
+        run: npm run smoke:low-fixes
+
       - name: Payment guards
         run: npm run smoke:payment-guards
 

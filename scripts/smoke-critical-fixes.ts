@@ -23,6 +23,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { bootServer, client, check, summary, db } from './lib/hub-test-kit';
 import { users, employees, serviceRequests, serviceCategories, services, paymentTransactions, otpVerifications } from '../shared/schema';
 import { admin } from '../server/lib/firebase';
+import { hashOtp } from '../server/lib/otp-hash';
 
 const stamp = Date.now().toString(36);
 const userIds: number[] = [], catIds: number[] = [], svcIds: number[] = [], phones: string[] = [];
@@ -72,6 +73,15 @@ async function main() {
         return { u, phone, t: jwt.sign({ userId: u.id, role }, SECRET, { expiresIn: '1h' }) };
     };
     const account = async (id: number) => (await db.select().from(users).where(eq(users.id, id)))[0];
+    // Codes are stored hashed, so the digits cannot be read back: set the newest code for
+    // this phone to a known one, as if the user had read it from their inbox.
+    const KNOWN = '424242';
+    const knownCode = async (phone: string) => {
+        const row = await latestCode(phone);
+        if (!row) return null;
+        await db.update(otpVerifications).set({ otp: hashOtp(KNOWN) }).where(eq(otpVerifications.id, row.id));
+        return { ...row, otp: KNOWN };
+    };
     const latestCode = async (phone: string) => (await db.select().from(otpVerifications)
         .where(and(eq(otpVerifications.phone, phone), eq(otpVerifications.purpose, 'fallback_login'))).orderBy(desc(otpVerifications.id)).limit(1))[0];
 
@@ -114,7 +124,7 @@ async function main() {
         const mail = `qa-owner-${stamp}@example.test`;
         const byEmail = await mkUser('user', 'QA Crit ByEmail', { phoneVerified: false, email: mail, emailVerified: true, password: 'x'.repeat(60) });
         const c3c = await api.post('/api/auth/fallback/request-otp', { phone: ten(byEmail.phone), email: evil, role: 'user' });
-        const code1 = await latestCode(byEmail.phone);
+        const code1 = await knownCode(byEmail.phone);
         check('C3  an email-only account still gets its code — at the email on file, not the one typed', c3c.status === 200 && code1?.email === mail && c3c.body?.sentToRegisteredEmail === true, `${c3c.status} ${code1?.email}`);
         const c3d = await api.post('/api/auth/fallback/verify-otp', { phone: ten(byEmail.phone), code: code1?.otp, role: 'user', mode: 'login' });
         const oldRefresh: string = c3d.body?.refreshToken;
@@ -139,7 +149,7 @@ async function main() {
         // A brand-new number by email (the website's expert registration) still works.
         const fresh = newPhone(), freshMail = `qa-new-${stamp}@example.test`;
         const c3j = await api.post('/api/auth/fallback/request-otp', { phone: ten(fresh), email: freshMail, role: 'serviceman', firstName: 'QA', lastName: 'Crit New' });
-        const code2 = await latestCode(fresh);
+        const code2 = await knownCode(fresh);
         const c3k = await api.post('/api/auth/fallback/verify-otp', { phone: ten(fresh), email: freshMail, code: code2?.otp, role: 'serviceman', firstName: 'QA', lastName: 'Crit New', mode: 'signup' });
         if (c3k.body?.user?.id) userIds.push(c3k.body.user.id);
         check('C3  a new number can still register by email code', c3j.status === 200 && c3k.status === 200 && c3k.body?.isNewUser === true && c3k.body?.user?.phoneVerified === false, `${c3j.status} ${c3k.status} ${c3k.body?.message}`);

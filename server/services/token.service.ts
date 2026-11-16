@@ -24,8 +24,9 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 
-// Use a separate secret for refresh tokens (derived from JWT_SECRET)
-const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || JWT_SECRET + '_refresh';
+// Refresh tokens are random 64-byte values stored as a SHA-256 hash and looked up
+// in the database, not signed — so there is no refresh secret. (A JWT_REFRESH_SECRET
+// constant used to be derived here and never used.)
 
 export interface TokenPayload {
     userId: number;

@@ -14,7 +14,7 @@ what should be done first. Nothing here has been fixed yet.
 string, password in plaintext, and is committed to git (`e47b923`).
 
 ```
-postgresql://unitefix_db_user:F6V0…@dpg-d866tit7vvec7382re10-a.singapore-postgres.render.com/unitefix_db
+postgresql://unitefix_db_user:<password, rotated>@dpg-d866tit7vvec7382re10-a.singapore-postgres.render.com/unitefix_db
 ```
 
 **Why it can't wait:** anyone with repo access — past collaborators, anyone who

@@ -25,7 +25,15 @@ export const pool = new Pool({
   allowExitOnIdle: process.env.NODE_ENV !== 'production',         // Allow clean exit in dev
   application_name: 'unitefix-backend',                           // Shows in pg_stat_activity
   options: '-c statement_timeout=30000',                          // 30s query timeout — prevents connection hogging
-  ssl: isRemoteDb ? { rejectUnauthorized: false } : undefined,
+  // The connection is encrypted but, by default, the server's certificate is not
+  // checked — so it is not protected against someone sitting between this server
+  // and the database. Checking it is opt-in because it can only be switched on once
+  // it is known to work against the host: set DB_SSL_REJECT_UNAUTHORIZED=1 (and
+  // DB_SSL_CA to the provider's CA certificate, PEM text, if the host's is not a
+  // publicly trusted one), deploy, and confirm /api/health stays healthy.
+  ssl: isRemoteDb
+    ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === "1", ...(process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA } : {}) }
+    : undefined,
 });
 
 // Log pool errors (don't crash the process)

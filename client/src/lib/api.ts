@@ -115,9 +115,3 @@ export const adminApi = {
   },
 };
 
-export const utilsApi = {
-  generateVerificationCode: async () => {
-    const response = await apiRequest("POST", "/api/utils/generate-code");
-    return response.json();
-  },
-};

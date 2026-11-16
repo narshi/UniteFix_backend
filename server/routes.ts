@@ -124,10 +124,10 @@ import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 // Import canonical auth middleware (single source of truth)
 import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCapability, requireCompleteProfile } from "./middleware/auth.middleware";
 import { adminCapabilityGuard } from "./middleware/capability-map";
-/** True on Render. Guards the development-only payment bypass below. */
 import { redactEmployee, capsOf } from "./lib/employee-privacy";
 import { supportWhatsAppLink } from "./lib/business-identity";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+/** True on Render. Guards the development-only payment bypass below. */
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -274,11 +274,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/serviceman", partnerLimiter);
   app.use("/api/partner", partnerLimiter); // Wallet/Earnings APIs
   app.use("/api/business", partnerLimiter); // Partner onboarding
-
   // Job progress and billing (arrive, start with the customer's code, bill,
   // cash collected). These had no limit at all.
   app.use("/api/bookings", partnerLimiter);
   app.use("/api/client", mobileLimiter);
+
   app.use("/api/services", mobileLimiter); // Service creation
   app.use("/api/products", mobileLimiter); // Product listing
   app.use("/api/orders", mobileLimiter);   // Order placement
@@ -730,12 +730,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/users/:id/status", async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
-      const { isActive } = req.body;
-      const user = await storage.updateUser(id, { isActive });
-      if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
+      const { isActive } = req.body ?? {};
+      // A real boolean — this took whatever arrived (the string "false" is truthy) —
+      // and only a CUSTOMER account: experts and partner owners have their own
+      // screens, which also clear their sessions and tell them why.
+      if (!Number.isInteger(id) || typeof isActive !== 'boolean') {
+        return res.status(400).json({ success: false, message: "isActive must be true or false." });
       }
-      res.json({ success: true, data: user });
+      const [updatedUser] = await db.update(users)
+        .set({ isActive, updatedAt: new Date() })
+        .where(and(eq(users.id, id), eq(users.role, 'user' as any)))
+        .returning();
+      if (!updatedUser) {
+        return res.status(404).json({ success: false, message: "Customer not found" });
+      }
+      await storage.logAuditEvent({
+        entityType: 'user', entityId: id,
+        action: isActive ? 'user_activated' : 'user_deactivated',
+        changedBy: (req as any).admin?.userId,
+        metadata: {},
+      }).catch(() => { /* never fail the action over its audit row */ });
+      res.json({ success: true, data: { ...updatedUser, password: undefined } });
     } catch (error) {
       next(error);
     }
@@ -1386,7 +1401,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  // Top up provider wallet
   /**
    * Staff adjustments to an expert's wallet.
    *
@@ -1411,6 +1425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const INVALID_ADJUSTMENT = `Enter an amount in rupees between ₹0.01 and ₹${MAX_WALLET_ADJUSTMENT_RUPEES.toLocaleString('en-IN')}, with at most two decimals.`;
 
   app.post("/api/admin/servicemen/:id/topup", requireCapability('payments:manage'), async (req, res, next) => {
+  // Top up provider wallet
     try {
       const id = parseInt(req.params.id);
 
@@ -1463,13 +1478,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       try {
         const transaction = await storage.deductProviderWallet(id, amount, description);
-        res.json({ success: true, message: "Wallet deducted", data: transaction });
         await recordAudit({
           entityType: 'employee', entityId: id, action: 'wallet_deducted',
           changedBy: (req as any).admin?.userId ?? null,
           metadata: { amount, description, expert: provider.fullName, balanceAfter: (transaction as any)?.balanceAfter ?? null },
         });
       } catch (err: any) {
+        res.json({ success: true, message: "Wallet deducted", data: transaction });
         // Handle insufficient balance or other errors
         return res.status(400).json({ success: false, message: err.message });
       }
@@ -2374,11 +2389,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
        * tables.
        */
       if (service.status === 'created' && service.bookingFeeStatus === 'pending') {
+      /**
+       * The cancel is a CLAIM, made in the database: the row changes only if it is
+       * still in the state this request was judged against. The status was read
+       * at the top of the handler and written at the bottom; in between, staff
+       * could assign an expert (or the customer cancel twice), and the write —
+       * keyed on the id alone — then cancelled a booking an expert was already
+       * on the way to, or refunded the same fee again.
+       */
+      const claimWhere = isAdmin
+          ? and(eq(serviceRequests.id, service.id), sql`${serviceRequests.status} NOT IN ('completed', 'cancelled')`)
+          : and(eq(serviceRequests.id, service.id), eq(serviceRequests.status, 'created'));
+      const claimedElsewhere = () => res.status(409).json({
+          success: false,
+          message: "This booking has just changed — an expert may have been assigned. Refresh and try again, or contact support.",
+      });
+
           const [cancelled] = await db.update(serviceRequests)
               .set({ status: 'cancelled', updatedAt: new Date() })
-              .where(eq(serviceRequests.id, service.id))
+              .where(claimWhere)
               .returning();
           return res.json({
+          if (!cancelled) return claimedElsewhere();
               success: true,
               message: "Booking cancelled successfully",
               data: cancelled,
@@ -2386,6 +2418,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Refund the booking fee whenever it was actually collected — for CUSTOMER
+      // Claim it first: no refund is started for a booking someone else has just changed.
+      const [claimed] = await db.update(serviceRequests)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(claimWhere)
+          .returning({ id: serviceRequests.id });
+      if (!claimed) return claimedElsewhere();
+
       // cancellations too, not just admin ones. Per AI_CONTEXT §3.D a customer
       // cancelling from CREATED is entitled to a full booking-fee refund, but this
       // route previously attempted a refund only when `isAdmin`, so every customer
@@ -2545,7 +2584,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Place order
   /**
    * Product ordering is PAUSED (the app's Shop tab shows "Coming soon"), and
    * until now only the app knew: these routes still took orders from anyone
@@ -2568,9 +2606,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   app.post("/api/orders/place", authenticateToken, shopPaused, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
+  // Place order
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
-      // Partner listings go through the store checkout, which splits, invoices and settles them.
       // Whole, positive quantities of real products only. A negative quantity
       // used to subtract from the total.
       const validItems = Array.isArray(products) && products.length > 0 && products.length <= 50
@@ -2580,6 +2618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: 'Send between 1 and 50 products, each with a quantity from 1 to 99.' });
       }
       const { MarketplaceService } = await import("./services/marketplace.service");
+      // Partner listings go through the store checkout, which splits, invoices and settles them.
       if (Array.isArray(products) && await MarketplaceService.hasPartnerItems(products.map((p: any) => Number(p.productId)).filter(Boolean))) {
         return res.status(409).json({ success: false, code: 'USE_STORE_CHECKOUT', message: 'Items from partner sellers check out through the store checkout. Please update the app.' });
       }
@@ -2639,11 +2678,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
   // Not paused: taking something OUT of a cart is always allowed. Scoped to the
   // caller — this used to delete whichever cart row had the id in the URL,
   // whoever it belonged to.
     try {
+  app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
       const id = parseInt(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: 'Invalid cart item.' });
       await storage.removeFromCart(id, req.user!.userId);
@@ -2918,7 +2957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const isServiceable = await storage.isPincodeServiceable(pincode);
       
-      console.log(`[check-serviceability] Checked pincode: '${pincode}', result: ${isServiceable}`);
+      logger.debug(`[check-serviceability] pincode ${pincode}: ${isServiceable}`);
 
       res.json({
         success: true,
@@ -3210,11 +3249,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * deliver them out of band.
    */
 
-  // Utility route for generating verification codes
-  app.post("/api/utils/generate-code", (req, res) => {
-    const code = crypto.randomInt(1000, 9999).toString();
-    res.json({ success: true, code });
-  });
+  // REMOVED: POST /api/utils/generate-code. Public, unused by any client, and it only
+  // made a random four-digit number — nothing a server should hand out on request.
 
   // ==================== DEVICE TOKEN ALIASES ====================
   // Legacy paths, kept for app builds already in the field. The canonical routes
@@ -3372,7 +3408,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // registerSocialAuthRoutes(app); // REMOVED: Social auth deprecated
   registerNotificationRoutes(app);
   registerReturnRoutes(app);
-  registerCatalogRoutes(app);
   // registerTruecallerAuthRoutes is already called earlier (see above); calling it
   // twice mounted the same router at /api/auth a second time, so every auth
   // request walked a duplicate set of handlers that could never match.
@@ -3405,7 +3440,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSparePartsRoutes(app); // Spare parts catalogue, proposals, stock; technician search + kit
   registerPartsAccessRoutes(app); // Technician deposit + parts access (Razorpay in, Cashfree out)
   registerB2bOrderRoutes(app); // B2B ordering: partner catalogue/orders/tracking + admin fulfilment
-  registerAdminVerificationRoutes(app); // PHASE 6: Employee verification + dispute resolution
   registerUploadRoutes(app); // Image uploads (Cloudinary)
   registerPaymentRoutes(app); // Register Razorpay and webhook routes
   registerFtthRoutes(app); // FTTH Phase 0: operator apply / approve + operator portal auth

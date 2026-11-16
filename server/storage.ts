@@ -103,6 +103,7 @@ import { configService } from "./services/config.service";
 // Geo utilities: single source of truth
 import { calculateHaversineDistance } from "./lib/geo";
 import { nextSequentialNumber, generateInvoiceIdWithRetry } from "./lib/sequential-id";
+import { hashOtp, otpMatches } from "./lib/otp-hash";
 
 export interface IStorage {
   // User management
@@ -1941,7 +1942,8 @@ export class DatabaseStorage implements IStorage {
 
   // OTP verification
   async createOtpVerification(otp: InsertOtpVerification): Promise<OtpVerification> {
-    const [verification] = await db.insert(otpVerifications).values(otp).returning();
+    // Stored as a hash (lib/otp-hash.ts). The row returned carries the hash, not the digits.
+    const [verification] = await db.insert(otpVerifications).values({ ...otp, otp: hashOtp(otp.otp) }).returning();
     return verification;
   }
 
@@ -2004,7 +2006,7 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
-    if (verification.otp !== otp) {
+    if (!otpMatches(verification.otp, otp)) {
       // Increment attempt counter on wrong code
       await db
         .update(otpVerifications)
