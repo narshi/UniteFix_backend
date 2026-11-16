@@ -68,6 +68,56 @@ async function reactivateDeletedAccountOnSignup(user: User, mode: string): Promi
     return updatedUser ?? user;
 }
 
+/**
+ * The caller has just PROVED they hold this account's phone number (Truecaller,
+ * a Truecaller drop call, or a Firebase SMS code).
+ *
+ * An account whose number was never proven — created by the email-code
+ * fallback, by the old password signup, or by staff — may have been set up by
+ * someone else who only typed this number. Whoever proves the number owns the
+ * account from here on, so anything the earlier holder could still sign in
+ * with is cut off:
+ *   - every existing session ends
+ *   - the email on file stops being a way in (it stays on the profile, marked
+ *     unverified; the fallback routes below refuse an unverified email on a
+ *     proven number)
+ *   - any password is removed (the app has no password sign-in)
+ *
+ * A no-op for an account whose number is already proven.
+ */
+async function claimAccountForProvenPhone(user: User, via: string): Promise<User> {
+    if (user.phoneVerified) return user;
+
+    await TokenService.revokeUserTokens(user.id);
+    const updated = await storage.updateUser(user.id, {
+        phoneVerified: true,
+        emailVerified: false,
+        password: null as any,
+    });
+    logger.warn('[AUTH] Phone proven on an account that had never verified it — earlier sessions, email sign-in and password ended', {
+        userId: user.id, via,
+    });
+    return updated ?? user;
+}
+
+/**
+ * May this account be signed into with a code sent to its email?
+ *
+ * Only while the email is the account's sole proof of identity (the number was
+ * never proven), or when the email was confirmed after the number was. On a
+ * proven number with an unconfirmed email, the email could have been typed by
+ * anyone — the owner signs in with the number instead.
+ */
+function emailSignInAllowed(user: User): boolean {
+    return !!user.email && (!user.phoneVerified || !!user.emailVerified);
+}
+
+const USE_PHONE_SIGN_IN = {
+    success: false,
+    code: 'PHONE_SIGNIN_REQUIRED',
+    message: 'This number already has a UniteFix account. Sign in from the UniteFix app with Truecaller or an SMS code.',
+} as const;
+
 const router = Router();
 
 const TRUECALLER_CLIENT_ID = process.env.TRUECALLER_CLIENT_ID || '';
@@ -145,18 +195,14 @@ router.post('/check-phone', async (req: Request, res: Response, next: NextFuncti
     }
     const normalizedPhone = normalizeIndianPhone(phone);
     const user = await storage.getUserByPhone(normalizedPhone);
-    
-    if (user) {
-      res.json({
-        success: true,
-        exists: true,
-        email: user.email,
-        firstName: user.username?.split(' ')[0],
-        lastName: user.username?.split(' ').slice(1).join(' '),
-      });
-    } else {
-      res.json({ success: true, exists: false });
-    }
+
+    // Whether the number is registered, and nothing else.
+    //
+    // This needs no login, and it used to answer with the account's full email
+    // and name — so anyone could turn a phone number into a person's name and
+    // email address, one request each. The app only ever read `exists` (to
+    // avoid spending an SMS on a number with no account).
+    res.json({ success: true, exists: !!user });
   } catch (error) {
     next(error);
   }
@@ -298,6 +344,9 @@ router.post('/truecaller/verify', async (req: Request, res: Response, next: Next
         logger.info(`[TC_AUTH] New customer created: ${phone} (ID: ${user.id})`);
       }
     } else {
+      // Truecaller has just proved this number: an account that never had
+      // its number proven now belongs to this caller alone.
+      user = await claimAccountForProvenPhone(user, 'truecaller');
       // Existing user — update Truecaller ID if not set
       if (!user.truecallerId) {
         await storage.updateUser(user.id, {
@@ -435,23 +484,19 @@ router.post('/fallback/request-otp', async (req: Request, res: Response, next: N
     let targetEmail = '';
 
     if (user) {
-      if (!user.email) {
-        if (!email) {
-          return res.status(400).json({ success: false, message: 'Existing profile has no email. Please provide an email.' });
-        }
-        targetEmail = email.trim().toLowerCase();
-        // users.email is unique: an address already on another account would
-        // crash the save. Say so instead (a partner's email is often already on
-        // their own customer or expert login).
-        const owner = await storage.getUserByEmail(targetEmail);
-        if (owner && owner.id !== user.id) {
-          return res.status(409).json({ success: false, code: 'EMAIL_IN_USE', message: 'This email is already used by another UniteFix account. Please use a different email.' });
-        }
-        // Save the provided email
-        await storage.updateUser(user.id, { email: targetEmail });
-      } else {
-        targetEmail = user.email;
+      // An existing account is only ever sent a code at the email ALREADY on
+      // it. This used to save whatever email the caller typed onto an account
+      // that had none, and send the code there — so anyone who knew a phone
+      // number could attach their own inbox to that account and sign in as its
+      // owner. No login is needed to reach this route, so nothing the caller
+      // sends here may change an existing account.
+      if (!emailSignInAllowed(user)) {
+        logger.warn('[FALLBACK_OTP] Email code refused for an existing account', {
+          userId: user.id, hasEmail: !!user.email, phoneVerified: !!user.phoneVerified, emailVerified: !!user.emailVerified,
+        });
+        return res.status(409).json(USE_PHONE_SIGN_IN);
       }
+      targetEmail = user.email!;
     } else {
       if (!email) {
         return res.status(400).json({ success: false, message: 'Email is required for new users.' });
@@ -559,6 +604,13 @@ router.post('/fallback/verify-otp', async (req: Request, res: Response, next: Ne
       });
     }
     let targetEmail = '';
+
+    // Same rule as request-otp, checked again here: a code requested earlier
+    // must not sign anyone in once the number has been proven by its owner, and
+    // a caller-typed email is never accepted for an account that already exists.
+    if (user && !emailSignInAllowed(user)) {
+      return res.status(409).json(USE_PHONE_SIGN_IN);
+    }
 
     if (user && user.email) {
       targetEmail = user.email;
@@ -718,6 +770,8 @@ router.post('/truecaller/verify-dropcall', async (req: Request, res: Response, n
         await storage.createCustomer({ userId: user.id, fullName });
       }
     } else {
+      // The drop call has just proved this number (see claimAccountForProvenPhone).
+      user = await claimAccountForProvenPhone(user, 'truecaller_dropcall');
       // A signup on a previously-deleted account is a fresh start, not a login.
       user = await reactivateDeletedAccountOnSignup(user, mode);
     }
@@ -789,14 +843,28 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
       return res.status(401).json({ success: false, message: 'Invalid or expired authentication token.' });
     }
     
-    // Normalize phone number (handle formatting differences if needed)
-    const phone = normalizeIndianPhone(data.phone) || data.phone;
-    
-    // 2. Validate token matches the phone number (Firebase formats as +91...)
-    if (!decodedToken.phone_number || !decodedToken.phone_number.includes(phone.substring(1))) {
-       logger.warn('[FIREBASE_AUTH] Phone number mismatch in token', { tokenPhone: decodedToken.phone_number, reqPhone: phone });
-       // Note: we can enforce this strictly if required, but Firebase already verifies the number
+    // 2. The account is chosen by the number FIREBASE verified, never by the
+    //    number in the request body.
+    //
+    //    A mismatch here used to be logged and ignored, and the lookup below
+    //    used the body's number — so one valid token (for the caller's own
+    //    phone) signed the caller in as ANY number they cared to send. A token
+    //    with no phone at all (another Firebase sign-in method) got the same
+    //    treatment. Both are refused now.
+    const tokenPhone = decodedToken.phone_number ? normalizeIndianPhone(decodedToken.phone_number) : '';
+    if (!/^\+91[6-9]\d{9}$/.test(tokenPhone)) {
+      logger.warn('[FIREBASE_AUTH] Token carries no verified Indian mobile number — refused', { hasPhone: !!decodedToken.phone_number });
+      return res.status(401).json({ success: false, message: 'This sign-in was not verified with a mobile number. Please request a new code.' });
     }
+    if (normalizeIndianPhone(data.phone) !== tokenPhone) {
+      logger.warn('[FIREBASE_AUTH] Request phone does not match the verified phone — refused');
+      return res.status(401).json({
+        success: false,
+        code: 'PHONE_MISMATCH',
+        message: 'The number you entered is not the number that was verified. Please request a new code.',
+      });
+    }
+    const phone = tokenPhone;
 
     const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ');
 
@@ -865,6 +933,8 @@ router.post('/fallback/firebase-verify', async (req: Request, res: Response, nex
         logger.info(`[FIREBASE_AUTH] New customer created: ${phone}`);
       }
     } else {
+      // The SMS code has just proved this number (see claimAccountForProvenPhone).
+      user = await claimAccountForProvenPhone(user, 'firebase_sms');
       // A signup on a previously-deleted account is a fresh start, not a login.
       user = await reactivateDeletedAccountOnSignup(user, mode);
       logger.info(`[FIREBASE_AUTH] Existing user login: ${phone}`);

@@ -90,13 +90,10 @@ export class TokenService {
         return jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });
     }
 
-    /**
-     * Generate a backward-compatible long-lived token (for legacy mobile flow)
-     * Use generateTokenPair() for new mobile app
-     */
-    static generateLegacyToken(payload: TokenPayload): string {
-        return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
-    }
+    // generateLegacyToken (a 30-day access token for the old password sign-in)
+    // is gone with those routes. It could not be revoked: logout and a password
+    // reset left it working for a month. The auth middleware now also refuses any
+    // app token issued for longer than an hour (overlongAppToken).
 
     /**
      * Refresh: validate refresh token, return new token pair.

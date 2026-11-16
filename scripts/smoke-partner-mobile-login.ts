@@ -74,9 +74,17 @@ async function main() {
         check('when both spellings exist, the +91 account (the one the app always used) wins', (await storage.getUserByPhone(`+91${p8}`))?.id === plus.id && (await storage.getUserByPhone(p8))?.id === plus.id);
         check('a non-mobile string still matches only itself', (await storage.getUserByPhone(`qa-${stamp}`)) === undefined);
 
-        // First sign-in on a login with no email: an email already on another account is refused clearly.
+        // An email code for a login that has no email on it. This used to save the
+        // typed email onto the account (or answer EMAIL_IN_USE when it was taken)
+        // and send the code there — which let anyone who knew the number attach
+        // their own inbox and sign in. An existing account now gets a code only at
+        // the email already on it; with none, the owner signs in with the number.
         const otp = await api.post('/api/auth/fallback/request-otp', { phone: `+91${p7}`, email: `qa_ml_dup_${stamp}@example.test`, role: 'serviceman' });
-        check('first sign-in with an email already on another account: told plainly, not a server error', otp.status === 409 && otp.body?.code === 'EMAIL_IN_USE', JSON.stringify(otp.body).slice(0, 200));
+        check('an email code for a login with no email on it: sent to sign in with the number, told plainly', otp.status === 409 && otp.body?.code === 'PHONE_SIGNIN_REQUIRED', JSON.stringify(otp.body).slice(0, 200));
+        check('…and no email was put on that login', (await db.select().from(users).where(eq(users.id, hubTech.id)))[0].email == null);
+        const fresh = `qa_ml_fresh_${stamp}@example.test`;
+        const otp2 = await api.post('/api/auth/fallback/request-otp', { phone: `+91${p7}`, email: fresh, role: 'serviceman' });
+        check('…nor with an email nobody else has', otp2.status === 409 && (await db.select().from(users).where(eq(users.id, hubTech.id)))[0].email == null, `${otp2.status}`);
 
         // A partner with no email at all.
         const e = await mk(phone(), null);

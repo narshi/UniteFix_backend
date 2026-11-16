@@ -109,7 +109,9 @@ export class PaymentService {
         }
 
         const razorpay = await this.getRazorpayInstance();
-        const amount = parsedAmount * 100; // Convert to paise
+        // Whole paise. Razorpay rejects a non-integer amount, and rupees × 100 is
+        // not always whole in floating point (1234.57 × 100 = 123457.00000000001).
+        const amount = Math.round(parsedAmount * 100);
 
         // Create Razorpay order
         const order = await razorpay.orders.create({
@@ -153,10 +155,14 @@ export class PaymentService {
 
         // Calculate invoice
         const invoice = await this.calculateInvoice(serviceRequestId, serviceCharge);
+        // Whole paise — see createBookingOrder. A bill with paise in it (parts
+        // GST is rounded to two decimals) used to send Razorpay a fraction, which
+        // it refuses, so that customer could not pay online at all.
+        const amountDuePaise = Math.round(invoice.amountDue * 100);
 
         // Create Razorpay order for amount due
         const order = await razorpay.orders.create({
-            amount: invoice.amountDue * 100, // Convert to paise
+            amount: amountDuePaise,
             currency: "INR",
             receipt: `final_${serviceRequestId}_${Date.now()}`,
             notes: {
@@ -172,7 +178,7 @@ export class PaymentService {
         await PaymentTrackingService.recordPaymentEvent({
             serviceRequestId,
             razorpayOrderId: order.id,
-            amount: invoice.amountDue * 100, // convert rupees → paise for DB
+            amount: amountDuePaise, // paise, as sent to Razorpay
             currency: 'INR',
             eventType: 'order_created',
             status: 'pending',

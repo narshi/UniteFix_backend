@@ -140,6 +140,8 @@ main().catch(e => { console.error(e); check('no crash', false, e?.message); }).f
     await cleanupPartners([], [], [
         `DELETE FROM wallet_transactions_v2 WHERE service_request_id IN (${ids}) OR partner_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
         `DELETE FROM partner_wallets WHERE partner_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
+        // The older wallet table also points at the expert (cash dues are written to both).
+        `DELETE FROM wallet_transactions WHERE service_request_id IN (${ids}) OR provider_id IN (SELECT id FROM employees WHERE user_id IN (${uids}))`,
         `DELETE FROM invoices WHERE service_request_id IN (${ids})`,
         `DELETE FROM payment_transactions WHERE service_request_id IN (${ids})`,
         `DELETE FROM audit_logs WHERE entity_type = 'service_request' AND entity_id IN (${ids})`,

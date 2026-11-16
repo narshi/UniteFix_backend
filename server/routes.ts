@@ -125,6 +125,8 @@ import { calculateHaversineDistance as calculateDistance } from "./lib/geo";
 import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticatePartner, authenticateAny, requireSuperAdmin, requireCapability, requireCompleteProfile } from "./middleware/auth.middleware";
 import { adminCapabilityGuard } from "./middleware/capability-map";
 /** True on Render. Guards the development-only payment bypass below. */
+import { redactEmployee, capsOf } from "./lib/employee-privacy";
+import { supportWhatsAppLink } from "./lib/business-identity";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Extended Request type for backward compatibility
@@ -266,7 +268,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (IDENTITY_PATHS.test(req.path)) return identityLimiter(req, res, next);
     return authLimiter(req, res, next);
   });
-  app.use("/api/otp", identityLimiter); // OTP send/verify — same reasoning
   app.use("/api/admin/auth", authLimiter); // Admin login protection
 
   app.use("/api/admin", adminLimiter);
@@ -274,6 +275,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/partner", partnerLimiter); // Wallet/Earnings APIs
   app.use("/api/business", partnerLimiter); // Partner onboarding
 
+  // Job progress and billing (arrive, start with the customer's code, bill,
+  // cash collected). These had no limit at all.
+  app.use("/api/bookings", partnerLimiter);
   app.use("/api/client", mobileLimiter);
   app.use("/api/services", mobileLimiter); // Service creation
   app.use("/api/products", mobileLimiter); // Product listing
@@ -313,317 +317,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register Partner Profile Routes
   registerPartnerProfileRoutes(app);
 
-  // ==================== 3-STEP SIGNUP FLOW (Email OTP) ====================
-
-  // Step 1: Initiate signup — sends OTP to email
-  app.post("/api/auth/signup/initiate", authLimiter, async (req, res, next) => {
-    try {
-      const { email, role } = req.body;
-      const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-
-      if (!normalizedEmail) {
-        return res.status(400).json({ success: false, message: "Email is required" });
-      }
-
-      // Validate role — only 'user' or 'serviceman' are allowed
-      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
-
-      // Check if email is already registered
-      const existingUser = await storage.getUserByEmail(normalizedEmail);
-      if (existingUser) {
-        return res.status(400).json({ success: false, message: "Email is already registered. Please login instead." });
-      }
-
-      // Generate 6-digit OTP
-      const otp = generateOTP();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-
-      // Store OTP
-      await storage.createOtpVerification({
-        email: normalizedEmail,
-        phone: null,
-        otp,
-        purpose: 'signup',
-        expiresAt,
-      });
-
-      // Send OTP via email
-      await NotificationService.sendEmail(
-        normalizedEmail,
-        "UniteFix — Verify Your Email",
-        `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-          <h2 style="color: #1a1a2e; text-align: center;">Welcome to UniteFix!</h2>
-          <p style="color: #555; text-align: center;">Use the code below to verify your email address:</p>
-          <div style="background: #f0f4ff; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-            <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1a1a2e;">${otp}</span>
-          </div>
-          <p style="color: #888; font-size: 13px; text-align: center;">This code expires in 15 minutes. If you didn't request this, please ignore this email.</p>
-        </div>`
-      );
-
-      logger.info(`[SIGNUP] OTP sent to ${normalizedEmail} (role: ${userRole})`);
-
-      res.json({
-        success: true,
-        message: "Verification code sent to your email",
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Step 2: Verify signup OTP — returns a short-lived signupToken with role embedded
-  app.post("/api/auth/signup/verify", authLimiter, async (req, res, next) => {
-    try {
-      const { email, otp, role } = req.body;
-      const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
-
-      if (!normalizedEmail || !otp) {
-        return res.status(400).json({ success: false, message: "Email and OTP are required" });
-      }
-
-      const isValid = await storage.verifyOtp(undefined, normalizedEmail, otp, 'signup');
-      if (!isValid) {
-        return res.status(400).json({ success: false, message: "Invalid or expired verification code" });
-      }
-
-      // Embed role in the token so it cannot be tampered with in subsequent steps
-      const userRole = role === 'serviceman' ? 'serviceman' : 'user';
-      const signupToken = jwt.sign(
-        { email: normalizedEmail, role: userRole, purpose: 'signup' },
-        JWT_SECRET,
-        { expiresIn: '15m' }
-      );
-
-      res.json({
-        success: true,
-        message: "Email verified successfully",
-        signupToken,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Step 3: Complete signup — create user using the signupToken
-  app.post("/api/auth/signup/complete", async (req, res, next) => {
-    try {
-      const { signupToken, password, username, phone } = req.body;
-
-      if (!signupToken || !password) {
-        return res.status(400).json({ success: false, message: "Signup token and password are required" });
-      }
-
-      if (password.length < 6) {
-        return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
-      }
-
-      // Verify the signup token — role is read from the JWT, NOT from req.body
-      let decoded: any;
-      try {
-        decoded = jwt.verify(signupToken, JWT_SECRET);
-      } catch (err) {
-        return res.status(400).json({ success: false, message: "Invalid or expired signup session. Please start over." });
-      }
-
-      if (decoded.purpose !== 'signup') {
-        return res.status(400).json({ success: false, message: "Invalid signup token" });
-      }
-
-      const email = decoded.email;
-      // Role was cryptographically bound at OTP-verify step — safe to trust
-      const userRole: 'user' | 'serviceman' = decoded.role === 'serviceman' ? 'serviceman' : 'user';
-
-      // Double-check email isn't taken (race condition guard)
-      const existingUser = await storage.getUserByEmail(email);
-      if (existingUser) {
-        return res.status(400).json({ success: false, message: "Email is already registered" });
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Create user — role field is the single source of truth
-      const user = await storage.createUser({
-        email,
-        password: hashedPassword,
-        username: username || email.split('@')[0],
-        phone: phone || null,
-        role: userRole,
-        isVerified: true, // Email already verified via OTP
-        isActive: true,
-      });
-
-      // Create role-specific profile record (DB segregation)
-      if (userRole === 'serviceman') {
-        // PHASE 1: All partner data now on employees table (serviceProviders deleted)
-        await storage.createEmployee({
-          userId: user.id,
-          fullName: username || email.split('@')[0],
-          partnerType: 'Individual',
-          services: [],
-          isActive: false,  // Admin must verify
-          isOnline: false,
-        });
-
-        logger.info(`[SIGNUP] Employee profile created for user ${user.id}`);
-      } else {
-        await storage.createCustomer({
-          userId: user.id,
-          fullName: username || email.split('@')[0],
-        });
-        logger.info(`[SIGNUP] Customer profile created for user ${user.id}`);
-      }
-
-      // Generate token pair (access + refresh) for mobile apps
-      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
-      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
-
-      logger.info(`[SIGNUP] User created: ${email} (ID: ${user.id})`);
-
-      res.status(201).json({
-        success: true,
-        message: "Account created successfully",
-        user: { ...user, password: undefined },
-        token,
-        ...tokens,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // User Signup with referral code support (legacy — kept for backward compatibility)
-  app.post("/api/auth/signup", authLimiter, async (req, res, next) => {
-    try {
-      // SECURITY: this route previously did insertUserSchema.parse(req.body) and
-      // spread the result straight into createUser. That schema includes `role`,
-      // `isVerified`, `isActive` and `phoneVerified`, so an unauthenticated
-      // caller could POST { role: "admin" } and receive an admin JWT — full
-      // access to every /api/admin route.
-      //
-      // Only ever accept the fields a signing-up user is allowed to set, and
-      // derive role server-side exactly as /api/auth/signup/complete does.
-      const parsed = insertUserSchema.parse(req.body);
-      const requestedRole = (req.body as any)?.role;
-      const userData = {
-        phone: parsed.phone,
-        email: parsed.email,
-        username: parsed.username,
-        password: parsed.password,
-        pinCode: parsed.pinCode,
-        homeAddress: parsed.homeAddress,
-        // Clamped: 'admin' is not reachable from this endpoint.
-        role: (requestedRole === 'serviceman' ? 'serviceman' : 'user') as 'user' | 'serviceman',
-        // Trust markers are set by the server, never by the client.
-        phoneVerified: false,
-        emailVerified: false,
-        isVerified: false,
-        isActive: requestedRole === 'serviceman' ? false : true,
-      };
-
-      // Check if pincode is serviceable
-      const isServiceable = await storage.isPincodeServiceable(userData.pinCode || '');
-      if (userData.pinCode && !isServiceable) {
-        return res.status(400).json({
-          success: false,
-          message: "Service not available in your area. We are expanding soon!"
-        });
-      }
-
-      // Check for existing user
-      if (!userData.phone) {
-        return res.status(400).json({ success: false, message: "Phone number is required for registration" });
-      }
-      const existingUser = await storage.getUserByPhone(userData.phone);
-      if (existingUser) {
-        return res.status(400).json({ success: false, message: "Phone number already registered" });
-      }
-
-      // Handle referral code
-      let referredById: number | undefined;
-      if (req.body.referralCode) {
-        const referrer = await storage.getUserByReferralCode(req.body.referralCode);
-        if (referrer) {
-          referredById = referrer.id;
-        }
-      }
-
-      // Hash password
-      const hashedPassword = await bcrypt.hash(userData.password || '', 10);
-
-      const user = await storage.createUser({
-        ...userData,
-        password: hashedPassword,
-        referredById,
-      });
-
-      // Generate token pair (access + refresh) for mobile apps
-      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
-      // Backward-compatible legacy token
-      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
-
-      res.status(201).json({
-        success: true,
-        message: "User registered successfully",
-        user: { ...user, password: undefined },
-        token,
-        ...tokens,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // User Login
-  app.post("/api/auth/login", authLimiter, async (req, res, next) => {
-    try {
-      const { phone, email, password } = req.body;
-
-      // Input validation
-      if (!phone && !email) {
-        return res.status(400).json({ success: false, message: "Phone number or email is required" });
-      }
-      if (!password || typeof password !== 'string') {
-        return res.status(400).json({ success: false, message: "Password is required" });
-      }
-
-      let user;
-      if (phone) {
-        user = await storage.getUserByPhone(phone);
-      } else if (email) {
-        user = await storage.getUserByEmail(email);
-      }
-
-      if (!user) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
-      }
-
-      if (!user.password) {
-        return res.status(401).json({ success: false, message: "This account uses Truecaller login. Please use the Truecaller option." });
-      }
-
-      const validPassword = await bcrypt.compare(password, user.password);
-      if (!validPassword) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
-      }
-
-      // Generate token pair (access + refresh) for mobile apps
-      const tokens = await TokenService.generateTokenPair({ userId: user.id, role: user.role });
-      // Backward-compatible legacy token
-      const token = TokenService.generateLegacyToken({ userId: user.id, role: user.role });
-
-      res.json({
-        success: true,
-        message: "Login successful",
-        user: { ...user, password: undefined },
-        token,
-        ...tokens,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+  /**
+   * RETIRED: password accounts for the app.
+   *
+   *   POST /api/auth/signup/initiate, /signup/verify, /signup/complete
+   *   POST /api/auth/signup
+   *   POST /api/auth/login
+   *   POST /api/auth/forgot-password, /verify-reset-otp, /reset-password
+   *
+   * A UniteFix account IS a phone number, and these let anyone claim one
+   * without proving it: sign up with someone else's number and a password of
+   * your own, and the account that number's owner later reached through
+   * Truecaller was the one you already held the password to. The reset trio did
+   * the same through an email address typed at signup. Passwords here needed
+   * six characters.
+   *
+   * Nothing calls them. The app signs in by proving the number
+   * (/api/auth/truecaller/verify, /truecaller/verify-dropcall,
+   * /fallback/firebase-verify) and the website by email code
+   * (/api/auth/fallback/request-otp, /verify-otp), which now hands the account
+   * over the moment its number is proven. Staff sign in at
+   * /api/admin/auth/login, which is separate and unchanged.
+   */
+  const retiredPasswordRoute = (_req: Request, res: Response) => {
+    res.status(410).json({
+      success: false,
+      code: "PASSWORD_SIGNIN_RETIRED",
+      message: "UniteFix no longer uses passwords. Sign in from the UniteFix app with your mobile number.",
+    });
+  };
+  for (const path of [
+    "/api/auth/signup/initiate", "/api/auth/signup/verify", "/api/auth/signup/complete", "/api/auth/signup",
+    "/api/auth/login",
+    "/api/auth/forgot-password", "/api/auth/verify-reset-otp", "/api/auth/reset-password",
+  ]) {
+    app.post(path, retiredPasswordRoute);
+  }
 
   // Token Refresh — used by mobile app when access token expires
   app.post("/api/auth/refresh", async (req, res, next) => {
@@ -848,142 +577,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-
-  // ==================== PASSWORD RESET FLOW ====================
-
-  // Step 1: Request password reset — sends OTP to phone/email
-  app.post("/api/auth/forgot-password", authLimiter, async (req, res, next) => {
-    try {
-      const { phone, email } = req.body;
-      if (!phone && !email) {
-        return res.status(400).json({ success: false, message: "Phone or email is required" });
-      }
-
-      // Verify user exists
-      let user;
-      if (phone) {
-        user = await storage.getUserByPhone(phone);
-      } else if (email) {
-        user = await storage.getUserByEmail(email);
-      }
-
-      // Don't reveal if user exists (security best practice)
-      if (!user) {
-        return res.json({ success: true, message: "If the account exists, an OTP has been sent" });
-      }
-
-      // Generate 6-digit OTP
-      const otp = generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      // Store OTP
-      await storage.createOtpVerification({
-        phone: phone || null,
-        email: email || null,
-        otp,
-        purpose: 'password_reset',
-        expiresAt,
-      });
-
-      // Send OTP via Email if email is provided
-      if (email) {
-        await NotificationService.sendEmail(
-          email,
-          "UniteFix Password Reset",
-          `<h1>Password Reset</h1><p>Your OTP for password reset is: <strong>${otp}</strong></p><p>This OTP will expire in 10 minutes.</p>`
-        );
-      } else {
-        // SMS delivery is not wired up for phone-only resets. Never print the
-        // code: this ran in production and put working password-reset codes into
-        // the logs, which is a complete account-takeover path for anyone with
-        // log access.
-        logger.warn('[PASSWORD RESET] No delivery channel for phone-only reset — code not sent', {
-          hasEmail: false,
-        });
-      }
-
-      res.json({ success: true, message: "If the account exists, an OTP has been sent" });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Step 2: Verify reset OTP — returns a short-lived reset token
-  app.post("/api/auth/verify-reset-otp", authLimiter, async (req, res, next) => {
-    try {
-      const { phone, email, otp } = req.body;
-      if (!otp || (!phone && !email)) {
-        return res.status(400).json({ success: false, message: "OTP and phone/email are required" });
-      }
-
-      const isValid = await storage.verifyOtp(phone, email, otp, 'password_reset');
-      if (!isValid) {
-        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-
-      // Find the user
-      let user;
-      if (phone) {
-        user = await storage.getUserByPhone(phone);
-      } else if (email) {
-        user = await storage.getUserByEmail(email);
-      }
-
-      if (!user) {
-        return res.status(400).json({ success: false, message: "User not found" });
-      }
-
-      // Generate a short-lived reset token (5 minutes)
-      const resetToken = jwt.sign(
-        { userId: user.id, purpose: 'password_reset' },
-        JWT_SECRET,
-        { expiresIn: '5m' }
-      );
-
-      res.json({ success: true, message: "OTP verified", resetToken });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Step 3: Reset password using the reset token
-  app.post("/api/auth/reset-password", async (req, res, next) => {
-    try {
-      const { resetToken, newPassword } = req.body;
-      if (!resetToken || !newPassword) {
-        return res.status(400).json({ success: false, message: "Reset token and new password are required" });
-      }
-
-      if (newPassword.length < 6) {
-        return res.status(400).json({ success: false, message: "Password must be at least 6 characters" });
-      }
-
-      // Verify the reset token
-      let decoded: any;
-      try {
-        decoded = jwt.verify(resetToken, JWT_SECRET);
-      } catch (err) {
-        return res.status(400).json({ success: false, message: "Invalid or expired reset token" });
-      }
-
-      if (decoded.purpose !== 'password_reset') {
-        return res.status(400).json({ success: false, message: "Invalid reset token" });
-      }
-
-      // Hash and update password
-      const hashedPassword = await bcrypt.hash(newPassword, 10);
-      await storage.updateUser(decoded.userId, { password: hashedPassword });
-
-      // End every existing session. A reset is often triggered *because* the
-      // account is compromised; without this the attacker's refresh tokens
-      // survived the password change for their full 30-day lifetime.
-      await TokenService.revokeUserTokens(decoded.userId);
-
-      res.json({ success: true, message: "Password reset successfully. Please login with your new password." });
-    } catch (error) {
-      next(error);
-    }
-  });
 
   // ==================== ADMIN DASHBOARD ROUTES ====================
 
@@ -1226,7 +819,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Field aliases kept for admin dashboard backward compat.
       const data = rows.map(({ employee: p, userEmail, userPhone, username, homeAddress, pinCode, walletAvailable, walletOnHold }) => ({
-        ...p,
+        // Identity and bank numbers masked; document links only for roles that check them.
+        ...redactEmployee(p, capsOf(req)),
         walletBalance: walletAvailable ?? '0.00',
         walletOnHold: walletOnHold ?? '0.00',
         legacyWalletBalance: p.walletBalance,
@@ -1322,7 +916,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         success: true,
         data: providers.map(p => ({
-          ...p,
+          ...redactEmployee(p, capsOf(req)),
           distanceKm: (p.distance / 1000).toFixed(2)
         }))
       });
@@ -1343,12 +937,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // 1. Create the user account first
-      const hashedPassword = await bcrypt.hash(password || 'Temp123!', 10);
+      //
+      // No password. An expert signs in to the app by proving their phone
+      // number (Truecaller or an SMS code); there is no password sign-in. This
+      // used to store 'Temp123!' whenever staff left the field empty, on an
+      // account created already verified and active — a password anyone could
+      // guess, on every expert added that way.
       const user = await storage.createUser({
         username: partnerName,
         email,
         phone,
-        password: hashedPassword,
+        password: null as any,
         role: 'serviceman',
         isVerified: true,
         isActive: true,
@@ -1458,7 +1057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         message: "Provider updated",
         data: {
-          ...provider,
+          ...redactEmployee(provider as any, capsOf(req)),
           partnerName: provider?.fullName || user?.username || 'Unknown',
           email: user?.email || '',
           phone: user?.phone || '',
@@ -1499,7 +1098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // they had to keep reopening the app to find out.
       void BookingNotifications.verificationDecision(id, 'verified');
 
-      res.json({ success: true, message: "Provider approved", data: provider });
+      res.json({ success: true, message: "Provider approved", data: redactEmployee(provider, capsOf(req)) });
     } catch (error) {
       next(error);
     }
@@ -1526,7 +1125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // opening the app wondering why no jobs arrive.
       void BookingNotifications.verificationDecision(id, "suspended", reason);
 
-      res.json({ success: true, message: "Provider suspended", data: provider });
+      res.json({ success: true, message: "Provider suspended", data: redactEmployee(provider, capsOf(req)) });
     } catch (error) {
       next(error);
     }
@@ -1550,7 +1149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       void BookingNotifications.verificationDecision(id, "verified");
 
-      res.json({ success: true, message: "Provider activated", data: provider });
+      res.json({ success: true, message: "Provider activated", data: redactEmployee(provider, capsOf(req)) });
     } catch (error) {
       next(error);
     }
@@ -1788,7 +1387,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Top up provider wallet
-  app.post("/api/admin/servicemen/:id/topup", async (req, res, next) => {
+  /**
+   * Staff adjustments to an expert's wallet.
+   *
+   * A top-up is withdrawable money created by a click. Both routes sit under
+   * /servicemen, so the access map asked only for "manage experts": a role that
+   * edits profiles could also credit a wallet. They took whatever arrived as
+   * `amount` (a string concatenated onto the balance; a fraction of a paisa),
+   * and left no audit entry saying who did it.
+   *
+   * Now: the Payments capability as well, a real rupee amount with at most two
+   * decimals and an upper bound, and an audit entry with the admin, the amount
+   * and the reason.
+   */
+  const MAX_WALLET_ADJUSTMENT_RUPEES = 100000;
+  const walletAdjustmentAmount = (raw: unknown): number | null => {
+    const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+    if (!Number.isFinite(n) || n <= 0 || n > MAX_WALLET_ADJUSTMENT_RUPEES) return null;
+    const paise = Math.round(n * 100);
+    if (paise < 1 || Math.abs(paise - n * 100) > 1e-6) return null;   // finer than a paisa
+    return paise / 100;
+  };
+  const INVALID_ADJUSTMENT = `Enter an amount in rupees between ₹0.01 and ₹${MAX_WALLET_ADJUSTMENT_RUPEES.toLocaleString('en-IN')}, with at most two decimals.`;
+
+  app.post("/api/admin/servicemen/:id/topup", requireCapability('payments:manage'), async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
 
@@ -1801,13 +1423,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Cannot top up suspended provider wallet" });
       }
 
-      const { amount, description } = req.body;
-
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ success: false, message: "Invalid amount" });
+      const amount = walletAdjustmentAmount(req.body?.amount);
+      const description = String(req.body?.description ?? '').trim().slice(0, 300) || 'Admin top-up';
+      if (amount === null) {
+        return res.status(400).json({ success: false, message: INVALID_ADJUSTMENT });
       }
 
-      const transaction = await storage.topUpProviderWallet(id, amount, description || 'Admin top-up');
+      const transaction = await storage.topUpProviderWallet(id, amount, description);
+      await recordAudit({
+        entityType: 'employee', entityId: id, action: 'wallet_topped_up',
+        changedBy: (req as any).admin?.userId ?? null,
+        metadata: { amount, description, expert: provider.fullName, balanceAfter: (transaction as any)?.balanceAfter ?? null },
+      });
       res.json({ success: true, message: "Wallet topped up", data: transaction });
     } catch (error) {
       next(error);
@@ -1815,7 +1442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Deduct from provider wallet
-  app.post("/api/admin/servicemen/:id/deduct", async (req, res, next) => {
+  app.post("/api/admin/servicemen/:id/deduct", requireCapability('payments:manage'), async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
 
@@ -1824,10 +1451,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ success: false, message: "Provider not found" });
       }
 
-      const { amount, description } = req.body;
-
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ success: false, message: "Invalid amount" });
+      const amount = walletAdjustmentAmount(req.body?.amount);
+      const description = String(req.body?.description ?? '').trim().slice(0, 300);
+      if (amount === null) {
+        return res.status(400).json({ success: false, message: INVALID_ADJUSTMENT });
       }
 
       if (!description) {
@@ -1837,6 +1464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const transaction = await storage.deductProviderWallet(id, amount, description);
         res.json({ success: true, message: "Wallet deducted", data: transaction });
+        await recordAudit({
+          entityType: 'employee', entityId: id, action: 'wallet_deducted',
+          changedBy: (req as any).admin?.userId ?? null,
+          metadata: { amount, description, expert: provider.fullName, balanceAfter: (transaction as any)?.balanceAfter ?? null },
+        });
       } catch (err: any) {
         // Handle insufficient balance or other errors
         return res.status(400).json({ success: false, message: err.message });
@@ -2110,7 +1742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         data: {
           employee: {
-            ...employee.employee,
+            ...redactEmployee(employee.employee, caps),
             username: employee.username,
             phone: employee.phone,
             email: employee.email,
@@ -2147,118 +1779,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Business partners endpoints (backward compatibility)
+  /**
+   * GET /api/business/partners — the expert directory behind the dashboard's
+   * pickers (assigning a booking, granting parts access, naming a technician
+   * on a stock movement).
+   *
+   * It sits outside /api/admin, so the capability map never saw it: any staff
+   * login could read it, and it returned whole expert rows. It now needs one of
+   * the capabilities whose screens use it, and returns only what a picker shows.
+   *
+   * REMOVED with it: POST, PUT, DELETE, /pending, /:id, /:id/verify,
+   * /:id/suspend and /:id/deactivate under the same prefix. Nothing called
+   * them. PUT wrote the request body straight into the expert's record, so any
+   * staff role could change an expert's bank account, UPI ID, verification
+   * state or wallet column — past the capability map, and past the
+   * super-admin-only bank route. The checked equivalents are under
+   * /api/admin/servicemen.
+   */
+  const DIRECTORY_CAPABILITIES = ['employees:view', 'bookings:view', 'inventory:view'];
   app.get("/api/business/partners", authenticateAdmin, async (req, res, next) => {
     try {
+      const caps = capsOf(req);
+      if (!DIRECTORY_CAPABILITIES.some(c => caps?.has(c))) {
+        return res.status(403).json({
+          success: false,
+          code: 'CAPABILITY_REQUIRED',
+          message: 'Your role does not allow you to view the expert directory.',
+        });
+      }
+
       // A directory, not a page: the pickers need everyone.
       const providers = await storage.getAllServiceProviders(1000);
-      // PHASE 1: Map employees columns → legacy partner field names
-      const mapped = await Promise.all(
-        providers.map(async (p) => {
-          const user = await storage.getUser(p.userId);
-          return {
-            ...p,
-            partnerName: p.fullName || user?.username || 'Unknown',
-            verificationStatus: p.documentVerificationStatus || 'pending',
-            email: user?.email || '',
-            phone: user?.phone || '',
-            services: p.services || [],
-          };
-        })
-      );
-      res.json(mapped);
-    } catch (error) {
-      next(error);
-    }
-  });
+      const accounts = providers.length
+        ? await db.select({ id: users.id, username: users.username, phone: users.phone })
+            .from(users).where(inArray(users.id, providers.map(p => p.userId)))
+        : [];
+      const accountById = new Map(accounts.map(u => [u.id, u]));
 
-  app.post("/api/business/partners", authenticateAdmin, async (req, res, next) => {
-    try {
-      const providerData = insertEmployeeSchema.parse(req.body);
-      const provider = await storage.createServiceProvider({
-        ...providerData,
-        documentVerificationStatus: 'verified'
-      });
-      res.status(201).json(provider);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/business/partners/pending", authenticateAdmin, async (req, res, next) => {
-    try {
-      const providers = await storage.getPendingServiceProviders();
-      res.json(providers);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
-    try {
-      const provider = await storage.getServiceProvider(parseInt(req.params.id));
-      if (!provider) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      res.json(provider);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.put("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
-    try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), req.body);
-      if (!provider) {
-        return res.status(404).json({ message: "Partner not found" });
-      }
-      res.json(provider);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.delete("/api/business/partners/:id", authenticateAdmin, async (req, res, next) => {
-    try {
-      const deleted = await storage.deleteServiceProvider(parseInt(req.params.id));
-      if (!deleted) {
-        return res.status(404).json({ success: false, message: "Partner not found" });
-      }
-      res.json({ success: true, message: "Partner deleted" });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/business/partners/:id/verify", authenticateAdmin, async (req, res, next) => {
-    try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
-        documentVerificationStatus: 'verified'
-      });
-      res.json(provider);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/business/partners/:id/suspend", authenticateAdmin, async (req, res, next) => {
-    try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
-        documentVerificationStatus: 'suspended',
-        isActive: false
-      });
-      res.json(provider);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/business/partners/:id/deactivate", authenticateAdmin, async (req, res, next) => {
-    try {
-      const provider = await storage.updateServiceProvider(parseInt(req.params.id), {
-        isActive: false
-      });
-      res.json(provider);
+      // PHASE 1: employees columns → legacy partner field names. Named fields
+      // only: no identity numbers, documents, bank or UPI details.
+      res.json(providers.map((p) => {
+        const account = accountById.get(p.userId);
+        return {
+          id: p.id,
+          userId: p.userId,
+          partnerId: p.partnerId,
+          partnerName: p.fullName || account?.username || 'Unknown',
+          fullName: p.fullName,
+          businessName: p.businessName,
+          partnerType: p.partnerType,
+          verificationStatus: p.documentVerificationStatus || 'pending',
+          isActive: p.isActive,
+          isOnline: p.isOnline,
+          services: p.services || [],
+          phone: account?.phone || '',
+          partsAccess: p.partsAccess,
+          walletBalance: p.walletBalance,
+          averageRating: p.averageRating,
+          totalServicesCompleted: p.totalServicesCompleted,
+        };
+      }));
     } catch (error) {
       next(error);
     }
@@ -2385,146 +1965,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Verify handshake OTP
-  app.post("/api/service/verify-handshake", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
-    try {
-      const { serviceId, otp } = req.body;
-
-      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
-      const service = isStringId 
-        ? await storage.getServiceRequestByServiceId(serviceId)
-        : await storage.getServiceRequest(parseInt(serviceId as string));
-      if (!service) {
-        return res.status(404).json({ success: false, message: "Service not found" });
-      }
-
-      if (service.handshakeOtp !== otp) {
-        return res.status(400).json({ success: false, message: "Invalid OTP" });
-      }
-
-      res.json({ success: true, message: "OTP verified successfully" });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Start service with geo-fencing
-  app.post("/api/service/start", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
-    try {
-      const { serviceId, providerLat, providerLong } = req.body;
-
-      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
-      const service = isStringId 
-        ? await storage.getServiceRequestByServiceId(serviceId)
-        : await storage.getServiceRequest(parseInt(serviceId as string));
-      if (!service) {
-        return res.status(404).json({ success: false, message: "Service not found" });
-      }
-
-      // Geo-fencing check
-      if (service.customerLocation) {
-        const match = service.customerLocation.match(/POINT\(([\d.-]+) ([\d.-]+)\)/);
-        if (match) {
-          const custLng = parseFloat(match[1]);
-          const custLat = parseFloat(match[2]);
-          
-          if (providerLat === undefined || providerLong === undefined) {
-             return res.status(400).json({ success: false, message: "Provider location is required to verify arrival distance." });
-          }
-
-          const distance = calculateDistance(
-            providerLat,
-            providerLong,
-            custLat,
-            custLng
-          );
-
-          const maxDistStr = await configService.get("OPERATIONAL_CONFIG.MAX_SERVICE_START_DISTANCE");
-          const maxDistance = maxDistStr ? parseInt(maxDistStr as string, 10) : 200;
-
-          if (distance > maxDistance) {
-            return res.status(403).json({
-              success: false,
-              message: `You are too far from the location to start the service. Distance: ${Math.round(distance)}m (max: ${maxDistance}m)`
-            });
-          }
-        }
-      }
-
-      const targetId = isStringId ? service.id : parseInt(serviceId as string);
-      const updatedService = await storage.updateServiceRequest(targetId, {
-        status: 'in_progress',
-        startedAt: new Date()
-      });
-
-      void BookingNotifications.serviceStarted(targetId);
-
-      res.json({ success: true, message: "Service started", data: updatedService });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Complete service with ACID transaction
-  app.post("/api/service/complete", authenticateServiceman, async (req: AuthenticatedRequest, res, next) => {
-    try {
-      const { serviceId } = req.body;
-      let { totalAmount } = req.body;
-
-      if (!serviceId) {
-        return res.status(400).json({ success: false, message: "serviceId required" });
-      }
-
-      const isStringId = typeof serviceId === 'string' && isNaN(Number(serviceId));
-      let targetId = isStringId ? null : parseInt(serviceId as string);
-      
-      let service;
-      if (isStringId) {
-        service = await storage.getServiceRequestByServiceId(serviceId);
-        if (!service) return res.status(404).json({ success: false, message: "Service not found" });
-        targetId = service.id;
-      } else {
-        const [found] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, targetId!));
-        service = found;
-        if (!service) return res.status(404).json({ success: false, message: "Service not found" });
-      }
-
-      if (service.status === 'completed') {
-        return res.json({ success: true, message: "Service is already completed" });
-      }
-      if (service.status === 'pending_payment') {
-        return res.status(409).json({ success: false, message: "Cannot mark complete directly. Please collect cash or wait for customer payment." });
-      }
-
-      // If totalAmount wasn't provided, use the BillingEngine's frozen pricingSnapshot
-      if (!totalAmount) {
-        const snapshot = service.pricingSnapshot as any;
-        if (!snapshot || !snapshot.subtotal) {
-            return res.status(400).json({ success: false, message: "Service charges must be submitted before completion" });
-        }
-        totalAmount = snapshot.subtotal; // Subtotal (parts+labor) used for commission math
-      }
-
-      const result = await storage.completeServiceWithTransaction(
-        targetId!,
-        totalAmount,
-        0.15 // PHASE 5: 15% UniteFix fee (was COMMISSION_RATE=0.10)
-      );
-
-      void BookingNotifications.serviceCompleted(targetId!, result.transaction?.amount);
-
-      res.json({
-        success: true,
-        message: "Service completed successfully",
-        data: {
-          service: result.service,
-          commission: result.transaction
-        }
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
+  /**
+   * RETIRED: /api/service/verify-handshake, /api/service/start, /api/service/complete.
+   *
+   * The first version of the job flow. None of the three checked that the
+   * booking was assigned to the caller or what state it was in, and they sat
+   * behind authenticateServiceman, which admits experts still awaiting
+   * approval — so any signed-in expert account could guess a customer start
+   * code without limit, start any booking, or mark any booking completed and
+   * paid online with a total of its own choosing and no payment behind it.
+   *
+   * The app has used the checked flow for some time: arrive and start with the
+   * customer code (geofence.routes.ts), then the bill and payment
+   * (billing.routes.ts, payment.routes.ts). A build old enough to still call
+   * these is told to update rather than given a 404.
+   */
+  const retiredJobRoute = (_req: Request, res: Response) => {
+    res.status(410).json({
+      success: false,
+      code: "UPDATE_REQUIRED",
+      message: "This step has moved. Please update the UniteFix app to continue with this job.",
+    });
+  };
+  app.post("/api/service/verify-handshake", authenticateServiceman, retiredJobRoute);
+  app.post("/api/service/start", authenticateServiceman, retiredJobRoute);
+  app.post("/api/service/complete", authenticateServiceman, retiredJobRoute);
 
   // ==================== USER APP ROUTES ====================
 
@@ -2883,7 +2348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           success: false,
           message: "Cannot cancel after a service expert has been assigned. Please contact support.",
           data: {
-            whatsappLink: `https://wa.me/${process.env.WHATSAPP_BUSINESS_NUMBER || '919999999999'}?text=${encodeURIComponent(`Booking #${service.id}: I need to cancel`)}`,
+            whatsappLink: supportWhatsAppLink(`Booking #${service.id}: I need to cancel`),
           },
         });
       }
@@ -3081,10 +2546,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Place order
-  app.post("/api/orders/place", authenticateToken, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
+  /**
+   * Product ordering is PAUSED (the app's Shop tab shows "Coming soon"), and
+   * until now only the app knew: these routes still took orders from anyone
+   * who called them — with no payment at all, for any quantity including a
+   * negative one — and /api/shop/create-order (payment.routes.ts) charged
+   * whatever amount the caller named.
+   *
+   * They answer 503 until SHOP_ORDERING_ENABLED=1 is set. Before that switch
+   * is turned on, the order must be tied to a verified payment for the total
+   * the SERVER works out — the amount below is computed here, but nothing
+   * checks that it was paid. Reading the cart and the catalogue stays open.
+   */
+  const shopPaused = (_req: Request, res: Response, next: NextFunction) => {
+    if (process.env.SHOP_ORDERING_ENABLED === '1') return next();
+    res.status(503).json({
+      success: false,
+      code: 'SHOP_PAUSED',
+      message: 'Product ordering is not open yet. It will be back soon.',
+    });
+  };
+
+  app.post("/api/orders/place", authenticateToken, shopPaused, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
       // Partner listings go through the store checkout, which splits, invoices and settles them.
+      // Whole, positive quantities of real products only. A negative quantity
+      // used to subtract from the total.
+      const validItems = Array.isArray(products) && products.length > 0 && products.length <= 50
+        && products.every((p: any) => Number.isInteger(Number(p?.productId)) && Number(p.productId) > 0
+          && Number.isInteger(p?.quantity) && p.quantity >= 1 && p.quantity <= 99);
+      if (!validItems) {
+        return res.status(400).json({ success: false, message: 'Send between 1 and 50 products, each with a quantity from 1 to 99.' });
+      }
       const { MarketplaceService } = await import("./services/marketplace.service");
       if (Array.isArray(products) && await MarketplaceService.hasPartnerItems(products.map((p: any) => Number(p.productId)).filter(Boolean))) {
         return res.status(409).json({ success: false, code: 'USE_STORE_CHECKOUT', message: 'Items from partner sellers check out through the store checkout. Please update the app.' });
@@ -3127,13 +2621,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/cart/add", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  app.post("/api/cart/add", authenticateToken, shopPaused, async (req: AuthenticatedRequest, res, next) => {
     try {
-      const { productId, quantity } = req.body;
+      const productId = Number(req.body?.productId);
+      const quantity = req.body?.quantity === undefined ? 1 : Number(req.body.quantity);
+      if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+        return res.status(400).json({ success: false, message: 'Choose a product and a quantity from 1 to 99.' });
+      }
       const item = await storage.addToCart({
         userId: req.user!.userId,
         productId,
-        quantity: quantity || 1
+        quantity,
       });
       res.status(201).json({ success: true, data: item });
     } catch (error) {
@@ -3142,8 +2640,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+  // Not paused: taking something OUT of a cart is always allowed. Scoped to the
+  // caller — this used to delete whichever cart row had the id in the URL,
+  // whoever it belonged to.
     try {
-      await storage.removeFromCart(parseInt(req.params.id));
+      const id = parseInt(req.params.id);
+      if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: 'Invalid cart item.' });
+      await storage.removeFromCart(id, req.user!.userId);
       res.json({ success: true, message: "Item removed" });
     } catch (error) {
       next(error);
@@ -3693,68 +3196,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== OTP ROUTES ====================
 
-  app.post("/api/otp/send", async (req, res, next) => {
-    try {
-      const { phone, email, purpose } = req.body;
-
-      if (!phone && !email) {
-        return res.status(400).json({ success: false, message: "Phone or email required" });
-      }
-
-      const otp = generateOTP();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-      await storage.createOtpVerification({
-        phone,
-        email,
-        otp,
-        purpose,
-        expiresAt,
-      });
-
-      const message = `Your UniteFix verification code is: ${otp}. Do not share this code with anyone.`;
-
-      if (phone) {
-        // Send SMS
-        await NotificationService.sendSms(phone, message);
-      }
-
-      if (email) {
-        // Send Email
-        await NotificationService.sendEmail(
-          email,
-          "UniteFix Verification Code",
-          `<p>Your verification code is: <strong>${otp}</strong></p><p>This code expires in 10 minutes.</p>`
-        );
-      }
-
-      // For simulator/testing purposes, return the OTP
-      res.json({ success: true, message: "OTP sent successfully", otp });
-    } catch (error) {
-      next(error);
-    }
-  });
+  /**
+   * REMOVED: POST /api/otp/send and POST /api/otp/verify.
+   *
+   * /send needed no login, stored a code for ANY phone or email under ANY
+   * purpose the caller named, and returned that code in its response ("for
+   * simulator/testing purposes"). Asking for purpose "password_reset" or
+   * "fallback_login" for someone else and reading the code back was a
+   * complete account takeover. /verify let the same caller test codes.
+   *
+   * Nothing calls them: the app signs in through /api/auth/truecaller/* and
+   * /api/auth/fallback/*, which create and check their own codes and only ever
+   * deliver them out of band.
+   */
 
   // Utility route for generating verification codes
   app.post("/api/utils/generate-code", (req, res) => {
     const code = crypto.randomInt(1000, 9999).toString();
     res.json({ success: true, code });
-  });
-
-  app.post("/api/otp/verify", async (req, res, next) => {
-    try {
-      const { phone, email, otp, purpose } = req.body;
-
-      const isValid = await storage.verifyOtp(phone, email, otp, purpose);
-
-      if (isValid) {
-        res.json({ success: true, message: "OTP verified successfully" });
-      } else {
-        res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-      }
-    } catch (error) {
-      next(error);
-    }
   });
 
   // ==================== DEVICE TOKEN ALIASES ====================

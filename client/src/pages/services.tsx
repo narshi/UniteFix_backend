@@ -12,6 +12,7 @@ import PartnerAssignmentModal from "@/components/admin/partner-assignment-modal"
 import SendToPartnerModal from "@/components/admin/send-to-partner-modal";
 import BookingSummary from "@/components/admin/booking-summary";
 import BookingEndModal from "@/components/admin/booking-end-modal";
+import BookingDisputeModal, { DISPUTABLE_STATES, type DisputeMode } from "@/components/admin/booking-dispute-modal";
 import { TableEmptyState, TableErrorState } from "@/components/admin/table-states";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -32,6 +33,8 @@ export default function ServicesPage() {
   // Give the booking to a partner, or move it to another partner.
   const [partnerFor, setPartnerFor] = useState<any>(null);
   const [endFor, setEndFor] = useState<{ service: any; mode: "cancel" | "close" } | null>(null);
+  // Mark a booking as disputed, or settle one that is.
+  const [disputeFor, setDisputeFor] = useState<{ service: any; mode: DisputeMode } | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   // Download the real tax-invoice PDF from the server (same document the customer
@@ -508,6 +511,28 @@ Generated on: ${new Date().toLocaleString('en-IN')}
                                   <span className="text-xs font-medium">Cancel</span>
                                 </Button>
                               )}
+                              {DISPUTABLE_STATES.includes(service.status) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setDisputeFor({ service, mode: "open" })}
+                                  className="h-8 border-[hsla(0,0%,100%,0.15)] text-[hsl(215,20%,80%)] bg-transparent hover:bg-[rgba(255,255,255,0.06)] transition-colors"
+                                  title="The customer or the expert disputes this job or its bill"
+                                >
+                                  <span className="text-xs font-medium">Dispute</span>
+                                </Button>
+                              )}
+                              {service.status === 'disputed' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setDisputeFor({ service, mode: "resolve" })}
+                                  className="h-8 border-[hsla(38,92%,60%,0.3)] text-[hsl(38,92%,60%)] bg-[hsla(38,92%,60%,0.05)] hover:bg-[hsla(38,92%,60%,0.15)] transition-colors"
+                                  title="Refund the customer, release the expert's earning, or both"
+                                >
+                                  <span className="text-xs font-medium">Resolve dispute</span>
+                                </Button>
+                              )}
                               {service.status === 'completed' && (
                               <Button
                                 size="sm"
@@ -660,6 +685,7 @@ Generated on: ${new Date().toLocaleString('en-IN')}
         />
         <SendToPartnerModal service={partnerFor} open={!!partnerFor} onClose={() => setPartnerFor(null)} />
         <BookingEndModal service={endFor?.service} mode={endFor?.mode ?? null} onClose={() => setEndFor(null)} />
+        <BookingDisputeModal service={disputeFor?.service} mode={disputeFor?.mode ?? null} onClose={() => setDisputeFor(null)} />
       </div>
   );
 }

@@ -13,6 +13,7 @@ import { configService } from './config.service';
 import { publicAppUrl } from '../lib/public-url';
 import { cashfreeLive, cashfreeKeys, cashfreePublicKey, CASHFREE_VARS } from '../lib/cashfree-env';
 import { loadSellerDetails } from './invoice-generator';
+import { companyUpiId, whatsAppConfigured, supportWhatsAppNumber } from '../lib/business-identity';
 
 export type Check = { key: string; area: string; label: string; status: 'ok' | 'action' | 'info'; detail: string; fix?: string };
 
@@ -29,9 +30,23 @@ export class GoLiveService {
         // ── Tax identity ──────────────────────────────────────────────────
         const seller = await loadSellerDetails();
         const g = checkGstin(seller.gstin);
-        add(seller.gstin === PLACEHOLDER_GSTIN || !g.valid
-            ? { key: 'gstin', area: 'Tax', label: 'UniteFix GSTIN on invoices', status: 'action', detail: seller.gstin === PLACEHOLDER_GSTIN ? 'Still the sample GSTIN — every UniteFix invoice and the store\'s e-commerce operator GSTIN would be wrong.' : 'The GSTIN does not pass the checksum.', fix: 'Settings → Business config → COMPANY_GSTIN, COMPANY_NAME, COMPANY_ADDRESS.' }
+        // loadSellerDetails returns '' for a GSTIN that is unset or still the sample:
+        // invoices then print none, which is what this line reports.
+        add(!seller.gstin || seller.gstin === PLACEHOLDER_GSTIN || !g.valid
+            ? { key: 'gstin', area: 'Tax', label: 'UniteFix GSTIN on invoices', status: 'action', detail: !seller.gstin || seller.gstin === PLACEHOLDER_GSTIN ? 'Not set (or still the sample GSTIN) — every UniteFix invoice goes out with no GSTIN, and the store has no e-commerce operator GSTIN.' : 'The GSTIN does not pass the checksum.', fix: 'Settings → Business config → COMPANY_GSTIN, COMPANY_NAME, COMPANY_ADDRESS.' }
             : { key: 'gstin', area: 'Tax', label: 'UniteFix GSTIN on invoices', status: 'ok', detail: `${seller.gstin} (${seller.name})` });
+        add(seller.supportPhone
+            ? { key: 'support_phone', area: 'Tax', label: 'Support phone on invoices', status: 'ok', detail: seller.supportPhone }
+            : { key: 'support_phone', area: 'Tax', label: 'Support phone on invoices', status: 'action', detail: 'Not set (or still the sample number) — invoices show no phone number for support.', fix: 'Settings → Business config → SUPPORT_PHONE.' });
+        {
+            const upi = await companyUpiId();
+            add(upi
+                ? { key: 'company_upi', area: 'Money', label: 'Company UPI ID', status: 'ok', detail: upi }
+                : { key: 'company_upi', area: 'Money', label: 'Company UPI ID', status: 'action', detail: 'Not set (or still the sample yourmerchant@upi) — when a payment QR cannot be made, the expert app has no UniteFix QR to fall back to.', fix: 'Settings → Business config → COMPANY_UPI_ID.' });
+            add(whatsAppConfigured()
+                ? { key: 'whatsapp_number', area: 'Messages', label: 'Support WhatsApp number', status: 'ok', detail: `Support links open a chat with +${supportWhatsAppNumber()}.` }
+                : { key: 'whatsapp_number', area: 'Messages', label: 'Support WhatsApp number', status: 'action', detail: `WHATSAPP_BUSINESS_NUMBER is not set — "contact support" links in the app use the built-in fallback +${supportWhatsAppNumber()}.`, fix: 'WHATSAPP_BUSINESS_NUMBER: digits with the country code, no plus sign (for example 919876500000).' });
+        }
         const [noHsn] = await db.select({ n: sql<number>`count(*)::int` }).from(spareParts).where(and(eq(spareParts.isActive, true), or(isNull(spareParts.hsnCode), eq(spareParts.hsnCode, ''))));
         add({ key: 'parts_hsn', area: 'Tax', label: 'HSN on every spare part', status: (noHsn?.n ?? 0) ? 'action' : 'ok', detail: (noHsn?.n ?? 0) ? `${noHsn.n} active part(s) have no HSN — their B2B invoices would go out without one.` : 'Every active part has an HSN.', fix: 'Spare parts → edit each part without HSN.' });
         const [noHsnStore] = await db.select({ n: sql<number>`count(*)::int` }).from(products).where(and(isNotNull(products.sellerPartnerId), eq(products.listingStatus, 'live'), or(isNull(products.hsnCode), eq(products.hsnCode, ''))));

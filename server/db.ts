@@ -104,6 +104,17 @@ export async function runStartupMigrations(): Promise<void> {
       END $$;
     `);
 
+    // 5b. Start-code attempts on a booking.
+    //
+    // The six-digit code a customer reads out to start a job could be guessed
+    // without limit. These count the wrong tries and hold the lock-out time.
+    // Additive, with a default, so every existing booking starts at zero.
+    await client.query(`
+      ALTER TABLE service_requests
+      ADD COLUMN IF NOT EXISTS handshake_attempts INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS handshake_locked_until TIMESTAMP;
+    `);
+
     // 6. Plan recommendation badge for annual packs / best value push
     await client.query(`
       ALTER TABLE ftth_plans

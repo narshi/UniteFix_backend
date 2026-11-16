@@ -31,6 +31,7 @@ import {
 import { BookingNotifications } from '../services/booking-notifications';
 import { SparePartsService, SparePartsError } from '../services/spare-parts.service';
 import logger from '../lib/logger';
+import { supportWhatsAppLink, supportWhatsAppNumber } from '../lib/business-identity';
 
 export function registerBillingRoutes(app: Express) {
 
@@ -504,7 +505,7 @@ export function registerBillingRoutes(app: Express) {
                     success: false,
                     message: 'Booking can only be cancelled before an employee is assigned. Please contact support via WhatsApp.',
                     data: {
-                        whatsappLink: `https://wa.me/${process.env.WHATSAPP_BUSINESS_NUMBER || '919999999999'}?text=${encodeURIComponent(`Booking ${booking.serviceId}: I need to cancel/reschedule`)}`,
+                        whatsappLink: supportWhatsAppLink(`Booking ${booking.serviceId}: I need to cancel/reschedule`),
                     },
                 });
             }
@@ -591,7 +592,7 @@ export function registerBillingRoutes(app: Express) {
                 return res.status(404).json({ success: false, message: 'Booking not found' });
             }
 
-            const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919999999999';
+            const whatsappNumber = supportWhatsAppNumber();
             const message = encodeURIComponent(
                 `Hi UniteFix Support, I need help with booking ${booking.serviceId} (Status: ${booking.status})`
             );

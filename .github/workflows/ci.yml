@@ -1,0 +1,83 @@
+# Runs on every push and pull request: the type-check, then the security smoke
+# suites against a database built from scratch.
+#
+# What this does NOT do: gate the deploy. Render deploys the branch when it is
+# pushed, whether or not this run is green. To make a red run block a release,
+# turn off auto-deploy on Render and deploy from a branch that only receives
+# commits which passed here (or use Render's "after CI checks pass" option).
+#
+# No secrets are needed. The suites never call Razorpay, Cashfree, Firebase, a
+# mail server or Cloudinary; the two values below exist only inside this run.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Type-check and security smoke suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # PostGIS, as production has: a few queries use it, with a fallback.
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: unitefix_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d unitefix_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/unitefix_ci
+      JWT_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
+      NODE_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check (server, shared, dashboard)
+        run: npm run check
+
+      # scripts/require-local-db.mjs lets this through because the database is
+      # on localhost; the same command refuses any other host.
+      - name: Build the schema in an empty database
+        run: npm run db:push
+
+      # Each suite boots the real route stack (every guard, the access map, the
+      # startup migrations) and removes its own fixtures.
+      - name: Critical findings (sign-in takeover, job routes, payment replay)
+        run: npm run smoke:critical-fixes
+
+      - name: High findings (data exposure, withdrawals, SQL console, staff access)
+        run: npm run smoke:high-fixes
+
+      - name: Medium findings (start code, holds, disputes, wallet, webhooks)
+        run: npm run smoke:medium-fixes
+
+      - name: Payment guards
+        run: npm run smoke:payment-guards
+
+      - name: Admin tokens, wallet release and webhook replays
+        run: npm run smoke:security-fixes

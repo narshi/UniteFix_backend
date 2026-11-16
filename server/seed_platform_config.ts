@@ -36,12 +36,12 @@ async function seedPlatformConfig() {
         { key: 'BUSINESS_CONFIG.GST_PERCENTAGE', value: '18', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'GST percentage', isEditable: false },
         { key: 'BUSINESS_CONFIG.WALLET_HOLD_DAYS', value: '7', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'Days to hold earnings before release', isEditable: true },
         { key: 'BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', value: '500', valueType: 'number', category: 'BUSINESS_CONFIG', description: 'Minimum withdrawal amount', isEditable: true },
-        { key: 'BUSINESS_CONFIG.COMPANY_UPI_ID', value: 'yourmerchant@upi', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Company UPI ID for QR Code', isEditable: true },
+        { key: 'BUSINESS_CONFIG.COMPANY_UPI_ID', value: '', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Company UPI ID for QR Code', isEditable: true },
 
         // Invoice issuer block — printed on every tax invoice PDF
         { key: 'BUSINESS_CONFIG.COMPANY_NAME', value: 'UniteFix Solutions Pvt Ltd', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Legal entity name printed on invoices', isEditable: true },
         { key: 'BUSINESS_CONFIG.COMPANY_ADDRESS', value: 'Yellapur, Uttara Kannada, Karnataka - 581359', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Registered address printed on invoices', isEditable: true },
-        { key: 'BUSINESS_CONFIG.COMPANY_GSTIN', value: '29ABCDE1234F1Z5', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'GSTIN printed on invoices', isEditable: true },
+        { key: 'BUSINESS_CONFIG.COMPANY_GSTIN', value: '', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'GSTIN printed on invoices', isEditable: true },
         { key: 'BUSINESS_CONFIG.PLACE_OF_SUPPLY', value: 'Yellapur, Karnataka', valueType: 'string', category: 'BUSINESS_CONFIG', description: 'Place of supply printed on invoices', isEditable: true },
 
         // Operational

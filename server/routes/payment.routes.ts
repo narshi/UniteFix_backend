@@ -8,7 +8,7 @@
 import type { Express, Request, Response } from "express";
 import { PaymentService } from "../services/payment.service";
 import { db } from "../db";
-import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
+import { sql, eq, and, desc, isNotNull, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { authenticateToken, authenticatePartner , requireVerifiedPartner} from "../middleware/auth.middleware";
 import { mobileLimiter } from "../middleware/rate-limit";
@@ -20,6 +20,7 @@ import { BookingNotifications } from "../services/booking-notifications";
 import logger from "../lib/logger";
 import { configService } from "../services/config.service";
 import { PartnerFieldService, pinFrom } from "../services/partner-field.service";
+import { withTransaction } from "../lib/transaction";
 import { 
     paymentTransactions,
     invoices,
@@ -135,7 +136,10 @@ export function registerPaymentRoutes(app: Express) {
                 return res.status(401).json({ error: "Unauthorized" });
             }
 
-            const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
+            // The caller's own booking only. This looked the booking up by id alone,
+            // so any customer could open a payment order on anyone's booking.
+            const [booking] = await db.select().from(serviceRequests)
+                .where(and(eq(serviceRequests.id, serviceId), eq(serviceRequests.userId, customerId))).limit(1);
 
             if (!booking) {
                 return res.status(404).json({ error: "Booking not found" });
@@ -646,41 +650,62 @@ export function registerPaymentRoutes(app: Express) {
             
             if (event === 'payout.processed') {
                 const payoutId = payload.payout.entity.id;
+                // Only a payout still in flight can complete: a late or repeated
+                // "processed" must not turn a failed (and refunded) request back
+                // into a completed one.
                 await db.update(withdrawalRequests)
                     .set({ status: 'completed', updatedAt: new Date() })
-                    .where(eq(withdrawalRequests.razorpayPayoutId, payoutId));
+                    .where(and(
+                        eq(withdrawalRequests.razorpayPayoutId, payoutId),
+                        inArray(withdrawalRequests.status, ['pending', 'processing'] as any),
+                    ));
             } else if (event === 'payout.failed' || event === 'payout.reversed') {
                 const payout = payload.payout.entity;
                 const failureReason = payout.failure_reason || 'Payout failed';
-                
-                const [request] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.razorpayPayoutId, payout.id)).limit(1);
-                
-                if (request && request.status !== 'failed' && request.status !== 'rejected') {
-                    // Update request
-                    await db.update(withdrawalRequests)
+
+                // One transaction, and the refund follows a CLAIM.
+                //
+                // This used to read the request, then mark it failed, then read the
+                // wallet, then write the wallet — four separate statements. Razorpay
+                // redelivers webhooks, and two deliveries of the same failure could
+                // both read "not failed yet" and both put the money back.
+                //
+                // The claim is the conditional update: only the delivery that flips
+                // the request to 'failed' gets a row back, and only that one credits
+                // the wallet — with the row locked, so the before/after figures in
+                // the ledger are the ones the balance actually moved between.
+                await withTransaction(async (tx) => {
+                    const [claimed] = await tx.update(withdrawalRequests)
                         .set({ status: 'failed', failureReason, updatedAt: new Date() })
-                        .where(eq(withdrawalRequests.id, request.id));
-                        
-                    // Refund to wallet
-                    const [wallet] = await db.select().from(partnerWallets).where(eq(partnerWallets.partnerId, request.partnerId)).limit(1);
-                    if (wallet) {
-                        const amount = parseFloat(request.amount as any);
-                        const currentAvail = parseFloat(wallet.balanceAvailable as any);
-                        await db.update(partnerWallets)
-                            .set({ balanceAvailable: (currentAvail + amount).toFixed(2) })
-                            .where(eq(partnerWallets.partnerId, request.partnerId));
-                            
-                        await db.insert(walletTransactionsV2).values({
-                            transactionId: `REFUND-FAIL-${request.id}-${Date.now()}`,
-                            partnerId: request.partnerId,
-                            transactionType: 'refund', // Payout failed → funds returned
-                            amount: amount.toFixed(2),
-                            balanceAvailableBefore: wallet.balanceAvailable,
-                            balanceAvailableAfter: (currentAvail + amount).toFixed(2),
-                            description: `Withdrawal Failed Refund: ${failureReason}`,
-                        });
-                    }
-                }
+                        .where(and(
+                            eq(withdrawalRequests.razorpayPayoutId, payout.id),
+                            inArray(withdrawalRequests.status, ['pending', 'processing', 'completed'] as any),
+                        ))
+                        .returning();
+                    if (!claimed) return;   // already failed or rejected: refunded once, never again
+
+                    const [wallet] = await tx.select().from(partnerWallets)
+                        .where(eq(partnerWallets.partnerId, claimed.partnerId)).limit(1).for('update');
+                    if (!wallet) return;
+
+                    const amount = parseFloat(claimed.amount as any);
+                    const after = (parseFloat(wallet.balanceAvailable as any) + amount).toFixed(2);
+                    await tx.update(partnerWallets)
+                        .set({ balanceAvailable: after, updatedAt: new Date() })
+                        .where(eq(partnerWallets.partnerId, claimed.partnerId));
+
+                    await tx.insert(walletTransactionsV2).values({
+                        transactionId: `REFUND-FAIL-${claimed.id}-${Date.now()}`,
+                        partnerId: claimed.partnerId,
+                        transactionType: 'refund', // Payout failed → funds returned
+                        amount: amount.toFixed(2),
+                        balanceAvailableBefore: wallet.balanceAvailable,
+                        balanceAvailableAfter: after,
+                        balanceHoldBefore: wallet.balanceHold,
+                        balanceHoldAfter: wallet.balanceHold,
+                        description: `Withdrawal Failed Refund: ${failureReason}`,
+                    });
+                });
             }
 
             res.json({ received: true });
@@ -743,15 +768,13 @@ export function registerPaymentRoutes(app: Express) {
             // explicitly or the lines don't sum to what the customer paid.
             const otherCharges = Math.max(0, Math.round((totalAmount - (serviceAmount + gstAmount)) * 100) / 100);
 
-            // Load company details from admin config for the invoice view
-            const [companyName, companyAddress, companyGstin, placeOfSupply, supportEmail, supportPhone] = await Promise.all([
-                configService.get<string>('BUSINESS_CONFIG.COMPANY_NAME', 'UniteFix Solutions Pvt Ltd'),
-                configService.get<string>('BUSINESS_CONFIG.COMPANY_ADDRESS', 'Yellapur, Uttara Kannada, Karnataka - 581359'),
-                configService.get<string>('BUSINESS_CONFIG.COMPANY_GSTIN', '29ABCDE1234F1Z5'),
-                configService.get<string>('BUSINESS_CONFIG.PLACE_OF_SUPPLY', 'Yellapur, Karnataka'),
-                configService.get<string>('BUSINESS_CONFIG.SUPPORT_EMAIL', 'support@unitefix.com'),
-                configService.get<string>('BUSINESS_CONFIG.SUPPORT_PHONE', '+91-9876543210'),
-            ]);
+            // Company details for the invoice view: the SAME ones the PDF prints
+            // (loadSellerDetails). This route kept its own copy with a sample
+            // GSTIN and phone number as fallbacks; a missing one is now left off.
+            const { loadSellerDetails } = await import("../services/invoice-generator");
+            const seller = await loadSellerDetails();
+            const companyName = seller.name, companyAddress = seller.address, companyGstin = seller.gstin,
+                placeOfSupply = seller.placeOfSupply, supportEmail = seller.supportEmail, supportPhone = seller.supportPhone;
 
             res.json({
                 invoice: {
@@ -833,13 +856,26 @@ export function registerPaymentRoutes(app: Express) {
             // was swallowed by the catch below, and the result was: money taken,
             // booking stuck in pending_payment, and NO INVOICE EVER CREATED.
             let serviceId: number | null = null;
+            const userId = (req as any).user?.userId;
+
+            // What the Razorpay order was created to pay for, read from OUR
+            // record of it — never inferred from the booking's current state.
+            //
+            // A valid signature only proves "this payment paid this order". It
+            // says nothing about WHICH order. The booking fee and the final bill
+            // are two orders on the same booking, and this route used to complete
+            // any booking in pending_payment the moment it saw a valid signature
+            // for either: a customer could re-send the three values from paying
+            // the ₹99 booking fee and have the whole bill marked paid, an invoice
+            // issued and the expert credited.
+            let orderPaymentType: string | null = null;
+            let orderAmountPaise = 0;
 
             if (razorpay_payment_id === 'zero_amount') {
                 // No money moved, so there is no signature to check. Before this,
                 // anyone signed in could send zero_amount with any booking's id
                 // and mark it completed and paid online (or its booking fee paid).
                 const id = /^order_(\d+)$/.exec(String(razorpay_order_id))?.[1];
-                const userId = (req as any).user?.userId;
                 const [own] = id ? await db.select({ id: serviceRequests.id, status: serviceRequests.status })
                     .from(serviceRequests).where(and(eq(serviceRequests.id, Number(id)), eq(serviceRequests.userId, userId))).limit(1) : [];
                 if (!own) {
@@ -855,16 +891,33 @@ export function registerPaymentRoutes(app: Express) {
                 }
                 serviceId = own.id;
             } else {
-                // The order_created row carries the booking link.
-                const txns = await db.select({ serviceRequestId: paymentTransactions.serviceRequestId })
+                // The order_created row carries the booking link, what the order
+                // was for, and how much it was for.
+                const [order] = await db.select({
+                    serviceRequestId: paymentTransactions.serviceRequestId,
+                    amount: paymentTransactions.amount,
+                    metadata: paymentTransactions.metadata,
+                })
                     .from(paymentTransactions)
                     .where(and(
                         eq(paymentTransactions.razorpayOrderId, razorpay_order_id),
+                        eq(paymentTransactions.eventType, 'order_created'),
                         isNotNull(paymentTransactions.serviceRequestId),
                     ))
+                    .orderBy(paymentTransactions.id)
                     .limit(1);
-                if (txns[0]?.serviceRequestId) {
-                    serviceId = txns[0].serviceRequestId;
+                if (order?.serviceRequestId) {
+                    // Only the booking's own customer may confirm a payment on
+                    // it. Nothing here was scoped to the caller before.
+                    const [own] = await db.select({ id: serviceRequests.id }).from(serviceRequests)
+                        .where(and(eq(serviceRequests.id, order.serviceRequestId), eq(serviceRequests.userId, userId))).limit(1);
+                    if (!own) {
+                        logger.warn(`[PAYMENT] verify refused: order ${razorpay_order_id} belongs to booking #${order.serviceRequestId}, not to user ${userId}`);
+                        return res.status(403).json({ success: false, message: "This payment is not for one of your bookings." });
+                    }
+                    serviceId = own.id;
+                    orderPaymentType = (order.metadata as any)?.paymentType ?? null;
+                    orderAmountPaise = order.amount;
                 }
             }
 
@@ -877,18 +930,41 @@ export function registerPaymentRoutes(app: Express) {
                 ftthRechargeId = await FtthService.rechargeIdForOrder(razorpay_order_id);
             }
 
-            // Record verified payment via Drizzle ORM (correct columns)
+            // Record the verified payment — ONCE per payment id.
+            //
+            // Every call used to add another captured row, so the same three
+            // values could be sent again and again and each time looked like a
+            // new payment. The check and the insert share an advisory lock (as
+            // the webhook's do) so two calls at once cannot both be "first".
+            // `firstVerify` is false when this payment has been through here
+            // before; a repeat changes nothing below except to report the
+            // booking's current state.
+            let firstVerify = true;
             if (razorpay_payment_id !== 'zero_amount') {
-                await PaymentTrackingService.recordPaymentEvent({
-                    serviceRequestId: serviceId ?? undefined,
-                    ftthRechargeId: ftthRechargeId ?? undefined,
-                    razorpayOrderId: razorpay_order_id,
-                    razorpayPaymentId: razorpay_payment_id,
-                    amount: 0, // Amount will be updated by webhook
-                    eventType: 'payment_captured',
-                    status: 'captured',
-                    metadata: { verifiedVia: 'mobile_sdk', razorpay_signature },
+                firstVerify = await withTransaction(async (tx) => {
+                    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'verify:' + razorpay_payment_id}))`);
+                    const [seen] = await tx.select({ id: paymentTransactions.id }).from(paymentTransactions).where(and(
+                        eq(paymentTransactions.razorpayPaymentId, razorpay_payment_id),
+                        eq(paymentTransactions.eventType, 'payment_captured'),
+                        sql`${paymentTransactions.metadata}->>'verifiedVia' = 'mobile_sdk'`,
+                    )).limit(1);
+                    if (seen) return false;
+                    await tx.insert(paymentTransactions).values({
+                        serviceRequestId: serviceId,
+                        ftthRechargeId,
+                        razorpayOrderId: razorpay_order_id,
+                        razorpayPaymentId: razorpay_payment_id,
+                        amount: 0, // The webhook's row carries the real amount
+                        currency: 'INR',
+                        eventType: 'payment_captured',
+                        status: 'captured',
+                        metadata: { verifiedVia: 'mobile_sdk', razorpay_signature, paymentType: orderPaymentType },
+                    });
+                    return true;
                 });
+                if (!firstVerify) {
+                    logger.info(`[PAYMENT] verify repeated for payment ${razorpay_payment_id} (order ${razorpay_order_id}) — already recorded`);
+                }
             }
 
             // Extend the connection now rather than waiting on the webhook, so the
@@ -931,7 +1007,25 @@ export function registerPaymentRoutes(app: Express) {
                     const [booking] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, serviceId)).limit(1);
                     
                     if (booking) {
-                        if (booking.status === BookingState.PENDING_PAYMENT) {
+                        // What this payment settles is decided by the ORDER it
+                        // paid, not by whatever state the booking happens to be
+                        // in. zero_amount has already been checked above against
+                        // the bill (nothing due) and the caller.
+                        const settlesFinalBill = razorpay_payment_id === 'zero_amount' || orderPaymentType === 'final_payment';
+                        const settlesBookingFee = orderPaymentType === 'booking_charge';
+
+                        if (settlesFinalBill && booking.status === BookingState.PENDING_PAYMENT) {
+                            // Visible, not blocking: the order was created for
+                            // less than is due now (the bill changed after the
+                            // payment sheet opened). Staff need to see this.
+                            if (razorpay_payment_id !== 'zero_amount') {
+                                const dueNow = await finalAmountDue(serviceId);
+                                if (dueNow !== null && orderAmountPaise + 100 < Math.round(dueNow * 100)) {
+                                    logger.error(`[PAYMENT] booking #${serviceId} completed on an order for ₹${orderAmountPaise / 100} while ₹${dueNow} is due now — check this booking`, {
+                                        razorpay_order_id, razorpay_payment_id,
+                                    });
+                                }
+                            }
                             // Final payment successful -> Complete booking
                             const { storage } = await import('../storage');
                             await storage.updateServiceRequestStatus(
@@ -948,8 +1042,15 @@ export function registerPaymentRoutes(app: Express) {
                                 ?? 0;
                             void BookingNotifications.paymentReceived(serviceId, paidAmount, 'online');
                             void BookingNotifications.serviceCompleted(serviceId);
-                        } else {
-                            // Booking fee or other payment
+                        } else if (settlesFinalBill) {
+                            // Final payment on a booking that is not waiting for
+                            // one: already completed by the webhook (the usual
+                            // case), or cancelled. Nothing to change.
+                            if (booking.status !== BookingState.COMPLETED) {
+                                logger.warn(`[PAYMENT] final payment ${razorpay_payment_id} verified for booking #${serviceId} in state '${booking.status}' — no change made`);
+                            }
+                        } else if (settlesBookingFee) {
+                            // Booking fee (or the full price, when prepaid at booking)
                             const [updated] = await db.update(serviceRequests)
                                 .set({ bookingFeeStatus: 'paid' as any, updatedAt: new Date() })
                                 .where(eq(serviceRequests.id, serviceId))
@@ -963,9 +1064,11 @@ export function registerPaymentRoutes(app: Express) {
                              * customer went through with it.
                              *
                              * Guarded on the row having actually moved to paid so
-                             * a duplicate webhook cannot announce it twice.
+                             * a duplicate webhook cannot announce it twice, and
+                             * on this being the first time this payment has been
+                             * verified so a repeated call cannot either.
                              */
-                            if (updated?.id) {
+                            if (updated?.id && firstVerify) {
                                 void BookingNotifications.bookingCreated(serviceId);
                                 // The partner or expert the customer chose gets it now that it is paid.
                                 const { ProviderChoiceService } = await import("../services/provider-choice.service");
@@ -974,6 +1077,11 @@ export function registerPaymentRoutes(app: Express) {
                                 const { CallBookingService } = await import("../services/call-booking.service");
                                 void CallBookingService.afterOtherPayment(serviceId).catch(() => {});
                             }
+                        } else {
+                            // An order of a kind this route does not settle a
+                            // booking with. The payment is recorded; the booking
+                            // is left exactly as it was.
+                            logger.warn(`[PAYMENT] payment ${razorpay_payment_id} verified for booking #${serviceId} on an order of type '${orderPaymentType ?? 'unknown'}' — no booking change made`);
                         }
                     }
                 }
@@ -998,6 +1106,13 @@ export function registerPaymentRoutes(app: Express) {
      */
     app.post("/api/shop/create-order", authenticateToken as any, async (req: Request, res: Response) => {
         try {
+            // Paused with the rest of product ordering (see shopPaused in
+            // routes.ts). This charges whatever `amount` the caller sends, with
+            // nothing tying it to a cart or an order — before the shop reopens
+            // the amount must come from the server's own total.
+            if (process.env.SHOP_ORDERING_ENABLED !== '1') {
+                return res.status(503).json({ success: false, code: 'SHOP_PAUSED', message: 'Product ordering is not open yet. It will be back soon.' });
+            }
             const { amount, address } = req.body;
             const customerId = (req as any).user?.userId;
 

@@ -7,6 +7,7 @@ import path from "path";
 import { configService } from "./config.service";
 import { getPartItems, backerLabel, sourceLabel } from "./warranty.service";
 import logger from "../lib/logger";
+import { realGstin, realPhone, reportMissing } from "../lib/business-identity";
 
 // Define strict types for invoice data
 interface InvoiceData {
@@ -59,13 +60,18 @@ export interface SellerDetails {
     supportPhone?: string;
 }
 
+// No made-up GSTIN or phone number here. These used to default to a sample
+// GSTIN and +91-9876543210, which a tax invoice then printed as if they were
+// UniteFix's. A missing one is now left off the document and reported
+// (lib/business-identity.ts); `gstin` is '' until the real one is entered under
+// Settings → Business config.
 const SELLER_DEFAULTS: SellerDetails = {
     name: "UniteFix Solutions Pvt Ltd",
     address: "Yellapur, Uttara Kannada, Karnataka - 581359",
-    gstin: "29ABCDE1234F1Z5",
+    gstin: "",
     placeOfSupply: "Yellapur, Karnataka",
     supportEmail: "support@unitefix.com",
-    supportPhone: "+91-9876543210",
+    supportPhone: undefined,
 };
 
 export async function loadSellerDetails(): Promise<SellerDetails> {
@@ -78,13 +84,19 @@ export async function loadSellerDetails(): Promise<SellerDetails> {
         configService.get<string>('BUSINESS_CONFIG.SUPPORT_PHONE', SELLER_DEFAULTS.supportPhone),
     ]);
 
+    // A sample value still sitting in Settings counts as missing.
+    const realGst = realGstin(gstin);
+    const realSupportPhone = realPhone(supportPhone);
+    if (!realGst) reportMissing('COMPANY_GSTIN', 'tax invoices are going out with no GSTIN on them. Settings → Business config.');
+    if (!realSupportPhone) reportMissing('SUPPORT_PHONE', 'invoices show no support phone number. Settings → Business config.');
+
     return {
         name: name?.trim() || SELLER_DEFAULTS.name,
         address: address?.trim() || SELLER_DEFAULTS.address,
-        gstin: gstin?.trim() || SELLER_DEFAULTS.gstin,
+        gstin: realGst,
         placeOfSupply: placeOfSupply?.trim() || SELLER_DEFAULTS.placeOfSupply,
         supportEmail: supportEmail?.trim() || SELLER_DEFAULTS.supportEmail,
-        supportPhone: supportPhone?.trim() || SELLER_DEFAULTS.supportPhone,
+        supportPhone: realSupportPhone,
     };
 }
 
@@ -469,10 +481,14 @@ export class InvoiceGenerator {
                 .font("Helvetica")
                 .fontSize(9)
                 .text(data.seller.name, 200, 45, { align: "right" })
-                .text(data.seller.address, 200, 57, { align: "right" })
-                .text(`GSTIN: ${data.seller.gstin}`, 200, 69, { align: "right" });
+                .text(data.seller.address, 200, 57, { align: "right" });
 
-            let sellerTopY = 69;
+            // Printed only when there is a real one — never a sample.
+            let sellerTopY = 57;
+            if (data.seller.gstin) {
+                sellerTopY += 12;
+                doc.text(`GSTIN: ${data.seller.gstin}`, 200, sellerTopY, { align: "right" });
+            }
             if (data.seller.supportPhone) {
                 sellerTopY += 12;
                 doc.text(`Phone: ${data.seller.supportPhone}`, 200, sellerTopY, { align: "right" });

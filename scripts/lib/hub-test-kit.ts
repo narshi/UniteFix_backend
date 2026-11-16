@@ -38,7 +38,9 @@ export async function bootServer() {
     process.env.DELHIVERY_MODE = 'mock'; delete process.env.DELHIVERY_API_KEY;
     await runStartupMigrations();
     const app = express();
-    app.use(express.json({ limit: '5mb' }));
+    // Keeps the untouched request bytes, exactly as server/index.ts does: the
+    // webhook routes verify their signature against req.rawBody.
+    app.use(express.json({ limit: '5mb', verify: (req, _res, buf) => { if (buf?.length) (req as any).rawBody = Buffer.from(buf); } }));
     app.use(express.urlencoded({ extended: false }));
     const server = await registerRoutes(app);
     app.use((err: any, _req: any, res: any, _next: any) => {
@@ -108,7 +110,10 @@ export { db };
  * later phase adds are listed here too and skipped when absent.
  */
 export async function cleanupPartners(bpIds: number[], adminIds: number[] = [], extra: string[] = []) {
-    if (!bpIds.length && !adminIds.length) return;
+    // `extra` alone is a reason to run: suites with no partner or admin of
+    // their own (payment guards, booking advance) pass only their own deletes,
+    // and returning here left every fixture of theirs in the database.
+    if (!bpIds.length && !adminIds.length && !extra.length) return;
     const { sql } = await import('drizzle-orm');
     const bp = bpIds.length ? bpIds.join(',') : '0';
     const ad = adminIds.length ? adminIds.join(',') : '0';

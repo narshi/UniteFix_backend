@@ -1,57 +1,5 @@
 import { apiRequest } from "./queryClient";
 
-export interface LoginCredentials {
-  username: string;
-  password: string;
-}
-
-export interface RegisterData {
-  username: string;
-  email: string;
-  phone: string;
-  password: string;
-  userType: 'normal' | 'business';
-  homeAddress?: string;
-  pinCode: string;
-  businessType?: 'individual' | 'business';
-  services?: string[];
-}
-
-export interface OTPRequest {
-  phone?: string;
-  email?: string;
-  purpose: string;
-}
-
-export interface OTPVerification {
-  phone?: string;
-  email?: string;
-  otp: string;
-  purpose: string;
-}
-
-export const authApi = {
-  login: async (credentials: LoginCredentials) => {
-    const response = await apiRequest("POST", "/api/auth/login", credentials);
-    return response.json();
-  },
-
-  register: async (userData: RegisterData) => {
-    const response = await apiRequest("POST", "/api/auth/register", userData);
-    return response.json();
-  },
-
-  sendOTP: async (otpRequest: OTPRequest) => {
-    const response = await apiRequest("POST", "/api/otp/send", otpRequest);
-    return response.json();
-  },
-
-  verifyOTP: async (verification: OTPVerification) => {
-    const response = await apiRequest("POST", "/api/otp/verify", verification);
-    return response.json();
-  },
-};
-
 export const locationApi = {
   validatePinCode: async (pinCode: string) => {
     const response = await apiRequest("POST", "/api/validate-pincode", { pinCode });

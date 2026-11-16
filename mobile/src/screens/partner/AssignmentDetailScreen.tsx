@@ -73,6 +73,12 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
             (a: Assignment) => a.id === targetId || a.serviceId === routeAssignment?.serviceId,
         ) || routeAssignment;
     const { data: publicConfig } = usePublicConfig();
+    // The UPI ID behind the stand-in QR shown when Razorpay's QR cannot be made.
+    // Only UniteFix's real one: this used to fall back to the sample
+    // 'yourmerchant@upi', so a customer could be shown a QR that pays a stranger.
+    const fallbackUpiId = publicConfig?.companyUpiId && publicConfig.companyUpiId !== 'yourmerchant@upi' && publicConfig.companyUpiId.includes('@')
+        ? publicConfig.companyUpiId
+        : null;
     
     const [otp, setOtp] = useState('');
     const [serviceCharge, setServiceCharge] = useState('');
@@ -630,9 +636,15 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                                     style={{ width: 180, height: 180 }}
                                                     resizeMode="contain"
                                                 />
+                                            ) : qrError && !fallbackUpiId ? (
+                                                <View style={{ width: 180, height: 180, alignItems: 'center', justifyContent: 'center' }}>
+                                                    <Text style={{ ...typography.caption, color: colors.error, textAlign: 'center' }}>
+                                                        The payment QR could not be made. Try again in a moment, or collect cash.
+                                                    </Text>
+                                                </View>
                                             ) : qrError ? (
                                                 <QRCode
-                                                    value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                                    value={`upi://pay?pa=${fallbackUpiId}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
                                                     size={180}
                                                     color="black"
                                                     backgroundColor="white"
@@ -664,9 +676,9 @@ export function AssignmentDetailScreen({ navigation, route }: Props) {
                                                     style={{ width: bigQr, height: bigQr }}
                                                     resizeMode="contain"
                                                 />
-                                            ) : qrError && (
+                                            ) : qrError && fallbackUpiId && (
                                                 <QRCode
-                                                    value={`upi://pay?pa=${publicConfig?.companyUpiId || 'yourmerchant@upi'}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
+                                                    value={`upi://pay?pa=${fallbackUpiId}&pn=UniteFix&am=${assignment.pricingSnapshot?.finalTotal || assignment.totalCharge || 0}&cu=INR`}
                                                     size={bigQr}
                                                     color="black"
                                                     backgroundColor="white"

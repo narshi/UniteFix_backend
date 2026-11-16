@@ -211,7 +211,7 @@ export interface IStorage {
   addToCart(item: InsertCartItem): Promise<CartItem>;
   getCartItems(userId: number): Promise<CartItem[]>;
   updateCartItemQuantity(id: number, quantity: number): Promise<CartItem | undefined>;
-  removeFromCart(id: number): Promise<boolean>;
+  removeFromCart(id: number, userId?: number): Promise<boolean>;
   clearCart(userId: number): Promise<boolean>;
 
   // Invoices
@@ -284,6 +284,7 @@ export interface IStorage {
   ): Promise<WalletTransactionV2>;
   releaseHeldBalance(transactionId: number): Promise<void>;
   releaseHeldBalanceByService(serviceRequestId: number): Promise<boolean>;
+  fastTrackHeldBalanceByService(serviceRequestId: number, minHoldHours: number): Promise<'released' | 'brought_forward' | 'none'>;
   releaseAllExpiredHolds(): Promise<number>;
 
   // PHASE 3: Inventory Management
@@ -1895,8 +1896,11 @@ export class DatabaseStorage implements IStorage {
     return item || undefined;
   }
 
-  async removeFromCart(id: number): Promise<boolean> {
-    await db.delete(cartItems).where(eq(cartItems.id, id));
+  /** With `userId`, removes the row only if it is in that user's cart. */
+  async removeFromCart(id: number, userId?: number): Promise<boolean> {
+    await db.delete(cartItems).where(
+      userId === undefined ? eq(cartItems.id, id) : and(eq(cartItems.id, id), eq(cartItems.userId, userId)),
+    );
     return true;
   }
 
@@ -2708,6 +2712,60 @@ export class DatabaseStorage implements IStorage {
     await this.releaseHeldBalance(holdTx.id);
     logger.info(`[WALLET] Fast-tracked release of hold transaction #${holdTx.id} for SR #${serviceRequestId}`);
     return true;
+  }
+
+  /**
+   * A good rating shortens the hold on a job's earning — to no less than
+   * `minHoldHours` after the job was credited.
+   *
+   * The hold exists so that a refund or a dispute can still be settled out of
+   * money UniteFix has not paid out yet. A 4- or 5-star rating used to release
+   * it on the spot (releaseHeldBalanceByService), so the hold protected nothing
+   * the moment anyone rated: a customer rating straight after paying, or a
+   * friendly one rating on request, made the whole earning withdrawable at once.
+   *
+   * Now: past the minimum, release now; inside it, bring the release date
+   * forward to the end of the minimum and let the hourly job release it then.
+   * A booking under dispute is not fast-tracked at all.
+   */
+  async fastTrackHeldBalanceByService(serviceRequestId: number, minHoldHours: number): Promise<'released' | 'brought_forward' | 'none'> {
+    const [holdTx] = await db
+      .select()
+      .from(walletTransactionsV2)
+      .where(
+        and(
+          eq(walletTransactionsV2.serviceRequestId, serviceRequestId),
+          eq(walletTransactionsV2.transactionType, 'hold_credit'),
+          eq(walletTransactionsV2.isReleased, false)
+        )
+      )
+      .limit(1);
+    if (!holdTx) return 'none';
+
+    const [booking] = await db.select({ status: serviceRequests.status, completedAt: serviceRequests.completedAt }).from(serviceRequests)
+      .where(eq(serviceRequests.id, serviceRequestId)).limit(1);
+    if (booking?.status === 'disputed') return 'none';
+
+    // Counted from when the job was completed — a time this server writes
+    // itself. (The wallet row's created_at is stamped by the database's own
+    // clock setting, which need not be UTC; mixing the two shifted the minimum
+    // by the database's offset.) With no completion time on record, the
+    // minimum runs from now.
+    const hours = Number.isFinite(minHoldHours) && minHoldHours > 0 ? minHoldHours : 0;
+    const completedAt = booking?.completedAt ? new Date(booking.completedAt).getTime() : Date.now();
+    const earliest = new Date(completedAt + hours * 3_600_000);
+
+    if (earliest.getTime() <= Date.now()) {
+      await this.releaseHeldBalance(holdTx.id);
+      logger.info(`[WALLET] Fast-tracked release of hold transaction #${holdTx.id} for SR #${serviceRequestId}`);
+      return 'released';
+    }
+    if (!holdTx.releaseDate || new Date(holdTx.releaseDate).getTime() > earliest.getTime()) {
+      await db.update(walletTransactionsV2).set({ releaseDate: earliest })
+        .where(and(eq(walletTransactionsV2.id, holdTx.id), eq(walletTransactionsV2.isReleased, false)));
+      logger.info(`[WALLET] Hold #${holdTx.id} for SR #${serviceRequestId} brought forward to ${earliest.toISOString()} after a good rating`);
+    }
+    return 'brought_forward';
   }
 
   async releaseHeldBalance(transactionId: number): Promise<void> {

@@ -22,8 +22,10 @@ import {
     supportTickets, ticketMessages, withdrawalRequests, serviceCategories,
 } from "@shared/schema";
 import { publicAppUrl } from '../lib/public-url';
-import { authenticateToken, authenticatePartner, authenticateAny } from "../middleware/auth.middleware";
+import { authenticateToken, authenticatePartner, authenticateAny, overlongAppToken } from "../middleware/auth.middleware";
 import { SupportTicketService } from "../services/support.service";
+import { NotificationService } from "../services/notification.service";
+import { supportWhatsAppNumber, companyUpiId as realCompanyUpiId, reportMissing } from "../lib/business-identity";
 import { InvoiceGenerator } from "../services/invoice-generator";
 import { PaymentService } from "../services/payment.service";
 import logger from "../lib/logger";
@@ -111,8 +113,11 @@ export function registerClientFeatureRoutes(app: Express) {
             const discountLabel = await configService.get('BUSINESS_CONFIG.DISCOUNT_LABEL', '');
             const supportWindowHours = await configService.get('BUSINESS_CONFIG.SUPPORT_WINDOW_HOURS', 48);
             const minWalletRedemption = await configService.get('BUSINESS_CONFIG.MIN_WALLET_REDEMPTION', 500);
-            const whatsappNumber = process.env.WHATSAPP_BUSINESS_NUMBER || '919448850679';
-            const companyUpiId = await configService.get('BUSINESS_CONFIG.COMPANY_UPI_ID', 'yourmerchant@upi');
+            const whatsappNumber = supportWhatsAppNumber();
+            // '' when unset or still the sample 'yourmerchant@upi': the app then
+            // shows no stand-in QR, where it used to show one that paid a stranger.
+            const companyUpiId = await realCompanyUpiId();
+            if (!companyUpiId) reportMissing('COMPANY_UPI_ID', 'the app has no UPI ID to fall back to when a payment QR cannot be made. Settings → Business config.');
 
             res.json({
                 success: true,
@@ -238,10 +243,14 @@ export function registerClientFeatureRoutes(app: Express) {
                 logger.warn(`[RATING] average update failed for expert #${service.providerId}: ${avgErr?.message}`);
             }
 
-            // FAST-TRACK RELEASE: If customer rates 4 or 5 stars, release held earnings immediately!
+            // FAST-TRACK RELEASE: a 4 or 5 star rating shortens the hold on this
+            // job's earning — but never below a minimum, so there is still money
+            // on hold to settle a refund or dispute from. Settings → Business
+            // config → MIN_HOLD_HOURS_AFTER_RATING (0 releases at once, as before).
             if (ratingValue >= 4) {
                 try {
-                    await storage.releaseHeldBalanceByService(serviceRequestId);
+                    const minHoldHours = Number(await configService.get('BUSINESS_CONFIG.MIN_HOLD_HOURS_AFTER_RATING', 24));
+                    await storage.fastTrackHeldBalanceByService(serviceRequestId, Number.isFinite(minHoldHours) ? minHoldHours : 24);
                 } catch (relErr: any) {
                     logger.warn(`[RATING] Fast-track release failed for SR #${serviceRequestId}:`, relErr?.message);
                 }
@@ -431,15 +440,44 @@ export function registerClientFeatureRoutes(app: Express) {
 
             const updates: any = { updatedAt: new Date() };
             if (username !== undefined) updates.username = username;
+            // Told at the old address after the save, so its owner hears about a change they did not make.
+            let emailChangedFrom: string | null | undefined;
             if (email !== undefined) {
-                if (email.trim() !== '') {
-                    const [existingUser] = await db.select().from(users).where(eq(users.email, email.trim())).limit(1);
-                    if (existingUser && existingUser.id !== userId) {
-                        return res.status(400).json({ success: false, message: "Email is already registered to another user" });
+                const nextEmail = String(email ?? '').trim().toLowerCase() || null;
+                const [me] = await db.select({ email: users.email, phoneVerified: users.phoneVerified })
+                    .from(users).where(eq(users.id, userId)).limit(1);
+                const currentEmail = me?.email ? me.email.trim().toLowerCase() : null;
+
+                if (nextEmail !== currentEmail) {
+                    /**
+                     * An email on the account is somewhere a sign-in code can be
+                     * sent, so changing it is changing who can sign in.
+                     *
+                     * - An account that has never proved its phone number signs in
+                     *   by email code alone. Swapping that email from a session
+                     *   (a borrowed phone, a stolen token) would hand the account
+                     *   over for good, so it is refused until the number is proven.
+                     * - On a proven number the new address is saved UNCONFIRMED:
+                     *   it shows on the profile and receives receipts, but the
+                     *   fallback sign-in will not send a code to it
+                     *   (auth-truecaller.routes.ts, emailSignInAllowed).
+                     */
+                    if (!me?.phoneVerified) {
+                        return res.status(409).json({
+                            success: false,
+                            code: 'VERIFY_PHONE_FIRST',
+                            message: 'To change your email, first sign in to the app with Truecaller or an SMS code to confirm your mobile number.',
+                        });
                     }
-                    updates.email = email.trim();
-                } else {
-                    updates.email = null;
+                    if (nextEmail) {
+                        const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, nextEmail)).limit(1);
+                        if (existingUser && existingUser.id !== userId) {
+                            return res.status(400).json({ success: false, message: "Email is already registered to another user" });
+                        }
+                    }
+                    updates.email = nextEmail;
+                    updates.emailVerified = false;
+                    emailChangedFrom = currentEmail;
                 }
             }
             if (homeAddress !== undefined) updates.homeAddress = homeAddress;
@@ -452,6 +490,13 @@ export function registerClientFeatureRoutes(app: Express) {
                     .where(eq(users.id, userId))
                     .returning();
                 updatedUser = updated;
+                if (emailChangedFrom) {
+                    void NotificationService.sendEmail(
+                        emailChangedFrom,
+                        'Your UniteFix email address was changed',
+                        `<p>The email address on your UniteFix account was just changed${updates.email ? ' to a different address' : ' (it was removed)'}.</p><p>If you did this, nothing more is needed. If you did not, open the UniteFix app, sign in with your mobile number and check your profile, or contact UniteFix support.</p>`,
+                    ).catch((e: any) => logger.warn(`[PROFILE] could not notify the old email of a change: ${e?.message}`));
+                }
             } else {
                 const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
                 updatedUser = user;
@@ -841,13 +886,21 @@ export function registerClientFeatureRoutes(app: Express) {
             // The balance is re-checked inside the transaction against the live row
             // so two concurrent requests cannot both pass the earlier check and
             // overdraw the wallet.
+            //
+            // FOR UPDATE is what makes that true. Without the row lock, two
+            // requests sent together each read the same balance here, each
+            // passed, and the second write replaced the first — two pending
+            // payouts against money that was only debited once. The lock makes
+            // the second request wait, then read the balance the first one left.
             const transaction = await db.transaction(async (tx) => {
                 const [currentWallet] = await tx.select().from(partnerWallets)
-                    .where(eq(partnerWallets.partnerId, provider.id)).limit(1);
+                    .where(eq(partnerWallets.partnerId, provider.id)).limit(1).for('update');
 
                 const liveAvailable = parseFloat(currentWallet?.balanceAvailable ?? '0');
                 if (amount > liveAvailable) {
-                    throw new Error(`Insufficient balance. Available: ₹${liveAvailable}`);
+                    // The balance moved between the check above and the lock (another
+                    // request got there first). Answered below as an ordinary refusal.
+                    throw Object.assign(new Error(`You have ₹${liveAvailable} available to withdraw.`), { insufficientBalance: true });
                 }
                 const liveNewAvailable = liveAvailable - amount;
 
@@ -887,7 +940,10 @@ export function registerClientFeatureRoutes(app: Express) {
                 message: `Withdrawal request of ₹${amount} submitted for approval.`,
                 data: transaction,
             });
-        } catch (error) {
+        } catch (error: any) {
+            if (error?.insufficientBalance) {
+                return res.status(400).json({ success: false, code: 'INSUFFICIENT_BALANCE', message: error.message });
+            }
             next(error);
         }
     });
@@ -1046,12 +1102,23 @@ export function registerClientFeatureRoutes(app: Express) {
                 if (!bearer) {
                     return res.status(401).json({ success: false, message: "Access token required" });
                 }
+                let decoded: any;
                 try {
-                    const decoded: any = jwt.verify(bearer, process.env.JWT_SECRET as string);
-                    userId = decoded.userId;
+                    decoded = jwt.verify(bearer, process.env.JWT_SECRET as string);
                 } catch {
                     return res.status(403).json({ success: false, message: "Invalid or expired token" });
                 }
+                // A CUSTOMER's app session, and nothing else. Every kind of token
+                // here is signed with the same secret, and this used to take the
+                // userId from whichever one arrived: a staff, operator or Partner
+                // Hub login carries an admin_users id in that field, and where it
+                // matched a customer's id it opened that customer's invoices. So
+                // did a token minted for something else entirely (one with a
+                // `purpose`, such as another invoice's download link).
+                if (decoded?.role !== 'user' || decoded?.kind || decoded?.purpose || overlongAppToken(decoded)) {
+                    return res.status(403).json({ success: false, message: "Sign in as the customer on this invoice to download it." });
+                }
+                userId = decoded.userId;
             }
 
             if (!userId) {

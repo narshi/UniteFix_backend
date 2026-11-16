@@ -62,8 +62,13 @@ export default function DeveloperPage() {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [confirmOp, setConfirmOp] = useState<string | null>(null);
+  // A write needs the admin's own password as well as the confirmation. Kept
+  // only while the dialog is open; cleared when it closes or the write runs.
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const closeConfirm = () => { setConfirmOp(null); setConfirmPassword(""); setConfirmError(null); };
 
-  const runQuery = async (confirm = false) => {
+  const runQuery = async (confirm = false, password = "") => {
     if (!sqlText.trim()) return;
     setRunning(true);
     setQueryError(null);
@@ -78,14 +83,23 @@ export default function DeveloperPage() {
           "Content-Type": "application/json",
           ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
         },
-        body: JSON.stringify({ sql: sqlText, confirm }),
+        body: JSON.stringify({ sql: sqlText, confirm, ...(confirm ? { password } : {}) }),
       });
       const body = await res.json().catch(() => ({} as any));
 
       if (res.status === 428 || body?.requiresConfirmation) {
+        setConfirmError(null);
         setConfirmOp(body?.operation || "WRITE");
         return;
       }
+      // Wrong or missing password: nothing ran. Keep the dialog open to try again.
+      if (res.status === 403 && body?.requiresPassword) {
+        setConfirmPassword("");
+        setConfirmError(body?.message || "Enter your password to run this statement.");
+        setConfirmOp(body?.operation || "WRITE");
+        return;
+      }
+      closeConfirm();
       if (!res.ok || !body?.success) {
         setQueryError(body?.message || `Request failed (${res.status})`);
         setResult(null);
@@ -213,7 +227,7 @@ export default function DeveloperPage() {
             <CardHeader>
               <CardTitle>SQL Query</CardTitle>
               <CardDescription>
-                Reads run immediately. Writes (INSERT/UPDATE/DELETE/DDL) ask for confirmation before executing.
+                Reads run immediately, inside a read-only transaction. Writes (INSERT/UPDATE/DELETE/DDL) ask for confirmation and your password. Every statement is recorded in the audit trail.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -277,7 +291,7 @@ export default function DeveloperPage() {
       </Tabs>
 
       {/* Write confirmation */}
-      <AlertDialog open={!!confirmOp} onOpenChange={(o) => !o && setConfirmOp(null)}>
+      <AlertDialog open={!!confirmOp} onOpenChange={(o) => !o && closeConfirm()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -291,11 +305,27 @@ export default function DeveloperPage() {
           <pre className="bg-[rgba(0,0,0,0.3)] border border-[rgba(255,255,255,0.08)] rounded p-3 text-xs font-mono text-[hsl(210,20%,85%)] max-h-40 overflow-auto whitespace-pre-wrap">
             {sqlText}
           </pre>
+          <div className="space-y-2">
+            <label htmlFor="db-console-password" className="text-sm text-[hsl(210,20%,85%)]">Your password</label>
+            <Input
+              id="db-console-password"
+              type="password"
+              autoComplete="current-password"
+              value={confirmPassword}
+              onChange={(e) => { setConfirmPassword(e.target.value); setConfirmError(null); }}
+              placeholder="Needed to change the database"
+              data-testid="db-console-password"
+            />
+            {confirmError && <p className="text-sm text-[hsl(347,77%,65%)]" role="alert">{confirmError}</p>}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-[hsl(347,77%,50%)] hover:bg-[hsl(347,77%,45%)]"
-              onClick={() => { setConfirmOp(null); runQuery(true); }}
+              disabled={!confirmPassword || running}
+              // preventDefault keeps the dialog open until the server answers,
+              // so a wrong password can be corrected in place.
+              onClick={(e) => { e.preventDefault(); runQuery(true, confirmPassword); }}
             >
               Yes, run it
             </AlertDialogAction>

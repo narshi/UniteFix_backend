@@ -270,6 +270,10 @@ export const serviceRequests = pgTable("service_requests", {
   handshakeOtp: text("handshake_otp"),          // 6-digit, generated on ACCEPTED
   bookingFee: integer("booking_fee").default(99), // PHASE 1: ₹99 (was ₹250)
   bookingFeeStatus: bookingFeeStatusEnum("booking_fee_status").default('pending'),
+  // Wrong guesses at that code on this booking, and — after too many — until
+  // when further tries are refused (geofence.routes.ts).
+  handshakeAttempts: integer("handshake_attempts").notNull().default(0),
+  handshakeLockedUntil: timestamp("handshake_locked_until"),
   totalAmount: integer("total_amount"),
   commissionAmount: integer("commission_amount"),
   // Location — stored as text for Drizzle compat; raw SQL uses geometry(Point, 4326)

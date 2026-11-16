@@ -20,6 +20,10 @@ import { configService } from '../services/config.service';
 import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 
+/** Wrong start codes allowed on a booking before its code is locked, and for how long. */
+const MAX_HANDSHAKE_ATTEMPTS = 5;
+const HANDSHAKE_LOCK_MS = 15 * 60 * 1000;
+
 export function registerGeofenceRoutes(app: Express) {
 
     /**
@@ -213,13 +217,52 @@ export function registerGeofenceRoutes(app: Express) {
                 });
             }
 
+            // ── Too many wrong tries: locked for a while ─────────────
+            // The code has a million values and nothing limited guesses, so an
+            // assigned expert could find it by trying and start the job without
+            // the customer. Five wrong tries now lock the booking's code for
+            // fifteen minutes; the right code inside a lock is refused too, or
+            // the lock would only slow the guessing down.
+            if (booking.handshakeLockedUntil && booking.handshakeLockedUntil.getTime() > Date.now()) {
+                const minutes = Math.max(1, Math.ceil((booking.handshakeLockedUntil.getTime() - Date.now()) / 60_000));
+                return res.status(429).json({
+                    success: false,
+                    code: 'OTP_LOCKED',
+                    message: `Too many wrong codes. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, and ask the customer to read the code from their app.`,
+                    retryAfterSeconds: Math.ceil((booking.handshakeLockedUntil.getTime() - Date.now()) / 1000),
+                });
+            }
+
             if (otp.trim() !== booking.handshakeOtp.trim()) {
                 // The expected code is deliberately not logged — printing it let
                 // anyone with log access start a job without the customer present.
-                logger.warn(`[OTP] Invalid handshake OTP attempt for booking ${bookingId}`);
+                //
+                // Counted in the database in one statement, so tries sent together
+                // are each counted (a read-then-write would let them share a count).
+                const [after] = await db.update(serviceRequests)
+                    .set({ handshakeAttempts: sql`${serviceRequests.handshakeAttempts} + 1` })
+                    .where(eq(serviceRequests.id, bookingId))
+                    .returning({ attempts: serviceRequests.handshakeAttempts });
+                const attempts = after?.attempts ?? 0;
+
+                if (attempts >= MAX_HANDSHAKE_ATTEMPTS) {
+                    await db.update(serviceRequests)
+                        .set({ handshakeAttempts: 0, handshakeLockedUntil: new Date(Date.now() + HANDSHAKE_LOCK_MS) })
+                        .where(eq(serviceRequests.id, bookingId));
+                    logger.warn(`[OTP] Booking ${bookingId}: ${attempts} wrong start codes — locked for ${HANDSHAKE_LOCK_MS / 60_000} minutes`);
+                    return res.status(429).json({
+                        success: false,
+                        code: 'OTP_LOCKED',
+                        message: `Too many wrong codes. Try again in ${HANDSHAKE_LOCK_MS / 60_000} minutes, and ask the customer to read the code from their app.`,
+                        retryAfterSeconds: HANDSHAKE_LOCK_MS / 1000,
+                    });
+                }
+
+                logger.warn(`[OTP] Invalid handshake OTP attempt ${attempts}/${MAX_HANDSHAKE_ATTEMPTS} for booking ${bookingId}`);
                 return res.status(400).json({
                     success: false,
                     message: 'Invalid OTP. Please ask the customer for the correct service code.',
+                    attemptsLeft: MAX_HANDSHAKE_ATTEMPTS - attempts,
                 });
             }
 
@@ -228,6 +271,8 @@ export function registerGeofenceRoutes(app: Express) {
                 .set({
                     status: BookingState.IN_PROGRESS as any,
                     startedAt: new Date(),
+                    handshakeAttempts: 0,
+                    handshakeLockedUntil: null,
                     updatedAt: new Date(),
                 })
                 .where(eq(serviceRequests.id, bookingId))

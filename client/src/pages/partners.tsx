@@ -29,7 +29,6 @@ const blankPartner = {
   partnerName: '',
   email: '',
   phone: '',
-  password: '',
   partnerType: 'Individual',
   services: [] as string[],
   location: '',   // pin code — the dashboard's historical name for it
@@ -305,12 +304,12 @@ export default function PartnersPage() {
                 <Label className="text-[hsl(210,20%,85%)]">Pin Code *</Label>
                 <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" inputMode="numeric" maxLength={6} placeholder="6 digits" value={newPartner.location} onChange={e => setNewPartner({ ...newPartner, location: e.target.value.replace(/\D/g, '').slice(0, 6) })} />
               </div>
-              {/* Only offered on create — the edit route does not change
-                  passwords, so showing the field would imply it does. */}
+              {/* No password field: experts sign in to the app by proving this
+                  mobile number, and the server stores no password for them. */}
               {!selectedPartner && (
                 <div className="space-y-2">
-                  <Label className="text-[hsl(210,20%,85%)]">Password *</Label>
-                  <Input className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)]" type="password" value={newPartner.password} onChange={e => setNewPartner({ ...newPartner, password: e.target.value })} />
+                  <Label className="text-[hsl(210,20%,85%)]">Sign-in</Label>
+                  <p className="text-sm text-[hsl(215,20%,70%)] pt-2">The expert signs in to the app with this mobile number, by Truecaller or an SMS code. No password is needed.</p>
                 </div>
               )}
               <div className="col-span-2 space-y-2">
@@ -625,7 +624,6 @@ export default function PartnersPage() {
                                     partnerName: partner.partnerName,
                                     email: partner.email,
                                     phone: partner.phone,
-                                    password: '', // Don't show password
                                     partnerType: partner.partnerType || 'Individual',
                                     services: partner.services || [],
                                     location: partner.location || '',

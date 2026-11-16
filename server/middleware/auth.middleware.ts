@@ -29,6 +29,25 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 
+/**
+ * App access tokens (customer, expert, partner owner) are issued for 15
+ * minutes and renewed with a refresh token, which the server can revoke. The
+ * retired password routes also handed out a 30-DAY access token with every
+ * sign-in — nothing could end one early: not logout, not a password reset, not
+ * the account's owner proving their number.
+ *
+ * None are issued any more, and this refuses any still in circulation: an app
+ * token whose own lifetime (exp − iat) is longer than an hour is not one this
+ * server mints. Answered like an expired token, so a genuine app simply
+ * refreshes.
+ */
+const MAX_APP_TOKEN_LIFETIME_SECONDS = 60 * 60;
+export function overlongAppToken(decoded: any): boolean {
+    const iat = Number(decoded?.iat), exp = Number(decoded?.exp);
+    if (!Number.isFinite(iat) || !Number.isFinite(exp)) return true; // no expiry at all
+    return exp - iat > MAX_APP_TOKEN_LIFETIME_SECONDS;
+}
+
 // Extended Request types for each audience — use in route handlers for type-safe access
 export interface AuthRequest extends Request {
     user?: {
@@ -109,14 +128,19 @@ export function authenticatePartner(req: Request, res: Response, next: NextFunct
             message: 'This endpoint is restricted to service partner accounts'
         });
     }
+    if (overlongAppToken(decoded)) {
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
 
     // Live DB lookup — fetch partnerId and verificationStatus (cannot trust JWT for these)
     db.select({
         id: employees.id,
         verificationStatus: employees.documentVerificationStatus,
         isActive: employees.isActive,
+        accountDeletedAt: users.deletedAt,
     })
     .from(employees)
+    .leftJoin(users, eq(users.id, employees.userId))
     .where(eq(employees.userId, decoded.userId))
     .limit(1)
     .then(([provider]) => {
@@ -125,6 +149,14 @@ export function authenticatePartner(req: Request, res: Response, next: NextFunct
                 success: false,
                 message: 'Service provider account not found'
             });
+        }
+
+        // A closed account is signed out on its very next request, as on the
+        // customer routes. Only the expert's verification status was read here,
+        // so an expert whose account had been deleted kept working until their
+        // token ran out.
+        if (provider.accountDeletedAt) {
+            return res.status(403).json({ success: false, message: 'This account has been closed.' });
         }
 
         // Block only genuine suspensions/rejections.
@@ -634,6 +666,10 @@ export function authenticateBusinessPartner(req: Request, res: Response, next: N
     if (!viaPortal && !viaMobile) {
         return res.status(403).json({ success: false, message: 'Business partner access required' });
     }
+    // The app door only: portal logins are 8-hour dashboard tokens by design.
+    if (viaMobile && overlongAppToken(decoded)) {
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
 
     import('../services/business-partner.service')
         .then(async ({ BusinessPartnerService }) => {
@@ -864,6 +900,9 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
             message: 'This endpoint is restricted to customer accounts',
         });
     }
+    if (overlongAppToken(decoded)) {
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    }
 
     // Live DB check: verify account is still active
     db.select({ isActive: users.isActive, deletedAt: users.deletedAt })
@@ -916,6 +955,9 @@ export function authenticateAny(req: Request, res: Response, next: NextFunction)
             success: false,
             message: 'This endpoint requires a customer or partner account',
         });
+    }
+    if (overlongAppToken(decoded)) {
+        return res.status(403).json({ success: false, message: 'Invalid or expired token' });
     }
 
     // A closed (deleted) account is signed out on its very next request, here as

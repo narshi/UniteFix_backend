@@ -22,6 +22,7 @@ import { PaymentService } from '../services/payment.service';
 import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 import { recordAudit } from '../lib/audit';
+import { redactEmployee, capsOf } from '../lib/employee-privacy';
 
 export function registerAdminVerificationRoutes(app: Express) {
 
@@ -76,7 +77,8 @@ export function registerAdminVerificationRoutes(app: Express) {
 
             res.json({
                 success: true,
-                data: rows,
+                // Document links only for roles that make the decision (see employee-privacy.ts).
+                data: rows.map(r => redactEmployee(r, capsOf(req))),
                 pagination: {
                     page,
                     limit,
@@ -162,7 +164,7 @@ export function registerAdminVerificationRoutes(app: Express) {
             res.json({
                 success: true,
                 message: `Employee verification status updated to '${status}'`,
-                data: updated,
+                data: redactEmployee(updated, capsOf(req)),
             });
         } catch (error) {
             next(error);
@@ -396,11 +398,17 @@ export function registerAdminVerificationRoutes(app: Express) {
             if (resolution === 'release_employee' || resolution === 'split') {
                 // Release held funds to employee wallet
                 if (booking.providerId) {
+                    // HOLD CREDITS only. `is_released` defaults to false on every
+                    // wallet row, whatever its type — so without the type filter
+                    // this also picked up the booking's "released" ledger line
+                    // (written when a hold is released on schedule) and moved
+                    // that amount from hold to available a second time.
                     const heldTxns = await db.select().from(walletTransactionsV2)
                         .where(
                             and(
                                 eq(walletTransactionsV2.partnerId, booking.providerId),
                                 eq(walletTransactionsV2.serviceRequestId, bookingId),
+                                eq(walletTransactionsV2.transactionType, 'hold_credit'),
                                 eq(walletTransactionsV2.isReleased, false)
                             )
                         );
@@ -421,9 +429,14 @@ export function registerAdminVerificationRoutes(app: Express) {
                     const providerId = booking.providerId;
                     await db.transaction(async (tx) => {
                         for (const txn of heldTxns) {
-                            await tx.update(walletTransactionsV2)
+                            // Claimed, as the hourly release job does: only the
+                            // statement that flips it moves the money, so this and
+                            // that job (or a double click) cannot both release it.
+                            const [claimed] = await tx.update(walletTransactionsV2)
                                 .set({ isReleased: true })
-                                .where(eq(walletTransactionsV2.id, txn.id));
+                                .where(and(eq(walletTransactionsV2.id, txn.id), eq(walletTransactionsV2.isReleased, false)))
+                                .returning({ id: walletTransactionsV2.id });
+                            if (!claimed) continue;
 
                             await tx.update(partnerWallets)
                                 .set({

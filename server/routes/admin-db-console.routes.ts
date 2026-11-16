@@ -8,24 +8,61 @@
  *
  * This is a deliberately powerful, dangerous tool. Guard rails:
  *   - super_admin only (a plain admin token is rejected)
- *   - write statements (anything that is not a pure read) require confirm:true,
- *     so the UI can force a second, explicit confirmation
+ *   - it can be switched off entirely: DB_CONSOLE_DISABLED=1 in the environment
+ *   - a READ runs inside a read-only transaction, so the DATABASE refuses any
+ *     change — the text check below only decides which path a statement takes,
+ *     it is no longer what stands between a "read" and the data
+ *   - a WRITE (anything that is not a pure read) needs confirm:true AND the
+ *     signed-in admin's own password, so a stolen or left-open session cannot
+ *     change the database by itself
  *   - a small hard blocklist refuses whole-database/schema destruction, which is
  *     not "CRUD" and has no undo
- *   - every write is written to the audit log with the SQL text and row count
+ *   - EVERY statement, read or write, is written to the audit log with the SQL
+ *     text and row count. Reads used to leave no trace, and one SELECT here can
+ *     return every customer's details.
  */
 
-import type { Express, Request, Response } from "express";
-import { db } from "../db";
+import type { Express, Request, Response, NextFunction } from "express";
+import bcrypt from "bcrypt";
+import { db, pool } from "../db";
 import { sql } from "drizzle-orm";
 // Shared with the audit trail and the account-purge routes, so all three enforce
 // super_admin identically and a fix in one place covers every gated capability.
 import { authenticateAdmin, requireSuperAdmin } from "../middleware/auth.middleware";
 import { recordAudit } from "../lib/audit";
+import { storage } from "../storage";
 import logger from "../lib/logger";
 
 // Catastrophic, non-CRUD statements with no undo — refused outright.
 const HARD_BLOCK = /\b(drop\s+database|drop\s+schema|create\s+database)\b/i;
+
+/**
+ * Is this one of the refused statements?
+ *
+ * Tested with comments removed but quoted text KEPT. The old check ran on the
+ * raw text, so "drop slash-star star-slash schema public" walked past it; and
+ * testing only the quote-stripped text would miss the same words inside a
+ * DO $$ … $$ block, which runs them. A string that merely mentions the words
+ * is refused too — rare, and the safe side to err on.
+ */
+export function isHardBlocked(sqlText: string): boolean {
+    const noComments = sqlText
+        .replace(/--[^\n]*/g, " ")
+        .replace(/\/\*[\s\S]*?\*\//g, " ");
+    return HARD_BLOCK.test(noComments);
+}
+
+/** DB_CONSOLE_DISABLED=1 turns both routes off, whoever asks. */
+function consoleSwitch(_req: Request, res: Response, next: NextFunction) {
+    if (process.env.DB_CONSOLE_DISABLED === '1') {
+        return res.status(403).json({
+            success: false,
+            code: 'DB_CONSOLE_OFF',
+            message: 'The Database Console is switched off on this server.',
+        });
+    }
+    next();
+}
 
 // First keyword → is this a pure read? Everything else is treated as a write and
 // needs explicit confirmation.
@@ -60,7 +97,7 @@ export function registerAdminDbConsoleRoutes(app: Express) {
      * GET /api/admin/db/schema
      * Every public table with its columns and primary keys.
      */
-    app.get("/api/admin/db/schema", authenticateAdmin, requireSuperAdmin, async (_req: Request, res: Response) => {
+    app.get("/api/admin/db/schema", authenticateAdmin, requireSuperAdmin, consoleSwitch, async (_req: Request, res: Response) => {
         try {
             const colsResult = await db.execute(sql`
                 SELECT table_name, column_name, data_type, is_nullable, column_default, ordinal_position
@@ -122,10 +159,11 @@ export function registerAdminDbConsoleRoutes(app: Express) {
 
     /**
      * POST /api/admin/db/query
-     * Body: { sql: string, confirm?: boolean }
-     * Runs the SQL and returns rows/rowCount. Writes require confirm:true.
+     * Body: { sql: string, confirm?: boolean, password?: string }
+     * Runs the SQL and returns rows/rowCount. A write needs confirm:true and the
+     * signed-in admin's own password.
      */
-    app.post("/api/admin/db/query", authenticateAdmin, requireSuperAdmin, async (req: Request, res: Response) => {
+    app.post("/api/admin/db/query", authenticateAdmin, requireSuperAdmin, consoleSwitch, async (req: Request, res: Response) => {
         const sqlText: string = req.body?.sql;
         const confirm: boolean = req.body?.confirm === true;
 
@@ -133,7 +171,7 @@ export function registerAdminDbConsoleRoutes(app: Express) {
             return res.status(400).json({ success: false, message: "SQL statement is required." });
         }
 
-        if (HARD_BLOCK.test(sqlText)) {
+        if (isHardBlocked(sqlText)) {
             return res.status(400).json({
                 success: false,
                 message: "Refused: dropping or creating whole databases/schemas is not allowed from the console.",
@@ -141,22 +179,65 @@ export function registerAdminDbConsoleRoutes(app: Express) {
         }
 
         const { first, readOnly } = classify(sqlText);
+        const admin = (req as any).admin as { userId: number; username?: string };
+        const operation = (first || "statement").toUpperCase();
 
-        // A write needs a second, explicit confirmation from the caller.
+        // A write needs a second, explicit confirmation from the caller…
         if (!readOnly && !confirm) {
             return res.status(428).json({
                 success: false,
                 requiresConfirmation: true,
-                operation: (first || "statement").toUpperCase(),
-                message: `This ${(first || "statement").toUpperCase()} will modify the database. Confirm to run it.`,
+                requiresPassword: true,
+                operation,
+                message: `This ${operation} will modify the database. Confirm with your password to run it.`,
             });
         }
 
-        const admin = (req as any).admin as { userId: number; username?: string };
+        // …and the admin's own password. The session token alone is not enough:
+        // it sits in the browser for eight hours, and whoever holds it (a left-open
+        // laptop, a stolen token) could otherwise rewrite the database.
+        // 403, not 401: the dashboard treats 401 as "session over" and signs out.
+        if (!readOnly) {
+            const password = typeof req.body?.password === "string" ? req.body.password : "";
+            const record = password ? await storage.getAdminById(admin.userId) : null;
+            const ok = !!record && await bcrypt.compare(password, record.password);
+            if (!ok) {
+                logger.warn(`[DB_CONSOLE] ${admin?.username || admin?.userId} — ${operation} refused: ${password ? 'wrong password' : 'no password'}`);
+                if (password) {
+                    await recordAudit({
+                        entityType: "db_console", entityId: 0, action: "db_console_password_refused",
+                        changedBy: admin?.userId, metadata: { sql: sqlText.slice(0, 2000), operation },
+                    });
+                }
+                return res.status(403).json({
+                    success: false,
+                    requiresPassword: true,
+                    code: password ? "WRONG_PASSWORD" : "PASSWORD_REQUIRED",
+                    operation,
+                    message: password ? "That is not your password. Nothing was run." : "Enter your password to run this statement.",
+                });
+            }
+        }
+
         const startedAt = Date.now();
 
         try {
-            const result: any = await db.execute(sql.raw(sqlText));
+            let result: any;
+            if (readOnly) {
+                // The database enforces "read". If the text check above is ever
+                // fooled into calling a write a read, Postgres refuses it here
+                // ("cannot execute … in a read-only transaction").
+                const client = await pool.connect();
+                try {
+                    await client.query("BEGIN TRANSACTION READ ONLY");
+                    result = await client.query(sqlText);
+                } finally {
+                    await client.query("ROLLBACK").catch(() => { /* connection already gone */ });
+                    client.release();
+                }
+            } else {
+                result = await db.execute(sql.raw(sqlText));
+            }
             const rows: any[] = result.rows ?? [];
             const fields: string[] = (result.fields ?? []).map((f: any) => f.name);
             const durationMs = Date.now() - startedAt;
@@ -165,19 +246,20 @@ export function registerAdminDbConsoleRoutes(app: Express) {
 
             if (!readOnly) {
                 logger.warn(`[DB_CONSOLE] ${admin?.username || admin?.userId} ran ${first.toUpperCase()} (${rowCount} rows)`);
-                await recordAudit({
-                    entityType: "db_console",
-                    entityId: 0,
-                    action: `db_console_${first}`,
-                    changedBy: admin?.userId,
-                    metadata: {
-                        sql: sqlText.slice(0, 2000),
-                        operation: first.toUpperCase(),
-                        rowCount,
-                        durationMs,
-                    },
-                });
             }
+            // Reads are recorded too: who looked at what, and how much came back.
+            await recordAudit({
+                entityType: "db_console",
+                entityId: 0,
+                action: readOnly ? "db_console_read" : `db_console_${first}`,
+                changedBy: admin?.userId,
+                metadata: {
+                    sql: sqlText.slice(0, 2000),
+                    operation: first.toUpperCase(),
+                    rowCount,
+                    durationMs,
+                },
+            });
 
             res.json({
                 success: true,

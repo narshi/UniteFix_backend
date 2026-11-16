@@ -43,7 +43,7 @@ export default function SettingsPage() {
     
     // Payment Settings
     paymentGateway: "razorpay",
-    companyUpiId: "yourmerchant@upi",
+    companyUpiId: "",
     
     // Business Rules
     allowCancellationDays: 1,

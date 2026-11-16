@@ -44,7 +44,9 @@ export async function openRazorpayCheckout(
 
     const options = {
         key: orderInfo.razorpayKeyId,
-        amount: (orderInfo.amount * 100).toString(), // Rupees → Paise (string)
+        // Rupees → whole paise (string). Rounded: 1234.57 × 100 is
+        // 123457.00000000001 in floating point, which the checkout rejects.
+        amount: Math.round(orderInfo.amount * 100).toString(),
         currency: orderInfo.currency || 'INR',
         name: 'UniteFix',
         description: orderInfo.description || 'Service Payment',

@@ -47,9 +47,22 @@ export async function releaseHeldWalletFunds(): Promise<void> {
 
         if (pendingReleases.length === 0) return;
 
-        logger.info(`[CRON] Releasing ${pendingReleases.length} held wallet transactions`);
+        // A booking under dispute keeps its earning on hold until staff resolve
+        // it (refund the customer, release to the expert, or split). Without
+        // this, marking a dispute froze nothing: the money became withdrawable
+        // on schedule and there was nothing left to refund from.
+        const bookingIds = Array.from(new Set(pendingReleases.map(t => t.serviceRequestId).filter((id): id is number => id != null)));
+        const disputed = new Set<number>(bookingIds.length
+            ? (await db.select({ id: serviceRequests.id }).from(serviceRequests)
+                .where(and(inArray(serviceRequests.id, bookingIds), eq(serviceRequests.status, 'disputed' as any)))).map(r => r.id)
+            : []);
+        const releasable = pendingReleases.filter(t => t.serviceRequestId == null || !disputed.has(t.serviceRequestId));
+        if (disputed.size) logger.info(`[CRON] ${pendingReleases.length - releasable.length} held transaction(s) left on hold: booking under dispute`);
+        if (releasable.length === 0) return;
 
-        for (const txn of pendingReleases) {
+        logger.info(`[CRON] Releasing ${releasable.length} held wallet transactions`);
+
+        for (const txn of releasable) {
             try {
                 const released = await db.transaction(async (tx) => {
                     // Claim it: only the run that flips it from unreleased moves

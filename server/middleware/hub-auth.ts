@@ -18,6 +18,7 @@ import { adminUsers, users } from '@shared/schema';
 import { PartnerHubService, HubContext, HubError } from '../services/partner-hub.service';
 import type { HubPermission, HubModule } from '@shared/hub';
 import logger from '../lib/logger';
+import { overlongAppToken } from './auth.middleware';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
@@ -39,6 +40,10 @@ export function authenticateHub(opts: { allowPending?: boolean } = {}) {
         }
         // The owner in the UniteFix app: a users login with role business_partner.
         if (decoded.role === 'business_partner') {
+            // An app token is 15 minutes; a longer one is not one this server issues.
+            if (overlongAppToken(decoded)) {
+                return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Session expired. Please sign in again.' });
+            }
             try {
                 const [u] = await db.select({ isActive: users.isActive, deletedAt: users.deletedAt }).from(users).where(eq(users.id, decoded.userId)).limit(1);
                 if (!u || u.deletedAt || u.isActive === false) {
