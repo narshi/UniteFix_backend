@@ -84,7 +84,10 @@ export function NewsReaderScreen({ navigation, route }: any) {
                     onShouldStartLoadWithRequest={(req) => {
                         // Stay on the reader; anything else (a link printed in the paper) opens in the browser.
                         if (req.url.startsWith(WEB_BASE_URL) || req.url.startsWith(API_BASE_URL) || req.url.startsWith('about:') || req.url.startsWith('blob:') || req.url.startsWith('data:')) return true;
-                        void Linking.openURL(req.url).catch(() => undefined);
+                        // Only ordinary links leave the reader. A newspaper is a partner's upload,
+                        // and a link printed in it could otherwise be a payment request (upi://),
+                        // an Android intent, or another app's deep link, opened by a single tap.
+                        if (/^(https?:|mailto:|tel:)/i.test(req.url)) void Linking.openURL(req.url).catch(() => undefined);
                         return false;
                     }}
                 />
