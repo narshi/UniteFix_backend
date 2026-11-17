@@ -25,6 +25,7 @@
     },
     "android": {
       "package": "com.unitefix.app",
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"],
       "versionCode": 26,
       "googleServicesFile": "./google-services.json",
       "config": {
