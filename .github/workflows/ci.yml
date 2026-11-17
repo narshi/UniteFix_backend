@@ -79,6 +79,9 @@ jobs:
       - name: Low findings (codes stored hashed, cancel claim, profile pictures)
         run: npm run smoke:low-fixes
 
+      - name: Payout reconciliation (Cashfree stubbed)
+        run: npm run smoke:payout-sync
+
       - name: Payment guards
         run: npm run smoke:payment-guards
 

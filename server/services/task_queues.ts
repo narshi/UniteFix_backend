@@ -796,6 +796,9 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(marketplaceScores, DAY));
     setTimeout(marketplaceScores, 110000);
     setTimeout(billDueRetainers, 95000);
+    // Withdrawals sent to Cashfree and still "processing": ask Cashfree how each ended, and
+    // put the money back in the expert's wallet if it failed (services/payout-sync.service.ts).
+    intervals.push(setInterval(() => { import('./payout-sync.service').then(m => m.syncProcessingPayouts()).catch(e => logger.error('[JOBS] payout sync failed', { error: e?.message })); }, FIFTEEN_MINUTES));
     setTimeout(partnerFieldTick, 75000);
     setTimeout(alertStaleB2bOrders, 70000);
 

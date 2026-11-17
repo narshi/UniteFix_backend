@@ -4,6 +4,7 @@ import { db } from "../db";
 import { eq, desc, and, or, ilike, count, sql } from "drizzle-orm";
 import { withdrawalRequests, partnerWallets, walletTransactionsV2, employees, users } from "@shared/schema";
 import { CashfreeService } from "../services/cashfree.service";
+import { PayoutSyncService, PayoutSyncError } from "../services/payout-sync.service";
 import { uploadImageBuffer } from "../services/cloudinary.service";
 import logger from "../lib/logger";
 import { authenticateAdmin } from "../middleware/auth.middleware";
@@ -584,133 +585,23 @@ export function registerAdminWithdrawalRoutes(app: Express) {
      * POST /api/admin/withdrawals/:id/sync
      *
      * Asks Cashfree for the real state of a payout and reconciles our record.
-     * Fallback for the payout.processed / payout.failed webhook — while that
-     * webhook fails, successful payouts sit at 'processing' forever and reversed
-     * payouts never return the money to the partner's wallet.
+     * There is no Cashfree webhook, so a background job does the same for every
+     * payout still 'processing' every 15 minutes (services/payout-sync.service.ts);
+     * this button is the same check, now, for one request.
      */
     app.post("/api/admin/withdrawals/:id/sync", authenticateAdmin, async (req: Request, res: Response, next: NextFunction) => {
         try {
             const requestId = parseInt(req.params.id);
             if (isNaN(requestId)) return res.status(400).json({ error: "Invalid ID" });
 
-            const [withdrawal] = await db.select().from(withdrawalRequests)
-                .where(eq(withdrawalRequests.id, requestId)).limit(1);
-
-            if (!withdrawal) return res.status(404).json({ error: "Withdrawal request not found" });
-            if (!withdrawal.razorpayPayoutId) {
-                return res.status(400).json({ error: "No payout has been issued for this request yet." });
-            }
-
-            const { status, providerStatus, failureReason, utr } =
-                await CashfreeService.fetchPayoutStatus(withdrawal.razorpayPayoutId);
-
-            // Already normalised by the service: processed | processing | failed | reversed.
-            if (status === 'processed') {
-                await db.update(withdrawalRequests)
-                    .set({ status: 'completed', updatedAt: new Date() })
-                    .where(eq(withdrawalRequests.id, requestId));
-
-                await recordAudit({
-                    entityType: 'withdrawal',
-                    entityId: requestId,
-                    action: 'withdrawal_completed',
-                    changedBy: (req as any).admin?.userId,
-                    fromState: withdrawal.status,
-                    toState: 'completed',
-                    metadata: {
-                        amount: parseFloat(withdrawal.amount as any),
-                        partnerId: withdrawal.partnerId,
-                        transferId: withdrawal.razorpayPayoutId,
-                        utr,
-                        providerStatus,
-                        reconciledVia: 'admin_sync',
-                    },
-                });
-
-                return res.json({
-                    success: true,
-                    data: { payoutStatus: status, localStatus: 'completed', message: "Payout confirmed as paid." },
-                });
-            }
-
-            if (status === 'reversed' || status === 'failed') {
-                // Guard: only refund once, however many times sync is pressed.
-                if (withdrawal.status === 'failed') {
-                    return res.json({
-                        success: true,
-                        data: { payoutStatus: status, localStatus: 'failed', message: "Already reconciled — wallet was refunded." },
-                    });
-                }
-
-                await db.transaction(async (tx) => {
-                    await tx.update(withdrawalRequests)
-                        .set({
-                            status: 'failed',
-                            failureReason: failureReason || `Payout ${status}`,
-                            updatedAt: new Date(),
-                        })
-                        .where(eq(withdrawalRequests.id, requestId));
-
-                    const [wallet] = await tx.select().from(partnerWallets)
-                        .where(eq(partnerWallets.partnerId, withdrawal.partnerId)).limit(1);
-                    if (!wallet) return;
-
-                    const amount = parseFloat(withdrawal.amount as any);
-                    const currentAvail = parseFloat(wallet.balanceAvailable as any);
-                    const newAvail = (currentAvail + amount).toFixed(2);
-
-                    await tx.update(partnerWallets)
-                        .set({ balanceAvailable: newAvail, updatedAt: new Date() })
-                        .where(eq(partnerWallets.partnerId, withdrawal.partnerId));
-
-                    await tx.insert(walletTransactionsV2).values({
-                        transactionId: `PAYOUT-${status.toUpperCase()}-${withdrawal.id}-${Date.now()}`,
-                        partnerId: withdrawal.partnerId,
-                        transactionType: 'refund',
-                        amount: amount.toFixed(2),
-                        balanceAvailableBefore: wallet.balanceAvailable,
-                        balanceAvailableAfter: newAvail,
-                        balanceHoldBefore: wallet.balanceHold,
-                        balanceHoldAfter: wallet.balanceHold,
-                        description: `Payout ${status} — funds returned: ${failureReason || 'no reason given'}`,
-                    });
-                });
-
-                logger.warn(`[WITHDRAWAL] Payout ${withdrawal.razorpayPayoutId} ${status} — wallet refunded`);
-
-                await recordAudit({
-                    entityType: 'withdrawal',
-                    entityId: requestId,
-                    action: 'withdrawal_payout_reversed',
-                    changedBy: (req as any).admin?.userId,
-                    fromState: withdrawal.status,
-                    toState: 'failed',
-                    metadata: {
-                        amount: parseFloat(withdrawal.amount as any),
-                        partnerId: withdrawal.partnerId,
-                        razorpayPayoutId: withdrawal.razorpayPayoutId,
-                        payoutStatus: status,
-                        failureReason: failureReason || null,
-                        walletRefunded: true,
-                    },
-                });
-
-                return res.json({
-                    success: true,
-                    data: {
-                        payoutStatus: status,
-                        localStatus: 'failed',
-                        message: `Payout ${status}. Funds returned to the partner's wallet.`,
-                    },
-                });
-            }
-
-            // queued / pending / processing — still in flight
-            res.json({
-                success: true,
-                data: { payoutStatus: status, localStatus: withdrawal.status, message: "Payout is still in progress." },
-            });
+            // One code path with the background job (services/payout-sync.service.ts):
+            // every change of state is a claim, so pressing this twice, or while the job
+            // runs, cannot refund the wallet twice. This used to read the status, decide,
+            // then write — and could.
+            const r = await PayoutSyncService.reconcile(requestId, (req as any).admin?.userId ?? null, 'admin_sync');
+            res.json({ success: true, data: { payoutStatus: r.payoutStatus, localStatus: r.localStatus, message: r.message } });
         } catch (error) {
+            if (error instanceof PayoutSyncError) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
