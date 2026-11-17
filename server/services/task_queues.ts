@@ -791,14 +791,14 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(newsTick, 60 * 60 * 1000));
     setTimeout(newsTick, 125000);
     intervals.push(setInterval(billDueRetainers, SIX_HOURS));
+    // Withdrawals sent to Cashfree and still "processing": ask Cashfree how each ended, and
+    // put the money back in the expert's wallet if it failed (services/payout-sync.service.ts).
+    intervals.push(setInterval(() => { import('./payout-sync.service').then(m => m.syncProcessingPayouts()).catch(e => logger.error('[JOBS] payout sync failed', { error: e?.message })); }, FIFTEEN_MINUTES));
     intervals.push(setInterval(marketplaceTick, SIX_HOURS));
     setTimeout(marketplaceTick, 100000);
     intervals.push(setInterval(marketplaceScores, DAY));
     setTimeout(marketplaceScores, 110000);
     setTimeout(billDueRetainers, 95000);
-    // Withdrawals sent to Cashfree and still "processing": ask Cashfree how each ended, and
-    // put the money back in the expert's wallet if it failed (services/payout-sync.service.ts).
-    intervals.push(setInterval(() => { import('./payout-sync.service').then(m => m.syncProcessingPayouts()).catch(e => logger.error('[JOBS] payout sync failed', { error: e?.message })); }, FIFTEEN_MINUTES));
     setTimeout(partnerFieldTick, 75000);
     setTimeout(alertStaleB2bOrders, 70000);
 

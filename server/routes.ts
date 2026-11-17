@@ -126,8 +126,8 @@ import { authenticateToken, authenticateAdmin as _authenticateAdmin, authenticat
 import { adminCapabilityGuard } from "./middleware/capability-map";
 import { redactEmployee, capsOf } from "./lib/employee-privacy";
 import { supportWhatsAppLink } from "./lib/business-identity";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 /** True on Render. Guards the development-only payment bypass below. */
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Extended Request type for backward compatibility
 interface AuthenticatedRequest extends Request {
@@ -277,8 +277,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Job progress and billing (arrive, start with the customer's code, bill,
   // cash collected). These had no limit at all.
   app.use("/api/bookings", partnerLimiter);
-  app.use("/api/client", mobileLimiter);
 
+  app.use("/api/client", mobileLimiter);
   app.use("/api/services", mobileLimiter); // Service creation
   app.use("/api/products", mobileLimiter); // Product listing
   app.use("/api/orders", mobileLimiter);   // Order placement
@@ -1424,8 +1424,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
   const INVALID_ADJUSTMENT = `Enter an amount in rupees between ₹0.01 and ₹${MAX_WALLET_ADJUSTMENT_RUPEES.toLocaleString('en-IN')}, with at most two decimals.`;
 
-  app.post("/api/admin/servicemen/:id/topup", requireCapability('payments:manage'), async (req, res, next) => {
   // Top up provider wallet
+  app.post("/api/admin/servicemen/:id/topup", requireCapability('payments:manage'), async (req, res, next) => {
     try {
       const id = parseInt(req.params.id);
 
@@ -1483,8 +1483,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           changedBy: (req as any).admin?.userId ?? null,
           metadata: { amount, description, expert: provider.fullName, balanceAfter: (transaction as any)?.balanceAfter ?? null },
         });
-      } catch (err: any) {
         res.json({ success: true, message: "Wallet deducted", data: transaction });
+      } catch (err: any) {
         // Handle insufficient balance or other errors
         return res.status(400).json({ success: false, message: err.message });
       }
@@ -2388,7 +2388,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
        * the payment trail intact, and cannot lose a race with any of those nine
        * tables.
        */
-      if (service.status === 'created' && service.bookingFeeStatus === 'pending') {
       /**
        * The cancel is a CLAIM, made in the database: the row changes only if it is
        * still in the state this request was judged against. The status was read
@@ -2405,19 +2404,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "This booking has just changed — an expert may have been assigned. Refresh and try again, or contact support.",
       });
 
+      if (service.status === 'created' && service.bookingFeeStatus === 'pending') {
           const [cancelled] = await db.update(serviceRequests)
               .set({ status: 'cancelled', updatedAt: new Date() })
               .where(claimWhere)
               .returning();
-          return res.json({
           if (!cancelled) return claimedElsewhere();
+          return res.json({
               success: true,
               message: "Booking cancelled successfully",
               data: cancelled,
           });
       }
 
-      // Refund the booking fee whenever it was actually collected — for CUSTOMER
       // Claim it first: no refund is started for a booking someone else has just changed.
       const [claimed] = await db.update(serviceRequests)
           .set({ status: 'cancelled', updatedAt: new Date() })
@@ -2425,6 +2424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .returning({ id: serviceRequests.id });
       if (!claimed) return claimedElsewhere();
 
+      // Refund the booking fee whenever it was actually collected — for CUSTOMER
       // cancellations too, not just admin ones. Per AI_CONTEXT §3.D a customer
       // cancelling from CREATED is entitled to a full booking-fee refund, but this
       // route previously attempted a refund only when `isAdmin`, so every customer
@@ -2605,8 +2605,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   };
 
-  app.post("/api/orders/place", authenticateToken, shopPaused, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
   // Place order
+  app.post("/api/orders/place", authenticateToken, shopPaused, requireCompleteProfile, async (req: AuthenticatedRequest, res, next) => {
     try {
       const { products, address, deliveryLat, deliveryLong } = req.body;
       // Whole, positive quantities of real products only. A negative quantity
@@ -2617,8 +2617,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!validItems) {
         return res.status(400).json({ success: false, message: 'Send between 1 and 50 products, each with a quantity from 1 to 99.' });
       }
-      const { MarketplaceService } = await import("./services/marketplace.service");
       // Partner listings go through the store checkout, which splits, invoices and settles them.
+      const { MarketplaceService } = await import("./services/marketplace.service");
       if (Array.isArray(products) && await MarketplaceService.hasPartnerItems(products.map((p: any) => Number(p.productId)).filter(Boolean))) {
         return res.status(409).json({ success: false, code: 'USE_STORE_CHECKOUT', message: 'Items from partner sellers check out through the store checkout. Please update the app.' });
       }
@@ -2681,8 +2681,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Not paused: taking something OUT of a cart is always allowed. Scoped to the
   // caller — this used to delete whichever cart row had the id in the URL,
   // whoever it belonged to.
-    try {
   app.delete("/api/cart/:id", authenticateToken, async (req: AuthenticatedRequest, res, next) => {
+    try {
       const id = parseInt(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ success: false, message: 'Invalid cart item.' });
       await storage.removeFromCart(id, req.user!.userId);
