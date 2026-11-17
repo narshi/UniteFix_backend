@@ -324,12 +324,22 @@ export class MarketplaceService {
      * and one seller order per seller. If stock ran out in between, the whole
      * payment is refunded and nothing is created.
      */
-    static async applyCapture(params: { checkoutId?: number | null; razorpayOrderId?: string | null; razorpayPaymentId: string; amountPaise?: number }) {
+    static async applyCapture(params: { checkoutId?: number | null; razorpayOrderId?: string | null; razorpayPaymentId: string; amountPaise?: number; userId?: number | null }) {
         return withTransaction(async (tx) => {
             const cond = params.checkoutId ? eq(marketCheckouts.id, params.checkoutId) : params.razorpayOrderId ? eq(marketCheckouts.razorpayOrderId, params.razorpayOrderId) : null;
             if (!cond) throw new Error('No checkout to apply');
             const [c] = await tx.select().from(marketCheckouts).where(cond).for('update');
             if (!c) throw new Error('Checkout not found');
+            // The customer's own checkout only (the app's verify call passes userId).
+            if (params.userId != null && c.userId !== params.userId) throw new HubError('Checkout not found', 'NOT_FOUND', 404);
+            // The payment must be for THIS checkout's Razorpay order. A genuine signature
+            // proves only "this payment paid that order": checked against the checkout
+            // named in the URL, one cheap payment used to mark any other checkout —
+            // anyone's — paid, creating its orders and crediting its sellers.
+            if (params.razorpayOrderId && c.razorpayOrderId !== params.razorpayOrderId) {
+                logger.warn(`[MARKET] Checkout #${c.id}: capture refused, payment is for order ${params.razorpayOrderId}, not ${c.razorpayOrderId}`);
+                throw new HubError('That payment is for a different checkout.', 'ORDER_MISMATCH', 400);
+            }
             if (c.status === 'paid') return { checkout: c, created: false };
             if (params.amountPaise != null && params.amountPaise < c.amountPaise) throw new Error(`Paid ₹${params.amountPaise / 100}, expected ₹${c.amountPaise / 100}`);
             const lines = c.lines as any[];

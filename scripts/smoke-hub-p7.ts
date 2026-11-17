@@ -7,6 +7,7 @@
  *   npm run smoke:hub-p7
  */
 
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { and, eq } from 'drizzle-orm';
 import { bootServer, client, check, summary, makeSuperAdmin, gstinFor, cleanupPartners, db } from './lib/hub-test-kit';
@@ -82,8 +83,14 @@ async function main() {
         const [cu] = await db.insert(users).values({ phone: `8${String(Date.now()).slice(-9)}`, username: 'QA Shopper', role: 'user', homeAddress: 'Karwar', pinCode: '581301' } as any).returning();
         userIds.push(cu.id);
         const ct = jwt.sign({ userId: cu.id, role: 'user' }, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+        // The old checkout is paused outright while product ordering is off (SHOP_ORDERING_ENABLED);
+        // switched on, it still refuses partner listings.
+        const paused = await api.post('/api/orders/place', { products: [{ productId: pid1, quantity: 1 }], address: 'x' }, ct);
+        check('the old checkout is paused while product ordering is off', paused.status === 503 && paused.body?.code === 'SHOP_PAUSED', `${paused.status}`);
+        process.env.SHOP_ORDERING_ENABLED = '1';
         const legacy = await api.post('/api/orders/place', { products: [{ productId: pid1, quantity: 1 }], address: 'x' }, ct);
-        check('the old checkout refuses partner listings (it cannot split or settle them)', legacy.status === 409 && legacy.body?.code === 'USE_STORE_CHECKOUT');
+        delete process.env.SHOP_ORDERING_ENABLED;
+        check('the old checkout refuses partner listings (it cannot split or settle them)', legacy.status === 409 && legacy.body?.code === 'USE_STORE_CHECKOUT', `${legacy.status}`);
         const tooMany = await api.post('/api/store/quote', { items: [{ productId: pid2, quantity: 9 }] }, ct);
         check('more than the stock is refused', tooMany.status === 409 && tooMany.body?.code === 'STOCK');
         const qt = await api.post('/api/store/quote', { items: [{ productId: pid1, quantity: 2 }, { productId: pid2, quantity: 1 }] }, ct);
@@ -92,6 +99,28 @@ async function main() {
         check('checkout opens a payment for the server\'s total', co.status === 201 && co.body?.data?.total === 6498);
         const badSig = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: 'order_x', razorpay_payment_id: 'pay_x', razorpay_signature: 'nope' }, ct);
         check('a payment that cannot be verified is refused', badSig.status === 400);
+
+        // A genuine payment for ANOTHER Razorpay order cannot mark this checkout paid.
+        // This suite runs with no Razorpay secret; a test-only one, just for these checks.
+        process.env.RAZORPAY_KEY_SECRET = `qa-store-secret-${stamp}`;
+        const sign = (orderId: string, paymentId: string) => crypto
+            .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET ?? '').update(`${orderId}|${paymentId}`).digest('hex');
+        const coCheap = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+        // Razorpay order ids, as a live checkout has (in tests the order may not be created).
+        await db.update(marketCheckouts).set({ razorpayOrderId: `order_QAcheap_${stamp}` }).where(eq(marketCheckouts.id, coCheap.body.data.checkoutId));
+        await db.update(marketCheckouts).set({ razorpayOrderId: `order_QAmain_${stamp}` }).where(eq(marketCheckouts.id, co.body.data.checkoutId));
+        const [cheap] = await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, coCheap.body.data.checkoutId));
+        const replay = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: cheap.razorpayOrderId, razorpay_payment_id: `pay_replay_${stamp}`, razorpay_signature: sign(cheap.razorpayOrderId!, `pay_replay_${stamp}`) }, ct);
+        const [stillOpen] = await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co.body.data.checkoutId));
+        check('a genuine payment for a different checkout\'s order is refused', replay.status === 400 && replay.body?.code === 'ORDER_MISMATCH' && stillOpen.status === 'pending' && (await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, co.body.data.checkoutId))).length === 0, `${replay.status} ${replay.body?.code ?? ''}`);
+        const [other] = await db.insert(users).values({ phone: `7${String(Date.now()).slice(-9)}`, username: 'QA Other Shopper', role: 'user', homeAddress: 'Karwar', pinCode: '581301' } as any).returning();
+        userIds.push(other.id);
+        const ot = jwt.sign({ userId: other.id, role: 'user' }, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+        const notMine = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: stillOpen.razorpayOrderId, razorpay_payment_id: `pay_other_${stamp}`, razorpay_signature: sign(stillOpen.razorpayOrderId!, `pay_other_${stamp}`) }, ot);
+        check('…and another customer cannot complete my checkout', notMine.status === 404 && (await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co.body.data.checkoutId)))[0].status === 'pending', `${notMine.status}`);
+        await db.delete(marketCheckouts).where(eq(marketCheckouts.id, cheap.id));
+        delete process.env.RAZORPAY_KEY_SECRET;
+
         const cap = await MarketplaceService.applyCapture({ checkoutId: co.body.data.checkoutId, razorpayPaymentId: `pay_qa_${stamp}`, amountPaise: 649800 });
         const sos = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, co.body.data.checkoutId));
         check('payment splits into one seller order per seller', (cap as any).created === true && sos.length === 2);

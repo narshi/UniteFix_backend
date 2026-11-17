@@ -214,7 +214,7 @@ export function registerHubStoreRoutes(app: Express) {
         try {
             const b = parse(z.object({ razorpay_order_id: z.string(), razorpay_payment_id: z.string(), razorpay_signature: z.string() }), req.body);
             if (!MarketplaceService.verifySignature(b.razorpay_order_id, b.razorpay_payment_id, b.razorpay_signature)) throw new HubError('Payment could not be verified.', 'BAD_SIGNATURE', 400);
-            const r: any = await MarketplaceService.applyCapture({ checkoutId: Number(req.params.id), razorpayOrderId: b.razorpay_order_id, razorpayPaymentId: b.razorpay_payment_id });
+            const r: any = await MarketplaceService.applyCapture({ checkoutId: Number(req.params.id), razorpayOrderId: b.razorpay_order_id, razorpayPaymentId: b.razorpay_payment_id, userId: (req as any).user.userId });
             if (r.soldOut) return res.status(409).json({ success: false, message: `${r.soldOut} sold out while you paid. Your payment is being refunded in full.` });
             res.json({ success: true, message: 'Order placed.', data: { orderId: r.productOrder?.orderId ?? null } });
         } catch (e) { hubError(e, res, next); }

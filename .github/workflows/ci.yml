@@ -85,6 +85,9 @@ jobs:
       - name: Tenant isolation fixes (FTTH import, B2B portal login)
         run: npm run smoke:tenant-fixes
 
+      - name: Partner store (checkout, payment replay, seller orders)
+        run: npm run smoke:hub-p7
+
       - name: Payment guards
         run: npm run smoke:payment-guards
 
