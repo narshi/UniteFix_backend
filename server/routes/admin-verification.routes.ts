@@ -22,7 +22,7 @@ import { PaymentService } from '../services/payment.service';
 import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 import { recordAudit } from '../lib/audit';
-import { settleDispute, DisputeOutcomeError, LEGACY_OUTCOMES, type DisputeOutcome } from '../services/dispute-outcome.service';
+import { settleDispute, holdDisputedEarning, DisputeOutcomeError, LEGACY_OUTCOMES, type DisputeOutcome } from '../services/dispute-outcome.service';
 import { redactEmployee, capsOf } from '../lib/employee-privacy';
 
 export function registerAdminVerificationRoutes(app: Express) {
@@ -288,6 +288,15 @@ export function registerAdminVerificationRoutes(app: Express) {
 
             logger.warn(`[ADMIN_OVERRIDE] Booking ${bookingId}: ${previousState} → ${newState} — ${reason} (admin ${adminId})`);
 
+            // A dispute opened: earning already released to the expert goes back on hold.
+            let earningHeld: { moved: number; shortfall: number; error?: string } | null = null;
+            if (newState === 'disputed') {
+                earningHeld = await holdDisputedEarning(bookingId, adminId).catch((e: any) => {
+                    logger.error(`[DISPUTE] could not hold the earning for booking ${bookingId}: ${e?.message}`);
+                    return { moved: 0, shortfall: 0, error: e?.message ?? 'unknown error' };
+                });
+            }
+
             void BookingNotifications.forState(bookingId, newState, reason);
 
             await recordAudit({
@@ -311,6 +320,7 @@ export function registerAdminVerificationRoutes(app: Express) {
                     newState: updated.status,
                     reason,
                     adminId,
+                    earningHeld,
                 },
             });
         } catch (error) {

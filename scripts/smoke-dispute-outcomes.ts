@@ -57,10 +57,10 @@ async function main() {
             await db.insert(partnerWallets).values({ partnerId: e.id, balanceAvailable: '0.00', balanceHold: '0.00' } as any);
             return e;
         };
-        const mkDisputed = async (expertId: number, paidRupees: number) => {
+        const mkDisputed = async (expertId: number, paidRupees: number, status: 'disputed' | 'completed' = 'disputed') => {
             const [b] = await db.insert(serviceRequests).values({
                 userId: cust.id, serviceId: `QA-DSP-${stamp}-${++n}`, serviceType: 'QA dispute', brand: 'x', model: 'x', description: 'QA', address: 'Main road, Sirsi 581401',
-                status: 'disputed', providerId: expertId, bookingFee: 149, bookingFeeStatus: 'paid', completedAt: new Date(),
+                status, providerId: expertId, bookingFee: 149, bookingFeeStatus: 'paid', completedAt: new Date(),
             } as any).returning();
             await db.insert(paymentTransactions).values({
                 serviceRequestId: b.id, razorpayOrderId: `order_QADSP${stamp}${n}`, razorpayPaymentId: `pay_QADSP${stamp}${n}`,
@@ -83,7 +83,7 @@ async function main() {
         const refunded1 = refunds.reduce((a, r) => a + r.paise, 0);
         check('customer right: the customer gets all ₹1,000 back', r1.status === 200 && refunded1 === 100000, `${r1.status} ${r1.body?.message ?? ''} refunded ${refunded1}p`);
         check('customer right: the expert\'s ₹700 held earning is taken back, nothing released', w1.hold === 0 && w1.avail === 0 && (await holdOf(e1.id, b1.id)).isReleased === true, JSON.stringify(w1));
-        const claw1 = await db.select().from(walletTransactionsV2).where(and(eq(walletTransactionsV2.serviceRequestId, b1.id), eq(walletTransactionsV2.transactionType, 'adjustment')));
+        const claw1 = await db.select().from(walletTransactionsV2).where(and(eq(walletTransactionsV2.serviceRequestId, b1.id), eq(walletTransactionsV2.transactionType, 'dispute_takeback')));
         check('customer right: the take-back is in the ledger as ₹700', claw1.length === 1 && Number(claw1[0].amount) === -700, JSON.stringify(claw1.map(x => x.amount)));
         check('customer right: the booking is completed and the decision is in the audit trail', (await bookingStatus(b1.id)) === 'completed');
 
@@ -112,7 +112,7 @@ async function main() {
         // A booking whose ledger already has an adjustment cannot be settled automatically; nothing is refunded.
         const e8 = await mkExpert(); const b8 = await mkDisputed(e8.id, 1000);
         await hold(e8.id, b8.id, 700);
-        await db.insert(walletTransactionsV2).values({ transactionId: `QA-ADJ-${stamp}`, partnerId: e8.id, serviceRequestId: b8.id, transactionType: 'adjustment', amount: '-10.00', description: 'QA' } as any);
+        await db.insert(walletTransactionsV2).values({ transactionId: `QA-ADJ-${stamp}`, partnerId: e8.id, serviceRequestId: b8.id, transactionType: 'dispute_takeback', amount: '-10.00', description: 'QA' } as any);
         refunds.length = 0;
         const r8 = await settle(b8.id, { resolution: 'customer_right' });
         check('a booking with an earlier ledger adjustment is refused before any refund', r8.status === 409 && refunds.length === 0 && (await wallet(e8.id)).hold === 700, `${r8.status} ${r8.body?.message ?? ''}`);
@@ -123,15 +123,32 @@ async function main() {
         check('a refund above what was paid is refused and moves nothing', tooMuch.status === 400 && /cannot be more than/.test(tooMuch.body?.message ?? '') && refunds.length === 0 && (await wallet(e4.id)).hold === 700, `${tooMuch.status}`);
         check('an unknown outcome is refused', (await settle(b4.id, { resolution: 'refund_everyone' })).status === 400);
 
-        // ══ already paid to the expert ══
-        const e5 = await mkExpert(); const b5 = await mkDisputed(e5.id, 1000);
+        // ══ the hold ended before the complaint: opening the dispute puts the earning back on hold ══
+        const e5 = await mkExpert(); const b5 = await mkDisputed(e5.id, 1000, 'completed');
         await hold(e5.id, b5.id, 700);
-        await storage.releaseHeldBalance((await holdOf(e5.id, b5.id)).id);   // the hold ended before the complaint
+        await storage.releaseHeldBalance((await holdOf(e5.id, b5.id)).id);
+        const open5 = await api.post(`/api/admin/bookings/${b5.id}/override`, { newState: 'disputed', reason: 'Dispute: QA complaint' }, S);
+        const w5a = await wallet(e5.id);
+        check('opening the dispute puts the released ₹700 back on hold', open5.status === 200 && open5.body?.data?.earningHeld?.moved === 700 && w5a.hold === 700 && w5a.avail === 0, JSON.stringify({ s: open5.status, eh: open5.body?.data?.earningHeld, w5a }));
+        const open5again = await api.post(`/api/admin/bookings/${b5.id}/override`, { newState: 'disputed', reason: 'Dispute: QA again' }, S);
+        check('opening it a second time moves nothing more', open5again.body?.data?.earningHeld?.moved === 0 && (await wallet(e5.id)).hold === 700, JSON.stringify(open5again.body?.data?.earningHeld));
         refunds.length = 0;
         const r5 = await settle(b5.id, { resolution: 'customer_right' });
         const w5 = await wallet(e5.id);
-        check('already released: the customer is still refunded in full', r5.status === 200 && refunds.reduce((a, r) => a + r.paise, 0) === 100000, `${r5.status}`);
-        check('already released: nothing is taken from the expert, and the gap is reported', w5.avail === 700 && (r5.body?.data?.actionsTaken ?? []).some((a: string) => /already released/.test(a)), JSON.stringify({ w5, actions: r5.body?.data?.actionsTaken }));
+        check('the customer right after the re-hold: ₹1,000 refunded', r5.status === 200 && refunds.reduce((a, r) => a + r.paise, 0) === 100000, `${r5.status}`);
+        check('…and the re-held ₹700 is taken back from the expert', w5.hold === 0 && w5.avail === 0, JSON.stringify(w5));
+
+        // ══ the expert withdrew part of it before the dispute: the rest cannot be put back ══
+        const e9 = await mkExpert(); const b9 = await mkDisputed(e9.id, 1000, 'completed');
+        await hold(e9.id, b9.id, 700);
+        await storage.releaseHeldBalance((await holdOf(e9.id, b9.id)).id);
+        await db.update(partnerWallets).set({ balanceAvailable: '200.00' } as any).where(eq(partnerWallets.partnerId, e9.id));   // ₹500 withdrawn
+        const open9 = await api.post(`/api/admin/bookings/${b9.id}/override`, { newState: 'disputed', reason: 'Dispute: QA partial' }, S);
+        check('a partial withdrawal: ₹200 is put back on hold and ₹500 is reported as short', open9.body?.data?.earningHeld?.moved === 200 && open9.body?.data?.earningHeld?.shortfall === 500, JSON.stringify(open9.body?.data?.earningHeld));
+        refunds.length = 0;
+        const r9 = await settle(b9.id, { resolution: 'customer_right' });
+        const w9 = await wallet(e9.id);
+        check('…settled: the ₹200 is taken back and the ₹500 withdrawn is reported for a person to settle', r9.status === 200 && w9.hold === 0 && w9.avail === 0 && (r9.body?.data?.actionsTaken ?? []).some((a: string) => /₹500 of the expert's earning was already withdrawn/.test(a)), JSON.stringify({ w9, actions: r9.body?.data?.actionsTaken }));
 
         // ══ legacy names still work, as the three outcomes ══
         const e6 = await mkExpert(); const b6 = await mkDisputed(e6.id, 500);

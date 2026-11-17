@@ -58,7 +58,7 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
     }
     const paidPaise = Array.from(byPayment.values()).reduce((a, b) => a + b, 0);
     const heldRupees = (d?.walletTransactions ?? [])
-      .filter((t: any) => t.transactionType === "hold_credit" && !t.isReleased)
+      .filter((t: any) => (t.transactionType === "hold_credit" && !t.isReleased) || t.transactionType === "dispute_hold")
       .reduce((a: number, t: any) => a + (Number(t.amount) || 0), 0);
     return { paid: paidPaise / 100, held: heldRupees };
   }, [billing.data]);
@@ -71,7 +71,22 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
 
   const openDispute = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/admin/bookings/${service.id}/override`, { newState: "disputed", reason: `Dispute: ${reason.trim()}` }),
-    onSuccess: () => done("Marked as disputed", "The expert's earning for this job stays on hold until the dispute is resolved."),
+    onSuccess: (r: any) => {
+      const eh = r?.data?.earningHeld;
+      const short = Number(eh?.shortfall) || 0;
+      if (eh?.error) {
+        toast({ title: "Marked as disputed, but the expert's earning was not put on hold", description: `${eh.error}. Check the expert's wallet by hand before paying anything out.`, variant: "destructive" });
+        queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/admin/services") });
+        onClose();
+        return;
+      }
+      done(
+        "Marked as disputed",
+        short > 0
+          ? `The expert's earning is back on hold, except ₹${short} they had already withdrawn. Settle that part by hand.`
+          : "The expert's earning for this job is on hold until the dispute is resolved.",
+      );
+    },
     onError: (e) => toast({ title: "Not marked", description: apiErrorMessage(e), variant: "destructive" }),
   });
 

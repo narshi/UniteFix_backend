@@ -69,6 +69,9 @@ export const walletTransactionTypeEnum = pgEnum('wallet_transaction_type', [
   'refund',               // Reverse hold_credit
   'adjustment',           // Manual admin adjustment
   'commission_deduction', // Platform commission
+  'dispute_hold',         // Released earning put back on hold when a dispute is opened (dispute-outcome.service.ts)
+  'dispute_release',      // Held earning released when a dispute is settled
+  'dispute_takeback',     // Held earning taken back for a refund to the customer
 ]);
 // PHASE 3: Inventory transaction types
 export const inventoryTransactionTypeEnum = pgEnum('inventory_transaction_type', [

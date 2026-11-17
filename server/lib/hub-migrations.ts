@@ -1596,6 +1596,10 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS travel_trip_quotes_trip_idx ON travel_trip_quotes(trip_id);
       CREATE INDEX IF NOT EXISTS travel_trips_link_idx ON travel_trips(payment_link_id);
     `],
+    // Dispute ledger types (additive; existing rows untouched).
+    ['dispute: ledger type dispute_hold', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_hold';`],
+    ['dispute: ledger type dispute_release', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_release';`],
+    ['dispute: ledger type dispute_takeback', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_takeback';`],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {
