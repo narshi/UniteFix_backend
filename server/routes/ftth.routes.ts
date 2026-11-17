@@ -1962,6 +1962,19 @@ export function registerFtthRoutes(app: Express) {
         try {
             const operatorAuth = (req as any).operator;
             const body = req.body as z.infer<typeof bulkImportCustomersSchema>;
+
+            // An operator imports into its own book only (operatorId from the login,
+            // never the body). A STAFF login may name any operator, so it needs the
+            // FTTH manage capability. Under /api/admin the access map already checks
+            // that; the /api/ftth/admin and /api/ftth/staff paths are outside it, and
+            // let any staff role — support, marketing — load customers into any
+            // operator's book.
+            if (!operatorAuth) {
+                const caps = (req as any).admin?.capabilities as Set<string> | undefined;
+                if (!caps?.has('ftth:manage')) {
+                    return res.status(403).json({ success: false, code: 'CAPABILITY_REQUIRED', message: 'Your role does not allow you to change FTTH Operators.' });
+                }
+            }
             const targetOperatorId = operatorAuth?.operatorId || body.operatorId;
 
             if (!targetOperatorId) {

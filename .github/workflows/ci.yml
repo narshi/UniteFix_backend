@@ -82,6 +82,9 @@ jobs:
       - name: Payout reconciliation (Cashfree stubbed)
         run: npm run smoke:payout-sync
 
+      - name: Tenant isolation fixes (FTTH import, B2B portal login)
+        run: npm run smoke:tenant-fixes
+
       - name: Payment guards
         run: npm run smoke:payment-guards
 

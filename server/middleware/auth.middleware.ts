@@ -690,9 +690,18 @@ export function authenticateBusinessPartner(req: Request, res: Response, next: N
                 });
             }
 
-            // The mobile door must also still be a live user. The portal door's
-            // admin_users liveness is checked by the operator middleware on FTTH
-            // routes; here the business_partners status is the authority for both.
+            // The portal door must still be a live login. Only the operator
+            // middleware (FTTH routes) checked this, so an owner login staff had
+            // switched off or removed kept placing B2B orders here until its
+            // 8-hour token ran out.
+            if (viaPortal) {
+                const [login] = await db.select({ isActive: adminUsers.isActive, deletedAt: adminUsers.deletedAt }).from(adminUsers)
+                    .where(eq(adminUsers.id, decoded.userId)).limit(1);
+                if (!login || login.isActive === false || login.deletedAt) {
+                    return res.status(403).json({ success: false, code: 'LOGIN_DISABLED', message: 'This login has been switched off. Contact UniteFix.' });
+                }
+            }
+            // The mobile door must also still be a live user.
             if (viaMobile) {
                 const [u] = await db.select({ isActive: users.isActive }).from(users)
                     .where(eq(users.id, decoded.userId)).limit(1);
