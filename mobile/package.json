@@ -7,7 +7,16 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "check:i18n": "node scripts/check-i18n.cjs"
+    "check:i18n": "node scripts/check-i18n.cjs",
+    "release": "node scripts/release.js",
+    "release:patch": "node scripts/release.js --bump patch",
+    "release:minor": "node scripts/release.js --bump minor",
+    "release:major": "node scripts/release.js --bump major",
+    "release:build-only": "node scripts/release.js --skip-upload",
+    "release:upload-only": "node scripts/release.js --skip-build",
+    "release:dry-run": "node scripts/release.js --dry-run",
+    "release:internal": "node scripts/release.js --track internal",
+    "release:production": "node scripts/release.js --track production"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
