@@ -22,6 +22,7 @@ import { PaymentService } from '../services/payment.service';
 import { BookingNotifications } from '../services/booking-notifications';
 import logger from '../lib/logger';
 import { recordAudit } from '../lib/audit';
+import { settleDispute, DisputeOutcomeError, LEGACY_OUTCOMES, type DisputeOutcome } from '../services/dispute-outcome.service';
 import { redactEmployee, capsOf } from '../lib/employee-privacy';
 
 export function registerAdminVerificationRoutes(app: Express) {
@@ -341,13 +342,14 @@ export function registerAdminVerificationRoutes(app: Express) {
                 });
             }
 
-            const validResolutions = ['refund_customer', 'release_employee', 'split'];
+            const validResolutions = ['customer_right', 'shared_fault', 'expert_right', 'refund_customer', 'release_employee', 'split'];
             if (!validResolutions.includes(resolution)) {
                 return res.status(400).json({
                     success: false,
                     message: `Resolution must be one of: ${validResolutions.join(', ')}`,
                 });
             }
+            const outcome = (LEGACY_OUTCOMES[resolution] ?? resolution) as DisputeOutcome;
 
             const [booking] = await db.select().from(serviceRequests)
                 .where(eq(serviceRequests.id, bookingId)).limit(1);
@@ -365,91 +367,20 @@ export function registerAdminVerificationRoutes(app: Express) {
 
             let actionsTaken: string[] = [];
             let refundOutcome: { success: boolean; amount?: number; error?: string } | null = null;
-
-            if (resolution === 'refund_customer' || resolution === 'split') {
-                // Refunds every captured payment on the booking, not just the ₹99
-                // fee, and honours the admin-entered refundAmount for a partial
-                // settlement. Previously this called refundBookingCharge(), which
-                // ignored refundAmount and could only ever reverse the fee — so a
-                // dispute over a large job could not be settled in the customer's
-                // favour at all.
-                try {
-                    const parsedAmount = refundAmount != null ? Number(refundAmount) : undefined;
-                    if (parsedAmount != null && (!Number.isFinite(parsedAmount) || parsedAmount <= 0)) {
-                        throw new Error('refundAmount must be a positive number');
-                    }
-
-                    const result = await PaymentService.refundBookingPayments(
-                        bookingId,
-                        parsedAmount,
-                        `Dispute resolved (${resolution}) by admin #${adminId}: ${remarks}`,
-                    );
-                    refundOutcome = { success: true, amount: result.totalRefunded };
-                    actionsTaken.push(`Refunded ₹${result.totalRefunded} to customer`);
-                } catch (err: any) {
-                    // Surfaced rather than swallowed — an admin must not be told a
-                    // dispute was settled financially when no money moved.
-                    refundOutcome = { success: false, error: err.message };
-                    actionsTaken.push(`REFUND FAILED — manual refund required: ${err.message}`);
-                    logger.error(`[DISPUTE] Refund failed for booking ${bookingId}: ${err.message}`);
-                }
-            }
-
-            if (resolution === 'release_employee' || resolution === 'split') {
-                // Release held funds to employee wallet
-                if (booking.providerId) {
-                    // HOLD CREDITS only. `is_released` defaults to false on every
-                    // wallet row, whatever its type — so without the type filter
-                    // this also picked up the booking's "released" ledger line
-                    // (written when a hold is released on schedule) and moved
-                    // that amount from hold to available a second time.
-                    const heldTxns = await db.select().from(walletTransactionsV2)
-                        .where(
-                            and(
-                                eq(walletTransactionsV2.partnerId, booking.providerId),
-                                eq(walletTransactionsV2.serviceRequestId, bookingId),
-                                eq(walletTransactionsV2.transactionType, 'hold_credit'),
-                                eq(walletTransactionsV2.isReleased, false)
-                            )
-                        );
-
-                    // Both statements or neither.
-                    //
-                    // These used to run unwrapped, and the failure they allow is
-                    // not theoretical: reconciliation found a live wallet holding
-                    // money whose hold row was already marked released. Flagging
-                    // the row without decrementing the balance strands that amount
-                    // in `hold` permanently — no future release can move it,
-                    // because the entry that would have released it is already
-                    // closed. The partner then sees money on their wallet screen
-                    // that can never become withdrawable.
-                    //
-                    // The cron path in task_queues.ts has always been transactional;
-                    // this one was the outlier.
-                    const providerId = booking.providerId;
-                    await db.transaction(async (tx) => {
-                        for (const txn of heldTxns) {
-                            // Claimed, as the hourly release job does: only the
-                            // statement that flips it moves the money, so this and
-                            // that job (or a double click) cannot both release it.
-                            const [claimed] = await tx.update(walletTransactionsV2)
-                                .set({ isReleased: true })
-                                .where(and(eq(walletTransactionsV2.id, txn.id), eq(walletTransactionsV2.isReleased, false)))
-                                .returning({ id: walletTransactionsV2.id });
-                            if (!claimed) continue;
-
-                            await tx.update(partnerWallets)
-                                .set({
-                                    balanceHold: sql`${partnerWallets.balanceHold} - ${txn.amount}`,
-                                    balanceAvailable: sql`${partnerWallets.balanceAvailable} + ${txn.amount}`,
-                                    updatedAt: new Date(),
-                                })
-                                .where(eq(partnerWallets.partnerId, providerId));
-                        }
-                    });
-
-                    actionsTaken.push(`Released ${heldTxns.length} held wallet transaction(s)`);
-                }
+            try {
+                const settled = await settleDispute({
+                    bookingId, outcome, adminId, remarks,
+                    refundRupees: refundAmount != null ? Number(refundAmount) : null,
+                });
+                actionsTaken = settled.actions;
+                refundOutcome = { success: true, amount: settled.refunded };
+            } catch (err: any) {
+                if (err instanceof DisputeOutcomeError) return res.status(err.status).json({ success: false, message: err.message });
+                // The refund (if any) has not happened, or has: the message says which, so staff act on it.
+                refundOutcome = { success: false, error: err.message };
+                actionsTaken = [`NOT SETTLED — check the booking before retrying: ${err.message}`];
+                logger.error(`[DISPUTE] Booking ${bookingId} (${outcome}) failed: ${err.message}`);
+                return res.status(500).json({ success: false, message: err.message, data: { refund: refundOutcome, actionsTaken } });
             }
 
             // Mark booking as completed (dispute resolved)

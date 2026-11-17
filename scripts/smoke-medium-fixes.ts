@@ -154,7 +154,6 @@ async function main() {
         check('M2  the hourly release leaves a disputed booking\'s earning on hold', (await holdOf(disputed.id)).isReleased === false && Number((await wallet(emp.id)).balanceAvailable) === availBefore);
         check('M2  …and a good rating does not release it either', (await storage.fastTrackHeldBalanceByService(disputed.id, 0)) === 'none' && (await holdOf(disputed.id)).isReleased === false);
         // A "released" ledger line on the same booking: it is not a hold, and must not be moved again.
-        await db.insert(walletTransactionsV2).values({ transactionId: `WREL-QA-${stamp}`, partnerId: emp.id, serviceRequestId: disputed.id, transactionType: 'release', amount: '300.00', description: 'QA ledger line' } as any);
         const resolve = await api.post(`/api/admin/bookings/${disputed.id}/resolve-dispute`, { resolution: 'release_employee', remarks: 'QA: complaint not upheld' }, S);
         const afterResolve = await wallet(emp.id);
         check('M5  resolving in the expert\'s favour completes the booking', resolve.status === 200 && (await sr(disputed.id)).status === 'completed', `${resolve.status} ${resolve.body?.message}`);

@@ -88,6 +88,9 @@ jobs:
       - name: Partner store (checkout, payment replay, seller orders)
         run: npm run smoke:hub-p7
 
+      - name: Dispute outcomes (customer right, shared fault, expert right)
+        run: npm run smoke:dispute-outcomes
+
       - name: Payment guards
         run: npm run smoke:payment-guards
 

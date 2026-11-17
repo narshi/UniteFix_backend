@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage, queryClient } from "@/lib/queryClient";
 
 export type DisputeMode = "open" | "resolve";
-type Resolution = "refund_customer" | "release_employee" | "split";
+type Resolution = "customer_right" | "shared_fault" | "expert_right";
 
 const field = "mt-1 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.1)] text-white";
 const muted = "text-xs text-[hsl(215,20%,60%)]";
@@ -33,12 +33,12 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
   const { toast } = useToast();
   const open = !!service && !!mode;
   const [reason, setReason] = useState("");
-  const [resolution, setResolution] = useState<Resolution>("refund_customer");
+  const [resolution, setResolution] = useState<Resolution>("customer_right");
   const [refundRupees, setRefundRupees] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setReason(""); setResolution("refund_customer"); setRefundRupees("");
+    setReason(""); setResolution("customer_right"); setRefundRupees("");
   }, [open, service?.id, mode]);
 
   // What the customer paid online and what is held for the expert, so staff decide on real figures.
@@ -80,7 +80,7 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
       resolution,
       remarks: reason.trim(),
       // Full refund sends no amount: the server returns everything captured.
-      ...(resolution === "split" ? { refundAmount: Number(refundRupees) } : {}),
+      ...(resolution === "shared_fault" ? { refundAmount: Number(refundRupees) } : {}),
     }),
     onSuccess: (r: any) => {
       const refundFailed = r?.data?.refund && r.data.refund.success === false;
@@ -98,13 +98,13 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
   if (!service || !mode) return null;
   const busy = openDispute.isPending || resolve.isPending;
   const refundNumber = Number(refundRupees);
-  const splitInvalid = resolution === "split" && (!(refundNumber > 0) || (paid > 0 && refundNumber > paid));
+  const splitInvalid = resolution === "shared_fault" && (!(refundNumber > 0) || (paid > 0 && refundNumber > paid));
   const nothingToRefund = !billing.isLoading && paid <= 0;
 
   const options: Array<[Resolution, string, string]> = [
-    ["refund_customer", paid > 0 ? `Refund the customer all ₹${paid}` : "Refund the customer in full", "Everything they paid online goes back the way it was paid. The expert's held earning is not touched."],
-    ["release_employee", held > 0 ? `Release the expert's ₹${held} now` : "Release the expert's held earning now", "The complaint was not upheld. Nothing is refunded."],
-    ["split", "Refund part, and release the expert's earning", "A partial refund to the customer; the expert's held earning is released."],
+    ["customer_right", paid > 0 ? `The customer was right: refund ₹${paid}` : "The customer was right: refund in full", "Everything they paid goes back. The expert loses the held earning for this job, up to the refund. UniteFix covers anything the held earning does not."],
+    ["shared_fault", "Both were partly at fault", "The customer gets the amount you enter back. The expert loses that amount from the held earning and keeps the rest."],
+    ["expert_right", "The expert was right: no refund", "The complaint is not upheld. Nothing is refunded and the expert's held earning is released to them."],
   ];
 
   return (
@@ -149,13 +149,13 @@ export default function BookingDisputeModal({ service, mode, onClose }: { servic
                 </label>
               ))}
             </fieldset>
-            {resolution === "split" && (
+            {resolution === "shared_fault" && (
               <div>
                 <Label htmlFor="bd-refund" className="text-[hsl(215,20%,85%)]">Refund amount (₹{paid > 0 ? `, up to ${paid}` : ""})</Label>
                 <Input id="bd-refund" inputMode="decimal" value={refundRupees} onChange={e => setRefundRupees(e.target.value.replace(/[^\d.]/g, ""))} className={field} />
               </div>
             )}
-            {resolution !== "release_employee" && nothingToRefund && (
+            {resolution !== "expert_right" && nothingToRefund && (
               <p className="text-sm text-[hsl(38,92%,60%)]">Nothing was paid online on this booking, so there is nothing the app can refund. Cash is returned outside the app.</p>
             )}
             <div>

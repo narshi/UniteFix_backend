@@ -84,6 +84,7 @@
     "smoke:low-fixes": "tsx scripts/smoke-low-fixes.ts",
     "smoke:payout-sync": "tsx scripts/smoke-payout-sync.ts",
     "smoke:tenant-fixes": "tsx scripts/smoke-tenant-fixes.ts",
+    "smoke:dispute-outcomes": "tsx scripts/smoke-dispute-outcomes.ts",
     "smoke:booking-admin": "tsx scripts/smoke-booking-admin.ts",
     "smoke:partner-commission": "tsx scripts/smoke-partner-commission.ts",
     "smoke:extra-work": "tsx scripts/smoke-extra-work.ts",
