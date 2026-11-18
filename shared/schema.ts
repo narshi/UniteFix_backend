@@ -4149,6 +4149,17 @@ export const travelTrips = pgTable("travel_trips", {
   endedAt: timestamp("ended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
   lateAlertAt: timestamp("late_alert_at"),
+  // Trip tracking (Phase 2) and money (Phase 3).
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastPingAt: timestamp("last_ping_at"),
+  lastPingSource: text("last_ping_source"),
+  familyToken: text("family_token").unique(),
+  checkedPlaceIds: jsonb("checked_place_ids").notNull().default([]),
+  liveAlerts: jsonb("live_alerts").notNull().default({}),        // when each alert last fired, so it fires once
+  ratedAt: timestamp("rated_at"),
+  balanceReceived: integer("balance_received"),                   // rupees collected on the trip
+  balanceMethod: text("balance_method"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
@@ -4226,6 +4237,7 @@ export const travelTripTeam = pgTable("travel_trip_team", {
   docs: jsonb("docs").notNull().default({}),                    // { licence, rc, photo } checked by staff
   docOverride: text("doc_override"),                            // why assigned without them
   driverToken: text("driver_token").unique(),                   // the driver's link
+  acceptedAt: timestamp("accepted_at"),                         // the driver accepted the trip on the link
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -4278,3 +4290,52 @@ export const safetyPings = pgTable("safety_pings", {
   accuracy: doublePrecision("accuracy"),
   at: timestamp("at").defaultNow(),
 }, (t) => ({ incidentIdx: index("safety_pings_incident_idx").on(t.incidentId) }));
+
+/**
+ * Trip tracking (Phase 2): where a trip is, from the traveller's app (Trip
+ * mode, while open) or the driver's link. Kept 30 days; longer when the trip
+ * has a safety case.
+ */
+export const travelTripPings = pgTable("travel_trip_pings", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  source: text("source").notNull(),                             // traveller | driver
+  teamMemberId: integer("team_member_id"),
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  accuracy: doublePrecision("accuracy"),
+  speed: doublePrecision("speed"),                              // m/s from the phone
+  at: timestamp("at").defaultNow(),
+}, (t) => ({ tripAtIdx: index("travel_trip_pings_trip_at_idx").on(t.tripId, t.at) }));
+
+/** A traveller's rating of one person on the trip (Phase 3). */
+export const travelRatings = pgTable("travel_ratings", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  teamMemberId: integer("team_member_id"),
+  role: text("role").notNull(),
+  name: text("name").notNull(),
+  employeeId: integer("employee_id"),
+  partnerId: integer("partner_id"),
+  phone: text("phone"),
+  stars: integer("stars").notNull(),
+  tags: jsonb("tags").notNull().default([]),
+  comment: text("comment"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ tripIdx: index("travel_ratings_trip_idx").on(t.tripId), partnerIdx: index("travel_ratings_partner_idx").on(t.partnerId) }));
+
+/** What UniteFix paid a partner (or our expert) for a trip (Phase 3). */
+export const travelTripPayouts = pgTable("travel_trip_payouts", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  partnerId: integer("partner_id").references(() => travelPartners.id),
+  teamMemberId: integer("team_member_id"),
+  payee: text("payee").notNull(),
+  amount: integer("amount").notNull(),                          // rupees
+  method: text("method").notNull().default('upi'),             // upi | bank | cash | other
+  reference: text("reference"),
+  note: text("note"),
+  paidOn: text("paid_on"),                                      // YYYY-MM-DD
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ tripIdx: index("travel_trip_payouts_trip_idx").on(t.tripId) }));

@@ -756,6 +756,11 @@ export function startBackgroundJobs(): void {
     // Trips: the evening-before reminder and the late-driver alert (every 15 minutes).
     intervals.push(setInterval(() => { import('./travel.service').then(m => m.TravelService.tripDayJobs()).catch(e => logger.error('[JOBS] trip day jobs failed', { error: e?.message })); }, FIFTEEN_MINUTES));
 
+    // Trips on the road: no signal, off the route, long stop, night driving (every 5 minutes).
+    intervals.push(setInterval(() => { import('./trip-live.service').then(m => m.TripLiveService.liveAlerts()).catch(e => logger.error('[JOBS] live trip alerts failed', { error: e?.message })); }, 5 * 60_000));
+    // Trip locations older than 30 days (kept when the trip has a safety case), daily.
+    intervals.push(setInterval(() => { import('./trip-live.service').then(m => m.TripLiveService.prune()).catch(e => logger.error('[JOBS] trip location prune failed', { error: e?.message })); }, DAY));
+
     // Run wallet release every hour
     intervals.push(setInterval(releaseHeldWalletFunds, HOUR));
     // Run initial check after 30 seconds (give server time to start)

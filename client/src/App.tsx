@@ -28,6 +28,7 @@ import TravelTripsPage from "@/pages/admin/travel-trips";
 import TravelPlacesPage from "@/pages/admin/travel-places";
 import TravelPartnersPage from "@/pages/admin/travel-partners";
 import SafetyDeskPage from "@/pages/admin/safety-desk";
+import TravelLivePage from "@/pages/admin/travel-live";
 import SafetyAlarm from "@/components/admin/SafetyAlarm";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
@@ -353,6 +354,7 @@ function Router() {
           <Route path="/admin/assignments"><Gate capability="bookings:view" component={AssignmentQueuePage} /></Route>
           <Route path="/admin/enquiries"><Gate capability="bookings:view" component={EnquiriesPage} /></Route>
           <Route path="/admin/travel/trips"><Gate capability="travel:view" component={TravelTripsPage} /></Route>
+          <Route path="/admin/travel/live"><Gate capability="travel:view" component={TravelLivePage} /></Route>
           <Route path="/admin/safety"><Gate capability="safety:view" component={SafetyDeskPage} /></Route>
           <Route path="/admin/travel/partners"><Gate capability="travel:view" component={TravelPartnersPage} /></Route>
           <Route path="/admin/travel/places"><Gate capability="travel:view" component={TravelPlacesPage} /></Route>

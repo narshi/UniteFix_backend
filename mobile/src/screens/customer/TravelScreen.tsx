@@ -15,6 +15,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Plane, MapPin, Phone, CalendarDays, Users, ChevronRight, Sparkles, Route, Headset, FileText, Share2, X, Info, Clock, BadgeCheck, Lock, Car, CalendarX, BedDouble, Compass, ShieldCheck, LifeBuoy, Flag, KeyRound } from 'lucide-react-native';
 import { SafetySheet, HelpSheet, ShieldButton } from '../../components/safety/SafetySheet';
+import { TripMode, TripProgress, RateTrip } from '../../components/travel/TripExtras';
 import { useTravelCatalog, useMyTrips, travelApi, regionPhoto, TRAVEL_HEADER, type MyTrip, type TravelRegion } from '../../api/travel.api';
 import { getApiErrorMessage } from '../../api/client';
 import { brand } from '../../theme/colors';
@@ -150,6 +151,7 @@ function TripDay({ trip, onChanged }: { trip: MyTrip; onChanged: () => void }) {
     const [safety, setSafety] = useState(false);
     const [help, setHelp] = useState(false);
     const [ending, setEnding] = useState(false);
+    const [rating, setRating] = useState(false);
     if (!['confirmed', 'started', 'completed'].includes(trip.status)) return null;
     const roleLabel = (r: string) => ({ driver: t('travel.role_driver', 'Driver'), stay: t('travel.role_stay', 'Stay'), guide: t('travel.role_guide', 'Guide'), activity: t('travel.role_activity', 'Activity') } as Record<string, string>)[r] ?? r;
     const people = trip.team.map(m => ({ id: m.id, role: roleLabel(m.role), name: m.name, phone: m.phone, vehicle: m.vehicle, plate: m.plate, verified: m.verified, ours: m.ours }));
@@ -160,6 +162,8 @@ function TripDay({ trip, onChanged }: { trip: MyTrip; onChanged: () => void }) {
     return (
         <View style={st.tripDay}>
             {trip.status === 'started' && <View style={st.onTrip}><View style={st.liveDot} /><Text style={st.onTripText}>{t('travel.on_trip', 'On trip')}</Text></View>}
+            {trip.status === 'started' && <TripMode trip={trip} onProgress={onChanged} />}
+            {(trip.status === 'confirmed' || trip.status === 'started') && <TripProgress trip={trip} />}
             {trip.status === 'confirmed' && (trip.startCode ? (
                 <View style={st.codeBox}>
                     <KeyRound size={18} color={brand.navy} />
@@ -197,6 +201,9 @@ function TripDay({ trip, onChanged }: { trip: MyTrip; onChanged: () => void }) {
                 </View>
             )}
             {trip.canEnd && <Pressable onPress={finish} disabled={ending} style={st.endBtn} accessibilityRole="button"><Text style={st.endText}>{t('travel.end_trip', 'Trip finished: we are back')}</Text></Pressable>}
+            {trip.canRate && <Pressable onPress={() => setRating(true)} style={st.rateBtn} accessibilityRole="button"><Text style={st.rateText}>★ {t('trip.rate', 'Rate your driver, stay and guide')}</Text></Pressable>}
+            {trip.status === 'completed' && trip.ratedAt && <Text style={st.policy}>{t('trip.rated', 'Thank you for rating your trip.')}</Text>}
+            {trip.canRate && <RateTrip trip={trip} visible={rating} onClose={() => setRating(false)} onDone={onChanged} />}
             {trip.status === 'confirmed' && trip.cancelBy && (
                 <Text style={st.policy}>{trip.cancelBlocked ?? t('travel.cancel_policy', 'You can cancel in the app until {{date}}; the advance is not refunded. After that, call {{name}} to change or cancel.', { date: niceDate(trip.cancelBy), name: trip.manager?.name ?? t('travel.your_manager', 'your travel manager') })}</Text>
             )}
@@ -448,6 +455,8 @@ const st = StyleSheet.create({
     helpText: { color: brand.navy, fontWeight: '800', fontSize: 14 },
     endBtn: { alignItems: 'center', borderWidth: 2, borderColor: brand.navy, borderRadius: radii.full, paddingVertical: 10 },
     endText: { color: brand.navy, fontWeight: '800' },
+    rateBtn: { alignItems: 'center', backgroundColor: brand.orange, borderRadius: radii.full, paddingVertical: 11 },
+    rateText: { color: '#fff', fontWeight: '800', fontSize: 15 },
     policy: { fontSize: 12, color: brand.textSecondary, lineHeight: 17 },
     linkBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 },
     linkText: { fontSize: 13, fontWeight: '600', color: brand.navy },

@@ -1683,6 +1683,63 @@ const BLOCKS: Array<[string, string]> = [
     ['dispute: ledger type dispute_hold', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_hold';`],
     ['dispute: ledger type dispute_release', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_release';`],
     ['dispute: ledger type dispute_takeback', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_takeback';`],
+    // Trip tracking (Phase 2) and ratings, scores and partner payments (Phase 3). New columns and tables only.
+    ['travel: tracking, ratings, payouts', `
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS last_ping_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS last_ping_source TEXT;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS family_token TEXT UNIQUE;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS checked_place_ids JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS live_alerts JSONB NOT NULL DEFAULT '{}';
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS rated_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS balance_received INTEGER;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS balance_method TEXT;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP;
+      CREATE TABLE IF NOT EXISTS travel_trip_pings (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        source TEXT NOT NULL,
+        team_member_id INTEGER,
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        accuracy DOUBLE PRECISION,
+        speed DOUBLE PRECISION,
+        at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_trip_pings_trip_at_idx ON travel_trip_pings(trip_id, at);
+      CREATE TABLE IF NOT EXISTS travel_ratings (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        team_member_id INTEGER,
+        role TEXT NOT NULL,
+        name TEXT NOT NULL,
+        employee_id INTEGER,
+        partner_id INTEGER,
+        phone TEXT,
+        stars INTEGER NOT NULL,
+        tags JSONB NOT NULL DEFAULT '[]',
+        comment TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_ratings_trip_idx ON travel_ratings(trip_id);
+      CREATE INDEX IF NOT EXISTS travel_ratings_partner_idx ON travel_ratings(partner_id);
+      CREATE TABLE IF NOT EXISTS travel_trip_payouts (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        partner_id INTEGER REFERENCES travel_partners(id),
+        team_member_id INTEGER,
+        payee TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        method TEXT NOT NULL DEFAULT 'upi',
+        reference TEXT,
+        note TEXT,
+        paid_on TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_trip_payouts_trip_idx ON travel_trip_payouts(trip_id);
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

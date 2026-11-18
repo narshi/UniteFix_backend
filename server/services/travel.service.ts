@@ -17,6 +17,7 @@ import {
     type PlanPlace, type TripPlan, type TripStatus, type TravelSettings,
 } from '@shared/travel';
 import { istToday, daysUntil, cancelByDate } from '@shared/travel';
+import { TripLiveService, progressOf, followUrl } from './trip-live.service';
 import { SYSTEM_ROLES } from '@shared/capabilities';
 import { NotificationService } from './notification.service';
 import { recordAudit } from '../lib/audit';
@@ -307,6 +308,11 @@ export class TravelService {
             cancelBlocked: tooLate ? `Within ${cutoff} days of the trip it can't be cancelled in the app. Call ${t.managerName ?? 'your travel manager'} to change or cancel it.` : null,
             canEnd: status === 'started',
             safetyActive: status === 'confirmed' || status === 'started',
+            progress: progressOf(t),
+            tracking: { lastPingAt: t.lastPingAt, source: t.lastPingSource },
+            familyUrl: t.familyToken && (status === 'confirmed' || status === 'started') ? followUrl(t.familyToken) : null,
+            canRate: status === 'completed' && !t.ratedAt && team.length > 0,
+            ratedAt: t.ratedAt,
             id: t.id, code: t.code, status, statusLabel: TRIP_STATUS_LABEL[status],
             tripType: t.tripType, from: t.pickupText, to: t.dropText, startDate: t.startDate, days: t.days,
             adults: t.adults, children: t.children, stay: t.stay, needsCab: t.needsCab, needsGuide: t.needsGuide,
@@ -415,6 +421,7 @@ export class TravelService {
         const members = ids.length ? await db.select().from(travelTripMembers).where(inArray(travelTripMembers.tripId, ids)) : [];
         const quotes = ids.length ? await db.select().from(travelTripQuotes).where(inArray(travelTripQuotes.tripId, ids)).orderBy(asc(travelTripQuotes.id)) : [];
         const team = ids.length ? await db.select().from(travelTripTeam).where(inArray(travelTripTeam.tripId, ids)).orderBy(asc(travelTripTeam.day), asc(travelTripTeam.id)) : [];
+        const money = await TripLiveService.money(ids);
         const [counts] = await db.select({
             new: sql<number>`count(*) filter (where status = 'new')::int`,
             open: sql<number>`count(*) filter (where status in ('new','assigned','contacted','quoted'))::int`,
@@ -428,7 +435,10 @@ export class TravelService {
                     ...t, plan, people, vehicle: suggestedVehicle(people),
                     members: members.filter(m => m.tripId === t.id).map(m => ({ id: m.id, name: m.name, phone: m.phone, status: m.status })),
                     quotes: quotes.filter(q => q.tripId === t.id),
-                    team: team.filter(m => m.tripId === t.id).map(m => ({ ...m, verified: this.teamVerified(m), driverLink: m.driverToken ? driverLink(m.driverToken) : null })),
+                    team: team.filter(m => m.tripId === t.id).map(m => ({ ...m, verified: this.teamVerified(m), driverLink: m.driverToken ? driverLink(m.driverToken) : null, accepted: !!m.acceptedAt })),
+                    payouts: money.get(t.id)?.payouts ?? [], ratings: money.get(t.id)?.ratings ?? [],
+                    money: TripLiveService.summary(t, money.get(t.id)?.payouts ?? []),
+                    progress: progressOf(t), familyUrl: t.familyToken ? followUrl(t.familyToken) : null,
                 };
             }),
         };
@@ -569,8 +579,14 @@ export class TravelService {
 
     // ── Travel partners ─────────────────────────────────────────────────
 
+    /** With each partner's score: average rating and strikes in the last 6 months. Best first. */
     static async partners() {
-        return db.select().from(travelPartners).orderBy(desc(travelPartners.isActive), asc(travelPartners.name));
+        const rows = await db.select().from(travelPartners).orderBy(desc(travelPartners.isActive), asc(travelPartners.name));
+        const sc = await TripLiveService.scores();
+        const paid = rows.length ? await db.execute(sql`SELECT partner_id, COALESCE(SUM(amount),0)::int AS total, COUNT(DISTINCT trip_id)::int AS trips FROM travel_trip_payouts WHERE partner_id IS NOT NULL GROUP BY partner_id`) : { rows: [] };
+        const paidBy = new Map(((paid as any).rows as Array<{ partner_id: number; total: number; trips: number }>).map(r => [r.partner_id, r]));
+        return rows.map(p => ({ ...p, score: sc.partners[p.id] ?? null, paidTotal: paidBy.get(p.id)?.total ?? 0, paidTrips: paidBy.get(p.id)?.trips ?? 0 }))
+            .sort((a, b) => Number(b.isActive) - Number(a.isActive) || (b.score?.avg ?? 0) - (a.score?.avg ?? 0) || a.name.localeCompare(b.name));
     }
     static async savePartner(adminId: number, id: number | null, body: unknown) {
         const b = parse(id ? partnerInput.partial() : partnerInput, body);
@@ -713,10 +729,12 @@ export class TravelService {
 
     /** Our own verified, active service experts, to put on a trip. */
     static async experts() {
-        return db.select({ id: employees.id, name: employees.fullName, phone: users.phone, photo: users.profilePicture })
+        const sc = await TripLiveService.scores();
+        const rows = await db.select({ id: employees.id, name: employees.fullName, phone: users.phone, photo: users.profilePicture })
             .from(employees).innerJoin(users, eq(users.id, employees.userId))
             .where(and(eq(employees.isActive, true), eq(employees.documentVerificationStatus, 'verified' as any), sql`${employees.managedByPartnerId} IS NULL`))
             .orderBy(asc(employees.fullName)).limit(500);
+        return rows.map(e => ({ ...e, score: sc.experts[e.id] ?? null }));
     }
 
     static async saveTeam(adminId: number, tripId: number, memberId: number | null, body: unknown) {
@@ -786,6 +804,7 @@ export class TravelService {
         if (t.status !== 'started') throw new TravelError('The trip has not started.');
         const [row] = await db.update(travelTrips).set({ status: 'completed', endedAt: new Date(), updatedAt: new Date() }).where(eq(travelTrips.id, t.id)).returning();
         await recordAudit({ entityType: 'travel', entityId: t.id, action: 'travel_trip_completed', fromState: 'started', toState: 'completed', metadata: { code: t.code, by } });
+        void TripLiveService.askForRating(t.id);
         return row;
     }
 
@@ -836,8 +855,14 @@ export class TravelService {
         const head = `<h1>Trip ${esc(t.code)}</h1><p class="muted">Driver: ${esc(m.name)}${m.plate ? ` · ${esc(m.plate)}` : ''}</p>
           <div class="box"><b>Pickup:</b> ${esc(t.pickupText)}<br><b>Date:</b> ${esc(t.startDate)}${m.time ? ` at ${esc(m.time)}` : ''}<br><b>Travellers:</b> ${esc(first)} + ${t.adults + t.children - 1}<br><b>Travel manager:</b> ${esc(t.managerName)} ${esc(t.managerPhone)}</div>`;
         const post = (path: string, withCode: boolean) => `<script>async function go(){var b=document.getElementById('b');b.disabled=true;var r=await fetch('${driverLink(token).replace(publicBase(), '')}/${path}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${withCode ? "{code:document.getElementById('c').value}" : '{}'})});var j=await r.json().catch(function(){return{}});document.getElementById('msg').textContent=j.message||'Something went wrong.';b.disabled=false;if(r.ok)setTimeout(function(){location.reload()},1200)}</script>`;
-        if (t.status === 'confirmed') return shell(`${head}<div class="box"><b>At pickup, ask the traveller for the 4-digit code in their UniteFix app.</b><input id="c" inputmode="numeric" maxlength="4" autocomplete="one-time-code" aria-label="Pickup code"><button id="b" onclick="go()">Start the trip</button><div id="msg"></div></div>${post('start', true)}`);
-        if (t.status === 'started') return shell(`${head}<div class="box"><b>Trip in progress.</b> Drive safe. When you drop everyone at the end, press below.<button id="b" class="alt" onclick="go()">Trip finished</button><div id="msg"></div></div>${post('end', false)}`);
+        const base = driverLink(token).replace(publicBase(), '');
+        // Accept the trip (Phase 3), and share location while the page is open on a trip (Phase 2).
+        const accept = m.acceptedAt
+            ? `<div class="box" style="border-color:#A7F3D0;background:#ECFBF3"><b>You accepted this trip.</b></div>`
+            : `<div class="box"><b>Can you do this trip?</b><button id="acc" class="alt" onclick="accept()">Accept the trip</button><div id="accmsg"></div></div><script>async function accept(){var b=document.getElementById('acc');b.disabled=true;var r=await fetch('${base}/accept',{method:'POST'});var j=await r.json().catch(function(){return{}});document.getElementById('accmsg').textContent=j.message||'Something went wrong.';if(r.ok)setTimeout(function(){location.reload()},1200);else b.disabled=false}</script>`;
+        const share = `<div class="box"><b>Share your location while driving</b><p class="muted">Keep this page open. The travel manager and the traveller's family see where the trip is. It stops when the trip ends.</p><button id="sh" class="alt" onclick="share()">Start sharing</button><div id="shmsg" class="muted"></div></div><script>var last=0,watching=null;function send(p){var now=Date.now();if(now-last<60000)return;last=now;fetch('${base}/ping',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy,speed:p.coords.speed})}).then(function(r){return r.json()}).then(function(j){document.getElementById('shmsg').textContent=j.data&&j.data.tracking?'Shared at '+new Date().toLocaleTimeString():'The trip is not on, so nothing is shared.'}).catch(function(){})}function share(){if(!navigator.geolocation){document.getElementById('shmsg').textContent='This phone cannot share location from the browser.';return}if(watching!==null)return;watching=navigator.geolocation.watchPosition(send,function(e){document.getElementById('shmsg').textContent='Location is blocked: allow it for this page.'},{enableHighAccuracy:true,maximumAge:30000});document.getElementById('sh').textContent='Sharing…';document.getElementById('sh').disabled=true}</script>`;
+        if (t.status === 'confirmed') return shell(`${head}${accept}<div class="box"><b>At pickup, ask the traveller for the 4-digit code in their UniteFix app.</b><input id="c" inputmode="numeric" maxlength="4" autocomplete="one-time-code" aria-label="Pickup code"><button id="b" onclick="go()">Start the trip</button><div id="msg"></div></div>${post('start', true)}`);
+        if (t.status === 'started') return shell(`${head}${share}<div class="box"><b>Trip in progress.</b> Drive safe. When you drop everyone at the end, press below.<button id="b" class="alt" onclick="go()">Trip finished</button><div id="msg"></div></div>${post('end', false)}`);
         return shell(`${head}<div class="box">${t.status === 'completed' ? 'This trip is finished. Thank you!' : 'This trip is not active.'}</div>`);
     }
 

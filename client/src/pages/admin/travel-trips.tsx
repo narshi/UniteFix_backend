@@ -28,15 +28,22 @@ type Trip = {
   chosenQuoteId: number | null; costAmount: number | null; advancePercent: number | null; advanceAmount: number | null; advanceStatus: "none" | "due" | "paid"; advancePaidAt: string | null;
   plan: TripPlan | null; members: Array<{ id: number; name: string; phone: string | null; status: string }>; quotes: Quote[];
   team: TeamMember[]; startCode: string | null; startedAt: string | null; endedAt: string | null;
+  payouts: Payout[]; ratings: Rating[]; familyUrl: string | null; balanceMethod: string | null;
+  money: { price: number; advance: number; balanceReceived: number; balanceDue: number; collected: number; paidOut: number; margin: number; cashInHand: number };
+  progress: { done: number; total: number; next: string | null };
 };
+type Payout = { id: number; partnerId: number | null; payee: string; amount: number; method: string; reference: string | null; paidOn: string | null; note: string | null };
+type Rating = { id: number; teamMemberId: number | null; role: string; name: string; stars: number; tags: string[]; comment: string | null };
 type TeamMember = {
   id: number; day: number | null; role: "driver" | "stay" | "guide" | "activity"; source: "own" | "partner"; employeeId: number | null; partnerId: number | null;
   name: string; phone: string | null; vehicle: string | null; plate: string | null; place: string | null; time: string | null;
-  docs: { licence?: boolean; rc?: boolean; photo?: boolean }; docOverride: string | null; verified: boolean; driverLink: string | null;
+  docs: { licence?: boolean; rc?: boolean; photo?: boolean }; docOverride: string | null; verified: boolean; driverLink: string | null; accepted?: boolean;
 };
-type Expert = { id: number; name: string; phone: string | null };
+type Score = { avg: number; ratings: number; strikes: number; reports: number } | null;
+type Expert = { id: number; name: string; phone: string | null; score?: Score };
 type Manager = { id: number; name: string; email: string; role: string };
-type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean };
+type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean; score?: Score };
+const stars = (s: Score | undefined) => (s ? ` · ${s.avg}★ (${s.ratings})${s.strikes ? ` · ${s.strikes} strike${s.strikes === 1 ? "" : "s"}` : ""}` : "");
 
 const FILTERS: Array<{ key: string; label: string }> = [
   { key: "open", label: "Open" }, { key: "new", label: "New" }, { key: "assigned", label: "Assigned" }, { key: "contacted", label: "In discussion" },
@@ -329,6 +336,8 @@ function TripCard({ t, managers, partners, experts, settings, onDone }: { t: Tri
               <Button size="sm" variant="outline" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
             </section>
             {["confirmed", "started", "completed"].includes(t.status) && <TripTeam t={t} partners={partners} experts={experts} onDone={onDone} />}
+            {["confirmed", "started", "completed"].includes(t.status) && <TripMoney t={t} partners={partners} onDone={onDone} />}
+            {t.status === "started" && <p className="text-xs text-slate-400">Progress: {t.progress.done} of {t.progress.total} places{t.progress.next ? ` · next ${t.progress.next}` : ""}{t.familyUrl ? <> · <a className="underline" href={t.familyUrl} target="_blank" rel="noreferrer">family view</a></> : null} · see Live Trips</p>}
             <p className="text-xs text-slate-500">Sent {when(t.createdAt)}{t.assignedAt ? ` · assigned ${when(t.assignedAt)}` : ""}{t.quotedAt ? ` · quoted ${when(t.quotedAt)}` : ""}</p>
           </div>
         </div>
@@ -376,6 +385,7 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
                 <span className="text-xs text-slate-400">{ROLE[m.role]}</span>
                 <b className="text-white">{m.name}</b>
                 {m.source === "own" && <span className="rounded-full bg-sky-500/20 px-2 text-xs text-sky-200">Our team</span>}
+                {m.role === "driver" && (m.accepted ? <span className="rounded-full bg-emerald-500/20 px-2 text-xs text-emerald-200">Accepted</span> : <span className="rounded-full bg-white/10 px-2 text-xs text-slate-300">Not accepted yet</span>)}
                 {m.verified ? <ShieldCheck className="h-4 w-4 text-emerald-400" aria-label="Verified" /> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 text-xs text-amber-200"><ShieldAlert className="h-3 w-3" />Not verified</span>}
                 <span className="text-slate-400">{[m.phone, m.vehicle, m.plate, m.place, m.time].filter(Boolean).join(" · ")}</span>
                 <Button size="sm" variant="ghost" className="ml-auto h-7 px-2 text-slate-500" title="Remove" onClick={() => remove.mutate(m.id)}><Trash2 className="h-4 w-4" /></Button>
@@ -399,8 +409,8 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
             <select aria-label="Day" className={select} value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })}><option value="">All days</option>{Array.from({ length: days }, (_, i) => <option key={i} value={i + 1}>Day {i + 1}</option>)}</select>
             <select aria-label="From" className={select} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="own">Our team</option><option value="partner">A travel partner</option></select>
             {f.source === "own"
-              ? <select aria-label="Expert" className={select} value={f.employeeId} onChange={(e) => setF({ ...f, employeeId: e.target.value })}><option value="">Choose an expert</option>{experts.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-              : <select aria-label="Partner" className={select} value={f.partnerId} onChange={(e) => setF({ ...f, partnerId: e.target.value })}><option value="">Which partner (optional)</option>{partners.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+              ? <select aria-label="Expert" className={select} value={f.employeeId} onChange={(e) => setF({ ...f, employeeId: e.target.value })}><option value="">Choose an expert</option>{experts.map((x) => <option key={x.id} value={x.id}>{x.name}{stars(x.score)}</option>)}</select>
+              : <select aria-label="Partner" className={select} value={f.partnerId} onChange={(e) => setF({ ...f, partnerId: e.target.value })}><option value="">Which partner (optional)</option>{partners.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.id}>{p.name}{stars(p.score)}</option>)}</select>}
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             {f.source === "partner" && <Input aria-label="Name" className={field} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={f.role === "stay" ? "Hotel or homestay name" : "Name"} />}
@@ -418,6 +428,76 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
             </div>
           )}
           <Button size="sm" onClick={() => add.mutate()} disabled={add.isPending}>Add to the team</Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TripMoney({ t, partners, onDone }: { t: Trip; partners: Partner[]; onDone: () => void }) {
+  const { toast } = useToast();
+  const [bal, setBal] = useState(String(t.money.balanceReceived || ""));
+  const [balMethod, setBalMethod] = useState(t.balanceMethod ?? "cash");
+  const [f, setF] = useState({ who: "", payee: "", amount: "", method: "upi", reference: "" });
+  const err = (title: string) => (e: unknown) => toast({ title, description: apiErrorMessage(e), variant: "destructive" });
+  const saveBal = useMutation({ mutationFn: async () => apiRequest("PUT", `/api/admin/travel/trips/${t.id}/balance`, { amount: Number(bal || 0), method: balMethod }), onSuccess: () => { toast({ title: "Balance recorded" }); onDone(); }, onError: err("Not saved") });
+  const pay = useMutation({
+    mutationFn: async () => {
+      const m = f.who.startsWith("m:") ? t.team.find((x) => x.id === Number(f.who.slice(2))) : null;
+      const pid = f.who.startsWith("p:") ? Number(f.who.slice(2)) : m?.partnerId ?? null;
+      const payee = f.payee.trim() || m?.name || partners.find((p) => p.id === pid)?.name || "";
+      return apiRequest("POST", `/api/admin/travel/trips/${t.id}/payouts`, { partnerId: pid, teamMemberId: m?.id ?? null, payee, amount: Number(f.amount), method: f.method, reference: f.reference || null });
+    },
+    onSuccess: () => { setF({ who: "", payee: "", amount: "", method: "upi", reference: "" }); onDone(); }, onError: err("Not recorded"),
+  });
+  const del = useMutation({ mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/travel/trips/${t.id}/payouts/${id}`), onSuccess: () => onDone(), onError: err("Not removed") });
+  const m = t.money;
+  const tile = (label: string, value: string, tone = "text-white") => <div className="rounded-lg bg-white/[0.04] p-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p><p className={`text-lg font-semibold ${tone}`}>{value}</p></div>;
+  return (
+    <section className={box}>
+      <p className="text-sm font-semibold text-white">6. Money</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {tile("Price", rupees(m.price))}
+        {tile("Collected", rupees(m.collected), m.balanceDue ? "text-amber-200" : "text-emerald-300")}
+        {tile("Paid to partners", rupees(m.paidOut))}
+        {tile("Margin", rupees(m.margin), m.margin < 0 ? "text-red-300" : "text-emerald-300")}
+      </div>
+      <p className="text-xs text-slate-400">Advance {rupees(m.advance)} by link · balance received {rupees(m.balanceReceived)}{m.balanceDue ? ` · still due ${rupees(m.balanceDue)}` : ""} · cash in hand after payouts {rupees(m.cashInHand)}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div><Label htmlFor={`bal-${t.id}`} className="text-xs text-slate-400">Balance received on the trip (₹)</Label><Input id={`bal-${t.id}`} className={`${field} w-40`} value={bal} onChange={(e) => setBal(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
+        <select aria-label="Balance method" className={`${select} w-32`} value={balMethod} onChange={(e) => setBalMethod(e.target.value)}><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="other">Other</option></select>
+        <Button size="sm" variant="outline" className="h-10" onClick={() => saveBal.mutate()} disabled={saveBal.isPending}>Save balance</Button>
+      </div>
+      {t.payouts.length > 0 && (
+        <ul className="space-y-1 text-sm">
+          {t.payouts.map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/5 px-2.5 py-1.5">
+              <b className="text-white">{p.payee}</b><span className="text-slate-300">{rupees(p.amount)}</span>
+              <span className="text-xs text-slate-400">{p.method.toUpperCase()}{p.reference ? ` · ${p.reference}` : ""}{p.paidOn ? ` · ${p.paidOn}` : ""}</span>
+              <Button size="sm" variant="ghost" className="ml-auto h-7 px-2 text-slate-500" title="Remove" onClick={() => del.mutate(p.id)}><Trash2 className="h-4 w-4" /></Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid gap-2 sm:grid-cols-[1.4fr_1fr_0.8fr_0.8fr_1fr_auto] sm:items-end">
+        <select aria-label="Paid to" className={select} value={f.who} onChange={(e) => setF({ ...f, who: e.target.value })}>
+          <option value="">Paid to…</option>
+          {t.team.length > 0 && <optgroup label="On this trip">{t.team.map((x) => <option key={x.id} value={`m:${x.id}`}>{x.name} ({ROLE[x.role]})</option>)}</optgroup>}
+          <optgroup label="Travel partners">{partners.map((p) => <option key={p.id} value={`p:${p.id}`}>{p.name}</option>)}</optgroup>
+        </select>
+        <Input aria-label="Payee name" className={field} value={f.payee} onChange={(e) => setF({ ...f, payee: e.target.value })} placeholder="Or type a name" />
+        <Input aria-label="Amount paid" className={field} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/\D/g, "") })} inputMode="numeric" placeholder="₹" />
+        <select aria-label="Paid by" className={select} value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}><option value="upi">UPI</option><option value="bank">Bank</option><option value="cash">Cash</option><option value="other">Other</option></select>
+        <Input aria-label="Reference" className={field} value={f.reference} onChange={(e) => setF({ ...f, reference: e.target.value })} placeholder="UTR / note" />
+        <Button size="sm" className="h-10" onClick={() => pay.mutate()} disabled={pay.isPending || !f.amount || (!f.who && f.payee.trim().length < 2)}>Record payment</Button>
+      </div>
+      {t.ratings.length > 0 && (
+        <div className="space-y-1 border-t border-white/5 pt-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Traveller's ratings</p>
+          {t.ratings.map((r) => (
+            <p key={r.id} className="text-sm"><b className="text-white">{r.name}</b> <span className="text-xs text-slate-400">{r.role}</span> <span className={r.stars < 3 ? "text-red-300" : "text-amber-300"}>{"★".repeat(r.stars)}{"☆".repeat(5 - r.stars)}</span>
+              {r.tags.length > 0 && <span className="text-xs text-slate-400"> · {r.tags.join(", ")}</span>}{r.comment && <span className="text-slate-300"> · “{r.comment}”</span>}</p>
+          ))}
         </div>
       )}
     </section>

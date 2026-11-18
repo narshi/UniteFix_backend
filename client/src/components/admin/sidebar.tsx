@@ -33,6 +33,7 @@ export const navGroups: NavGroup[] = [
   },
   {
     key: "travel", label: "Travel", icon: "flight_takeoff", items: [
+      { name: "Live Trips", href: "/admin/travel/live", icon: "share_location", capability: "travel:view" },
       { name: "Trip Requests", href: "/admin/travel/trips", icon: "luggage", capability: "travel:view" },
       { name: "Travel Partners", href: "/admin/travel/partners", icon: "directions_car", capability: "travel:view" },
       { name: "Travel Places", href: "/admin/travel/places", icon: "place", capability: "travel:view" },

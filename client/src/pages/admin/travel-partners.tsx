@@ -15,7 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, Pencil, Trash2, Phone, MessageCircle, Search } from "lucide-react";
 import { TRAVEL_PARTNER_KINDS, TRAVEL_PARTNER_KIND_LABEL, type TravelPartnerKind } from "@shared/travel";
 
-type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; contactName: string | null; phone: string | null; notes: string | null; isActive: boolean };
+type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; contactName: string | null; phone: string | null; notes: string | null; isActive: boolean;
+  score?: { avg: number; ratings: number; strikes: number; reports: number } | null; paidTotal?: number; paidTrips?: number };
 type Region = { id: number; name: string };
 
 const field = "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white";
@@ -56,7 +57,7 @@ export default function TravelPartnersPage() {
       <header className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-white">Travel partners</h1>
-          <p className="max-w-3xl text-sm text-slate-400">Cabs, hotels, homestays, guides and activity operators in each area. On a trip, the travel manager asks them for a price with one tap (WhatsApp or call), records it, and picks the best.</p>
+          <p className="max-w-3xl text-sm text-slate-400">Best rated first: scores are the traveller ratings and safety strikes of the last 6 months. Cabs, hotels, homestays, guides and activity operators in each area. On a trip, the travel manager asks them for a price with one tap (WhatsApp or call), records it, and picks the best.</p>
         </div>
         <Button className="ml-auto" onClick={() => setForm({ kinds: [], regionIds: [], isActive: true })}><Plus className="mr-1 h-4 w-4" /> Add a partner</Button>
       </header>
@@ -77,6 +78,12 @@ export default function TravelPartnersPage() {
                   <Button size="sm" variant="ghost" title="Edit" onClick={() => setForm(p)}><Pencil className="h-4 w-4" /></Button>
                   <Button size="sm" variant="ghost" title="Remove" onClick={() => setDel(p)}><Trash2 className="h-4 w-4" /></Button>
                 </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm" data-testid={`score-${p.id}`}>
+                {p.score ? <span className={p.score.avg < 3 ? "font-semibold text-red-300" : "font-semibold text-amber-300"}>{p.score.avg}★ <span className="text-xs font-normal text-slate-400">({p.score.ratings} rating{p.score.ratings === 1 ? "" : "s"})</span></span> : <span className="text-xs text-slate-500">No ratings yet</span>}
+                {!!p.score?.strikes && <span className="rounded-full bg-red-500/20 px-2 text-xs text-red-200">{p.score.strikes} strike{p.score.strikes === 1 ? "" : "s"}</span>}
+                {!!p.score?.reports && <span className="rounded-full bg-amber-500/20 px-2 text-xs text-amber-200">{p.score.reports} report{p.score.reports === 1 ? "" : "s"}</span>}
+                {!!p.paidTotal && <span className="text-xs text-slate-400">Paid ₹{p.paidTotal.toLocaleString("en-IN")} over {p.paidTrips} trip{p.paidTrips === 1 ? "" : "s"}</span>}
               </div>
               <div className="flex flex-wrap gap-1.5">{p.kinds.map((k) => <span key={k} className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-slate-300">{TRAVEL_PARTNER_KIND_LABEL[k] ?? k}</span>)}</div>
               {p.regionIds.length > 0 && <p className="text-xs text-slate-400">Serves {p.regionIds.map((r) => regionName[r] ?? "?").join(", ")}</p>}

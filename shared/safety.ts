@@ -43,6 +43,12 @@ export const HELP_CATEGORIES = {
     stay: { label: 'Problem with the stay', severity: 'medium' },
     lost_item: { label: 'Lost something', severity: 'medium' },
     other: { label: 'Something else', severity: 'medium' },
+    // Raised by the system while a trip is on (travel.service.ts liveAlerts), not by the traveller.
+    no_signal: { label: 'No location for 20 minutes', severity: 'high' },
+    off_route: { label: 'Off the planned route', severity: 'high' },
+    long_stop: { label: 'Stopped for long, not a planned stop', severity: 'high' },
+    night_driving: { label: 'Driving after 10 pm', severity: 'high' },
+    low_rating: { label: 'Low rating after a trip', severity: 'medium' },
 } as const satisfies Record<string, { label: string; severity: Severity }>;
 export type HelpCategory = keyof typeof HELP_CATEGORIES;
 

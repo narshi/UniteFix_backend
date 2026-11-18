@@ -250,3 +250,32 @@ export const daysUntil = (date: string, now = Date.now()) => Math.round((Date.pa
 export const cancelByDate = (startDate: string, cutoffDays: number) => new Date(Date.parse(`${startDate}T00:00:00Z`) - cutoffDays * 86_400_000).toISOString().slice(0, 10);
 
 export const advanceFor = (amount: number, percent: number) => Math.round(amount * percent / 100);
+
+/** Quick tags a traveller can add to a rating. */
+export const RATING_TAGS: Record<string, string[]> = {
+    driver: ['Safe driving', 'On time', 'Clean car', 'Polite', 'Knew the roads'],
+    stay: ['Clean room', 'Good food', 'Friendly host', 'As promised', 'Good location'],
+    guide: ['Knowledgeable', 'Friendly', 'On time', 'Good stories'],
+    activity: ['Well organised', 'Safe', 'Fun', 'Good value'],
+};
+
+/** Live-trip alert thresholds (travel.service.ts liveAlerts). */
+export const LIVE_ALERTS = {
+    noSignalMinutes: 20,
+    offRouteKm: 15,
+    longStopMinutes: 45,
+    longStopRadiusM: 300,
+    nightFromHour: 22,
+    nightUntilHour: 5,
+    checkInKm: 1,
+} as const;
+
+/** Straight-line distance from a point to a segment, in km (for "off the route"). */
+export function kmToSegment(p: { lat: number; lng: number }, a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+    const toXY = (q: { lat: number; lng: number }) => ({ x: q.lng * 111.32 * Math.cos((p.lat * Math.PI) / 180), y: q.lat * 110.57 });
+    const P = toXY(p), A = toXY(a), B = toXY(b);
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((P.x - A.x) * dx + (P.y - A.y) * dy) / len)) : 0;
+    return Math.hypot(P.x - (A.x + t * dx), P.y - (A.y + t * dy));
+}

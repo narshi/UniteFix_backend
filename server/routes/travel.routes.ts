@@ -24,10 +24,11 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import { authenticateAdmin, authenticateToken } from '../middleware/auth.middleware';
 import { celebrationsBrowseLimiter, celebrationsSubmitLimiter } from '../middleware/rate-limit';
 import { TravelService, TravelError } from '../services/travel.service';
+import { TripLiveService, TripLiveError } from '../services/trip-live.service';
 
 export function registerTravelRoutes(app: Express) {
     const fail = (e: unknown, res: Response, next: NextFunction) => {
-        if (e instanceof TravelError) return res.status(e.status).json({ success: false, message: e.message });
+        if (e instanceof TravelError || e instanceof TripLiveError) return res.status(e.status).json({ success: false, message: e.message });
         next(e);
     };
     const id = (req: Request) => { const n = Number(req.params.id); if (!Number.isInteger(n) || n <= 0) throw new TravelError('Not found.', 404); return n; };
@@ -51,6 +52,25 @@ export function registerTravelRoutes(app: Express) {
     });
     app.post('/api/travel/trips/:id/advance', authenticateToken, async (req, res, next) => {
         try { res.json({ success: true, data: await TravelService.startAdvance((req as any).user.userId, id(req)) }); } catch (e) { fail(e, res, next); }
+    });
+    // Trip mode: the traveller's app sends its location while the trip is on.
+    app.post('/api/travel/trips/:id/ping', authenticateToken, async (req, res, next) => {
+        try { res.json({ success: true, data: await TripLiveService.travellerPing((req as any).user.userId, id(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/trips/:id/family-link', authenticateToken, async (req, res, next) => {
+        try { res.json({ success: true, data: await TripLiveService.familyLink((req as any).user.userId, id(req)) }); } catch (e) { fail(e, res, next); }
+    });
+    app.get('/api/travel/follow/:token', async (req, res, next) => {
+        try { res.set('Cache-Control', 'no-store').type('html').send(await TripLiveService.followPage(String(req.params.token))); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/trips/:id/ratings', authenticateToken, async (req, res, next) => {
+        try { const r = await TripLiveService.rate((req as any).user.userId, id(req), req.body ?? {}); res.status(201).json({ success: true, message: r.message }); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/driver/:token/accept', celebrationsSubmitLimiter, async (req, res, next) => {
+        try { res.json({ success: true, ...(await TripLiveService.driverAccept(String(req.params.token))) }); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/driver/:token/ping', async (req, res, next) => {
+        try { res.json({ success: true, data: await TripLiveService.driverPing(String(req.params.token), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
     });
     app.post('/api/travel/trips/:id/end', authenticateToken, async (req, res, next) => {
         try { await TravelService.endMine((req as any).user.userId, id(req)); res.json({ success: true, message: 'Welcome back! Tell us how it went.' }); } catch (e) { fail(e, res, next); }
@@ -91,6 +111,18 @@ export function registerTravelRoutes(app: Express) {
     crud('partners', TravelService.savePartner, TravelService.deletePartner, 'Travel partner');
     app.get(`${base}/partners`, authenticateAdmin, async (_req, res, next) => {
         try { res.json({ success: true, data: await TravelService.partners() }); } catch (e) { fail(e, res, next); }
+    });
+    app.get(`${base}/live`, authenticateAdmin, async (_req, res, next) => {
+        try { res.json({ success: true, data: await TripLiveService.board() }); } catch (e) { fail(e, res, next); }
+    });
+    app.post(`${base}/trips/:id/payouts`, authenticateAdmin, async (req, res, next) => {
+        try { res.status(201).json({ success: true, message: 'Payment recorded.', data: await TripLiveService.addPayout(adminId(req), id(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.delete(`${base}/trips/:id/payouts/:payoutId`, authenticateAdmin, async (req, res, next) => {
+        try { const p = Number(req.params.payoutId); if (!Number.isInteger(p) || p <= 0) throw new TravelError('Not found.', 404); await TripLiveService.deletePayout(adminId(req), id(req), p); res.json({ success: true, message: 'Removed.' }); } catch (e) { fail(e, res, next); }
+    });
+    app.put(`${base}/trips/:id/balance`, authenticateAdmin, async (req, res, next) => {
+        try { await TripLiveService.setBalance(adminId(req), id(req), req.body ?? {}); res.json({ success: true, message: 'Balance recorded.' }); } catch (e) { fail(e, res, next); }
     });
     app.get(`${base}/experts`, authenticateAdmin, async (_req, res, next) => {
         try { res.json({ success: true, data: await TravelService.experts() }); } catch (e) { fail(e, res, next); }

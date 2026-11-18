@@ -354,6 +354,28 @@
       "add_second": "Add a second person",
       "saved": "Saved",
       "saved_body": "They will get your live location if you press SOS."
+    },
+    "trip": {
+      "mode_on": "Trip mode is on",
+      "mode_on_sub": "Your travel manager sees where you are while this app is open{{when}}.",
+      "mode_denied": "Location is blocked. Allow it for UniteFix in your phone settings.",
+      "just_now": "shared just now",
+      "mins_ago": "shared {{n}} min ago",
+      "stop": "Stop",
+      "mode_start": "Turn on Trip mode",
+      "mode_start_sub": "Shares your location with your travel manager while the app is open, only until the trip ends. Keeps you safer and checks off places as you visit them.",
+      "progress": "{{done}} of {{total}} places visited",
+      "next": "next",
+      "family": "Share a live link with family",
+      "family_msg": "Follow my UniteFix trip {{code}} live: {{url}}",
+      "not_shared": "Could not share",
+      "rate_title": "How was your trip?",
+      "what_wrong": "What went wrong? Your travel manager will call you.",
+      "send_rating": "Send",
+      "thanks": "Thank you!",
+      "not_sent": "Not sent",
+      "rate": "Rate your driver, stay and guide",
+      "rated": "Thank you for rating your trip."
     }
   }
 }
