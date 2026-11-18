@@ -67,6 +67,7 @@ import { registerJobProgressRoutes } from "./routes/job-progress.routes";
 import { registerEnquiryRoutes } from "./routes/enquiry.routes";
 import { registerHomeCardRoutes } from "./routes/home-cards.routes";
 import { registerTravelRoutes } from "./routes/travel.routes";
+import { registerSafetyRoutes } from "./routes/safety.routes";
 import { registerCallBookingRoutes } from "./routes/call-booking.routes";
 import { registerIntegrationRoutes } from "./routes/integrations.routes";
 import { registerHubEventsShowcaseRoutes } from "./routes/hub-events-showcase.routes";
@@ -3418,6 +3419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerEnquiryRoutes(app); // Referral band: free enquiries to partners, then staff
   registerHomeCardRoutes(app); // Home screen cards: staff schedule the Home Services row by season
   registerTravelRoutes(app); // Travel planner: trips for a quotation, places staff manage
+  registerSafetyRoutes(app); // Safety desk: SOS, reports and help on trips and service visits
   registerCallBookingRoutes(app); // Book by call: staff book for a customer on the phone
   registerIntegrationRoutes(app); // Admin → WhatsApp: connect the WhatsApp Cloud API
   registerHubEventsShowcaseRoutes(app); // Events partners: public showcase (photos, Instagram, venues, themes, add-ons) and booking from it

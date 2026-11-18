@@ -751,6 +751,11 @@ async function expireAbandonedFtthRecharges(): Promise<void> {
 export function startBackgroundJobs(): void {
     logger.info('[CRON] Starting background job scheduler');
 
+    // Safety: a critical case nobody picked up in 2 minutes goes to the safety lead (every minute).
+    intervals.push(setInterval(() => { import('./safety.service').then(m => m.SafetyService.escalate()).catch(e => logger.error('[JOBS] safety escalation failed', { error: e?.message })); }, 60_000));
+    // Trips: the evening-before reminder and the late-driver alert (every 15 minutes).
+    intervals.push(setInterval(() => { import('./travel.service').then(m => m.TravelService.tripDayJobs()).catch(e => logger.error('[JOBS] trip day jobs failed', { error: e?.message })); }, FIFTEEN_MINUTES));
+
     // Run wallet release every hour
     intervals.push(setInterval(releaseHeldWalletFunds, HOUR));
     // Run initial check after 30 seconds (give server time to start)

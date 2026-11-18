@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Search, Phone, MessageCircle, Users, MapPin, CalendarDays, BedDouble, Car, Compass, ChevronDown, ChevronUp, Route, Settings2, Trash2, Check, Clock, BadgeCheck } from "lucide-react";
+import { Search, Phone, MessageCircle, Users, MapPin, CalendarDays, BedDouble, Car, Compass, ChevronDown, ChevronUp, Route, Settings2, Trash2, Check, Clock, BadgeCheck, Copy, ShieldCheck, ShieldAlert, Play, Flag } from "lucide-react";
 import { TRIP_STATUS_LABEL, TRAVEL_PARTNER_KIND_LABEL, advanceFor, type TripPlan, type TripStatus, type TravelSettings, type TravelPartnerKind } from "@shared/travel";
 
 type Quote = { id: number; source: "own" | "partner"; partnerId: number | null; label: string; covers: string | null; amount: number | null; status: "asked" | "quoted" | "declined"; note: string | null };
@@ -27,20 +27,29 @@ type Trip = {
   quoteAmount: number | null; quoteNote: string | null; quotedAt: string | null; quoteValidUntil: string | null; staffNote: string | null; createdAt: string;
   chosenQuoteId: number | null; costAmount: number | null; advancePercent: number | null; advanceAmount: number | null; advanceStatus: "none" | "due" | "paid"; advancePaidAt: string | null;
   plan: TripPlan | null; members: Array<{ id: number; name: string; phone: string | null; status: string }>; quotes: Quote[];
+  team: TeamMember[]; startCode: string | null; startedAt: string | null; endedAt: string | null;
 };
+type TeamMember = {
+  id: number; day: number | null; role: "driver" | "stay" | "guide" | "activity"; source: "own" | "partner"; employeeId: number | null; partnerId: number | null;
+  name: string; phone: string | null; vehicle: string | null; plate: string | null; place: string | null; time: string | null;
+  docs: { licence?: boolean; rc?: boolean; photo?: boolean }; docOverride: string | null; verified: boolean; driverLink: string | null;
+};
+type Expert = { id: number; name: string; phone: string | null };
 type Manager = { id: number; name: string; email: string; role: string };
 type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean };
 
 const FILTERS: Array<{ key: string; label: string }> = [
   { key: "open", label: "Open" }, { key: "new", label: "New" }, { key: "assigned", label: "Assigned" }, { key: "contacted", label: "In discussion" },
-  { key: "quoted", label: "Quoted" }, { key: "confirmed", label: "Booked" }, { key: "cancelled", label: "Cancelled" }, { key: "", label: "All" },
+  { key: "quoted", label: "Quoted" }, { key: "confirmed", label: "Booked" }, { key: "started", label: "On trip" }, { key: "completed", label: "Completed" }, { key: "cancelled", label: "Cancelled" }, { key: "", label: "All" },
 ];
 const STAY: Record<string, string> = { none: "No stay", budget: "Budget stay", standard: "Standard hotel", premium: "Premium hotel", homestay: "Homestay" };
 const TONE: Record<TripStatus, string> = {
   new: "bg-amber-500/15 text-amber-300 border-amber-500/30", assigned: "bg-sky-500/15 text-sky-300 border-sky-500/30",
   contacted: "bg-violet-500/15 text-violet-300 border-violet-500/30", quoted: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
-  confirmed: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30", cancelled: "bg-white/5 text-slate-400 border-white/10",
+  confirmed: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30", started: "bg-orange-500/20 text-orange-200 border-orange-500/40",
+  completed: "bg-white/10 text-slate-200 border-white/20", cancelled: "bg-white/5 text-slate-400 border-white/10",
 };
+const ROLE: Record<TeamMember["role"], string> = { driver: "Driver", stay: "Stay", guide: "Guide", activity: "Activity" };
 const field = "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white";
 const select = "h-10 w-full rounded-md border border-[rgba(255,255,255,0.08)] bg-[hsl(222,47%,11%)] px-3 text-sm text-white";
 const panel = "rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)]";
@@ -171,9 +180,9 @@ function SupplierPrices({ t, partners, onDone }: { t: Trip; partners: Partner[];
   );
 }
 
-function TripCard({ t, managers, partners, settings, onDone }: { t: Trip; managers: Manager[]; partners: Partner[]; settings: TravelSettings | undefined; onDone: () => void }) {
+function TripCard({ t, managers, partners, experts, settings, onDone }: { t: Trip; managers: Manager[]; partners: Partner[]; experts: Expert[]; settings: TravelSettings | undefined; onDone: () => void }) {
   const { toast } = useToast();
-  const [open, setOpen] = useState(["new", "assigned", "contacted", "quoted"].includes(t.status));
+  const [open, setOpen] = useState(["new", "assigned", "contacted", "quoted", "confirmed", "started"].includes(t.status));
   const [mgr, setMgr] = useState<string>(t.managerAdminId ? String(t.managerAdminId) : "");
   const [mgrName, setMgrName] = useState(t.managerName ?? "");
   const [mgrPhone, setMgrPhone] = useState(t.managerPhone ?? "");
@@ -219,7 +228,7 @@ function TripCard({ t, managers, partners, settings, onDone }: { t: Trip; manage
     <li className={panel} data-testid={`trip-${t.code}`}>
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 p-4 text-left">
         <span className="font-mono text-sm text-sky-300">{t.code}</span>
-        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE[t.status]}`}>{t.status === "confirmed" ? "Booked" : TRIP_STATUS_LABEL[t.status]}</span>
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE[t.status]}`}>{TRIP_STATUS_LABEL[t.status]}</span>
         <span className="font-semibold text-white">{t.contactName}</span>
         <span className="text-sm text-slate-400">{people} · {route}</span>
         <span className="text-sm text-slate-400">{dateText(t.startDate)} · {t.days ?? "?"} day{t.days === 1 ? "" : "s"}</span>
@@ -313,17 +322,105 @@ function TripCard({ t, managers, partners, settings, onDone }: { t: Trip; manage
               <p className="text-sm font-semibold text-white">4. Status and notes</p>
               <div className="grid grid-cols-[1fr_2fr] gap-2">
                 <select aria-label="Status" className={select} value={status} onChange={(e) => setStatus(e.target.value as TripStatus)}>
-                  {(Object.keys(TRIP_STATUS_LABEL) as TripStatus[]).map((s) => <option key={s} value={s}>{s === "confirmed" ? "Booked" : TRIP_STATUS_LABEL[s]}</option>)}
+                  {(Object.keys(TRIP_STATUS_LABEL) as TripStatus[]).map((s) => <option key={s} value={s}>{TRIP_STATUS_LABEL[s]}</option>)}
                 </select>
                 <Input aria-label="Staff note" className={field} value={staffNote} onChange={(e) => setStaffNote(e.target.value)} placeholder="Staff note: called at 4 pm, wants a sea-view room" />
               </div>
               <Button size="sm" variant="outline" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
             </section>
+            {["confirmed", "started", "completed"].includes(t.status) && <TripTeam t={t} partners={partners} experts={experts} onDone={onDone} />}
             <p className="text-xs text-slate-500">Sent {when(t.createdAt)}{t.assignedAt ? ` · assigned ${when(t.assignedAt)}` : ""}{t.quotedAt ? ` · quoted ${when(t.quotedAt)}` : ""}</p>
           </div>
         </div>
       )}
     </li>
+  );
+}
+
+function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner[]; experts: Expert[]; onDone: () => void }) {
+  const { toast } = useToast();
+  const blank = { role: "driver", day: "1", source: "own", employeeId: "", partnerId: "", name: "", phone: "", vehicle: "", plate: "", place: "", time: "", licence: false, rc: false, photo: false, docOverride: "" };
+  const [f, setF] = useState<Record<string, any>>(blank);
+  const err = (title: string) => (e: unknown) => toast({ title, description: apiErrorMessage(e), variant: "destructive" });
+  const add = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/team`, {
+      role: f.role, day: f.day ? Number(f.day) : null, source: f.source,
+      employeeId: f.source === "own" && f.employeeId ? Number(f.employeeId) : null, partnerId: f.source === "partner" && f.partnerId ? Number(f.partnerId) : null,
+      name: f.name || null, phone: f.phone || null, vehicle: f.vehicle || null, plate: f.plate || null, place: f.place || null, time: f.time || null,
+      docs: { licence: f.licence, rc: f.rc, photo: f.photo }, docOverride: f.docOverride || null,
+    }),
+    onSuccess: () => { setF({ ...blank, role: f.role }); onDone(); }, onError: err("Not added"),
+  });
+  const remove = useMutation({ mutationFn: async (id: number) => apiRequest("DELETE", `/api/admin/travel/trips/${t.id}/team/${id}`), onSuccess: () => onDone(), onError: err("Not removed") });
+  const start = useMutation({ mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/start`, {}), onSuccess: (r: any) => { toast({ title: r?.message }); onDone(); }, onError: err("Not started") });
+  const end = useMutation({ mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/end`, {}), onSuccess: (r: any) => { toast({ title: r?.message }); onDone(); }, onError: err("Not finished") });
+  const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); toast({ title: "Driver link copied" }); } catch { window.prompt("Copy the driver link:", text); } };
+  const days = Math.max(1, t.days ?? 1);
+  const partnerDriver = f.role === "driver" && f.source === "partner";
+  const docsOk = f.licence && f.rc && f.photo;
+  return (
+    <section className={box}>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold text-white">5. Trip team</p>
+        {t.startCode && <span className="text-xs text-slate-400">Pickup code <b className="font-mono text-slate-200">{t.startCode}</b> (the traveller gives it to the driver)</span>}
+        {t.status === "confirmed" && <Button size="sm" variant="outline" className="ml-auto h-8" onClick={() => start.mutate()} disabled={start.isPending}><Play className="mr-1 h-3.5 w-3.5" />Start the trip</Button>}
+        {t.status === "started" && <Button size="sm" variant="outline" className="ml-auto h-8" onClick={() => end.mutate()} disabled={end.isPending}><Flag className="mr-1 h-3.5 w-3.5" />Trip finished</Button>}
+      </div>
+      <p className="text-xs text-slate-400">The traveller sees the team once the trip is booked; phone numbers and the pickup code from 6 pm the evening before. Our experts first.</p>
+      {t.team.length > 0 && (
+        <ul className="space-y-2">
+          {t.team.map((m) => (
+            <li key={m.id} className="rounded-lg border border-white/5 p-2.5 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded bg-white/10 px-1.5 text-xs text-slate-300">{m.day ? `Day ${m.day}` : "All days"}</span>
+                <span className="text-xs text-slate-400">{ROLE[m.role]}</span>
+                <b className="text-white">{m.name}</b>
+                {m.source === "own" && <span className="rounded-full bg-sky-500/20 px-2 text-xs text-sky-200">Our team</span>}
+                {m.verified ? <ShieldCheck className="h-4 w-4 text-emerald-400" aria-label="Verified" /> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 text-xs text-amber-200"><ShieldAlert className="h-3 w-3" />Not verified</span>}
+                <span className="text-slate-400">{[m.phone, m.vehicle, m.plate, m.place, m.time].filter(Boolean).join(" · ")}</span>
+                <Button size="sm" variant="ghost" className="ml-auto h-7 px-2 text-slate-500" title="Remove" onClick={() => remove.mutate(m.id)}><Trash2 className="h-4 w-4" /></Button>
+              </div>
+              {m.docOverride && <p className="mt-1 text-xs text-amber-200">Assigned without all documents: {m.docOverride}</p>}
+              {m.driverLink && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => copy(m.driverLink!)}><Copy className="mr-1 h-3 w-3" />Copy driver link</Button>
+                  {m.phone && <a className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-500/30 px-2.5 text-xs text-emerald-300 hover:bg-emerald-500/10" target="_blank" rel="noreferrer"
+                    href={`https://wa.me/91${m.phone}?text=${encodeURIComponent(`UniteFix trip ${t.code}, pickup ${t.pickupText ?? ""} on ${t.startDate ?? ""}${m.time ? ` at ${m.time}` : ""}. At pickup, ask the traveller for the 4-digit code and enter it here to start the trip: ${m.driverLink}`)}`}><MessageCircle className="h-3 w-3" />Send the link on WhatsApp</a>}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {t.status !== "completed" && t.status !== "cancelled" && (
+        <div className="space-y-2 rounded-lg border border-dashed border-white/10 p-2.5">
+          <div className="grid gap-2 sm:grid-cols-4">
+            <select aria-label="Role" className={select} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>{Object.entries(ROLE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <select aria-label="Day" className={select} value={f.day} onChange={(e) => setF({ ...f, day: e.target.value })}><option value="">All days</option>{Array.from({ length: days }, (_, i) => <option key={i} value={i + 1}>Day {i + 1}</option>)}</select>
+            <select aria-label="From" className={select} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })}><option value="own">Our team</option><option value="partner">A travel partner</option></select>
+            {f.source === "own"
+              ? <select aria-label="Expert" className={select} value={f.employeeId} onChange={(e) => setF({ ...f, employeeId: e.target.value })}><option value="">Choose an expert</option>{experts.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+              : <select aria-label="Partner" className={select} value={f.partnerId} onChange={(e) => setF({ ...f, partnerId: e.target.value })}><option value="">Which partner (optional)</option>{partners.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {f.source === "partner" && <Input aria-label="Name" className={field} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={f.role === "stay" ? "Hotel or homestay name" : "Name"} />}
+            {f.source === "partner" && <Input aria-label="Phone" className={field} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="Mobile" inputMode="tel" />}
+            {f.role === "driver" && <Input aria-label="Vehicle" className={field} value={f.vehicle} onChange={(e) => setF({ ...f, vehicle: e.target.value })} placeholder="Innova, white" />}
+            {f.role === "driver" && <Input aria-label="Number plate" className={field} value={f.plate} onChange={(e) => setF({ ...f, plate: e.target.value })} placeholder="KA 31 M 4821" />}
+            {f.role !== "driver" && <Input aria-label="Place" className={field} value={f.place} onChange={(e) => setF({ ...f, place: e.target.value })} placeholder="Address or meeting point" />}
+            <Input aria-label="Time" className={field} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} placeholder={f.role === "driver" ? "Pickup 07:30" : f.role === "stay" ? "Check-in 18:00" : "Time 10:00"} />
+          </div>
+          {partnerDriver && (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+              <span>Checked:</span>
+              {(["licence", "rc", "photo"] as const).map((k) => <label key={k} className="flex items-center gap-1"><input type="checkbox" checked={!!f[k]} onChange={(e) => setF({ ...f, [k]: e.target.checked })} />{k === "rc" ? "RC" : k === "licence" ? "Licence" : "Face photo"}</label>)}
+              {!docsOk && <Input aria-label="Why without documents" className={`${field} h-8 flex-1 min-w-[220px]`} value={f.docOverride} onChange={(e) => setF({ ...f, docOverride: e.target.value })} placeholder="Why assign without all documents (logged)" />}
+            </div>
+          )}
+          <Button size="sm" onClick={() => add.mutate()} disabled={add.isPending}>Add to the team</Button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -335,10 +432,13 @@ function SettingsPanel({ settings, managers }: { settings: TravelSettings; manag
   const [phone, setPhone] = useState(settings.defaultManager?.phone ?? "");
   const [pct, setPct] = useState(String(settings.advancePercent));
   const [hrs, setHrs] = useState(String(settings.quoteValidHours));
+  const [cut, setCut] = useState(String(settings.cancelCutoffDays));
+  const [lead, setLead] = useState({ name: settings.safetyLead?.name ?? "", phone: settings.safetyLead?.phone ?? "", email: settings.safetyLead?.email ?? "" });
   const save = useMutation({
     mutationFn: async () => apiRequest("PUT", "/api/admin/travel/settings", {
       defaultManager: name.trim() ? { adminId: mgr ? Number(mgr) : null, name: name.trim(), phone } : null,
-      advancePercent: Number(pct), quoteValidHours: Number(hrs),
+      advancePercent: Number(pct), quoteValidHours: Number(hrs), cancelCutoffDays: Number(cut),
+      safetyLead: lead.name.trim() ? { name: lead.name.trim(), phone: lead.phone, email: lead.email.trim() || null } : null,
     }),
     onSuccess: () => { toast({ title: "Travel settings saved" }); queryClient.invalidateQueries({ queryKey: ["/api/admin/travel/settings"] }); setOpen(false); },
     onError: (e) => toast({ title: "Not saved", description: apiErrorMessage(e), variant: "destructive" }),
@@ -349,7 +449,7 @@ function SettingsPanel({ settings, managers }: { settings: TravelSettings; manag
         <Settings2 className="h-4 w-4 text-slate-400" />
         <span className="font-semibold text-white">Travel settings</span>
         <span className="text-sm text-slate-400">
-          {settings.defaultManager ? `New trips go to ${settings.defaultManager.name}` : "No default manager: new trips wait for one"} · {settings.advancePercent}% advance · prices held {settings.quoteValidHours} h
+          {settings.defaultManager ? `New trips go to ${settings.defaultManager.name}` : "No default manager: new trips wait for one"} · {settings.advancePercent}% advance · prices held {settings.quoteValidHours} h · cancel up to {settings.cancelCutoffDays} days before · {settings.safetyLead ? `night alerts: ${settings.safetyLead.name}` : "no safety lead set"}
         </span>
         <span className="ml-auto text-slate-500">{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
       </button>
@@ -368,7 +468,16 @@ function SettingsPanel({ settings, managers }: { settings: TravelSettings; manag
           </div>
           <div className="space-y-2"><Label htmlFor="ts-pct" className="text-xs text-slate-400">Advance to book (%), not refundable</Label><Input id="ts-pct" className={field} value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
           <div className="space-y-2"><Label htmlFor="ts-hrs" className="text-xs text-slate-400">Hold a price for (hours)</Label><Input id="ts-hrs" className={field} value={hrs} onChange={(e) => setHrs(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
-          <div className="lg:col-span-3"><Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || (!!name.trim() && phone.replace(/\D/g, "").length < 10)}>Save settings</Button></div>
+          <div className="space-y-2"><Label htmlFor="ts-cut" className="text-xs text-slate-400">Booked trips can be cancelled in the app until (days before)</Label><Input id="ts-cut" className={field} value={cut} onChange={(e) => setCut(e.target.value.replace(/\D/g, ""))} inputMode="numeric" /></div>
+          <div className="space-y-2 lg:col-span-2">
+            <Label className="text-xs text-slate-400">Safety lead: alerted when nobody picks up an SOS within 2 minutes (the owner)</Label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Input aria-label="Safety lead name" className={field} value={lead.name} onChange={(e) => setLead({ ...lead, name: e.target.value })} placeholder="Name" />
+              <Input aria-label="Safety lead phone" className={field} value={lead.phone} onChange={(e) => setLead({ ...lead, phone: e.target.value })} placeholder="Phone" inputMode="tel" />
+              <Input aria-label="Safety lead email" className={field} value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} placeholder="Email for alerts" />
+            </div>
+          </div>
+          <div className="lg:col-span-3"><Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || (!!name.trim() && phone.replace(/\D/g, "").length < 10) || (!!lead.name.trim() && lead.phone.replace(/\D/g, "").length < 10)}>Save settings</Button></div>
         </div>
       )}
     </section>
@@ -386,6 +495,7 @@ export default function TravelTripsPage() {
   });
   const { data: managers = [] } = useQuery<Manager[]>({ queryKey: ["/api/admin/travel/managers"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/managers")).data });
   const { data: partners = [] } = useQuery<Partner[]>({ queryKey: ["/api/admin/travel/partners"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/partners")).data });
+  const { data: experts = [] } = useQuery<Expert[]>({ queryKey: ["/api/admin/travel/experts"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/experts")).data });
   const { data: settings } = useQuery<TravelSettings>({ queryKey: ["/api/admin/travel/settings"], queryFn: async () => (await apiRequest("GET", "/api/admin/travel/settings")).data });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["/api/admin/travel/trips"] });
 
@@ -413,7 +523,7 @@ export default function TravelTripsPage() {
       {isLoading ? <p className="text-sm text-slate-400">Loading…</p> : !data?.trips.length ? (
         <div className={`${panel} p-8 text-center text-slate-400`}>No trips here yet. When customers send a plan from the app's Travel tab, it appears under Open.</div>
       ) : (
-        <ul className="space-y-3">{data.trips.map((t) => <TripCard key={t.id} t={t} managers={managers} partners={partners} settings={settings} onDone={refresh} />)}</ul>
+        <ul className="space-y-3">{data.trips.map((t) => <TripCard key={t.id} t={t} managers={managers} partners={partners} experts={experts} settings={settings} onDone={refresh} />)}</ul>
       )}
     </div>
   );

@@ -22,6 +22,7 @@ const home: NavItem = { name: "Dashboard", href: "/", icon: "dashboard", capabil
 export const navGroups: NavGroup[] = [
   {
     key: "bookings", label: "Bookings", icon: "event_note", items: [
+      { name: "Safety Desk", href: "/admin/safety", icon: "health_and_safety", capability: "safety:view" },
       { name: "Service Requests", href: "/services", icon: "build", capability: "bookings:view" },
       { name: "Assignment Queue", href: "/admin/assignments", icon: "assignment", capability: "bookings:view" },
       { name: "Book by Call", href: "/admin/book-by-call", icon: "phone_in_talk", capability: "bookings:view" },

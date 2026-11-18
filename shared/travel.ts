@@ -13,7 +13,7 @@ export type TripType = 'round_trip' | 'one_way';
 export type Pace = 'relaxed' | 'balanced' | 'packed';
 export type StayChoice = 'none' | 'budget' | 'standard' | 'premium' | 'homestay';
 
-export const TRIP_STATUSES = ['new', 'assigned', 'contacted', 'quoted', 'confirmed', 'cancelled'] as const;
+export const TRIP_STATUSES = ['new', 'assigned', 'contacted', 'quoted', 'confirmed', 'started', 'completed', 'cancelled'] as const;
 export type TripStatus = typeof TRIP_STATUSES[number];
 
 export const TRIP_STATUS_LABEL: Record<TripStatus, string> = {
@@ -22,6 +22,8 @@ export const TRIP_STATUS_LABEL: Record<TripStatus, string> = {
     contacted: 'In discussion',
     quoted: 'Quotation sent',
     confirmed: 'Booked',
+    started: 'On trip',
+    completed: 'Completed',
     cancelled: 'Cancelled',
 };
 
@@ -233,7 +235,18 @@ export interface TravelSettings {
     advancePercent: number;
     /** How long a quotation's price is held. */
     quoteValidHours: number;
+    /** A booked trip can be cancelled in the app only this many days before it starts. */
+    cancelCutoffDays: number;
+    /** Called when the travel manager doesn't answer an SOS within 2 minutes (the owner). */
+    safetyLead: { name: string; phone: string; email: string | null } | null;
 }
-export const DEFAULT_TRAVEL_SETTINGS: TravelSettings = { defaultManager: null, advancePercent: 20, quoteValidHours: 48 };
+export const DEFAULT_TRAVEL_SETTINGS: TravelSettings = { defaultManager: null, advancePercent: 20, quoteValidHours: 48, cancelCutoffDays: 2, safetyLead: null };
+
+/** Today in India, YYYY-MM-DD. */
+export const istToday = (now = Date.now()) => new Date(now + 330 * 60_000).toISOString().slice(0, 10);
+/** Days from today (IST) to a YYYY-MM-DD date; negative once it has passed. */
+export const daysUntil = (date: string, now = Date.now()) => Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${istToday(now)}T00:00:00Z`)) / 86_400_000);
+/** The last day a booked trip can be cancelled in the app. */
+export const cancelByDate = (startDate: string, cutoffDays: number) => new Date(Date.parse(`${startDate}T00:00:00Z`) - cutoffDays * 86_400_000).toISOString().slice(0, 10);
 
 export const advanceFor = (amount: number, percent: number) => Math.round(amount * percent / 100);

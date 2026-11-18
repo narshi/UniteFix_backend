@@ -27,6 +27,8 @@ import WhatsAppPage from "@/pages/admin/whatsapp";
 import TravelTripsPage from "@/pages/admin/travel-trips";
 import TravelPlacesPage from "@/pages/admin/travel-places";
 import TravelPartnersPage from "@/pages/admin/travel-partners";
+import SafetyDeskPage from "@/pages/admin/safety-desk";
+import SafetyAlarm from "@/components/admin/SafetyAlarm";
 import AdminLogin from "@/pages/admin-login";
 import Sidebar from "@/components/admin/sidebar";
 import SupportTicketsPage from "@/pages/admin/support-tickets";
@@ -292,6 +294,7 @@ function Router() {
 
       <div className="flex-1 min-w-0 overflow-y-auto h-screen">
         <WeakPasswordBanner />
+        <SafetyAlarm />
         {/* Mobile/tablet top bar — the sidebar is a drawer below `lg` */}
         <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14 border-b border-[rgba(255,255,255,0.06)] bg-[hsla(222,47%,6%,0.85)] backdrop-blur-md">
           <button
@@ -350,6 +353,7 @@ function Router() {
           <Route path="/admin/assignments"><Gate capability="bookings:view" component={AssignmentQueuePage} /></Route>
           <Route path="/admin/enquiries"><Gate capability="bookings:view" component={EnquiriesPage} /></Route>
           <Route path="/admin/travel/trips"><Gate capability="travel:view" component={TravelTripsPage} /></Route>
+          <Route path="/admin/safety"><Gate capability="safety:view" component={SafetyDeskPage} /></Route>
           <Route path="/admin/travel/partners"><Gate capability="travel:view" component={TravelPartnersPage} /></Route>
           <Route path="/admin/travel/places"><Gate capability="travel:view" component={TravelPlacesPage} /></Route>
           <Route path="/admin/book-by-call"><Gate capability="bookings:view" component={CallBookingPage} /></Route>

@@ -11,11 +11,12 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { and, asc, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db';
-import { travelRegions, travelPlaces, travelPickups, travelTrips, travelTripMembers, travelPartners, travelTripQuotes, integrationSettings, adminUsers, adminRoleCapabilities, users } from '@shared/schema';
+import { travelRegions, travelPlaces, travelPickups, travelTrips, travelTripMembers, travelPartners, travelTripQuotes, travelTripTeam, integrationSettings, adminUsers, adminRoleCapabilities, users, employees } from '@shared/schema';
 import {
     planTrip, PLACE_KINDS, TRIP_STATUSES, TRIP_STATUS_LABEL, TRAVEL_PARTNER_KINDS, DEFAULT_TRAVEL_SETTINGS, advanceFor, suggestedVehicle,
     type PlanPlace, type TripPlan, type TripStatus, type TravelSettings,
 } from '@shared/travel';
+import { istToday, daysUntil, cancelByDate } from '@shared/travel';
 import { SYSTEM_ROLES } from '@shared/capabilities';
 import { NotificationService } from './notification.service';
 import { recordAudit } from '../lib/audit';
@@ -98,9 +99,29 @@ const pickupInput = z.object({
 
 const OPEN: TripStatus[] = ['new', 'assigned', 'contacted', 'quoted'];
 const SETTINGS_KEY = 'travel';
+const publicBase = () => (process.env.PUBLIC_API_URL || process.env.PUBLIC_APP_URL || 'https://unitefix-backend.onrender.com').replace(/\/$/, '');
+const driverLink = (t: string) => `${publicBase()}/api/travel/driver/${t}`;
 /** Payment links are faked in tests and local runs (never in production), as for call bookings. */
 const mockLinks = () => process.env.PAYMENT_LINKS_MOCK === '1' && process.env.NODE_ENV !== 'production';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+/** The 4-digit code the traveller gives the driver at pickup. */
+const pickupCode = () => String(1000 + (randomBytes(2).readUInt16BE(0) % 9000));
+const hhmm = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'a time like 07:30');
+const teamInput = z.object({
+    role: z.enum(['driver', 'stay', 'guide', 'activity']),
+    day: z.number().int().min(1).max(60).nullish(),
+    source: z.enum(['own', 'partner']).default('partner'),
+    employeeId: z.number().int().positive().nullish(),
+    partnerId: z.number().int().positive().nullish(),
+    name: z.string().trim().max(100).nullish(),
+    phone: z.string().trim().max(20).nullish(),
+    vehicle: z.string().trim().max(80).nullish(),
+    plate: z.string().trim().max(20).nullish(),
+    place: z.string().trim().max(200).nullish(),
+    time: hhmm.nullish().or(z.literal('').transform(() => null)),
+    docs: z.object({ licence: z.boolean().optional(), rc: z.boolean().optional(), photo: z.boolean().optional() }).default({}),
+    docOverride: z.string().trim().max(300).nullish(),
+});
 
 const partnerInput = z.object({
     name: z.string().trim().min(2).max(100),
@@ -250,13 +271,42 @@ export class TravelService {
         const rows = await db.select().from(travelTrips).where(eq(travelTrips.customerUserId, userId)).orderBy(desc(travelTrips.createdAt)).limit(50);
         const ids = rows.map(r => r.id);
         const members = ids.length ? await db.select().from(travelTripMembers).where(inArray(travelTripMembers.tripId, ids)) : [];
-        return rows.map(t => this.customerView(t, members.filter(m => m.tripId === t.id)));
+        const team = ids.length ? await db.select().from(travelTripTeam).where(inArray(travelTripTeam.tripId, ids)).orderBy(asc(travelTripTeam.day), asc(travelTripTeam.id)) : [];
+        const cfg = await this.settings();
+        return rows.map(t => this.customerView(t, members.filter(m => m.tripId === t.id), team.filter(m => m.tripId === t.id), cfg.cancelCutoffDays));
     }
 
-    private static customerView(t: typeof travelTrips.$inferSelect, members: Array<typeof travelTripMembers.$inferSelect>) {
+    /** From 6 pm IST the evening before the trip: the pickup code and the team's phone numbers show. */
+    static codeFrom(startDate: string | null) {
+        return startDate ? new Date(Date.parse(`${startDate}T00:00:00+05:30`) - 6 * 3600_000) : null;
+    }
+    static teamVerified(m: typeof travelTripTeam.$inferSelect) {
+        if (m.role !== 'driver' || m.source === 'own') return true;
+        const d = (m.docs ?? {}) as { licence?: boolean; rc?: boolean; photo?: boolean };
+        return !!(d.licence && d.rc && d.photo);
+    }
+
+    private static customerView(t: typeof travelTrips.$inferSelect, members: Array<typeof travelTripMembers.$inferSelect>, team: Array<typeof travelTripTeam.$inferSelect> = [], cutoff = DEFAULT_TRAVEL_SETTINGS.cancelCutoffDays) {
         const plan = t.plan as TripPlan | null;
         const status = (TRIP_STATUSES as readonly string[]).includes(t.status) ? t.status as TripStatus : 'new';
+        const booked = status === 'confirmed' || status === 'started' || status === 'completed';
+        const from = this.codeFrom(t.startDate);
+        const evening = status === 'confirmed' && !!from && Date.now() >= from.getTime();
+        const phones = evening || status === 'started';
+        const tooLate = status === 'confirmed' && !!t.startDate && daysUntil(t.startDate) < cutoff;
         return {
+            team: booked ? team.map(m => ({
+                id: m.id, day: m.day, role: m.role, name: m.name, phone: phones ? m.phone : null, photoUrl: m.photoUrl,
+                vehicle: m.vehicle, plate: m.plate, place: m.place, time: m.time, verified: this.teamVerified(m), ours: m.source === 'own',
+            })) : [],
+            startCode: evening ? t.startCode : null,
+            startCodeFrom: status === 'confirmed' ? from : null,
+            startedAt: t.startedAt, endedAt: t.endedAt,
+            cancelBy: t.startDate && booked ? cancelByDate(t.startDate, cutoff) : null,
+            cancelCutoffDays: cutoff,
+            cancelBlocked: tooLate ? `Within ${cutoff} days of the trip it can't be cancelled in the app. Call ${t.managerName ?? 'your travel manager'} to change or cancel it.` : null,
+            canEnd: status === 'started',
+            safetyActive: status === 'confirmed' || status === 'started',
             id: t.id, code: t.code, status, statusLabel: TRIP_STATUS_LABEL[status],
             tripType: t.tripType, from: t.pickupText, to: t.dropText, startDate: t.startDate, days: t.days,
             adults: t.adults, children: t.children, stay: t.stay, needsCab: t.needsCab, needsGuide: t.needsGuide,
@@ -274,7 +324,7 @@ export class TravelService {
             canPay: status === 'quoted' && t.advanceStatus !== 'paid' && t.quoteAmount != null && (!t.quoteValidUntil || t.quoteValidUntil.getTime() > Date.now()),
             members: members.map(m => ({ name: m.name, phone: m.phone })),
             createdAt: t.createdAt,
-            canCancel: OPEN.includes(status) || status === 'confirmed',
+            canCancel: OPEN.includes(status) || (status === 'confirmed' && !tooLate),
             cancelKeepsAdvance: t.advanceStatus === 'paid',
         };
     }
@@ -283,6 +333,10 @@ export class TravelService {
         const [t] = await db.select().from(travelTrips).where(and(eq(travelTrips.id, tripId), eq(travelTrips.customerUserId, userId))).limit(1);
         if (!t) throw new TravelError('Trip not found.', 404);
         if (!OPEN.includes(t.status as TripStatus) && t.status !== 'confirmed') throw new TravelError('This trip can no longer be cancelled here. Call your travel manager.');
+        const cutoff = (await this.settings()).cancelCutoffDays;
+        if (t.status === 'confirmed' && t.startDate && daysUntil(t.startDate) < cutoff) {
+            throw new TravelError(`Within ${cutoff} days of the trip it can't be cancelled in the app. Call ${t.managerName ?? 'your travel manager'}${t.managerPhone ? ` on ${t.managerPhone}` : ''} to change or cancel it.`);
+        }
         await db.update(travelTrips).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(travelTrips.id, t.id));
         if (t.paymentLinkId && t.paymentLinkStatus === 'created') await this.cancelLink(t.paymentLinkId);
         // The advance stays with the booking: the driver and hosts kept these dates.
@@ -360,6 +414,7 @@ export class TravelService {
         const ids = rows.map(r => r.id);
         const members = ids.length ? await db.select().from(travelTripMembers).where(inArray(travelTripMembers.tripId, ids)) : [];
         const quotes = ids.length ? await db.select().from(travelTripQuotes).where(inArray(travelTripQuotes.tripId, ids)).orderBy(asc(travelTripQuotes.id)) : [];
+        const team = ids.length ? await db.select().from(travelTripTeam).where(inArray(travelTripTeam.tripId, ids)).orderBy(asc(travelTripTeam.day), asc(travelTripTeam.id)) : [];
         const [counts] = await db.select({
             new: sql<number>`count(*) filter (where status = 'new')::int`,
             open: sql<number>`count(*) filter (where status in ('new','assigned','contacted','quoted'))::int`,
@@ -373,6 +428,7 @@ export class TravelService {
                     ...t, plan, people, vehicle: suggestedVehicle(people),
                     members: members.filter(m => m.tripId === t.id).map(m => ({ id: m.id, name: m.name, phone: m.phone, status: m.status })),
                     quotes: quotes.filter(q => q.tripId === t.id),
+                    team: team.filter(m => m.tripId === t.id).map(m => ({ ...m, verified: this.teamVerified(m), driverLink: m.driverToken ? driverLink(m.driverToken) : null })),
                 };
             }),
         };
@@ -461,6 +517,7 @@ export class TravelService {
         }
         if (b.quoteNote !== undefined) set.quoteNote = b.quoteNote;
         if (b.staffNote !== undefined) set.staffNote = b.staffNote;
+        if (status === 'confirmed' && !t.startCode) set.startCode = pickupCode();   // booked by staff (advance taken another way)
         const [row] = await db.update(travelTrips).set(set as any).where(eq(travelTrips.id, tripId)).returning();
         await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_trip_updated', changedBy: adminId, fromState: t.status, toState: status, metadata: { code: t.code, quoteAmount: b.quoteAmount ?? undefined, costAmount: (set.costAmount as number | undefined) ?? undefined } });
         if (t.customerUserId) {
@@ -483,6 +540,8 @@ export class TravelService {
             defaultManager: c.defaultManager?.name && c.defaultManager.phone ? c.defaultManager : null,
             advancePercent: Number.isInteger(c.advancePercent) ? c.advancePercent! : DEFAULT_TRAVEL_SETTINGS.advancePercent,
             quoteValidHours: Number.isInteger(c.quoteValidHours) ? c.quoteValidHours! : DEFAULT_TRAVEL_SETTINGS.quoteValidHours,
+            cancelCutoffDays: Number.isInteger(c.cancelCutoffDays) ? c.cancelCutoffDays! : DEFAULT_TRAVEL_SETTINGS.cancelCutoffDays,
+            safetyLead: c.safetyLead?.name && c.safetyLead.phone ? c.safetyLead : null,
         };
     }
 
@@ -491,13 +550,16 @@ export class TravelService {
             defaultManager: z.object({ adminId: z.number().int().positive().nullish(), name: z.string().trim().min(2).max(80), phone }).nullable(),
             advancePercent: z.number().int().min(0).max(100),
             quoteValidHours: z.number().int().min(1).max(24 * 30),
+            cancelCutoffDays: z.number().int().min(0).max(30).default(DEFAULT_TRAVEL_SETTINGS.cancelCutoffDays),
+            safetyLead: z.object({ name: z.string().trim().min(2).max(80), phone, email: z.string().trim().email().max(120).nullish().or(z.literal('').transform(() => null)) }).nullable().default(null),
         }), body);
         if (b.defaultManager?.adminId && !(await this.managers()).some(m => m.id === b.defaultManager!.adminId)) {
             throw new TravelError('That staff member cannot take trips. Give their role the Travel area in Roles & Access.');
         }
         const config: TravelSettings = {
             defaultManager: b.defaultManager ? { adminId: b.defaultManager.adminId ?? null, name: b.defaultManager.name, phone: b.defaultManager.phone.slice(-10) } : null,
-            advancePercent: b.advancePercent, quoteValidHours: b.quoteValidHours,
+            advancePercent: b.advancePercent, quoteValidHours: b.quoteValidHours, cancelCutoffDays: b.cancelCutoffDays,
+            safetyLead: b.safetyLead ? { name: b.safetyLead.name, phone: b.safetyLead.phone.slice(-10), email: b.safetyLead.email ?? null } : null,
         };
         await db.insert(integrationSettings).values({ key: SETTINGS_KEY, config, updatedBy: adminId } as any)
             .onConflictDoUpdate({ target: integrationSettings.key, set: { config, updatedBy: adminId, updatedAt: new Date() } as any });
@@ -612,7 +674,7 @@ export class TravelService {
         const closed = t.status === 'cancelled';
         const [u] = await db.update(travelTrips).set({
             advanceStatus: 'paid', advancePaidAt: new Date(), advancePaymentId: p.paymentId, paymentLinkStatus: 'paid',
-            ...(closed ? {} : { status: 'confirmed' }), updatedAt: new Date(),
+            ...(closed ? {} : { status: 'confirmed', startCode: t.startCode ?? pickupCode() }), updatedAt: new Date(),
         }).where(and(eq(travelTrips.id, tripId), sql`${travelTrips.advanceStatus} IS DISTINCT FROM 'paid'`)).returning({ id: travelTrips.id });
         if (!u) return { handled: true, repeat: true };
         await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_advance_paid', fromState: t.status, toState: closed ? t.status : 'confirmed', metadata: { code: t.code, paymentId: p.paymentId, amountPaise: p.amountPaise, linkId: p.linkId ?? null } });
@@ -645,6 +707,174 @@ export class TravelService {
         if (mockLinks() || id.startsWith('plink_test_')) return;
         try { const { PaymentService } = await import('./payment.service'); const rp: any = await PaymentService.client(); await rp.paymentLink.cancel(id); }
         catch (e: any) { logger.warn(`[TRAVEL] Could not cancel payment link ${id}: ${e?.message}`); }
+    }
+
+    // ── The trip team ───────────────────────────────────────────────────
+
+    /** Our own verified, active service experts, to put on a trip. */
+    static async experts() {
+        return db.select({ id: employees.id, name: employees.fullName, phone: users.phone, photo: users.profilePicture })
+            .from(employees).innerJoin(users, eq(users.id, employees.userId))
+            .where(and(eq(employees.isActive, true), eq(employees.documentVerificationStatus, 'verified' as any), sql`${employees.managedByPartnerId} IS NULL`))
+            .orderBy(asc(employees.fullName)).limit(500);
+    }
+
+    static async saveTeam(adminId: number, tripId: number, memberId: number | null, body: unknown) {
+        const b = parse(memberId ? teamInput.partial() : teamInput, body);
+        const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        const prev = memberId ? (await db.select().from(travelTripTeam).where(and(eq(travelTripTeam.id, memberId), eq(travelTripTeam.tripId, tripId))).limit(1))[0] : null;
+        if (memberId && !prev) throw new TravelError('Not found.', 404);
+        const m = { ...(prev ?? {}), ...b } as any;
+        if (m.source === 'own') {
+            if (!m.employeeId) throw new TravelError('Choose which of our experts.');
+            const [e] = await db.select({ name: employees.fullName, active: employees.isActive, status: employees.documentVerificationStatus, phone: users.phone, photo: users.profilePicture })
+                .from(employees).innerJoin(users, eq(users.id, employees.userId)).where(eq(employees.id, m.employeeId)).limit(1);
+            if (!e) throw new TravelError('Expert not found.', 404);
+            if (!e.active || e.status !== 'verified') throw new TravelError(`${e.name} is not active and verified, so they cannot be put on a trip.`);
+            m.name = e.name; m.phone = String(e.phone ?? '').slice(-10) || null; m.photoUrl = e.photo ?? null; m.partnerId = null;
+        } else {
+            if (!m.name?.trim()) throw new TravelError('Who is it? Add their name.');
+            m.employeeId = null;
+            if (m.phone) {
+                const p = String(m.phone).replace(/\D/g, '').slice(-10);
+                if (!/^[6-9]\d{9}$/.test(p)) throw new TravelError('Phone must be a 10-digit Indian mobile number.');
+                m.phone = p;
+                const { SafetyService } = await import('./safety.service');
+                const flag = await SafetyService.phoneFlag(p);
+                if (flag) throw new TravelError(`This person has a safety case (${flag}) and cannot be put on a trip until it is closed.`);
+            }
+            if (m.role === 'driver') {
+                const d = m.docs ?? {};
+                if (!(d.licence && d.rc && d.photo) && !(m.docOverride && m.docOverride.trim().length >= 5)) {
+                    throw new TravelError("A partner's driver needs licence, RC and photo checked. If you assign them anyway, write why.");
+                }
+                if (!m.phone) throw new TravelError("Add the driver's mobile number: the traveller and the safety desk need it.");
+            }
+        }
+        const values = {
+            tripId, day: m.day ?? null, role: m.role, source: m.source, employeeId: m.employeeId ?? null, partnerId: m.partnerId ?? null,
+            name: String(m.name).trim(), phone: m.phone ?? null, photoUrl: m.photoUrl ?? null, vehicle: m.vehicle ?? null,
+            plate: m.plate ? String(m.plate).toUpperCase() : null, place: m.place ?? null, time: m.time ?? null, docs: m.docs ?? {}, docOverride: m.docOverride ?? null,
+            driverToken: m.role === 'driver' ? (prev?.driverToken ?? randomBytes(16).toString('base64url')) : null, updatedAt: new Date(),
+        };
+        const [row] = memberId
+            ? await db.update(travelTripTeam).set(values as any).where(eq(travelTripTeam.id, memberId)).returning()
+            : await db.insert(travelTripTeam).values({ ...values, createdBy: adminId } as any).returning();
+        await recordAudit({ entityType: 'travel', entityId: tripId, action: memberId ? 'travel_team_updated' : 'travel_team_added', changedBy: adminId, metadata: { code: t.code, role: row.role, name: row.name, verified: this.teamVerified(row), override: row.docOverride ?? null } });
+        return { ...row, verified: this.teamVerified(row), driverLink: row.driverToken ? driverLink(row.driverToken) : null };
+    }
+    static async deleteTeam(adminId: number, tripId: number, memberId: number) {
+        const [row] = await db.delete(travelTripTeam).where(and(eq(travelTripTeam.id, memberId), eq(travelTripTeam.tripId, tripId))).returning();
+        if (!row) throw new TravelError('Not found.', 404);
+        await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_team_removed', changedBy: adminId, metadata: { name: row.name, role: row.role } });
+    }
+
+    // ── Trip day: start with the pickup code, end ───────────────────────
+
+    private static async begin(t: typeof travelTrips.$inferSelect, by: string) {
+        if (t.status === 'started') return t;
+        if (t.status !== 'confirmed') throw new TravelError(t.status === 'completed' ? 'This trip is already finished.' : 'This trip is not booked yet.');
+        if (t.startDate && daysUntil(t.startDate) > 0) throw new TravelError(`The trip starts on ${t.startDate}. Enter the code at pickup.`);
+        const [row] = await db.update(travelTrips).set({ status: 'started', startedAt: new Date(), updatedAt: new Date() }).where(eq(travelTrips.id, t.id)).returning();
+        await recordAudit({ entityType: 'travel', entityId: t.id, action: 'travel_trip_started', fromState: 'confirmed', toState: 'started', metadata: { code: t.code, by } });
+        if (t.customerUserId) void NotificationService.sendToUser(t.customerUserId, 'Your trip has started', `Have a great trip! The Safety shield and Help are on your trip screen if you need anything.`, 'travel_trip', { tripId: t.id, url: 'unitefix://travel' }).catch(() => {});
+        return row;
+    }
+    private static async finish(t: typeof travelTrips.$inferSelect, by: string) {
+        if (t.status === 'completed') return t;
+        if (t.status !== 'started') throw new TravelError('The trip has not started.');
+        const [row] = await db.update(travelTrips).set({ status: 'completed', endedAt: new Date(), updatedAt: new Date() }).where(eq(travelTrips.id, t.id)).returning();
+        await recordAudit({ entityType: 'travel', entityId: t.id, action: 'travel_trip_completed', fromState: 'started', toState: 'completed', metadata: { code: t.code, by } });
+        return row;
+    }
+
+    private static async byDriverToken(token: string) {
+        const [m] = await db.select().from(travelTripTeam).where(eq(travelTripTeam.driverToken, token)).limit(1);
+        if (!m) throw new TravelError('This link is not valid. Ask the travel manager for a new one.', 404);
+        const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, m.tripId)).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        return { m, t };
+    }
+    /** The driver enters the code the traveller shows: proof the right car came. */
+    static async driverStart(token: string, body: unknown) {
+        const b = parse(z.object({ code: z.string().trim().regex(/^\d{4}$/, 'the 4-digit code') }), body);
+        const { m, t } = await this.byDriverToken(token);
+        if (!t.startCode || b.code !== t.startCode) throw new TravelError('That code does not match this trip. Ask the traveller to read it again from their app.');
+        await this.begin(t, `driver ${m.name}`);
+        return { message: 'Trip started. Drive safe!' };
+    }
+    static async driverEnd(token: string) {
+        const { m, t } = await this.byDriverToken(token);
+        await this.finish(t, `driver ${m.name}`);
+        return { message: 'Trip finished. Thank you!' };
+    }
+    static async staffStart(adminId: number, tripId: number) {
+        const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        await this.begin(t, `staff #${adminId}`);
+    }
+    static async staffEnd(adminId: number, tripId: number) {
+        const [t] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        await this.finish(t, `staff #${adminId}`);
+    }
+    static async endMine(userId: number, tripId: number) {
+        const [t] = await db.select().from(travelTrips).where(and(eq(travelTrips.id, tripId), eq(travelTrips.customerUserId, userId))).limit(1);
+        if (!t) throw new TravelError('Trip not found.', 404);
+        await this.finish(t, 'traveller');
+    }
+
+    /** The driver's page: no app, no login; the link is the key. */
+    static async driverPage(token: string): Promise<string> {
+        const esc = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+        const shell = (inner: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniteFix trip</title><style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#F5F7FA;color:#14243B}main{max-width:480px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0}.box{background:#fff;border:1px solid #E6EAF0;border-radius:14px;padding:16px;margin-top:14px}.muted{color:#687588;font-size:14px}input{font-size:28px;letter-spacing:10px;text-align:center;width:100%;box-sizing:border-box;padding:12px;border:2px solid #09264A;border-radius:12px}button{width:100%;margin-top:12px;padding:14px;border:0;border-radius:999px;background:#FF8A00;color:#fff;font-weight:700;font-size:16px}button.alt{background:#09264A}#msg{margin-top:10px;font-weight:600}</style></head><body><main>${inner}</main></body></html>`;
+        let ctx: { m: typeof travelTripTeam.$inferSelect; t: typeof travelTrips.$inferSelect };
+        try { ctx = await this.byDriverToken(token); } catch { return shell('<h1>This link is not valid</h1><p class="muted">Ask the UniteFix travel manager for a new one.</p>'); }
+        const { m, t } = ctx;
+        const first = (t.contactName ?? '').split(' ')[0];
+        const head = `<h1>Trip ${esc(t.code)}</h1><p class="muted">Driver: ${esc(m.name)}${m.plate ? ` · ${esc(m.plate)}` : ''}</p>
+          <div class="box"><b>Pickup:</b> ${esc(t.pickupText)}<br><b>Date:</b> ${esc(t.startDate)}${m.time ? ` at ${esc(m.time)}` : ''}<br><b>Travellers:</b> ${esc(first)} + ${t.adults + t.children - 1}<br><b>Travel manager:</b> ${esc(t.managerName)} ${esc(t.managerPhone)}</div>`;
+        const post = (path: string, withCode: boolean) => `<script>async function go(){var b=document.getElementById('b');b.disabled=true;var r=await fetch('${driverLink(token).replace(publicBase(), '')}/${path}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${withCode ? "{code:document.getElementById('c').value}" : '{}'})});var j=await r.json().catch(function(){return{}});document.getElementById('msg').textContent=j.message||'Something went wrong.';b.disabled=false;if(r.ok)setTimeout(function(){location.reload()},1200)}</script>`;
+        if (t.status === 'confirmed') return shell(`${head}<div class="box"><b>At pickup, ask the traveller for the 4-digit code in their UniteFix app.</b><input id="c" inputmode="numeric" maxlength="4" autocomplete="one-time-code" aria-label="Pickup code"><button id="b" onclick="go()">Start the trip</button><div id="msg"></div></div>${post('start', true)}`);
+        if (t.status === 'started') return shell(`${head}<div class="box"><b>Trip in progress.</b> Drive safe. When you drop everyone at the end, press below.<button id="b" class="alt" onclick="go()">Trip finished</button><div id="msg"></div></div>${post('end', false)}`);
+        return shell(`${head}<div class="box">${t.status === 'completed' ? 'This trip is finished. Thank you!' : 'This trip is not active.'}</div>`);
+    }
+
+    // ── Every 15 minutes: the evening-before reminder and the late-driver alert ──
+
+    static async tripDayJobs(now = Date.now()) {
+        const ist = new Date(now + 330 * 60_000);
+        const today = istToday(now);
+        const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+        let reminded = 0, late = 0;
+        if (ist.getUTCHours() >= 18) {
+            const due = await db.select().from(travelTrips).where(and(eq(travelTrips.status, 'confirmed'), eq(travelTrips.startDate, tomorrow), sql`${travelTrips.reminderSentAt} IS NULL`)).limit(100);
+            for (const t of due) {
+                const team = await db.select().from(travelTripTeam).where(eq(travelTripTeam.tripId, t.id));
+                const d = team.find(m => m.role === 'driver' && (m.day == null || m.day === 1));
+                const text = d
+                    ? `Tomorrow ${d.time ? `at ${d.time} ` : ''}${d.name} picks you up${d.vehicle ? ` in a ${d.vehicle}` : ''}${d.plate ? ` (${d.plate})` : ''}. Your pickup code is ${t.startCode}: give it to the driver.`
+                    : `Your trip starts tomorrow. Your pickup code is ${t.startCode}. ${t.managerName ?? 'Your travel manager'} will share the driver's details.`;
+                await db.update(travelTrips).set({ reminderSentAt: new Date() }).where(eq(travelTrips.id, t.id));
+                if (t.customerUserId) void NotificationService.sendToUser(t.customerUserId, 'Your trip is tomorrow', text, 'travel_trip', { tripId: t.id, url: 'unitefix://travel' }).catch(() => {});
+                reminded++;
+            }
+        }
+        const nowMin = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+        const todays = await db.select().from(travelTrips).where(and(eq(travelTrips.status, 'confirmed'), eq(travelTrips.startDate, today), sql`${travelTrips.lateAlertAt} IS NULL`)).limit(200);
+        for (const t of todays) {
+            const team = await db.select().from(travelTripTeam).where(eq(travelTripTeam.tripId, t.id));
+            const d = team.find(m => m.role === 'driver' && (m.day == null || m.day === 1) && m.time);
+            if (!d?.time) continue;
+            const [h, mm] = d.time.split(':').map(Number);
+            if (nowMin < h * 60 + mm + 15) continue;
+            await db.update(travelTrips).set({ lateAlertAt: new Date() }).where(eq(travelTrips.id, t.id));
+            const { SafetyService } = await import('./safety.service');
+            await SafetyService.systemAlert(t.id, 'driver_late', `Pickup was at ${d.time} and the trip has not started. Call ${d.name}${d.phone ? ` (${d.phone})` : ''} and the traveller (${t.contactPhone}).`);
+            late++;
+        }
+        return { reminded, late };
     }
 
     static async customerName(userId: number) {

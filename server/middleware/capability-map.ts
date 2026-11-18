@@ -73,6 +73,7 @@ const RULES: Rule[] = [
     { test: /^\/b2b-orders(\/|$)/, area: 'orders' },
     { test: /^\/ftth(\/|$)/, area: 'ftth' },
     { test: /^\/travel(\/|$)/, area: 'travel' },
+    { test: /^\/safety(\/|$)/, area: 'safety' },
     { test: /^\/notifications(\/|$)/, area: 'marketing' },
 
     // --- Money ------------------------------------------------------------
@@ -93,11 +94,11 @@ const RULES: Rule[] = [
 
     // --- People -----------------------------------------------------------
     { test: /^\/servicemen(\/|$)/, area: 'employees' },
-    { test: /^\/technicians(\/|$)/, area: 'employees' },
     // The verification queue and the verify / reject / suspend decision
     // (admin-verification.routes.ts). Unmapped until now, so every admin —
     // super admin included — was refused.
     { test: /^\/employees(\/|$)/, area: 'employees' },
+    { test: /^\/technicians(\/|$)/, area: 'employees' },
     { test: /^\/users(\/|$)/, area: 'customers' },
 
     // --- Operations -------------------------------------------------------
@@ -117,11 +118,11 @@ const RULES: Rule[] = [
     // Referral enquiries are customer requests, handled like bookings.
     { test: /^\/enquiries(\/|$)/, area: 'bookings' },
     { test: /^\/call-bookings(\/|$)/, area: 'bookings' },
-    { test: /^\/services(\/|$)/, area: 'bookings' },
     // A booking's billing trail, marking it disputed, and resolving a dispute
     // (admin-verification.routes.ts). Also unmapped until now: no dispute
     // could be opened or settled from the dashboard at all.
     { test: /^\/bookings(\/|$)/, area: 'bookings' },
+    { test: /^\/services(\/|$)/, area: 'bookings' },
 
     // --- Dashboard --------------------------------------------------------
     { test: /^\/stats(\/|$)/, area: 'dashboard' },

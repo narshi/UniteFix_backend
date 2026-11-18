@@ -21,6 +21,7 @@ export type AuditEntity =
     | 'home_card_set'     // Home screen cards (home-cards.service.ts)
     | 'integration'       // WhatsApp and other connections (whatsapp.service.ts); secrets never logged
     | 'travel'            // Travel planner: places, pickups and trip requests (travel.service.ts)
+    | 'safety'            // Safety desk: SOS, reports, help, pauses (safety.service.ts)
     | 'employee'
     | 'user'
     | 'withdrawal'

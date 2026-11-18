@@ -52,6 +52,19 @@ export function registerTravelRoutes(app: Express) {
     app.post('/api/travel/trips/:id/advance', authenticateToken, async (req, res, next) => {
         try { res.json({ success: true, data: await TravelService.startAdvance((req as any).user.userId, id(req)) }); } catch (e) { fail(e, res, next); }
     });
+    app.post('/api/travel/trips/:id/end', authenticateToken, async (req, res, next) => {
+        try { await TravelService.endMine((req as any).user.userId, id(req)); res.json({ success: true, message: 'Welcome back! Tell us how it went.' }); } catch (e) { fail(e, res, next); }
+    });
+    // The driver's link: a page, the pickup code to start, a button to finish. No login: the link is the key.
+    app.get('/api/travel/driver/:token', async (req, res, next) => {
+        try { res.set('Cache-Control', 'no-store').type('html').send(await TravelService.driverPage(String(req.params.token))); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/driver/:token/start', celebrationsSubmitLimiter, async (req, res, next) => {
+        try { res.json({ success: true, ...(await TravelService.driverStart(String(req.params.token), req.body ?? {})) }); } catch (e) { fail(e, res, next); }
+    });
+    app.post('/api/travel/driver/:token/end', celebrationsSubmitLimiter, async (req, res, next) => {
+        try { res.json({ success: true, ...(await TravelService.driverEnd(String(req.params.token))) }); } catch (e) { fail(e, res, next); }
+    });
     app.post('/api/travel/trips/:id/cancel', authenticateToken, async (req, res, next) => {
         try { await TravelService.cancelMine((req as any).user.userId, id(req)); res.json({ success: true, message: 'Trip cancelled.' }); } catch (e) { fail(e, res, next); }
     });
@@ -78,6 +91,25 @@ export function registerTravelRoutes(app: Express) {
     crud('partners', TravelService.savePartner, TravelService.deletePartner, 'Travel partner');
     app.get(`${base}/partners`, authenticateAdmin, async (_req, res, next) => {
         try { res.json({ success: true, data: await TravelService.partners() }); } catch (e) { fail(e, res, next); }
+    });
+    app.get(`${base}/experts`, authenticateAdmin, async (_req, res, next) => {
+        try { res.json({ success: true, data: await TravelService.experts() }); } catch (e) { fail(e, res, next); }
+    });
+    const mid = (req: Request) => { const n = Number(req.params.memberId); if (!Number.isInteger(n) || n <= 0) throw new TravelError('Not found.', 404); return n; };
+    app.post(`${base}/trips/:id/team`, authenticateAdmin, async (req, res, next) => {
+        try { res.status(201).json({ success: true, message: 'Added to the trip team.', data: await TravelService.saveTeam(adminId(req), id(req), null, req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.patch(`${base}/trips/:id/team/:memberId`, authenticateAdmin, async (req, res, next) => {
+        try { res.json({ success: true, message: 'Saved.', data: await TravelService.saveTeam(adminId(req), id(req), mid(req), req.body ?? {}) }); } catch (e) { fail(e, res, next); }
+    });
+    app.delete(`${base}/trips/:id/team/:memberId`, authenticateAdmin, async (req, res, next) => {
+        try { await TravelService.deleteTeam(adminId(req), id(req), mid(req)); res.json({ success: true, message: 'Removed from the team.' }); } catch (e) { fail(e, res, next); }
+    });
+    app.post(`${base}/trips/:id/start`, authenticateAdmin, async (req, res, next) => {
+        try { await TravelService.staffStart(adminId(req), id(req)); res.json({ success: true, message: 'Trip started.' }); } catch (e) { fail(e, res, next); }
+    });
+    app.post(`${base}/trips/:id/end`, authenticateAdmin, async (req, res, next) => {
+        try { await TravelService.staffEnd(adminId(req), id(req)); res.json({ success: true, message: 'Trip finished.' }); } catch (e) { fail(e, res, next); }
     });
     app.get(`${base}/settings`, authenticateAdmin, async (_req, res, next) => {
         try { res.json({ success: true, data: await TravelService.settings() }); } catch (e) { fail(e, res, next); }

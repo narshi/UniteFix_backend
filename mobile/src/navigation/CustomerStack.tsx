@@ -35,6 +35,7 @@ import { EventPlannerScreen } from '../screens/customer/EventPlannerScreen';
 import { CelebrationDetailScreen } from '../screens/customer/CelebrationDetailScreen';
 import { CelebrationsScreen } from '../screens/customer/CelebrationsScreen';
 import { TripPlannerScreen } from '../screens/customer/TripPlannerScreen';
+import { EmergencyContactsScreen } from '../screens/customer/EmergencyContactsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -84,6 +85,8 @@ export function CustomerStack() {
             <Stack.Screen name="Celebrations" component={CelebrationsScreen} />
             {/* Travel planner: four steps, then a travel manager calls with a quotation. */}
             <Stack.Screen name="TripPlanner" component={TripPlannerScreen} />
+            {/* People who get your live location when you press SOS. */}
+            <Stack.Screen name="EmergencyContacts" component={EmergencyContactsScreen} />
         </Stack.Navigator>
     );
 }

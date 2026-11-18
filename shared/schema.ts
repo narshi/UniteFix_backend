@@ -105,6 +105,8 @@ export const users = pgTable("users", {
   referredById: integer("referred_by_id"),
   homeAddress: text("home_address"),
   pinCode: text("pin_code"),
+  // People to alert when this user presses SOS: [{ name, phone }], at most 2.
+  emergencyContacts: jsonb("emergency_contacts").default([]),
   // Auth verification fields
   truecallerId: text("truecaller_id").unique(),  // Truecaller OAuth identity
   phoneVerified: boolean("phone_verified").default(false),
@@ -271,12 +273,12 @@ export const serviceRequests = pgTable("service_requests", {
   photos: text("photos").array(),
   status: serviceStatusEnum("status").notNull().default('created'),
   handshakeOtp: text("handshake_otp"),          // 6-digit, generated on ACCEPTED
-  bookingFee: integer("booking_fee").default(99), // PHASE 1: ₹99 (was ₹250)
-  bookingFeeStatus: bookingFeeStatusEnum("booking_fee_status").default('pending'),
   // Wrong guesses at that code on this booking, and — after too many — until
   // when further tries are refused (geofence.routes.ts).
   handshakeAttempts: integer("handshake_attempts").notNull().default(0),
   handshakeLockedUntil: timestamp("handshake_locked_until"),
+  bookingFee: integer("booking_fee").default(99), // PHASE 1: ₹99 (was ₹250)
+  bookingFeeStatus: bookingFeeStatusEnum("booking_fee_status").default('pending'),
   totalAmount: integer("total_amount"),
   commissionAmount: integer("commission_amount"),
   // Location — stored as text for Drizzle compat; raw SQL uses geometry(Point, 4326)
@@ -4141,6 +4143,12 @@ export const travelTrips = pgTable("travel_trips", {
   paymentLinkId: text("payment_link_id"),
   paymentLinkUrl: text("payment_link_url"),
   paymentLinkStatus: text("payment_link_status"),              // created | paid | expired | cancelled
+  // Trip day (Phase 1 safety): the pickup code the traveller gives the driver, and when it ran.
+  startCode: text("start_code"),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  reminderSentAt: timestamp("reminder_sent_at"),
+  lateAlertAt: timestamp("late_alert_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
@@ -4194,3 +4202,79 @@ export const travelTripQuotes = pgTable("travel_trip_quotes", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 export type TravelTripQuote = typeof travelTripQuotes.$inferSelect;
+
+/**
+ * Who is on a booked trip, per day (day null = every day): the driver and
+ * vehicle, the stays, guides and activities. From our own experts or a travel
+ * partner. A partner's driver needs licence, RC and photo checked, or a reason.
+ */
+export const travelTripTeam = pgTable("travel_trip_team", {
+  id: serial("id").primaryKey(),
+  tripId: integer("trip_id").notNull().references(() => travelTrips.id, { onDelete: 'cascade' }),
+  day: integer("day"),
+  role: text("role").notNull(),                                 // driver | stay | guide | activity
+  source: text("source").notNull().default('partner'),         // own | partner
+  employeeId: integer("employee_id").references(() => employees.id),
+  partnerId: integer("partner_id").references(() => travelPartners.id),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  photoUrl: text("photo_url"),
+  vehicle: text("vehicle"),                                     // "Innova Crysta, white"
+  plate: text("plate"),                                         // "KA 31 M 4821"
+  place: text("place"),                                         // stay address, activity point
+  time: text("time"),                                           // pickup 07:30, check-in 18:00
+  docs: jsonb("docs").notNull().default({}),                    // { licence, rc, photo } checked by staff
+  docOverride: text("doc_override"),                            // why assigned without them
+  driverToken: text("driver_token").unique(),                   // the driver's link
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({ tripIdx: index("travel_trip_team_trip_idx").on(t.tripId) }));
+export type TravelTripTeamMember = typeof travelTripTeam.$inferSelect;
+
+/**
+ * Safety desk (shared/safety.ts): SOS, help requests and reports about
+ * behaviour, on trips and home-service visits.
+ */
+export const safetyIncidents = pgTable("safety_incidents", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),                        // "SF-4K7Q2M"
+  kind: text("kind").notNull(),                                 // sos | report | help
+  severity: text("severity").notNull(),                         // critical | high | medium
+  category: text("category"),
+  context: text("context").notNull(),                           // trip | service
+  tripId: integer("trip_id").references(() => travelTrips.id),
+  serviceRequestId: integer("service_request_id").references(() => serviceRequests.id),
+  reporterUserId: integer("reporter_user_id").references(() => users.id),
+  subject: jsonb("subject"),                                    // IncidentSubject
+  description: text("description"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  liveToken: text("live_token").unique(),                       // the shared location page
+  liveUntil: timestamp("live_until"),
+  status: text("status").notNull().default('open'),            // open | acknowledged | resolved
+  escalatedAt: timestamp("escalated_at"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: integer("acknowledged_by"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by"),
+  action: text("action"),                                       // SAFETY_ACTIONS
+  note: text("note"),
+  paused: jsonb("paused"),                                      // what was paused, to lift it again
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  statusIdx: index("safety_incidents_status_idx").on(t.status),
+  tripIdx: index("safety_incidents_trip_idx").on(t.tripId),
+}));
+export type SafetyIncident = typeof safetyIncidents.$inferSelect;
+
+/** Locations shared after SOS (every 30 s, for 2 hours). */
+export const safetyPings = pgTable("safety_pings", {
+  id: serial("id").primaryKey(),
+  incidentId: integer("incident_id").notNull().references(() => safetyIncidents.id, { onDelete: 'cascade' }),
+  lat: doublePrecision("lat").notNull(),
+  lng: doublePrecision("lng").notNull(),
+  accuracy: doublePrecision("accuracy"),
+  at: timestamp("at").defaultNow(),
+}, (t) => ({ incidentIdx: index("safety_pings_incident_idx").on(t.incidentId) }));

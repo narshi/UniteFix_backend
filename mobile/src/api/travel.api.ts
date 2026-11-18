@@ -9,7 +9,7 @@ import { apiClient } from './client';
 export type TripType = 'round_trip' | 'one_way';
 export type Pace = 'relaxed' | 'balanced' | 'packed';
 export type StayChoice = 'none' | 'budget' | 'standard' | 'premium' | 'homestay';
-export type TripStatus = 'new' | 'assigned' | 'contacted' | 'quoted' | 'confirmed' | 'cancelled';
+export type TripStatus = 'new' | 'assigned' | 'contacted' | 'quoted' | 'confirmed' | 'started' | 'completed' | 'cancelled';
 
 export interface TravelPlace {
     id: number; regionId: number | null; name: string; kind: string; description: string | null;
@@ -42,6 +42,9 @@ export interface MyTrip {
     advance: { status: 'none' | 'due' | 'paid'; paidAt: string | null };
     canPay: boolean; members: Array<{ name: string; phone: string | null }>;
     createdAt: string; canCancel: boolean; cancelKeepsAdvance: boolean;
+    team: Array<{ id: number; day: number | null; role: 'driver' | 'stay' | 'guide' | 'activity'; name: string; phone: string | null; photoUrl: string | null; vehicle: string | null; plate: string | null; place: string | null; time: string | null; verified: boolean; ours: boolean }>;
+    startCode: string | null; startCodeFrom: string | null; startedAt: string | null; endedAt: string | null;
+    cancelBy: string | null; cancelCutoffDays: number; cancelBlocked: string | null; canEnd: boolean; safetyActive: boolean;
 }
 
 export interface PlanRequest {
@@ -61,6 +64,7 @@ export const travelApi = {
     mine: async (): Promise<MyTrip[]> => (await apiClient.get('/api/travel/trips/mine')).data.data ?? [],
     /** A payment link for the advance on the quotation. */
     payAdvance: async (id: number): Promise<{ url: string; amount: number }> => (await apiClient.post(`/api/travel/trips/${id}/advance`, {})).data.data,
+    end: async (id: number) => (await apiClient.post(`/api/travel/trips/${id}/end`, {})).data,
     cancel: async (id: number) => (await apiClient.post(`/api/travel/trips/${id}/cancel`, {})).data,
 };
 

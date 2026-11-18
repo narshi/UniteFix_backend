@@ -64,6 +64,7 @@ import { spacing, radii, shadows } from '../../theme/spacing';
 import { Button } from '../../components/ui';
 import WarrantyCard from '../../components/customer/WarrantyCard';
 import PartApproval from '../../components/customer/PartApproval';
+import { SafetySheet, ShieldButton } from '../../components/safety/SafetySheet';
 import { useScreenInsets } from '../../theme/layout';
 
 type Props = NativeStackScreenProps<any, 'RequestDetail'>;
@@ -195,6 +196,7 @@ function refundText(r: RefundStatus): string {
 }
 
 export function RequestDetailScreen({ navigation, route }: Props) {
+    const [safetyOpen, setSafetyOpen] = useState(false);
     const { headerTop } = useScreenInsets();
     const queryClient = useQueryClient();
     // route.params.request is a snapshot frozen at navigation time. Re-read the
@@ -411,8 +413,14 @@ export function RequestDetailScreen({ navigation, route }: Props) {
                     <Text style={styles.headerTitle}>Booking Details</Text>
                     <Text style={styles.headerSub}>#{request.id}</Text>
                 </View>
-                <View style={{ width: 40 }} />
+                {['assigned', 'accepted', 'reached', 'in_progress'].includes(request.status)
+                    ? <ShieldButton onPress={() => setSafetyOpen(true)} />
+                    : <View style={{ width: 40 }} />}
             </Animated.View>
+            {['assigned', 'accepted', 'reached', 'in_progress'].includes(request.status) && (
+                <SafetySheet visible={safetyOpen} onClose={() => setSafetyOpen(false)} where={{ context: 'service', serviceRequestId: request.id }}
+                    people={(request as any).servicedBy?.name ? [{ role: 'Service expert', name: (request as any).servicedBy.name, phone: (request as any).servicedBy.phone, verified: true, ours: true }] : []} />
+            )}
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 {/* Service Info Card */}

@@ -1596,6 +1596,89 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS travel_trip_quotes_trip_idx ON travel_trip_quotes(trip_id);
       CREATE INDEX IF NOT EXISTS travel_trips_link_idx ON travel_trips(payment_link_id);
     `],
+    // Trip day and safety (shared/safety.ts). New columns and tables only.
+    ['safety: trip team, pickup code, safety desk', `
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS start_code TEXT;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP;
+      ALTER TABLE travel_trips ADD COLUMN IF NOT EXISTS late_alert_at TIMESTAMP;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[]';
+      CREATE TABLE IF NOT EXISTS travel_trip_team (
+        id SERIAL PRIMARY KEY,
+        trip_id INTEGER NOT NULL REFERENCES travel_trips(id) ON DELETE CASCADE,
+        day INTEGER,
+        role TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'partner',
+        employee_id INTEGER REFERENCES employees(id),
+        partner_id INTEGER REFERENCES travel_partners(id),
+        name TEXT NOT NULL,
+        phone TEXT,
+        photo_url TEXT,
+        vehicle TEXT,
+        plate TEXT,
+        place TEXT,
+        time TEXT,
+        docs JSONB NOT NULL DEFAULT '{}',
+        doc_override TEXT,
+        driver_token TEXT UNIQUE,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_trip_team_trip_idx ON travel_trip_team(trip_id);
+      CREATE TABLE IF NOT EXISTS safety_incidents (
+        id SERIAL PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        category TEXT,
+        context TEXT NOT NULL,
+        trip_id INTEGER REFERENCES travel_trips(id),
+        service_request_id INTEGER REFERENCES service_requests(id),
+        reporter_user_id INTEGER REFERENCES users(id),
+        subject JSONB,
+        description TEXT,
+        lat DOUBLE PRECISION,
+        lng DOUBLE PRECISION,
+        live_token TEXT UNIQUE,
+        live_until TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'open',
+        escalated_at TIMESTAMP,
+        acknowledged_at TIMESTAMP,
+        acknowledged_by INTEGER,
+        resolved_at TIMESTAMP,
+        resolved_by INTEGER,
+        action TEXT,
+        note TEXT,
+        paused JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS safety_incidents_status_idx ON safety_incidents(status);
+      CREATE INDEX IF NOT EXISTS safety_incidents_trip_idx ON safety_incidents(trip_id);
+      CREATE TABLE IF NOT EXISTS safety_pings (
+        id SERIAL PRIMARY KEY,
+        incident_id INTEGER NOT NULL REFERENCES safety_incidents(id) ON DELETE CASCADE,
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        accuracy DOUBLE PRECISION,
+        at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS safety_pings_incident_idx ON safety_pings(incident_id);
+    `],
+    // The Travel Manager role gets the Safety desk once (staff can remove it after).
+    ['safety: travel manager access', `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM integration_settings WHERE key = 'migration:travel_manager_safety') THEN
+          INSERT INTO admin_role_capabilities (role_id, capability)
+            SELECT id, 'safety:manage' FROM admin_roles WHERE slug = 'travel_manager'
+            ON CONFLICT DO NOTHING;
+          INSERT INTO integration_settings (key, config) VALUES ('migration:travel_manager_safety', '{"done": true}');
+        END IF;
+      END $$;
+    `],
     // Dispute ledger types (additive; existing rows untouched).
     ['dispute: ledger type dispute_hold', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_hold';`],
     ['dispute: ledger type dispute_release', `ALTER TYPE wallet_transaction_type ADD VALUE IF NOT EXISTS 'dispute_release';`],

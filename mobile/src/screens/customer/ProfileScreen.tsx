@@ -31,7 +31,7 @@ import {
 } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../stores/languageStore';
-import { Trash2, Info, Newspaper } from 'lucide-react-native';
+import { Trash2, Info, Newspaper, ShieldAlert } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { apiClient } from '../../api/client';
 import { useProfile, useUpdateProfile, usePublicConfig } from '../../hooks/useCustomerData';
@@ -304,6 +304,14 @@ export function ProfileScreen() {
                         <ChevronRight size={18} color={colors.textSecondary} />
                     </TouchableOpacity>
                 )}
+
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('EmergencyContacts')}>
+                    <View style={styles.menuLeft}>
+                        <ShieldAlert size={20} color="#D92D20" />
+                        <Text style={styles.menuLabel}>{t('safety.contacts_title', 'Emergency contacts')}</Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
 
                 <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Legal')}>
                     <View style={styles.menuLeft}>
