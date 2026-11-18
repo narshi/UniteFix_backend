@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAdminMe } from "@/lib/admin-auth";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
 
 /**
  * Every entry declares the capability it needs, and the menu is filtered by what
@@ -117,6 +118,7 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
   const [location] = useLocation();
   const { isSuperAdmin, admin, can } = useAdminMe();
   const [query, setQuery] = useState("");
+  const [pwOpen, setPwOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<string[]>(readOpen);
 
   // Only the pages this role can open; a group with none of them disappears.
@@ -296,6 +298,15 @@ export default function Sidebar({ open = false, onClose }: SidebarProps) {
               </p>
             </div>
           </div>
+          <Button
+            onClick={() => setPwOpen(true)}
+            variant="ghost"
+            className="mb-2 w-full text-[hsl(210,20%,80%)] hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+          >
+            <span className="material-icons text-[18px] mr-2" style={{ fontFamily: 'Material Icons' }}>key</span>
+            Change password
+          </Button>
+          <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
           <Button
             onClick={handleLogout}
             variant="outline"
