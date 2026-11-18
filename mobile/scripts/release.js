@@ -60,6 +60,9 @@ if (!(ROLLOUT > 0 && ROLLOUT <= 1)) { console.error(`--rollout must be more than
 const YES = hasFlag('yes');
 const SKIP_BUILD = hasFlag('skip-build');
 const SKIP_UPLOAD = hasFlag('skip-upload');
+const NO_BUMP = hasFlag('no-bump'); // use the version already in app.json (for a rerun after a failed build)
+// --promote: move the build already on Play (version in app.json) to --track. No build, no upload, no bump.
+const PROMOTE = hasFlag('promote');
 const DRY_RUN = hasFlag('dry-run');
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -82,6 +85,8 @@ function execInDir(cmd, cwd, label) {
     execSync(cmd, {
       cwd,
       stdio: 'inherit',
+      // gradlew.bat only runs under cmd.exe on Windows (not Git Bash's sh).
+      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
       env: { ...process.env, JAVA_HOME: process.env.JAVA_HOME || 'C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.19.10-hotspot' }
     });
   } catch (e) {
@@ -91,12 +96,16 @@ function execInDir(cmd, cwd, label) {
 
 // ─── Step 1: Version Bump ────────────────────────────────────────────────────
 function bumpVersion() {
-  log('📦', `Bumping version (${BUMP})...`);
-
   // Read current version from app.json
   const appJson = JSON.parse(fs.readFileSync(APP_JSON, 'utf-8'));
   const currentVersion = appJson.expo.version;
   const currentVersionCode = appJson.expo.android.versionCode;
+
+  if (NO_BUMP) {
+    log('📦', `Keeping version ${currentVersion} (${currentVersionCode}) (--no-bump)`);
+    return { newVersion: currentVersion, newVersionCode: currentVersionCode };
+  }
+  log('📦', `Bumping version (${BUMP})...`);
 
   // Compute new version
   const parts = currentVersion.split('.').map(Number);
@@ -152,10 +161,10 @@ function buildAAB() {
   }
 
   // Clean previous build
-  execInDir('gradlew.bat clean', ANDROID_ROOT, 'Cleaning previous build...');
+  execInDir('.\\gradlew.bat clean', ANDROID_ROOT, 'Cleaning previous build...');
 
   // Build the release AAB
-  execInDir('gradlew.bat bundleRelease', ANDROID_ROOT, 'Building release bundle...');
+  execInDir('.\\gradlew.bat bundleRelease', ANDROID_ROOT, 'Building release bundle...');
 
   if (!fs.existsSync(AAB_PATH)) {
     die(`Build succeeded but AAB not found at expected path:\n   ${AAB_PATH}`);
@@ -167,7 +176,7 @@ function buildAAB() {
 }
 
 // ─── Step 3: Upload to Play Store ────────────────────────────────────────────
-async function uploadToPlayStore(newVersion) {
+async function uploadToPlayStore(newVersion, newVersionCode) {
   if (SKIP_UPLOAD) {
     log('⏭️', 'Skipping upload (--skip-upload)');
     dim(`AAB is at: ${AAB_PATH}`);
@@ -226,17 +235,23 @@ async function uploadToPlayStore(newVersion) {
     const editId = edit.id;
     dim(`Edit ID: ${editId}`);
 
-    // 2. Upload AAB
-    dim('Uploading AAB (this may take a minute)...');
-    const { data: bundle } = await publisher.edits.bundles.upload({
-      packageName: PACKAGE_NAME,
-      editId,
-      media: {
-        mimeType: 'application/octet-stream',
-        body: fs.createReadStream(AAB_PATH),
-      },
-    });
-    dim(`Uploaded versionCode: ${bundle.versionCode}`);
+    // 2. Upload AAB (or, with --promote, reuse the build already on Play)
+    let bundle;
+    if (PROMOTE) {
+      bundle = { versionCode: newVersionCode };
+      dim(`Promoting existing versionCode ${newVersionCode} (no new upload)`);
+    } else {
+      dim('Uploading AAB (this may take a minute)...');
+      ({ data: bundle } = await publisher.edits.bundles.upload({
+        packageName: PACKAGE_NAME,
+        editId,
+        media: {
+          mimeType: 'application/octet-stream',
+          body: fs.createReadStream(AAB_PATH),
+        },
+      }));
+      dim(`Uploaded versionCode: ${bundle.versionCode}`);
+    }
 
     // 3. Assign to track
     dim(`Assigning to ${TRACK} track (${ROLLOUT * 100}% rollout)...`);
@@ -289,7 +304,7 @@ async function main() {
 
   const { newVersion, newVersionCode } = bumpVersion();
   buildAAB();
-  await uploadToPlayStore(newVersion);
+  await uploadToPlayStore(newVersion, newVersionCode);
   if (!DRY_RUN) dim('Next: commit app.json and build.gradle with the version bump, then push.');
 
   console.log('\n╔════════════════════════════════════════════╗');
