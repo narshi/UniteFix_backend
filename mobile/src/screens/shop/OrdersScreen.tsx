@@ -1,157 +1,87 @@
 /**
- * My Orders Screen — Order history list
+ * My orders: everything bought in the Shop, newest first, in two tabs —
+ * on the way, and delivered or closed. Each row opens the order.
  */
 
-import React from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    TouchableOpacity,
-    RefreshControl,
-    ActivityIndicator,
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Package, ChevronRight, ShoppingBag, Calendar } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Package } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import { spacing, radii, shadows } from '../../theme/spacing';
-
-// Since there's no dedicated my-orders endpoint, we'll use a local approach with the data
-// For now, this screen fetches from the same mechanism
-import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../../api/client';
+import { spacing, radii } from '../../theme/spacing';
 import { useScreenInsets } from '../../theme/layout';
+import { ScreenHeader, EmptyState } from '../../components/ui';
+import { useStoreOrders } from '../../hooks/useShopData';
+import type { StoreOrder } from '../../api/shop.api';
+import { ProductImage, rupees } from './parts';
 
-function useMyOrders() {
-    return useQuery({
-        queryKey: ['shop.myOrders'],
-        queryFn: async () => {
-            // Try admin orders endpoint for now (backend may need a user-specific one)
-            try {
-                const res = await apiClient.get('/api/admin/orders');
-                return (res.data as any)?.data || res.data || [];
-            } catch {
-                return [];
-            }
-        },
-    });
-}
+type Props = NativeStackScreenProps<any, 'ShopOrders'>;
 
-const ORDER_STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-    pending: { bg: colors.warningLight, text: colors.warning, label: 'Pending' },
-    confirmed: { bg: colors.infoLight, text: colors.info, label: 'Confirmed' },
-    shipped: { bg: colors.primarySurface, text: colors.primary, label: 'Shipped' },
-    out_for_delivery: { bg: colors.primarySurface, text: colors.primary, label: 'On the Way' },
-    delivered: { bg: colors.successLight, text: colors.success, label: 'Delivered' },
-    cancelled: { bg: colors.errorLight, text: colors.error, label: 'Cancelled' },
-    returned: { bg: colors.errorLight, text: colors.error, label: 'Returned' },
+export const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
+    placed: { bg: colors.infoLight, fg: colors.info }, confirmed: { bg: colors.infoLight, fg: colors.info }, packed: { bg: colors.infoLight, fg: colors.info },
+    dispatched: { bg: colors.primarySurface, fg: colors.primary }, delivered: { bg: colors.successLight, fg: colors.successDark },
+    cancelled: { bg: colors.errorLight, fg: colors.errorDark }, returned: { bg: colors.warningLight, fg: colors.warningDark },
 };
 
-function OrderCard({ item, onPress }: { item: any; onPress: () => void }) {
-    const config = ORDER_STATUS_CONFIG[item.status] || ORDER_STATUS_CONFIG.pending;
-    const date = new Date(item.createdAt).toLocaleDateString('en-IN', {
-        day: 'numeric', month: 'short', year: 'numeric',
-    });
-    const itemCount = item.products?.length || 0;
+export function OrdersScreen({ navigation }: Props) {
+    const { scrollBottom } = useScreenInsets();
+    const [tab, setTab] = useState<'open' | 'done'>('open');
+    const q = useStoreOrders(tab);
+    const items = useMemo(() => q.data?.pages.flatMap(p => p.items) ?? [], [q.data]);
 
     return (
-        <TouchableOpacity style={styles.orderCard} onPress={onPress} activeOpacity={0.7}>
-            <View style={styles.orderIcon}>
-                <Package size={22} color={colors.primary} />
+        <View style={styles.screen}>
+            <ScreenHeader title="My orders" onBack={() => navigation.goBack()} />
+            <View style={styles.tabs}>
+                {(['open', 'done'] as const).map(t => (
+                    <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)} accessibilityRole="tab" accessibilityState={{ selected: tab === t }}>
+                        <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t === 'open' ? 'On the way' : 'Delivered & closed'}</Text>
+                    </TouchableOpacity>
+                ))}
             </View>
-            <View style={styles.orderInfo}>
-                <View style={styles.orderTop}>
-                    <Text style={styles.orderId}>Order #{item.id}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
-                        <Text style={[styles.statusText, { color: config.text }]}>{config.label}</Text>
-                    </View>
-                </View>
-                <Text style={styles.orderItems}>{itemCount} item{itemCount !== 1 ? 's' : ''}</Text>
-                <View style={styles.orderBottom}>
-                    <View style={styles.dateRow}>
-                        <Calendar size={12} color={colors.textDisabled} />
-                        <Text style={styles.dateText}>{date}</Text>
-                    </View>
-                    <Text style={styles.orderTotal}>₹{item.totalAmount}</Text>
-                </View>
-            </View>
-            <ChevronRight size={18} color={colors.textDisabled} />
-        </TouchableOpacity>
-    );
-}
-
-export function OrdersScreen() {
-    const { headerTop } = useScreenInsets();
-    const { data: orders, isLoading, refetch, isRefetching } = useMyOrders();
-    const navigation = useNavigation<NativeStackNavigationProp<any>>();
-
-    if (isLoading) {
-        return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
-    }
-
-    return (
-        <View style={styles.container}>
-            <View style={[styles.header, { paddingTop: headerTop }]}>
-                <Text style={styles.headerTitle}>My Orders</Text>
-                <Text style={styles.headerSub}>{(orders || []).length} orders</Text>
-            </View>
-
             <FlatList
-                data={orders || []}
-                renderItem={({ item }) => (
-                    <OrderCard
-                        item={item}
-                        onPress={() => navigation.navigate('OrderDetail', { order: item })}
-                    />
-                )}
-                keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-                refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} colors={[colors.primary]} />}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <ShoppingBag size={48} color={colors.textDisabled} />
-                        <Text style={styles.emptyTitle}>No orders yet</Text>
-                        <Text style={styles.emptySubtitle}>Your orders will appear here</Text>
-                    </View>
-                }
+                data={items}
+                keyExtractor={o => String(o.id)}
+                contentContainerStyle={{ padding: spacing.base, gap: spacing.md, paddingBottom: scrollBottom }}
+                renderItem={({ item }) => <Row o={item} onPress={() => navigation.navigate('OrderDetail', { id: item.id })} />}
+                onEndReachedThreshold={0.4}
+                onEndReached={() => { if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage(); }}
+                refreshControl={<RefreshControl refreshing={q.isRefetching && !q.isFetchingNextPage} onRefresh={() => q.refetch()} tintColor={colors.primary} />}
+                ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={colors.primary} /> : null}
+                ListEmptyComponent={q.isLoading ? <ActivityIndicator style={{ marginTop: spacing['3xl'] }} color={colors.primary} />
+                    : <EmptyState icon={<Package size={40} color={colors.textDisabled} />} title={tab === 'open' ? 'No orders on the way' : 'No past orders'} description="Orders from the Shop appear here." actionLabel="Go to the Shop" onAction={() => navigation.navigate('CustomerTabs', { screen: 'ShopTab' })} />}
             />
         </View>
     );
 }
 
+function Row({ o, onPress }: { o: StoreOrder; onPress: () => void }) {
+    const tone = STATUS_TONE[o.status] ?? STATUS_TONE.placed;
+    const first = o.items[0];
+    return (
+        <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={`Order ${o.code}, ${o.statusLabel}`}>
+            <ProductImage uri={first?.image ?? null} size={56} />
+            <View style={{ flex: 1, gap: 2 }}>
+                <Text style={styles.name} numberOfLines={1}>{first?.name}{o.items.length > 1 ? ` and ${o.items.length - 1} more` : ''}</Text>
+                <Text style={styles.meta}>{o.code} · {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+                <Text style={styles.meta}>{rupees(o.total)} · {o.seller}</Text>
+            </View>
+            <View style={[styles.pill, { backgroundColor: tone.bg }]}><Text style={[styles.pillText, { color: tone.fg }]}>{o.return.status === 'requested' ? 'Return asked' : o.statusLabel}</Text></View>
+        </TouchableOpacity>
+    );
+}
+
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.surface },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: { paddingBottom: spacing.lg, paddingHorizontal: spacing.xl,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
-    },
-    headerTitle: { ...typography.h2, color: colors.textPrimary },
-    headerSub: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-    listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
-    orderCard: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.lg, marginBottom: spacing.sm, ...shadows.sm,
-    },
-    orderIcon: {
-        width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySurface,
-        justifyContent: 'center', alignItems: 'center', marginRight: spacing.md,
-    },
-    orderInfo: { flex: 1 },
-    orderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
-    orderId: { ...typography.bodyMedium, color: colors.textPrimary },
-    statusBadge: { paddingVertical: 2, paddingHorizontal: spacing.sm, borderRadius: radii.full },
-    statusText: { fontSize: 10, fontWeight: '600' },
-    orderItems: { ...typography.small, color: colors.textSecondary },
-    orderBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs },
-    dateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-    dateText: { ...typography.small, color: colors.textDisabled },
-    orderTotal: { ...typography.bodyMedium, color: colors.primary, fontWeight: '700' },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['4xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm },
+    screen: { flex: 1, backgroundColor: colors.surface },
+    tabs: { flexDirection: 'row', marginHorizontal: spacing.base, marginTop: spacing.sm, backgroundColor: colors.divider, borderRadius: radii.full, padding: 4 },
+    tab: { flex: 1, paddingVertical: spacing.sm, borderRadius: radii.full, alignItems: 'center' },
+    tabOn: { backgroundColor: colors.background },
+    tabText: { ...typography.captionMedium, color: colors.textSecondary },
+    tabTextOn: { color: colors.textPrimary },
+    row: { flexDirection: 'row', gap: spacing.md, alignItems: 'center', backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.divider },
+    name: { ...typography.bodyMedium, color: colors.textPrimary },
+    meta: { ...typography.caption, color: colors.textSecondary },
+    pill: { borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+    pillText: { ...typography.small, fontWeight: '600' },
 });

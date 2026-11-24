@@ -761,6 +761,12 @@ export function startBackgroundJobs(): void {
     // Trip locations older than 30 days (kept when the trip has a safety case), daily.
     intervals.push(setInterval(() => { import('./trip-live.service').then(m => m.TripLiveService.prune()).catch(e => logger.error('[JOBS] trip location prune failed', { error: e?.message })); }, DAY));
 
+    // Store: lapsed stock holds back on the shelf (every minute); payments the app and webhook
+    // both missed applied from Razorpay, and receipt vouchers not issued at payment (every 5 minutes).
+    // Each is idempotent, so a second server instance running them too is harmless.
+    intervals.push(setInterval(() => { import('./store/checkout.service').then(m => m.StoreCheckout.expireHolds()).catch(e => logger.error('[JOBS] store hold expiry failed', { error: e?.message })); }, 60 * 1000));
+    intervals.push(setInterval(() => { import('./store/checkout.service').then(async m => { await m.StoreCheckout.reconcile(); await m.StoreCheckout.backfillVouchers(); }).catch(e => logger.error('[JOBS] store reconcile failed', { error: e?.message })); }, 5 * 60 * 1000));
+
     // Run wallet release every hour
     intervals.push(setInterval(releaseHeldWalletFunds, HOUR));
     // Run initial check after 30 seconds (give server time to start)

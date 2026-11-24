@@ -9,6 +9,40 @@ import * as catalogService from "../services/product-catalog.service";
 
 export const inventoryRouter = Router();
 
+const GST_RATES = [0, 0.25, 3, 5, 18, 40];
+
+/** The Shop groups products by store category: the text category picks (or, the first time, creates) the matching one. */
+async function shopCategoryId(name: unknown): Promise<number | undefined> {
+    const n = typeof name === "string" ? name.trim() : "";
+    if (!n) return undefined;
+    const { db } = await import("../db");
+    const { productCategories } = await import("@shared/schema");
+    const { sql } = await import("drizzle-orm");
+    const [hit] = await db.select({ id: productCategories.id }).from(productCategories).where(sql`lower(${productCategories.name}) = lower(${n})`).limit(1);
+    if (hit) return hit.id;
+    const slug = n.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const [row] = await db.insert(productCategories).values({ name: n, slug }).onConflictDoNothing().returning({ id: productCategories.id });
+    if (row) return row.id;
+    const [again] = await db.select({ id: productCategories.id }).from(productCategories).where(sql`lower(${productCategories.name}) = lower(${n})`).limit(1);
+    return again?.id;
+}
+
+/**
+ * The Shop sells a product only if it can be invoiced: HSN 4/6/8 digits (goods, not a 99… SAC),
+ * a GST rate GST allows, a whole-rupee price above zero and not above the MRP (Legal Metrology).
+ * Returns the first problem, or null.
+ */
+function storeFieldProblem(p: any, current: any = {}): string | null {
+    const m = { ...current, ...p };
+    if (p.price !== undefined && !(Number.isInteger(p.price) && p.price > 0)) return 'Price is a whole number of rupees, more than zero.';
+    if (p.mrp != null && !(Number.isInteger(p.mrp) && p.mrp > 0)) return 'MRP is a whole number of rupees.';
+    if (m.price != null && m.mrp != null && m.price > m.mrp) return `The price (₹${m.price}) cannot be above the MRP (₹${m.mrp}).`;
+    if (p.hsnCode != null && (!/^\d{4}(\d{2}){0,2}$/.test(p.hsnCode) || p.hsnCode.startsWith('99'))) return 'HSN is 4, 6 or 8 digits and is a goods code (not a 99… service code).';
+    if (p.gstPercent != null && !GST_RATES.includes(Number(p.gstPercent))) return `GST rate must be one of ${GST_RATES.join(', ')}%.`;
+    if (p.returnWindowDays !== undefined && !(Number.isInteger(p.returnWindowDays) && p.returnWindowDays >= 0 && p.returnWindowDays <= 30)) return 'Return window is 0 to 30 days.';
+    return null;
+}
+
 // Configure multer for memory storage
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -38,7 +72,10 @@ inventoryRouter.get("/category/:category", async (req, res, next) => {
 inventoryRouter.post("/", async (req, res, next) => {
     try {
         const productData = insertProductSchema.parse(req.body);
-        const product = await storage.createProduct(productData);
+        const problem = storeFieldProblem(productData);
+        if (problem) return res.status(400).json({ message: problem });
+        const categoryId = await shopCategoryId(productData.category);
+        const product = await storage.createProduct({ ...productData, ...(categoryId ? { categoryId } : {}) });
         res.status(201).json(product);
     } catch (error) {
         next(error);
@@ -50,7 +87,10 @@ inventoryRouter.patch("/:id", async (req, res, next) => {
     try {
         const id = parseInt(req.params.id);
         const updates = insertProductSchema.partial().parse(req.body);
-        const updated = await storage.updateProduct(id, updates);
+        const problem = storeFieldProblem(updates, await storage.getProduct(id));
+        if (problem) return res.status(400).json({ message: problem });
+        const categoryId = updates.category !== undefined ? await shopCategoryId(updates.category) : undefined;
+        const updated = await storage.updateProduct(id, { ...updates, ...(categoryId ? { categoryId } : {}) });
         if (!updated) {
             return res.status(404).json({ message: "Product not found" });
         }

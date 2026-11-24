@@ -54,6 +54,7 @@ export const linkingConfig: LinkingOptions<any> = {
                     Cart: 'cart',
                     Checkout: 'checkout',
                     OrderDetail: 'order/:id',
+                    ShopOrders: 'shop/orders',
                     SupportTicket: 'support',
                     TripPlanner: 'travel/plan',
                 },

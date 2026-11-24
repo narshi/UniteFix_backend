@@ -3490,9 +3490,47 @@ export const marketCheckouts = pgTable("market_checkouts", {
   pincode: text("pincode"),
   customerName: text("customer_name"),
   customerPhone: text("customer_phone"),
-  status: text("status").notNull().default('pending'),     // pending | paid | failed
+  status: text("status").notNull().default('pending'),     // pending | paid | failed | expired | refund_due
   createdAt: timestamp("created_at").defaultNow(),
   paidAt: timestamp("paid_at"),
+  // Store v2: one checkout per Idempotency-Key per customer; how it started; when its stock hold ends
+  idempotencyKey: text("idempotency_key"),
+  source: text("source").notNull().default('cart'),         // cart | buy_now
+  shipStateCode: text("ship_state_code"),                   // GST state code of the delivery address (place of supply)
+  expiresAt: timestamp("expires_at"),
+  failureReason: text("failure_reason"),
+});
+
+/**
+ * Store v2 cart: one row per product (and variant) per customer. The price
+ * seen is kept only to say "the price changed"; checkout always re-prices.
+ */
+export const storeCartLines = pgTable("store_cart_lines", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: 'cascade' }),
+  variantId: integer("variant_id").references(() => productVariants.id, { onDelete: 'cascade' }),
+  quantity: integer("quantity").notNull(),
+  pricePaiseSeen: integer("price_paise_seen"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * Stock held for a checkout while the customer pays. Available stock is
+ * on-hand stock minus active holds, computed under a row lock on the stock row.
+ * held → consumed (paid) | released (expired, failed, replaced).
+ */
+export const storeStockReservations = pgTable("store_stock_reservations", {
+  id: serial("id").primaryKey(),
+  checkoutId: integer("checkout_id").notNull().references(() => marketCheckouts.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").notNull().references(() => products.id),
+  variantId: integer("variant_id").references(() => productVariants.id),
+  quantity: integer("quantity").notNull(),
+  status: text("status").notNull().default('held'),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  releasedAt: timestamp("released_at"),
 });
 
 /** The split: one per seller per checkout. What the seller fulfils and what settles. */
@@ -3501,7 +3539,8 @@ export const sellerOrders = pgTable("seller_orders", {
   code: text("code").notNull().unique(),
   checkoutId: integer("checkout_id").notNull().references(() => marketCheckouts.id),
   productOrderId: integer("product_order_id").references(() => productOrders.id),
-  sellerPartnerId: integer("seller_partner_id").notNull().references(() => businessPartners.id),
+  /** The partner selling; null = UniteFix's own sale (its GSTIN, its invoice series, no commission or TCS). */
+  sellerPartnerId: integer("seller_partner_id").references(() => businessPartners.id),
   userId: integer("user_id").notNull().references(() => users.id),
   status: text("status").notNull().default('placed'),       // placed | confirmed | packed | dispatched | delivered | cancelled | returned
   taxablePaise: integer("taxable_paise").notNull(),
@@ -3535,6 +3574,10 @@ export const sellerOrders = pgTable("seller_orders", {
   courierChargeGstPaise: integer("courier_charge_gst_paise").notNull().default(0),
   installationStatus: text("installation_status"),          // null (none bought) | pending | done — settles only when done
   installedAt: timestamp("installed_at"),
+  // Store v2: place of supply, and the GST vouchers for the prepaid amount (Rules 50/51)
+  shipStateCode: text("ship_state_code"),
+  receiptVoucherDocumentId: integer("receipt_voucher_document_id").references(() => taxDocuments.id),
+  refundVoucherDocumentId: integer("refund_voucher_document_id").references(() => taxDocuments.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3543,6 +3586,8 @@ export const sellerOrderItems = pgTable("seller_order_items", {
   id: serial("id").primaryKey(),
   sellerOrderId: integer("seller_order_id").notNull().references(() => sellerOrders.id, { onDelete: 'cascade' }),
   productId: integer("product_id").notNull().references(() => products.id),
+  variantId: integer("variant_id").references(() => productVariants.id),
+  variantLabel: text("variant_label"),
   name: text("name").notNull(),
   quantity: integer("quantity").notNull(),
   unitPricePaise: integer("unit_price_paise").notNull(),   // GST-inclusive selling price
@@ -3572,7 +3617,7 @@ export const productReviews = pgTable("product_reviews", {
   sellerOrderItemId: integer("seller_order_item_id").notNull().unique().references(() => sellerOrderItems.id, { onDelete: 'cascade' }),
   userId: integer("user_id").notNull().references(() => users.id),
   productId: integer("product_id").notNull().references(() => products.id),
-  sellerPartnerId: integer("seller_partner_id").notNull().references(() => businessPartners.id),
+  sellerPartnerId: integer("seller_partner_id").references(() => businessPartners.id),   // null = sold by UniteFix
   rating: integer("rating").notNull(),
   review: text("review"),
   sellerReply: text("seller_reply"),

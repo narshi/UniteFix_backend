@@ -1,288 +1,254 @@
 /**
- * Checkout Screen — Address, payment summary, place order via Razorpay
- * Role: 🟦 Customer only
+ * Checkout: delivery address (with the state — it decides the GST on the
+ * invoice), the order summary priced by the server, then payment.
+ *
+ * Safe against double taps and bad networks: each "Place order" attempt
+ * carries one Idempotency-Key, so a retry returns the same checkout instead of
+ * charging twice. Stock is held while the customer pays; closing the payment
+ * sheet gives it back at once. If confirming the payment fails on the way back,
+ * the app asks the server, which may already have the order from Razorpay.
  */
 
-import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    TextInput,
-    Alert,
-    ActivityIndicator,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, FlatList, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ArrowLeft, MapPin, CreditCard, ShieldCheck, Package } from 'lucide-react-native';
-import { useCart, useCheckout } from '../../hooks/useShopData';
-import { CartItem } from '../../api/shop.api';
+import * as Crypto from 'expo-crypto';
+import * as SecureStore from 'expo-secure-store';
+import axios from 'axios';
+import { ChevronDown, Package, ShieldCheck } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
-import { BackOnMount } from '../../components/ui/BackOnMount';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { Button } from '../../components/ui';
-import { openRazorpayCheckout } from '../../services/razorpay';
-import { apiClient } from '../../api/client';
 import { useScreenInsets } from '../../theme/layout';
+import { Button, ScreenHeader, EmptyState } from '../../components/ui';
+import { useCheckoutPreview, useRefreshShop } from '../../hooks/useShopData';
+import { shopApi, STATES, type CheckoutSource, type PayResult, type ShipTo } from '../../api/shop.api';
+import { getApiErrorMessage } from '../../api/client';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { useAuthStore } from '../../stores/auth.store';
+import { ProductImage, rupees } from './parts';
 
 type Props = NativeStackScreenProps<any, 'Checkout'>;
+const SHIP_KEY = 'shop_ship_to';
+const newKey = () => `app-${Crypto.randomUUID()}`;
+const codeOf = (e: unknown) => (axios.isAxiosError(e) ? (e.response?.data as any)?.code : undefined);
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-export function CheckoutScreen({ navigation }: Props) {
-    const { headerTop, bottomBar: bottomPad } = useScreenInsets();
-    const { data: cartData, isLoading } = useCart();
-    const { mutate: checkout, isPending } = useCheckout();
+export function CheckoutScreen({ navigation, route }: Props) {
+    const { bottomBar } = useScreenInsets();
+    const user = useAuthStore(s => s.user);
+    const refreshShop = useRefreshShop();
+    const src: CheckoutSource = useMemo(
+        () => (route.params?.source === 'buy_now' ? { source: 'buy_now', items: route.params.items } : { source: 'cart' }),
+        [route.params],
+    );
+    const preview = useCheckoutPreview(src);
+    const [ship, setShip] = useState<ShipTo>({ name: (user as any)?.username ?? '', phone: String((user as any)?.phone ?? '').replace(/\D/g, '').slice(-10), line1: '', line2: '', city: '', pincode: '', stateCode: '29' });
+    const [pickState, setPickState] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const keyRef = useRef(newKey());
 
-    const [address, setAddress] = useState('');
-    const [city, setCity] = useState('');
-    const [pincode, setPincode] = useState('');
-    const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
+    // The last address used, so a returning customer does not type it again.
+    useEffect(() => {
+        SecureStore.getItemAsync(SHIP_KEY).then(raw => { if (raw) setShip(s => ({ ...s, ...JSON.parse(raw) })); }).catch(() => null);
+    }, []);
 
-    const cartItems: CartItem[] = Array.isArray(cartData) ? cartData : (cartData as any)?.data || [];
+    const set = (k: keyof ShipTo) => (v: string) => setShip(s => ({ ...s, [k]: v }));
+    const missing = !ship.name.trim() ? 'the name' : !/^[6-9]\d{9}$/.test(ship.phone) ? 'a 10-digit mobile number' : ship.line1.trim().length < 3 ? 'the address' : ship.city.trim().length < 2 ? 'the city' : !/^[1-9]\d{5}$/.test(ship.pincode) ? 'a 6-digit pincode' : null;
+    const state = STATES.find(s => s.code === ship.stateCode);
 
-    const subtotal = cartItems.reduce((sum, item) => {
-        return sum + (item.product?.price || 0) * item.quantity;
-    }, 0);
-    const deliveryCharge = subtotal > 500 ? 0 : 49;
-    const total = subtotal + deliveryCharge;
+    const done = (r: PayResult, checkoutId: number) => {
+        refreshShop();
+        if (r.status === 'refund_due') {
+            Alert.alert('Sold out while you paid', r.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+            return;
+        }
+        navigation.replace('OrderConfirmation', { checkoutId, orders: r.orders, total: preview.data?.total ?? null });
+    };
 
-    const handlePlaceOrder = () => {
-        if (!address.trim()) { Alert.alert('Required', 'Please enter a delivery address.'); return; }
-        if (!city.trim()) { Alert.alert('Required', 'Please enter city.'); return; }
-        if (!pincode.trim() || pincode.length < 6) { Alert.alert('Required', 'Enter valid 6-digit pincode.'); return; }
+    /** Verify failed on the way back: the webhook may have placed the order anyway. */
+    const confirmFromServer = async (checkoutId: number) => {
+        for (let i = 0; i < 6; i++) {
+            try {
+                const s = await shopApi.checkoutStatus(checkoutId);
+                if (s.status === 'paid') return done({ status: 'paid', message: 'Order placed.', orders: s.orders }, checkoutId);
+                if (s.status === 'refund_due') return done({ status: 'refund_due', message: `${s.failureReason ?? 'An item'} sold out while you paid. Your payment is being refunded in full.`, orders: [] }, checkoutId);
+            } catch { /* keep asking */ }
+            await sleep(2000);
+        }
+        refreshShop();
+        Alert.alert('Confirming your payment', 'We are still confirming your payment with the bank. Your order will appear in My orders in a few minutes. You have not been charged twice.', [
+            { text: 'My orders', onPress: () => navigation.replace('ShopOrders') },
+        ]);
+    };
 
-        const fullAddress = `${address}, ${city} - ${pincode}`;
+    const place = async () => {
+        if (missing) { Alert.alert('Delivery address', `Add ${missing}.`); return; }
+        if (busy) return;
+        setBusy(true);
+        try {
+            SecureStore.setItemAsync(SHIP_KEY, JSON.stringify(ship)).catch(() => null);
+            let started;
+            try {
+                started = await shopApi.startCheckout(src, ship, keyRef.current);
+            } catch (e) {
+                if (codeOf(e) === 'CHECKOUT_ENDED') { keyRef.current = newKey(); started = await shopApi.startCheckout(src, ship, keyRef.current); }
+                else throw e;
+            }
+            if (started.status === 'paid') return done({ status: 'paid', message: 'Order placed.', orders: [] }, started.checkoutId);
 
-        if (paymentMethod === 'online') {
-            const processOnlinePayment = async () => {
-                try {
-                    // Create order on backend
-                    const { data } = await apiClient.post('/api/shop/create-order', {
-                        amount: total,
-                        address: fullAddress,
-                    });
-
-                    if (data?.data?.razorpayOrderId) {
-                        const paymentResponse = await openRazorpayCheckout({
-                            razorpayOrderId: data.data.razorpayOrderId,
-                            razorpayKeyId: data.data.razorpayKeyId,
-                            amount: total,
-                            description: `Product Order — ₹${total}`,
-                        });
-
-                        // Verify payment
-                        await apiClient.post('/api/payments/verify', paymentResponse);
-
-                        // Now place the order
-                        checkout(
-                            { address: fullAddress, paymentMethod: 'online', paymentId: paymentResponse.razorpay_payment_id },
-                            { onSuccess: () => { Alert.alert('Order Placed! ✅', 'Payment successful.'); navigation.replace('OrderConfirmation', { total }); } }
-                        );
-                    }
-                } catch (err: any) {
-                    if (err?.code !== 2) {
-                        Alert.alert('Payment Failed', err?.description || 'Please try again.');
-                    }
-                }
-            };
-            processOnlinePayment();
-        } else {
-            checkout(
-                { address: fullAddress },
-                { onSuccess: () => navigation.replace('OrderConfirmation', { total }) },
-            );
+            if (started.payment.provider === 'mock') {
+                return done(await shopApi.mockPay(started.checkoutId), started.checkoutId);
+            }
+            const pay = started.payment;
+            let paid;
+            try {
+                paid = await openRazorpayCheckout({
+                    razorpayOrderId: pay.orderId, razorpayKeyId: pay.keyId ?? undefined, amount: pay.amountPaise / 100,
+                    description: `UniteFix store order`, customerName: ship.name, customerPhone: ship.phone,
+                });
+            } catch (err: any) {
+                // Closed or failed: give the held stock back now, and start fresh next time.
+                shopApi.abandon(started.checkoutId).catch(() => null);
+                keyRef.current = newKey();
+                if (err?.code === 2) Alert.alert('Payment cancelled', 'Nothing was charged. Your items are still here when you are ready.');
+                else Alert.alert('Payment failed', err?.description || 'The payment did not go through. Nothing was charged.');
+                return;
+            }
+            try {
+                return done(await shopApi.verify(started.checkoutId, paid), started.checkoutId);
+            } catch (e) {
+                if (codeOf(e) === 'BAD_SIGNATURE') { Alert.alert('Payment not verified', 'We could not verify this payment. If money left your account, it will be refunded automatically.'); return; }
+                return confirmFromServer(started.checkoutId);
+            }
+        } catch (e) {
+            const code = codeOf(e);
+            Alert.alert(code === 'OUT_OF_STOCK' ? 'Not enough stock' : 'Could not place the order', getApiErrorMessage(e));
+            if (code === 'OUT_OF_STOCK' || code === 'GONE') preview.refetch();
+        } finally {
+            setBusy(false);
         }
     };
 
-    if (isLoading) {
-        return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
+    if (preview.isLoading) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
+    if (preview.isError || !preview.data) {
+        return (
+            <View style={styles.screen}>
+                <ScreenHeader title="Checkout" onBack={() => navigation.goBack()} />
+                <EmptyState title="Cannot check out right now" description={getApiErrorMessage(preview.error)} actionLabel="Back" onAction={() => navigation.goBack()} />
+            </View>
+        );
     }
-
-    if (cartItems.length === 0) {
-        return <BackOnMount navigation={navigation} />;
-    }
+    const p = preview.data;
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: headerTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={22} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Checkout</Text>
-                <View style={{ width: 36 }} />
-            </View>
-
-            <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 96 }]} showsVerticalScrollIndicator={false}>
-                {/* Delivery Address */}
+        <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScreenHeader title="Checkout" onBack={() => navigation.goBack()} />
+            <ScrollView contentContainerStyle={{ padding: spacing.base, gap: spacing.md, paddingBottom: 180 }} keyboardShouldPersistTaps="handled">
                 <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                        <MapPin size={18} color={colors.primary} />
-                        <Text style={styles.cardTitle}>Delivery Address</Text>
+                    <Text style={styles.cardTitle}>Deliver to</Text>
+                    <Field label="Full name" value={ship.name} onChange={set('name')} autoComplete="name" />
+                    <Field label="Mobile number" value={ship.phone} onChange={v => set('phone')(v.replace(/\D/g, '').slice(0, 10))} keyboardType="phone-pad" autoComplete="tel" />
+                    <Field label="House, building, street" value={ship.line1} onChange={set('line1')} autoComplete="street-address" />
+                    <Field label="Area, landmark (optional)" value={ship.line2 ?? ''} onChange={set('line2')} />
+                    <View style={styles.twoCol}>
+                        <View style={{ flex: 1 }}><Field label="City / town" value={ship.city} onChange={set('city')} /></View>
+                        <View style={{ flex: 1 }}><Field label="Pincode" value={ship.pincode} onChange={v => set('pincode')(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" autoComplete="postal-code" /></View>
                     </View>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="House/Flat No., Street, Landmark"
-                        value={address}
-                        onChangeText={setAddress}
-                        multiline
-                        placeholderTextColor={colors.textDisabled}
-                    />
-                    <View style={styles.row}>
-                        <TextInput
-                            style={[styles.input, styles.halfInput]}
-                            placeholder="City"
-                            value={city}
-                            onChangeText={setCity}
-                            placeholderTextColor={colors.textDisabled}
-                        />
-                        <TextInput
-                            style={[styles.input, styles.halfInput]}
-                            placeholder="Pincode"
-                            value={pincode}
-                            onChangeText={setPincode}
-                            keyboardType="number-pad"
-                            maxLength={6}
-                            placeholderTextColor={colors.textDisabled}
-                        />
-                    </View>
-                </View>
-
-                {/* Payment Method */}
-                <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                        <CreditCard size={18} color={colors.primary} />
-                        <Text style={styles.cardTitle}>Payment Method</Text>
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.paymentOption, paymentMethod === 'online' && styles.paymentSelected]}
-                        onPress={() => setPaymentMethod('online')}
-                    >
-                        <View style={[styles.radio, paymentMethod === 'online' && styles.radioSelected]} />
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.paymentLabel}>Pay Online (UPI / Card / Netbanking)</Text>
-                            <Text style={styles.paymentSub}>Powered by Razorpay</Text>
-                        </View>
-                        <ShieldCheck size={16} color={colors.success} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.paymentOption, paymentMethod === 'cod' && styles.paymentSelected]}
-                        onPress={() => setPaymentMethod('cod')}
-                    >
-                        <View style={[styles.radio, paymentMethod === 'cod' && styles.radioSelected]} />
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.paymentLabel}>Cash on Delivery</Text>
-                            <Text style={styles.paymentSub}>Pay when you receive</Text>
-                        </View>
+                    <Text style={styles.fieldLabel}>State</Text>
+                    <TouchableOpacity style={styles.select} onPress={() => setPickState(true)} accessibilityRole="button" accessibilityLabel={`State: ${state?.name ?? 'choose'}`}>
+                        <Text style={styles.selectText}>{state?.name ?? 'Choose the state'}</Text>
+                        <ChevronDown size={18} color={colors.textTertiary} />
                     </TouchableOpacity>
                 </View>
 
-                {/* Order Items */}
                 <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                        <Package size={18} color={colors.primary} />
-                        <Text style={styles.cardTitle}>Order Items ({cartItems.length})</Text>
-                    </View>
-                    {cartItems.map((item) => (
-                        <View key={item.id} style={styles.itemRow}>
-                            <Text style={styles.itemName} numberOfLines={1}>
-                                {item.product?.name || `Product #${item.productId}`}
-                            </Text>
-                            <Text style={styles.itemQty}>×{item.quantity}</Text>
-                            <Text style={styles.itemPrice}>₹{(item.product?.price || 0) * item.quantity}</Text>
+                    <Text style={styles.cardTitle}>Order summary</Text>
+                    {p.multipleParcels && (
+                        <View style={styles.parcels}>
+                            <Package size={16} color={colors.info} />
+                            <Text style={styles.parcelsText}>Ships in {p.sellers.length} parcels, one from each seller, each with its own invoice.</Text>
+                        </View>
+                    )}
+                    {p.lines.map((l, i) => (
+                        <View key={i} style={styles.line}>
+                            <ProductImage uri={l.image} size={48} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.lineName} numberOfLines={2}>{l.name}</Text>
+                                <Text style={styles.meta}>{l.quantity} × {rupees(l.price)} · {l.seller}</Text>
+                                <Text style={styles.meta}>{l.kind === 'installation' ? 'Installation service' : l.returnWindowDays > 0 ? `Returnable within ${l.returnWindowDays} day${l.returnWindowDays === 1 ? '' : 's'}` : 'Not returnable (damaged or wrong items are replaced)'}</Text>
+                            </View>
+                            <Text style={styles.lineTotal}>{rupees(l.total)}</Text>
                         </View>
                     ))}
+                    {p.stockIssues.length > 0 && <Text style={styles.warn}>Stock changed: {p.stockIssues.join('; ')}. Go back and adjust the quantity.</Text>}
+                    <View style={styles.sumRow}><Text style={styles.meta}>Delivery</Text><Text style={styles.free}>Free</Text></View>
+                    {p.savings > 0 && <View style={styles.sumRow}><Text style={styles.meta}>You save</Text><Text style={styles.free}>{rupees(p.savings)}</Text></View>}
+                    <View style={styles.sumRow}><Text style={styles.meta}>GST included</Text><Text style={styles.meta}>{rupees(p.tax)}</Text></View>
+                    <View style={[styles.sumRow, styles.totalRow]}><Text style={styles.totalLabel}>Total</Text><Text style={styles.total}>{rupees(p.total)}</Text></View>
                 </View>
 
-                {/* Order Summary */}
-                <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Order Summary</Text>
-                    <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Subtotal</Text>
-                        <Text style={styles.summaryValue}>₹{subtotal}</Text>
-                    </View>
-                    <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Delivery</Text>
-                        <Text style={[styles.summaryValue, deliveryCharge === 0 ? { color: colors.success } : {}]}>
-                            {deliveryCharge === 0 ? 'FREE' : `₹${deliveryCharge}`}
-                        </Text>
-                    </View>
-                    {deliveryCharge > 0 && (
-                        <Text style={styles.freeDeliveryHint}>
-                            Add ₹{500 - subtotal} more for free delivery
-                        </Text>
-                    )}
-                    <View style={[styles.summaryRow, styles.totalRow]}>
-                        <Text style={styles.totalLabel}>Total</Text>
-                        <Text style={styles.totalValue}>₹{total}</Text>
-                    </View>
+                <View style={styles.trust}>
+                    <ShieldCheck size={16} color={colors.successDark} />
+                    <Text style={styles.trustText}>Paid securely through Razorpay. A GST invoice from the seller comes with your order.</Text>
                 </View>
             </ScrollView>
 
-            {/* Bottom CTA */}
-            <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
-                <View>
-                    <Text style={styles.bottomLabel}>Total Amount</Text>
-                    <Text style={styles.bottomAmount}>₹{total}</Text>
-                </View>
-                <Button
-                    title={paymentMethod === 'online' ? `Pay ₹${total}` : 'Place Order'}
-                    onPress={handlePlaceOrder}
-                    loading={isPending}
-                    style={{ flex: 0.55 }}
-                />
+            <View style={[styles.bar, { paddingBottom: bottomBar }]}>
+                <Button title={busy ? 'Placing your order…' : `Pay ${rupees(p.total)}`} onPress={place} loading={busy} disabled={busy || p.stockIssues.length > 0} />
             </View>
+
+            <Modal visible={pickState} animationType="slide" onRequestClose={() => setPickState(false)}>
+                <View style={[styles.screen, { paddingTop: spacing['3xl'] }]}>
+                    <Text style={[styles.cardTitle, { paddingHorizontal: spacing.base, paddingBottom: spacing.sm }]}>Choose the state</Text>
+                    <FlatList
+                        data={STATES}
+                        keyExtractor={s => s.code}
+                        renderItem={({ item }) => (
+                            <TouchableOpacity style={[styles.stateRow, item.code === ship.stateCode && { backgroundColor: colors.primarySurface }]} onPress={() => { set('stateCode')(item.code); setPickState(false); }}>
+                                <Text style={styles.selectText}>{item.name}</Text>
+                            </TouchableOpacity>
+                        )}
+                    />
+                </View>
+            </Modal>
+        </KeyboardAvoidingView>
+    );
+}
+
+function Field({ label, value, onChange, keyboardType, autoComplete }: { label: string; value: string; onChange: (v: string) => void; keyboardType?: any; autoComplete?: any }) {
+    return (
+        <View style={{ gap: 4 }}>
+            <Text style={styles.fieldLabel}>{label}</Text>
+            <TextInput style={styles.input} value={value} onChangeText={onChange} keyboardType={keyboardType} autoComplete={autoComplete} placeholderTextColor={colors.textTertiary} accessibilityLabel={label} />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.surface },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider,
-    },
-    backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { ...typography.h4, color: colors.textPrimary },
-    scrollContent: { padding: spacing.xl, paddingBottom: 120 },
-    card: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginBottom: spacing.md, ...shadows.sm },
-    cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+    screen: { flex: 1, backgroundColor: colors.surface },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+    card: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.base, gap: spacing.sm, borderWidth: 1, borderColor: colors.divider },
     cardTitle: { ...typography.h4, color: colors.textPrimary },
-    input: {
-        borderWidth: 1, borderColor: colors.border, borderRadius: radii.md,
-        padding: spacing.md, ...typography.body, color: colors.textPrimary, marginBottom: spacing.sm,
-    },
-    row: { flexDirection: 'row', gap: spacing.sm },
-    halfInput: { flex: 1 },
-    paymentOption: {
-        flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-        padding: spacing.md, borderWidth: 1, borderColor: colors.border,
-        borderRadius: radii.md, marginBottom: spacing.sm,
-    },
-    paymentSelected: { borderColor: colors.primary, backgroundColor: colors.primarySurface },
-    radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: colors.border },
-    radioSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
-    paymentLabel: { ...typography.bodyMedium, color: colors.textPrimary },
-    paymentSub: { ...typography.small, color: colors.textSecondary },
-    itemRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
-    itemName: { ...typography.body, color: colors.textPrimary, flex: 1 },
-    itemQty: { ...typography.caption, color: colors.textSecondary, marginHorizontal: spacing.md },
-    itemPrice: { ...typography.bodyMedium, color: colors.textPrimary },
-    summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
-    summaryLabel: { ...typography.body, color: colors.textSecondary },
-    summaryValue: { ...typography.bodyMedium, color: colors.textPrimary },
-    freeDeliveryHint: { ...typography.small, color: colors.primary, fontStyle: 'italic', marginBottom: spacing.sm },
-    totalRow: { borderTopWidth: 1, borderTopColor: colors.divider, marginTop: spacing.sm, paddingTop: spacing.md },
-    totalLabel: { ...typography.h4, color: colors.textPrimary },
-    totalValue: { fontSize: 20, fontWeight: '800', color: colors.primary },
-    bottomBar: {
-        position: 'absolute', bottom: 0, left: 0, right: 0,
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        backgroundColor: colors.background, padding: spacing.xl,
-        borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md,
-    },
-    bottomLabel: { ...typography.small, color: colors.textSecondary },
-    bottomAmount: { ...typography.h3, color: colors.textPrimary },
+    fieldLabel: { ...typography.captionMedium, color: colors.textSecondary },
+    input: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.md, height: 44, ...typography.body, color: colors.textPrimary },
+    twoCol: { flexDirection: 'row', gap: spacing.md },
+    select: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, paddingHorizontal: spacing.md, height: 44 },
+    selectText: { ...typography.body, color: colors.textPrimary },
+    stateRow: { paddingHorizontal: spacing.base, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.divider },
+    parcels: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', backgroundColor: colors.infoLight, borderRadius: radii.md, padding: spacing.sm },
+    parcelsText: { ...typography.caption, color: colors.textPrimary, flexShrink: 1 },
+    line: { flexDirection: 'row', gap: spacing.md, alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
+    lineName: { ...typography.bodyMedium, color: colors.textPrimary },
+    lineTotal: { ...typography.bodySemibold, color: colors.textPrimary },
+    meta: { ...typography.caption, color: colors.textSecondary },
+    warn: { ...typography.caption, color: colors.error },
+    sumRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    free: { ...typography.captionMedium, color: colors.successDark },
+    totalRow: { paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.divider },
+    totalLabel: { ...typography.bodySemibold, color: colors.textPrimary },
+    total: { ...typography.h3, color: colors.textPrimary },
+    trust: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', paddingHorizontal: spacing.sm },
+    trustText: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
+    bar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.background, paddingHorizontal: spacing.base, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md },
 });

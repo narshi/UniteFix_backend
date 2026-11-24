@@ -109,6 +109,7 @@ const RULES: Rule[] = [
     { test: /^\/parts-access(\/|$)/, area: 'inventory' },
     { test: /^\/inventory(\/|$)/, area: 'inventory' },
     { test: /^\/products(\/|$)/, area: 'orders' },
+    { test: /^\/store\/orders(\/|$)/, area: 'orders' },
     { test: /^\/returns(\/|$)/, area: 'orders' },
     { test: /^\/orders(\/|$)/, area: 'orders' },
 

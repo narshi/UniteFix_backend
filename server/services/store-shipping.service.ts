@@ -47,7 +47,7 @@ export class StoreShippingService {
         if (so.shipmentRef) throw new HubError(`A courier is already booked: ${so.courier} ${so.trackingId}.`, 'BOOKED', 409);
         if (!(parcel.weightGrams >= 50 && parcel.weightGrams <= 30000)) throw new HubError('Weight is 50 g to 30 kg.', 'BAD_PARCEL');
         for (const d of [parcel.lengthCm, parcel.widthCm, parcel.heightCm]) if (!(d >= 1 && d <= 150)) throw new HubError('Each side is 1–150 cm.', 'BAD_PARCEL');
-        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, so.sellerPartnerId)).limit(1);
+        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, ctx.businessPartnerId)).limit(1);
         const items = await db.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
         let waybill: string, ref: string;
         if (this.mode() === 'mock') {
@@ -79,7 +79,7 @@ export class StoreShippingService {
         const charge = await this.charge(parcel.weightGrams);
         const u = await withTransaction(async (tx) => {
             const [row] = await tx.update(sellerOrders).set({ courier: 'Delhivery', trackingId: waybill, shipmentRef: ref, parcel: parcel as any, courierChargePaise: charge.paise, courierChargeGstPaise: charge.gstPaise, updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
-            if (charge.paise > 0) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'fee_charge', amountPaise: charge.paise + charge.gstPaise, description: `Courier for store order ${so.code} — Delhivery ${waybill}, ${parcel.weightGrams} g`, metadata: { sellerOrderId: so.id, waybill } });
+            if (charge.paise > 0) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: ctx.businessPartnerId, entryType: 'fee_charge', amountPaise: charge.paise + charge.gstPaise, description: `Courier for store order ${so.code} — Delhivery ${waybill}, ${parcel.weightGrams} g`, metadata: { sellerOrderId: so.id, waybill } });
             return row;
         });
         return { order: u, waybill, mode: this.mode(), trackingUrl: `https://www.delhivery.com/track/package/${waybill}`, charge: (charge.paise + charge.gstPaise) / 100 };
@@ -95,11 +95,12 @@ export class StoreShippingService {
 
     /** The order was cancelled: release the courier booking. Best effort. */
     static async cancelBooking(so: SellerOrder) {
+        if (so.sellerPartnerId == null) return;   // UniteFix ships its own orders; nothing was booked here
         if (so.courierChargePaise > 0) {
             await withTransaction(async (tx) => {
                 const [locked] = await tx.select().from(sellerOrders).where(eq(sellerOrders.id, so.id)).for('update');
                 if (!locked?.courierChargePaise) return;
-                await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId, entryType: 'adjustment', amountPaise: -(locked.courierChargePaise + locked.courierChargeGstPaise), description: `Courier for store order ${so.code} cancelled — charge returned`, metadata: { sellerOrderId: so.id } });
+                await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: so.sellerPartnerId!, entryType: 'adjustment', amountPaise: -(locked.courierChargePaise + locked.courierChargeGstPaise), description: `Courier for store order ${so.code} cancelled — charge returned`, metadata: { sellerOrderId: so.id } });
                 await tx.update(sellerOrders).set({ courierChargePaise: 0, courierChargeGstPaise: 0 }).where(eq(sellerOrders.id, so.id));
             });
         }
@@ -116,7 +117,7 @@ export class StoreShippingService {
         const so = await this.order(bpId, id);
         if (['placed', 'cancelled'].includes(so.status)) throw new HubError('Confirm the order before printing its label.', 'BAD_STATE', 409);
         if (so.settledAt) throw new HubError('This order is closed.', 'CLOSED', 409);
-        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, so.sellerPartnerId)).limit(1);
+        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1);
         const items = await db.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
         const [inv] = so.invoiceDocumentId ? await db.select({ number: taxDocuments.number }).from(taxDocuments).where(eq(taxDocuments.id, so.invoiceDocumentId)).limit(1) : [];
         const bwip: any = await import('bwip-js/node');

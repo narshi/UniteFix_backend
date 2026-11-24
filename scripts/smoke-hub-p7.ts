@@ -7,6 +7,8 @@
  *   npm run smoke:hub-p7
  */
 
+process.env.STORE_PAYMENTS_MOCK = '1';
+
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { and, eq } from 'drizzle-orm';
@@ -83,6 +85,14 @@ async function main() {
         const [cu] = await db.insert(users).values({ phone: `8${String(Date.now()).slice(-9)}`, username: 'QA Shopper', role: 'user', homeAddress: 'Karwar', pinCode: '581301' } as any).returning();
         userIds.push(cu.id);
         const ct = jwt.sign({ userId: cu.id, role: 'user' }, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+        // Store v2 checkout: several items go through the cart, one through Buy now; a fresh Idempotency-Key each time.
+        let idem = 0;
+        const storeCheckout = async (items: any[], token: string) => {
+            if (items.length > 1) { await api.del('/api/store/cart', token); for (const i of items) await api.post('/api/store/cart/lines', i, token); }
+            const body = items.length > 1 ? { source: 'cart' } : { source: 'buy_now', items };
+            const r = await fetch(`${base}/api/store/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'Idempotency-Key': `qa-p7-${stamp}-${++idem}` }, body: JSON.stringify({ ...body, shipTo: { name: 'QA Shopper', phone: '9845000999', line1: 'Main road', city: 'Karwar', pincode: '581301', stateCode: '29' } }) });
+            return { status: r.status, body: await r.json() as any };
+        };
         // The old checkout is paused outright while product ordering is off (SHOP_ORDERING_ENABLED);
         // switched on, it still refuses partner listings.
         const paused = await api.post('/api/orders/place', { products: [{ productId: pid1, quantity: 1 }], address: 'x' }, ct);
@@ -95,7 +105,7 @@ async function main() {
         check('more than the stock is refused', tooMany.status === 409 && tooMany.body?.code === 'STOCK');
         const qt = await api.post('/api/store/quote', { items: [{ productId: pid1, quantity: 2 }, { productId: pid2, quantity: 1 }] }, ct);
         check('the server prices the cart: two sellers, ₹6,498', qt.status === 200 && qt.body?.data?.total === 6498 && qt.body.data.sellers.length === 2);
-        const co = await api.post('/api/store/checkout', { items: [{ productId: pid1, quantity: 2 }, { productId: pid2, quantity: 1 }], address: 'Main road, Karwar', pincode: '581301' }, ct);
+        const co = await storeCheckout([{ productId: pid1, quantity: 2 }, { productId: pid2, quantity: 1 }], ct);
         check('checkout opens a payment for the server\'s total', co.status === 201 && co.body?.data?.total === 6498);
         const badSig = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: 'order_x', razorpay_payment_id: 'pay_x', razorpay_signature: 'nope' }, ct);
         check('a payment that cannot be verified is refused', badSig.status === 400);
@@ -105,19 +115,19 @@ async function main() {
         process.env.RAZORPAY_KEY_SECRET = `qa-store-secret-${stamp}`;
         const sign = (orderId: string, paymentId: string) => crypto
             .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET ?? '').update(`${orderId}|${paymentId}`).digest('hex');
-        const coCheap = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+        const coCheap = await storeCheckout([{ productId: pid2, quantity: 1 }], ct);
         // Razorpay order ids, as a live checkout has (in tests the order may not be created).
         await db.update(marketCheckouts).set({ razorpayOrderId: `order_QAcheap_${stamp}` }).where(eq(marketCheckouts.id, coCheap.body.data.checkoutId));
         await db.update(marketCheckouts).set({ razorpayOrderId: `order_QAmain_${stamp}` }).where(eq(marketCheckouts.id, co.body.data.checkoutId));
         const [cheap] = await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, coCheap.body.data.checkoutId));
         const replay = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: cheap.razorpayOrderId, razorpay_payment_id: `pay_replay_${stamp}`, razorpay_signature: sign(cheap.razorpayOrderId!, `pay_replay_${stamp}`) }, ct);
         const [stillOpen] = await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co.body.data.checkoutId));
-        check('a genuine payment for a different checkout\'s order is refused', replay.status === 400 && replay.body?.code === 'ORDER_MISMATCH' && stillOpen.status === 'pending' && (await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, co.body.data.checkoutId))).length === 0, `${replay.status} ${replay.body?.code ?? ''}`);
+        check('a genuine payment for a different checkout\'s order is refused', replay.status === 400 && replay.body?.code === 'ORDER_MISMATCH' && stillOpen.status !== 'paid' && (await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, co.body.data.checkoutId))).length === 0, `${replay.status} ${replay.body?.code ?? ''}`);
         const [other] = await db.insert(users).values({ phone: `7${String(Date.now()).slice(-9)}`, username: 'QA Other Shopper', role: 'user', homeAddress: 'Karwar', pinCode: '581301' } as any).returning();
         userIds.push(other.id);
         const ot = jwt.sign({ userId: other.id, role: 'user' }, process.env.JWT_SECRET as string, { expiresIn: '1h' });
         const notMine = await api.post(`/api/store/checkout/${co.body.data.checkoutId}/verify`, { razorpay_order_id: stillOpen.razorpayOrderId, razorpay_payment_id: `pay_other_${stamp}`, razorpay_signature: sign(stillOpen.razorpayOrderId!, `pay_other_${stamp}`) }, ot);
-        check('…and another customer cannot complete my checkout', notMine.status === 404 && (await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co.body.data.checkoutId)))[0].status === 'pending', `${notMine.status}`);
+        check('…and another customer cannot complete my checkout', notMine.status === 404 && (await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co.body.data.checkoutId)))[0].status !== 'paid', `${notMine.status}`);
         await db.delete(marketCheckouts).where(eq(marketCheckouts.id, cheap.id));
         delete process.env.RAZORPAY_KEY_SECRET;
 
@@ -131,7 +141,7 @@ async function main() {
         check('applying the same payment twice changes nothing', (await MarketplaceService.applyCapture({ checkoutId: co.body.data.checkoutId, razorpayPaymentId: `pay_qa_${stamp}` }) as any).created === false);
 
         // Sold out between quote and payment → full refund, nothing created
-        const co2 = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+        const co2 = await storeCheckout([{ productId: pid2, quantity: 1 }], ct);
         await db.update(products).set({ stock: 0 }).where(eq(products.id, pid2));
         const cap2: any = await MarketplaceService.applyCapture({ checkoutId: co2.body.data.checkoutId, razorpayPaymentId: `pay_qa2_${stamp}` });
         const [c2] = await db.select().from(marketCheckouts).where(eq(marketCheckouts.id, co2.body.data.checkoutId));
@@ -139,7 +149,7 @@ async function main() {
 
         // ── fulfilment ────────────────────────────────────────────────────
         const o1 = await api.get('/api/hub/store/orders', t1);
-        check('the seller sees only their order, with the customer\'s address', o1.body?.data?.length === 1 && o1.body.data[0].code === so1.code && o1.body.data[0].shipAddress === 'Main road, Karwar' && o1.body.data[0].items.length === 1);
+        check('the seller sees only their order, with the customer\'s address', o1.body?.data?.length === 1 && o1.body.data[0].code === so1.code && String(o1.body.data[0].shipAddress).startsWith('Main road, Karwar') && o1.body.data[0].items.length === 1);
         check('…and its net after commission, TCS and TDS', Math.abs(o1.body.data[0].net - (so1.totalPaise - so1.commissionPaise - so1.commissionGstPaise - so1.tcsPaise - so1.tdsPaise - so1.gatewayFeePaise - so1.gatewayFeeGstPaise) / 100) < 0.01);
         check('another seller cannot touch it', (await api.post(`/api/hub/store/orders/${so1.id}/transition`, { to: 'confirmed' }, t2)).status === 404);
         await api.post(`/api/hub/store/orders/${so1.id}/transition`, { to: 'confirmed' }, t1);
@@ -164,7 +174,7 @@ async function main() {
         // ── customer cancel (seller 2, before dispatch) ───────────────────
         await db.update(products).set({ stock: 4 }).where(eq(products.id, pid2));
         const my = await api.get('/api/store/orders', ct);
-        check('the customer sees one order per seller, with the seller named', my.body?.data?.length === 2 && my.body.data.some((o: any) => o.seller.name === 'Pune Gadgets' && o.canCancel));
+        check('the customer sees one order per seller, with the seller named', my.body?.data?.items?.length === 2 && my.body.data.items.some((o: any) => o.seller === 'Pune Gadgets' && o.canCancel));
         const cx = await api.post(`/api/store/orders/${so2.id}/cancel`, { reason: 'Ordered by mistake' }, ct);
         const [so2b] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so2.id));
         check('cancelling before dispatch refunds that seller\'s part and returns the stock', cx.status === 200 && so2b.status === 'cancelled' && so2b.refundPaise === so2.totalPaise && (await db.select().from(products).where(eq(products.id, pid2)))[0].stock === 5);
@@ -184,7 +194,7 @@ async function main() {
         check('a returned order never settles', !(await db.select().from(sellerOrders).where(eq(sellerOrders.id, so1.id)))[0].settledAt);
 
         // ── a clean sale that settles ─────────────────────────────────────
-        const co3 = await api.post('/api/store/checkout', { items: [{ productId: pid1, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+        const co3 = await storeCheckout([{ productId: pid1, quantity: 1 }], ct);
         await MarketplaceService.applyCapture({ checkoutId: co3.body.data.checkoutId, razorpayPaymentId: `pay_qa3_${stamp}` });
         const [so3] = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, co3.body.data.checkoutId));
         await api.post(`/api/hub/store/orders/${so3.id}/transition`, { to: 'confirmed' }, t1);
@@ -239,7 +249,7 @@ async function main() {
         const cfg = (k: string, v: unknown) => { (configService as any).cache.set(k, v); (configService as any).cacheExpiry.set(k, Date.now() + 3_600_000); };
         cfg('BUSINESS_CONFIG.MARKETPLACE_COURIER_RATE_PER_500G_RUPEES', 40);
         const buy = async (tag: string) => {
-            const c = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1 }], address: 'Karwar', pincode: '581301' }, ct);
+            const c = await storeCheckout([{ productId: pid2, quantity: 1 }], ct);
             await MarketplaceService.applyCapture({ checkoutId: c.body.data.checkoutId, razorpayPaymentId: `pay_qa${tag}_${stamp}` });
             const [so] = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, c.body.data.checkoutId));
             await api.post(`/api/hub/store/orders/${so.id}/transition`, { to: 'confirmed' }, t2);
@@ -292,7 +302,7 @@ async function main() {
         const bq = await api.post('/api/store/quote', { items: [{ productId: pid2, quantity: 1, withInstallation: true }] }, ct);
         check('the customer adds installation: two lines, ₹2,000', bq.status === 200 && bq.body?.data?.total === 2000 && bq.body.data.lines?.length === 2, JSON.stringify(bq.body?.data?.lines?.map((l: any) => [l.kind, l.totalPaise])));
         check('a product without installation cannot be bought with it', (await api.post('/api/store/quote', { items: [{ productId: pid1, quantity: 1, withInstallation: true }] }, ct)).body?.code === 'NO_INSTALL');
-        const bco = await api.post('/api/store/checkout', { items: [{ productId: pid2, quantity: 1, withInstallation: true }], address: 'Karwar', pincode: '581301' }, ct);
+        const bco = await storeCheckout([{ productId: pid2, quantity: 1, withInstallation: true }], ct);
         await MarketplaceService.applyCapture({ checkoutId: bco.body.data.checkoutId, razorpayPaymentId: `pay_qa6_${stamp}` });
         const [so6] = await db.select().from(sellerOrders).where(eq(sellerOrders.checkoutId, bco.body.data.checkoutId));
         const items6 = await db.select().from((await import('../shared/schema')).sellerOrderItems).where(eq((await import('../shared/schema')).sellerOrderItems.sellerOrderId, so6.id));
@@ -311,7 +321,7 @@ async function main() {
         await MarketplaceService.settleDue();
         const [so6c] = await db.select().from(sellerOrders).where(eq(sellerOrders.id, so6.id));
         check('marked installed → it settles', mi.status === 200 && so6c.installationStatus === 'done' && !!so6c.settledAt);
-        const my6 = (await api.get('/api/store/orders', ct)).body?.data?.find((o: any) => o.id === so6.id);
+        const my6 = (await api.get('/api/store/orders', ct)).body?.data?.items?.find((o: any) => o.id === so6.id);
         check('the customer sees the installation done', my6?.installationStatus === 'done' && my6.items.some((i: any) => i.kind === 'installation'));
     } finally {
         await cleanup();

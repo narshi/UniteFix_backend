@@ -79,9 +79,10 @@ export const navGroups: NavGroup[] = [
   },
   {
     key: "store", label: "Store & Parts", icon: "inventory", items: [
+      // Store orders: UniteFix's own sales to fulfil (confirm, dispatch, returns); partners' orders view-only.
+      { name: "Store Orders", href: "/admin/store-orders", icon: "local_shipping", capability: "orders:view" },
       { name: "Product Orders", href: "/orders", icon: "shopping_cart", capability: "orders:view" },
-      // The old "Inventory" page edits the halted product store — renamed so it is
-      // not mistaken for spare parts, which live on their own page.
+      // UniteFix's own products for the app's Shop: price, stock, HSN, GST, MRP, returns.
       { name: "Product Store", href: "/admin/inventory", icon: "storefront", capability: "inventory:view" },
       { name: "Spare Parts", href: "/admin/spare-parts", icon: "inventory_2", capability: "inventory:view" },
       { name: "Parts Access", href: "/admin/parts-access", icon: "verified", capability: "inventory:view" },

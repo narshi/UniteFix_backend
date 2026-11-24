@@ -47,6 +47,7 @@ import BusinessPartnersPage from "@/pages/admin/business-partners";
 import PartnerSettlementsPage from "@/pages/admin/partner-settlements";
 import PartnerTerritoriesPage from "@/pages/admin/partner-territories";
 import MarketplacePage from "@/pages/admin/marketplace";
+import StoreOrdersPage from "@/pages/admin/store-orders";
 import ConsignmentPage from "@/pages/admin/consignment";
 import GoLivePage from "@/pages/admin/go-live";
 import CelebrationsAdminPage from "@/pages/admin/celebrations";
@@ -335,6 +336,7 @@ function Router() {
           <Route path="/admin/partner-settlements"><Gate capability="partners:view" component={PartnerSettlementsPage} /></Route>
           <Route path="/admin/partner-territories"><Gate capability="partners:view" component={PartnerTerritoriesPage} /></Route>
           <Route path="/admin/marketplace"><Gate capability="partners:view" component={MarketplacePage} /></Route>
+          <Route path="/admin/store-orders"><Gate capability="orders:view" component={StoreOrdersPage} /></Route>
           <Route path="/admin/consignment"><Gate capability="partners:view" component={ConsignmentPage} /></Route>
           <Route path="/admin/go-live"><Gate capability="partners:view" component={GoLivePage} /></Route>
           <Route path="/admin/celebrations"><Gate capability="partners:view" component={CelebrationsAdminPage} /></Route>

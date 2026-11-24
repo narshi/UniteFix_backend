@@ -2,13 +2,10 @@
  * Partner Hub — phase 7: selling products through the UniteFix store.
  *
  *   Partner   /api/hub/store/*  overview, seller profile, listings, orders, returns, reviews
- *   Customer  /api/store/*      quote, checkout (+ verify), my orders, cancel, return,
- *                               invoice PDF, review; seller disclosures for a product
+ *   Customer  /api/store/*      in store.routes.ts (shared engine: MarketplaceService)
  *   Staff     /api/admin/hub/store/*  listing review, late orders, commission,
  *                               seller tier, TCS/TDS report, settle now
  *
- * The app's Shop tab stays "Coming Soon" (AI_CONTEXT §3.K) — these APIs are
- * ready for when the store opens.
  */
 
 import type { Express } from 'express';
@@ -190,62 +187,7 @@ export function registerHubStoreRoutes(app: Express) {
         try { await MarketplaceService.reply(ctxOf(req), Number(req.params.id), String(req.body?.reply ?? '')); res.json({ success: true, message: 'Reply posted.' }); } catch (e) { hubError(e, res, next); }
     });
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Customer
-    // ═══════════════════════════════════════════════════════════════════════
-
-    app.get('/api/store/products/:id/seller', async (req, res, next) => {
-        try { const s = await MarketplaceService.publicSeller(Number(req.params.id)); if (!s) return res.status(404).json({ success: false, message: 'Not a partner listing' }); res.json({ success: true, data: s }); } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/quote', authenticateToken, async (req, res, next) => {
-        try {
-            const q = await MarketplaceService.quote(parse(z.object({ items: itemsSchema }), req.body).items);
-            res.json({ success: true, data: { total: r2(q.totalPaise), sellers: q.sellers.map(s => ({ ...s, total: r2(s.totalPaise) })), lines: q.lines.map(l => ({ productId: l.productId, name: l.name, seller: l.sellerName, quantity: l.quantity, price: r2(l.unitPricePaise), mrp: r2(l.mrpPaise), gstRate: l.gstRate, total: r2(l.totalPaise) })) } });
-        } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/checkout', authenticateToken, async (req, res, next) => {
-        try {
-            const b = parse(z.object({ items: itemsSchema, address: z.string().max(500), pincode: z.string().regex(/^\d{6}$/), name: z.string().max(120).optional().nullable(), phone: z.string().max(20).optional().nullable() }), req.body);
-            const r = await MarketplaceService.startCheckout((req as any).user.userId, b);
-            res.status(201).json({ success: true, data: { checkoutId: r.checkoutId, total: r2(r.totalPaise), razorpay: r.razorpay } });
-        } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/checkout/:id/verify', authenticateToken, async (req, res, next) => {
-        try {
-            const b = parse(z.object({ razorpay_order_id: z.string(), razorpay_payment_id: z.string(), razorpay_signature: z.string() }), req.body);
-            if (!MarketplaceService.verifySignature(b.razorpay_order_id, b.razorpay_payment_id, b.razorpay_signature)) throw new HubError('Payment could not be verified.', 'BAD_SIGNATURE', 400);
-            const r: any = await MarketplaceService.applyCapture({ checkoutId: Number(req.params.id), razorpayOrderId: b.razorpay_order_id, razorpayPaymentId: b.razorpay_payment_id, userId: (req as any).user.userId });
-            if (r.soldOut) return res.status(409).json({ success: false, message: `${r.soldOut} sold out while you paid. Your payment is being refunded in full.` });
-            res.json({ success: true, message: 'Order placed.', data: { orderId: r.productOrder?.orderId ?? null } });
-        } catch (e) { hubError(e, res, next); }
-    });
-    app.get('/api/store/orders', authenticateToken, async (req, res, next) => {
-        try { res.json({ success: true, data: await MarketplaceService.customerOrders((req as any).user.userId) }); } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/orders/:id/cancel', authenticateToken, async (req, res, next) => {
-        try { await MarketplaceService.customerCancel((req as any).user.userId, Number(req.params.id), String(req.body?.reason ?? '')); res.json({ success: true, message: 'Cancelled. Your refund is on its way.' }); } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/orders/:id/return', authenticateToken, async (req, res, next) => {
-        try { await MarketplaceService.requestReturn((req as any).user.userId, Number(req.params.id), String(req.body?.reason ?? '')); res.json({ success: true, message: 'Return requested. The seller will respond.' }); } catch (e) { hubError(e, res, next); }
-    });
-    app.get('/api/store/orders/:id/invoice', authenticateToken, async (req, res, next) => {
-        try {
-            const so = await MarketplaceService.sellerOrder(Number(req.params.id), { userId: (req as any).user.userId });
-            if (!so.invoiceDocumentId) return res.status(404).json({ success: false, message: 'The invoice is issued when the seller dispatches.' });
-            const found = await TaxDocumentService.withLines(so.invoiceDocumentId);
-            const pdf = await renderTaxDocumentPdf(found!.doc, found!.lines);
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `inline; filename="${found!.doc.number.replace(/\//g, '-')}.pdf"`);
-            res.send(pdf);
-        } catch (e) { hubError(e, res, next); }
-    });
-    app.post('/api/store/items/:itemId/review', authenticateToken, async (req, res, next) => {
-        try {
-            const b = parse(z.object({ rating: z.number().int(), review: z.string().max(2000).optional().nullable() }), req.body);
-            await MarketplaceService.addReview((req as any).user.userId, Number(req.params.itemId), b);
-            res.status(201).json({ success: true, message: 'Thanks for your review.' });
-        } catch (e) { hubError(e, res, next); }
-    });
+    // Customer routes (catalogue, cart, checkout, orders) live in store.routes.ts.
 
     // ═══════════════════════════════════════════════════════════════════════
     // Staff
@@ -275,7 +217,7 @@ export function registerHubStoreRoutes(app: Express) {
         try {
             const b = parse(z.object({ note: z.string().min(3).max(300) }), req.body);
             const so = await MarketplaceService.waivePenalty(Number(req.params.id), (req as any).admin.userId, b.note);
-            await recordAudit({ entityType: 'business_partner', entityId: so.sellerPartnerId, action: 'store_penalty_waived', changedBy: (req as any).admin.userId, metadata: { sellerOrderId: so.id, code: so.code, note: b.note, penaltyPaise: so.penaltyPaise } });
+            await recordAudit({ entityType: 'business_partner', entityId: so.sellerPartnerId ?? 0, action: 'store_penalty_waived', changedBy: (req as any).admin.userId, metadata: { sellerOrderId: so.id, code: so.code, note: b.note, penaltyPaise: so.penaltyPaise } });
             res.json({ success: true, message: `Charge of ₹${r2(so.penaltyPaise)} waived; credited back to the seller.` });
         } catch (e) { hubError(e, res, next); }
     });

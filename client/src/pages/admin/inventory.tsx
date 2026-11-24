@@ -36,9 +36,18 @@ interface Product {
     stock: number;
     images: string[];
     isActive: boolean;
+    mrp: number | null; hsnCode: string | null; gstPercent: string | null; countryOfOrigin: string | null; manufacturer: string | null;
+    netQuantity: string | null; returnWindowDays: number | null; warrantyMonths: number | null; warrantyBy: string | null;
 }
 
-const CATEGORIES = ["Computer", "Computer Parts", "CC Camera", "Camera Parts", "Water Purifier", "Purifier Parts", "Other"];
+const CATEGORIES = ["Computer", "Computer Accessories", "Computer Parts", "CC Camera", "Camera Parts", "Water Purifier", "Purifier Parts", "Spices & Masalas", "Dry Fruits & Nuts", "Home-made Food", "Other"];
+
+const GST_RATES = [0, 0.25, 3, 5, 18, 40];
+const BLANK_FORM = {
+    name: '', description: '', price: '', category: 'Computer', stock: '', images: '', // images: comma separated URLs
+    mrp: '', hsnCode: '', gstPercent: '', countryOfOrigin: 'India', manufacturer: '', netQuantity: '',
+    returnWindowDays: '2', warrantyMonths: '', warrantyBy: 'manufacturer',
+};
 
 export default function InventoryPage() {
     const { toast } = useToast();
@@ -59,14 +68,7 @@ export default function InventoryPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-    const [formData, setFormData] = useState({
-        name: '',
-        description: '',
-        price: '',
-        category: 'Computer',
-        stock: '',
-        images: '' // Comma separated URLs
-    });
+    const [formData, setFormData] = useState({ ...BLANK_FORM });
 
     const { data: products, isLoading } = useQuery<Product[]>({
         queryKey: ["/api/admin/inventory"],
@@ -122,11 +124,17 @@ export default function InventoryPage() {
 
     const saveProductMutation = useMutation({
         mutationFn: async (data: any) => {
+            // Store fields: without an HSN code and GST rate a product cannot be invoiced, so the Shop does not list it.
+            const num = (v: string) => (v.trim() === '' ? null : Number(v));
             const payload = {
-                ...data,
-                price: parseFloat(data.price),
+                name: data.name, description: data.description, category: data.category,
+                price: parseInt(data.price),
                 stock: parseInt(data.stock),
                 images: data.images.split(',').map((s: string) => s.trim()).filter((s: string) => s),
+                mrp: num(data.mrp), hsnCode: data.hsnCode.trim() || null, gstPercent: data.gstPercent === '' ? null : data.gstPercent,
+                countryOfOrigin: data.countryOfOrigin.trim() || null, manufacturer: data.manufacturer.trim() || null, netQuantity: data.netQuantity.trim() || null,
+                returnWindowDays: Number(data.returnWindowDays), warrantyMonths: num(data.warrantyMonths),
+                warrantyBy: data.warrantyMonths.trim() ? data.warrantyBy : 'none',
                 isActive: true
             };
 
@@ -140,7 +148,7 @@ export default function InventoryPage() {
             queryClient.invalidateQueries({ queryKey: ["/api/admin/inventory"] });
             setIsAddModalOpen(false);
             setEditingProduct(null);
-            setFormData({ name: '', description: '', price: '', category: 'Computer', stock: '', images: '' });
+            setFormData({ ...BLANK_FORM });
             toast({ title: `Product ${editingProduct ? 'updated' : 'added'} successfully` });
         },
         onError: (error: any) => {
@@ -211,7 +219,16 @@ export default function InventoryPage() {
             price: product.price.toString(),
             category: product.category,
             stock: product.stock.toString(),
-            images: product.images ? product.images.join(', ') : ''
+            images: product.images ? product.images.join(', ') : '',
+            mrp: product.mrp != null ? String(product.mrp) : '',
+            hsnCode: product.hsnCode ?? '',
+            gstPercent: product.gstPercent != null ? String(Number(product.gstPercent)) : '',
+            countryOfOrigin: product.countryOfOrigin ?? 'India',
+            manufacturer: product.manufacturer ?? '',
+            netQuantity: product.netQuantity ?? '',
+            returnWindowDays: String(product.returnWindowDays ?? 2),
+            warrantyMonths: product.warrantyMonths != null ? String(product.warrantyMonths) : '',
+            warrantyBy: product.warrantyBy ?? 'manufacturer',
         });
         setIsAddModalOpen(true);
     };
@@ -241,7 +258,7 @@ export default function InventoryPage() {
                         className="bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,55%)] text-white shadow-[0_4px_15px_hsla(217,91%,60%,0.4)] transition-all active:scale-95"
                         onClick={() => {
                             setEditingProduct(null);
-                            setFormData({ name: '', description: '', price: '', category: 'Computer', stock: '', images: '' });
+                            setFormData({ ...BLANK_FORM });
                             setIsAddModalOpen(true);
                         }}
                     >
@@ -370,6 +387,73 @@ export default function InventoryPage() {
                             <div>
                                 <Label className="text-[hsl(215,20%,75%)]">Stock</Label>
                                 <Input type="number" value={formData.stock} onChange={e => setFormData({ ...formData, stock: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white focus:bg-[rgba(255,255,255,0.05)] focus:ring-[hsla(217,91%,60%,0.3)] transition-all" />
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-[rgba(255,255,255,0.08)] p-4 grid gap-4">
+                            <div>
+                                <p className="text-sm font-medium text-white">Shop and invoice details</p>
+                                <p className="text-xs text-[hsl(215,20%,60%)]">The Shop lists a product only when it has an HSN code and a GST rate (needed for a valid tax invoice). The price includes GST and cannot be above the MRP.</p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">MRP (₹)</Label>
+                                    <Input type="number" value={formData.mrp} onChange={e => setFormData({ ...formData, mrp: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">HSN code</Label>
+                                    <Input value={formData.hsnCode} onChange={e => setFormData({ ...formData, hsnCode: e.target.value.replace(/\D/g, '').slice(0, 8) })} placeholder="8471" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">GST rate</Label>
+                                    <Select value={formData.gstPercent} onValueChange={val => setFormData({ ...formData, gstPercent: val })}>
+                                        <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white"><SelectValue placeholder="Choose" /></SelectTrigger>
+                                        <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
+                                            {GST_RATES.map(r => <SelectItem key={r} value={String(r)}>{r}%</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Country of origin</Label>
+                                    <Input value={formData.countryOfOrigin} onChange={e => setFormData({ ...formData, countryOfOrigin: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Manufacturer / packer</Label>
+                                    <Input value={formData.manufacturer} onChange={e => setFormData({ ...formData, manufacturer: e.target.value })} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Net quantity</Label>
+                                    <Input value={formData.netQuantity} onChange={e => setFormData({ ...formData, netQuantity: e.target.value })} placeholder="500 g, 1 unit" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Returns</Label>
+                                    <Select value={formData.returnWindowDays} onValueChange={val => setFormData({ ...formData, returnWindowDays: val })}>
+                                        <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
+                                            <SelectItem value="0">Not returnable</SelectItem>
+                                            <SelectItem value="1">1 day after delivery</SelectItem>
+                                            <SelectItem value="2">2 days after delivery</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Warranty (months)</Label>
+                                    <Input type="number" value={formData.warrantyMonths} onChange={e => setFormData({ ...formData, warrantyMonths: e.target.value })} placeholder="None" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                </div>
+                                <div>
+                                    <Label className="text-[hsl(215,20%,75%)]">Warranty by</Label>
+                                    <Select value={formData.warrantyBy} onValueChange={val => setFormData({ ...formData, warrantyBy: val })}>
+                                        <SelectTrigger className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white"><SelectValue /></SelectTrigger>
+                                        <SelectContent className="glass-panel border-[rgba(255,255,255,0.1)]">
+                                            <SelectItem value="manufacturer">Manufacturer</SelectItem>
+                                            <SelectItem value="seller">UniteFix</SelectItem>
+                                            <SelectItem value="none">None</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                         </div>
                         <div>

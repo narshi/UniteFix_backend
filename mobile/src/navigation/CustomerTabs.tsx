@@ -5,7 +5,6 @@
  * - Floating pill-style tab bar with shadow
  * - Active indicator dot
  * - Animated icon scaling
- * - Coming Soon badge on Shop
  */
 
 import React from 'react';
@@ -130,16 +129,6 @@ export function CustomerTabs() {
                     tabBarIcon: ({ color, focused }) => (
                         <TabIcon icon={ShoppingBag} color={color} focused={focused} />
                     ),
-                    tabBarBadge: '✦',
-                    tabBarBadgeStyle: {
-                        backgroundColor: colors.warning,
-                        color: colors.textInverse,
-                        fontSize: 8,
-                        minWidth: 16,
-                        height: 16,
-                        lineHeight: 14,
-                        borderRadius: 8,
-                    },
                 }}
             />
             <Tab.Screen

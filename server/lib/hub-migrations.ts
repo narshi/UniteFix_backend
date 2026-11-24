@@ -1740,6 +1740,57 @@ const BLOCKS: Array<[string, string]> = [
       );
       CREATE INDEX IF NOT EXISTS travel_trip_payouts_trip_idx ON travel_trip_payouts(trip_id);
     `],
+    // Store v2 (product sales): server cart, stock holds during payment, idempotent checkout,
+    // UniteFix as its own seller (seller_partner_id NULL). New tables, new columns and a
+    // relaxed NOT NULL only; no existing row is changed.
+    ['store v2: cart, holds, idempotent checkout', `
+      ALTER TABLE market_checkouts ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      ALTER TABLE market_checkouts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'cart';
+      ALTER TABLE market_checkouts ADD COLUMN IF NOT EXISTS ship_state_code TEXT;
+      ALTER TABLE market_checkouts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+      ALTER TABLE market_checkouts ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS market_checkouts_user_idem_idx ON market_checkouts(user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS market_checkouts_status_created_idx ON market_checkouts(status, created_at);
+      CREATE INDEX IF NOT EXISTS market_checkouts_user_status_idx ON market_checkouts(user_id, status);
+
+      ALTER TABLE seller_orders ALTER COLUMN seller_partner_id DROP NOT NULL;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS ship_state_code TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS receipt_voucher_document_id INTEGER REFERENCES tax_documents(id);
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS refund_voucher_document_id INTEGER REFERENCES tax_documents(id);
+      CREATE INDEX IF NOT EXISTS seller_orders_user_created_idx ON seller_orders(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS seller_orders_seller_status_idx ON seller_orders(seller_partner_id, status);
+      CREATE INDEX IF NOT EXISTS seller_orders_checkout_idx ON seller_orders(checkout_id);
+      ALTER TABLE seller_order_items ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES product_variants(id);
+      ALTER TABLE seller_order_items ADD COLUMN IF NOT EXISTS variant_label TEXT;
+      ALTER TABLE product_reviews ALTER COLUMN seller_partner_id DROP NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS store_cart_lines (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        variant_id INTEGER REFERENCES product_variants(id) ON DELETE CASCADE,
+        quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 20),
+        price_paise_seen INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS store_cart_lines_user_item_idx ON store_cart_lines(user_id, product_id, COALESCE(variant_id, 0));
+
+      CREATE TABLE IF NOT EXISTS store_stock_reservations (
+        id SERIAL PRIMARY KEY,
+        checkout_id INTEGER NOT NULL REFERENCES market_checkouts(id) ON DELETE CASCADE,
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        variant_id INTEGER REFERENCES product_variants(id),
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        status TEXT NOT NULL DEFAULT 'held',
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        released_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS store_reservations_item_held_idx ON store_stock_reservations(product_id, COALESCE(variant_id, 0)) WHERE status = 'held';
+      CREATE INDEX IF NOT EXISTS store_reservations_checkout_idx ON store_stock_reservations(checkout_id);
+      CREATE INDEX IF NOT EXISTS store_reservations_expiry_idx ON store_stock_reservations(expires_at) WHERE status = 'held';
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

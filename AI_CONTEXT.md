@@ -9,7 +9,7 @@
   2. **NO WebSockets for Tracking:** Geofencing is strictly a REST API check using PostGIS (`ST_DistanceSphere`). Do not build live location tracking.
   3. **NO Custom SMS OTPs:** We use Truecaller v3 SDK for *everything*. It natively handles 1-tap for users and Drop-Call/OTP fallback for non-users. Do not use Twilio/MSG91.
   4. **Trust No Client Math:** The mobile app NEVER calculates the final bill. The Node.js backend calculates all totals, platform fees (15%), and GST.
-  5. **Product Ordering is HALTED:** All product/shop screens display "Coming Soon". Do not build product ordering flows. Focus is service bookings only.
+  5. **Product Ordering is LIVE (Store v2, Nov 2026):** The Shop tab sells UniteFix's own products and partners' listings through ONE pipeline (see §3.K). Never build a second cart or checkout; the legacy `/api/cart` and `/api/orders/place` routes stay paused.
 
 ## 2. Technology Stack
 - **Mobile Client:** React Native (Expo SDK), Zustand (State), React Navigation.
@@ -82,11 +82,12 @@ When a service finishes, the backend calculates:
 - `users.referredById` tracks who referred whom.
 - **Reward mechanism is deferred** — no wallet credit or discount yet. Schema is ready for future activation.
 
-### K. Product Ordering (Coming Soon)
-- All product catalog, cart, checkout, and order tracking features are **paused**.
-- Mobile app shows "Coming Soon" badge on the Shop tab.
-- Backend product routes remain functional but are not exposed to end users.
-- Will resume with Annual Maintenance Package feature in a future phase.
+### K. Product Ordering (Store v2 — live)
+- One pipeline for UniteFix's own sales and partner sales: `server/services/store/*` (catalogue, server cart, stock holds, checkout) + `MarketplaceService` (orders, GST documents, returns, settlement). UniteFix is "seller #0": `seller_partner_id` NULL on its products and orders.
+- Stock: on-hand minus live holds, read under a row lock (`StoreInventory`). Checkout is idempotent (`Idempotency-Key`), one live hold per customer; payment capture is idempotent (verify, webhook and the reconcile job all call `applyCapture`).
+- GST: receipt voucher at payment, tax invoice at dispatch (UniteFix series `UF/yy-yy/S…`), credit note on a received return, refund voucher on a cancel before dispatch. A product is sold only with an HSN code and GST rate, and price ≤ MRP.
+- Customer API `/api/store/*` (store.routes.ts); staff fulfil UniteFix orders at Admin → Store Orders; partners in their Hub. Tests: `npx tsx scripts/smoke-store.ts`, `scripts/smoke-hub-p7.ts`.
+- Plan and compliance notes: `product_store_plan.md`.
 
 ---
 
@@ -94,7 +95,7 @@ When a service finishes, the backend calculates:
 *(Human: Update [ ] to [x] as tasks are completed. Provide this updated file to the AI at the start of any new session.)*
 
 ### Phase 0: Pre-Flight Cleanup
-- [ ] Add "Coming Soon" overlay to product/shop screens in mobile.
+- [x] ~~Add "Coming Soon" overlay to product/shop screens in mobile.~~ Superseded: the Shop is live (Store v2).
 - [ ] Remove old reference `.md` files (`API_DOCUMENTATION.md`, `APP_REQUIREMENTS.md`, `BACKEND_ADMIN_REQUIREMENTS.md`, `FINAL_REVIEW.md`, `expo_help.txt`).
 - [ ] Delete `scratch_truecaller/` directory.
 - [ ] Remove SMS env vars from `.env.example` (`TWILIO_*`, `MSG91_API_KEY`).

@@ -1,220 +1,123 @@
 /**
- * Cart Screen — View cart items, adjust quantities, checkout
+ * Cart: kept on the server, re-priced every time it is shown. Each line says
+ * if its price changed, if stock is short, or if it is no longer sold —
+ * checkout opens only when every line can be bought.
  */
 
-import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    FlatList,
-    TouchableOpacity,
-    Image,
-    Alert,
-    TextInput,
-    ActivityIndicator,
-} from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import {
-    ArrowLeft, Trash2, Plus, Minus, ShoppingBag, ShoppingCart, MapPin,
-} from 'lucide-react-native';
-import { useCart, useRemoveFromCart, useUpdateCartItem, useCheckout } from '../../hooks/useShopData';
-import { CartItem } from '../../api/shop.api';
+import { Trash2, ShoppingCart, AlertCircle } from 'lucide-react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, radii, shadows } from '../../theme/spacing';
-import { Button } from '../../components/ui';
 import { useScreenInsets } from '../../theme/layout';
+import { Button, ScreenHeader, EmptyState } from '../../components/ui';
+import { useCart, useRemoveCartLine, useSetCartQuantity } from '../../hooks/useShopData';
+import { getApiErrorMessage } from '../../api/client';
+import type { CartLine } from '../../api/shop.api';
+import { ProductImage, QtyStepper, rupees } from './parts';
 
 type Props = NativeStackScreenProps<any, 'Cart'>;
 
-function CartItemCard({
-    item, onRemove, onUpdate,
-}: {
-    item: CartItem;
-    onRemove: () => void;
-    onUpdate: (qty: number) => void;
-}) {
-    const product = item.product;
-
-    return (
-        <View style={styles.cartItem}>
-            <View style={styles.itemImage}>
-                {product?.imageUrl ? (
-                    <Image source={{ uri: product.imageUrl }} style={styles.imgThumb} resizeMode="cover" />
-                ) : (
-                    <ShoppingBag size={20} color={colors.textDisabled} />
-                )}
-            </View>
-            <View style={styles.itemInfo}>
-                <Text style={styles.itemName} numberOfLines={2}>{product?.name || `Product #${item.productId}`}</Text>
-                <Text style={styles.itemPrice}>₹{product?.price || 0}</Text>
-            </View>
-            <View style={styles.qtySection}>
-                <TouchableOpacity
-                    style={styles.qtyBtn}
-                    onPress={() => item.quantity > 1 ? onUpdate(item.quantity - 1) : onRemove()}
-                >
-                    <Minus size={14} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.qtyText}>{item.quantity}</Text>
-                <TouchableOpacity style={styles.qtyBtn} onPress={() => onUpdate(item.quantity + 1)}>
-                    <Plus size={14} color={colors.textPrimary} />
-                </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={onRemove} style={styles.removeBtn}>
-                <Trash2 size={16} color={colors.error} />
-            </TouchableOpacity>
-        </View>
-    );
-}
-
 export function CartScreen({ navigation }: Props) {
-    const { headerTop } = useScreenInsets();
-    const { data: cartData, isLoading } = useCart();
-    const { mutate: removeItem } = useRemoveFromCart();
-    const { mutate: updateItem } = useUpdateCartItem();
-    const { mutate: checkout, isPending: checkingOut } = useCheckout();
-    const [address, setAddress] = useState('');
+    const { bottomBar } = useScreenInsets();
+    const { data: cart, isLoading, isError, refetch, isRefetching } = useCart();
+    const setQty = useSetCartQuantity();
+    const remove = useRemoveCartLine();
 
-    const cartItems: CartItem[] = Array.isArray(cartData) ? cartData : (cartData as any)?.data || [];
+    const change = (l: CartLine, quantity: number) =>
+        setQty.mutate({ lineId: l.id, quantity }, { onError: e => Alert.alert('Could not change it', getApiErrorMessage(e)) });
+    const drop = (l: CartLine) =>
+        Alert.alert('Remove from cart?', l.name ?? 'This item', [
+            { text: 'Keep', style: 'cancel' },
+            { text: 'Remove', style: 'destructive', onPress: () => remove.mutate(l.id) },
+        ]);
 
-    const totalAmount = cartItems.reduce((sum, item) => {
-        const price = item.product?.price || 0;
-        return sum + price * item.quantity;
-    }, 0);
+    if (isLoading) return <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>;
 
-    const handleCheckout = () => {
-        if (!address.trim()) {
-            Alert.alert('Address Required', 'Enter a delivery address.');
-            return;
-        }
-        checkout({ address });
-    };
-
-    if (isLoading) {
-        return <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /></View>;
-    }
+    const lines = cart?.lines ?? [];
+    const problems = lines.filter(l => l.issue).length;
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: headerTop }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                    <ArrowLeft size={22} color={colors.textPrimary} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>My Cart</Text>
-                <Text style={styles.itemCount}>{cartItems.length} items</Text>
-            </View>
-
+        <View style={styles.screen}>
+            <ScreenHeader title={`Cart${cart?.count ? ` (${cart.count})` : ''}`} onBack={() => navigation.goBack()} />
             <FlatList
-                data={cartItems}
-                renderItem={({ item }) => (
-                    <CartItemCard
-                        item={item}
-                        onRemove={() => removeItem(item.id)}
-                        onUpdate={(qty) => updateItem({ itemId: item.id, quantity: qty })}
-                    />
-                )}
-                keyExtractor={(item) => item.id.toString()}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <ShoppingCart size={48} color={colors.textDisabled} />
-                        <Text style={styles.emptyTitle}>Cart is empty</Text>
-                        <Text style={styles.emptySubtitle}>Browse the shop to add items</Text>
-                        <Button title="Go to Shop" onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg }} />
-                    </View>
-                }
-                ListFooterComponent={
-                    cartItems.length > 0 ? (
-                        <View>
-                            {/* Address input */}
-                            <View style={styles.addressCard}>
-                                <Text style={styles.sectionTitle}>Delivery Address</Text>
-                                <View style={styles.addressInput}>
-                                    <MapPin size={18} color={colors.textSecondary} />
-                                    <TextInput
-                                        style={styles.addressField}
-                                        placeholder="Enter delivery address"
-                                        value={address}
-                                        onChangeText={setAddress}
-                                        multiline
-                                        placeholderTextColor={colors.textDisabled}
-                                    />
+                data={lines}
+                keyExtractor={l => String(l.id)}
+                contentContainerStyle={{ padding: spacing.base, gap: spacing.md, paddingBottom: 200 }}
+                refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />}
+                ListEmptyComponent={isError
+                    ? <EmptyState title="Could not load your cart" description="Check your connection and try again." actionLabel="Try again" onAction={() => refetch()} />
+                    : <EmptyState icon={<ShoppingCart size={40} color={colors.textDisabled} />} title="Your cart is empty" description="Add products from the Shop and they will wait for you here." actionLabel="Go to the Shop" onAction={() => navigation.navigate('CustomerTabs', { screen: 'ShopTab' })} />}
+                ListHeaderComponent={cart && cart.sellers.length > 1 ? (
+                    <View style={styles.note}><Text style={styles.noteText}>These items come from {cart.sellers.length} sellers: {cart.sellers.map(s => s.name).join(' and ')}. They arrive as separate parcels, each with its own invoice.</Text></View>
+                ) : null}
+                renderItem={({ item: l }) => (
+                    <View style={[styles.line, !!l.issue && styles.lineBad]}>
+                        <TouchableOpacity onPress={() => navigation.navigate('ProductDetail', { id: l.productId })} accessibilityRole="button" accessibilityLabel={`Open ${l.name ?? 'product'}`}>
+                            <ProductImage uri={l.image} size={76} />
+                        </TouchableOpacity>
+                        <View style={{ flex: 1, gap: 4 }}>
+                            <Text style={styles.name} numberOfLines={2}>{l.name ?? 'No longer sold'}</Text>
+                            {!!l.seller && <Text style={styles.meta}>Sold by {l.seller}</Text>}
+                            {l.price != null && (
+                                <View style={styles.priceLine}>
+                                    <Text style={styles.price}>{rupees(l.price)}</Text>
+                                    {l.mrp != null && l.mrp > l.price && <Text style={styles.mrp}>{rupees(l.mrp)}</Text>}
                                 </View>
+                            )}
+                            {l.priceChanged && l.previousPrice != null && (
+                                <Text style={styles.changed}>Price {l.price! > l.previousPrice ? 'went up' : 'dropped'} from {rupees(l.previousPrice)}</Text>
+                            )}
+                            {!!l.issue && <View style={styles.issue}><AlertCircle size={14} color={colors.error} /><Text style={styles.issueText}>{l.issue.message}</Text></View>}
+                            <View style={styles.actions}>
+                                <QtyStepper value={l.quantity} max={Math.max(l.quantity, Math.min(20, l.available))} onChange={n => change(l, n)} disabled={setQty.isPending || !l.price} />
+                                <TouchableOpacity onPress={() => drop(l)} accessibilityRole="button" accessibilityLabel="Remove" hitSlop={8}>
+                                    <Trash2 size={18} color={colors.textTertiary} />
+                                </TouchableOpacity>
                             </View>
-
-                            {/* Summary */}
-                            <View style={styles.summaryCard}>
-                                <Text style={styles.sectionTitle}>Order Summary</Text>
-                                <View style={styles.summaryRow}>
-                                    <Text style={styles.summaryLabel}>Subtotal ({cartItems.length} items)</Text>
-                                    <Text style={styles.summaryValue}>₹{totalAmount}</Text>
-                                </View>
-                                <View style={styles.summaryRow}>
-                                    <Text style={styles.summaryLabel}>Delivery</Text>
-                                    <Text style={[styles.summaryValue, { color: colors.success }]}>FREE</Text>
-                                </View>
-                                <View style={[styles.summaryRow, styles.totalRow]}>
-                                    <Text style={styles.totalLabel}>Total</Text>
-                                    <Text style={styles.totalValue}>₹{totalAmount}</Text>
-                                </View>
-                            </View>
-
-                            <Button
-                                title={`Checkout — ₹${totalAmount}`}
-                                onPress={handleCheckout}
-                                loading={checkingOut}
-                                style={styles.checkoutBtn}
-                            />
                         </View>
-                    ) : null
-                }
+                    </View>
+                )}
             />
+            {lines.length > 0 && cart && (
+                <View style={[styles.bar, { paddingBottom: bottomBar }]}>
+                    <View style={styles.totals}>
+                        <View>
+                            <Text style={styles.totalLabel}>Total (incl. GST {rupees(cart.tax)})</Text>
+                            {cart.savings > 0 && <Text style={styles.savings}>You save {rupees(cart.savings)}</Text>}
+                        </View>
+                        <Text style={styles.total}>{rupees(cart.total)}</Text>
+                    </View>
+                    {problems > 0 && <Text style={styles.blocker}>Fix {problems === 1 ? 'the item marked in red' : `the ${problems} items marked in red`} to check out.</Text>}
+                    <Button title="Proceed to checkout" onPress={() => navigation.navigate('Checkout', { source: 'cart' })} disabled={!cart.canCheckout} />
+                </View>
+            )}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.surface },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
-    header: {
-        flexDirection: 'row', alignItems: 'center', paddingBottom: spacing.md, paddingHorizontal: spacing.lg,
-        backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.divider, gap: spacing.md,
-    },
-    backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    headerTitle: { ...typography.h4, color: colors.textPrimary, flex: 1 },
-    itemCount: { ...typography.caption, color: colors.textSecondary },
-    listContent: { padding: spacing.xl, paddingBottom: spacing['3xl'] },
-    cartItem: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.background, borderRadius: radii.lg,
-        padding: spacing.md, marginBottom: spacing.sm, ...shadows.sm,
-    },
-    itemImage: { width: 56, height: 56, borderRadius: radii.md, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginRight: spacing.md },
-    imgThumb: { width: '100%', height: '100%' },
-    itemInfo: { flex: 1 },
-    itemName: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
-    itemPrice: { ...typography.bodyMedium, color: colors.primary, marginTop: 2 },
-    qtySection: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginRight: spacing.md },
-    qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-    qtyText: { ...typography.bodyMedium, color: colors.textPrimary, minWidth: 20, textAlign: 'center' },
-    removeBtn: { padding: spacing.sm },
-    addressCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginTop: spacing.lg, ...shadows.sm },
-    sectionTitle: { ...typography.h4, color: colors.textPrimary, marginBottom: spacing.md },
-    addressInput: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radii.md, padding: spacing.md },
-    addressField: { flex: 1, ...typography.body, color: colors.textPrimary, minHeight: 50 },
-    summaryCard: { backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.lg, marginTop: spacing.md, ...shadows.sm },
-    summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
-    summaryLabel: { ...typography.body, color: colors.textSecondary },
-    summaryValue: { ...typography.bodyMedium, color: colors.textPrimary },
-    totalRow: { borderTopWidth: 1, borderTopColor: colors.divider, marginTop: spacing.sm, paddingTop: spacing.md },
-    totalLabel: { ...typography.h4, color: colors.textPrimary },
-    totalValue: { ...typography.h3, color: colors.primary },
-    checkoutBtn: { marginTop: spacing.xl },
-    emptyContainer: { alignItems: 'center', paddingTop: spacing['4xl'] },
-    emptyTitle: { ...typography.h4, color: colors.textSecondary, marginTop: spacing.lg },
-    emptySubtitle: { ...typography.caption, color: colors.textDisabled, marginTop: spacing.sm },
+    screen: { flex: 1, backgroundColor: colors.surface },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+    note: { backgroundColor: colors.infoLight, borderRadius: radii.md, padding: spacing.md },
+    noteText: { ...typography.caption, color: colors.textPrimary },
+    line: { flexDirection: 'row', gap: spacing.md, backgroundColor: colors.background, borderRadius: radii.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.divider },
+    lineBad: { borderColor: colors.errorLight },
+    name: { ...typography.bodyMedium, color: colors.textPrimary },
+    meta: { ...typography.small, color: colors.textTertiary },
+    priceLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+    price: { ...typography.bodySemibold, color: colors.textPrimary },
+    mrp: { ...typography.caption, color: colors.textTertiary, textDecorationLine: 'line-through' },
+    changed: { ...typography.caption, color: colors.warningDark },
+    issue: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    issueText: { ...typography.caption, color: colors.error, flexShrink: 1 },
+    actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+    bar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.background, paddingHorizontal: spacing.base, paddingTop: spacing.md, gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.divider, ...shadows.md },
+    totals: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    totalLabel: { ...typography.caption, color: colors.textSecondary },
+    savings: { ...typography.captionMedium, color: colors.successDark },
+    total: { ...typography.h3, color: colors.textPrimary },
+    blocker: { ...typography.caption, color: colors.error },
 });

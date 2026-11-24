@@ -1,122 +1,83 @@
 /**
- * React Query hooks for e-commerce data
+ * React Query hooks for the store. The cart lives on the server: every change
+ * returns the new cart, which replaces the cached one (no refetch flicker).
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { shopApi, Product } from '../api/shop.api';
-import { Alert } from 'react-native';
-import { getApiErrorMessage } from '../api/client';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { shopApi, type BuyItem, type Cart, type CheckoutSource } from '../api/shop.api';
+import { useAuthStore } from '../stores/auth.store';
 
-export const shopQueryKeys = {
-    products: (page: number, category?: string) => ['shop.products', page, category] as const,
-    product: (id: number) => ['shop.product', id] as const,
-    cart: ['shop.cart'] as const,
+export const shopKeys = {
+    categories: ['shop', 'categories'] as const,
+    products: (q: { search?: string; categoryId?: number; sort?: string }) => ['shop', 'products', q] as const,
+    product: (id: number) => ['shop', 'product', id] as const,
+    cart: ['shop', 'cart'] as const,
+    preview: (src: CheckoutSource) => ['shop', 'preview', src] as const,
+    orders: (status: string) => ['shop', 'orders', status] as const,
+    order: (id: number) => ['shop', 'order', id] as const,
 };
 
-// ==================== PRODUCTS ====================
+export function useStoreCategories() {
+    return useQuery({ queryKey: shopKeys.categories, queryFn: shopApi.categories, staleTime: 5 * 60_000 });
+}
 
-export function useProducts(page = 1, category?: string) {
-    return useQuery({
-        queryKey: shopQueryKeys.products(page, category),
-        queryFn: async () => {
-            const response = await shopApi.getProducts(page, 20, category);
-            return response.data;
-        },
+export function useStoreProducts(q: { search?: string; categoryId?: number; sort?: string }) {
+    return useInfiniteQuery({
+        queryKey: shopKeys.products(q),
+        queryFn: ({ pageParam }) => shopApi.products({ ...q, page: pageParam, limit: 20 }),
+        initialPageParam: 1,
+        getNextPageParam: last => (last.hasMore ? last.page + 1 : undefined),
+        staleTime: 30_000,
     });
 }
 
-export function useProduct(id: number) {
-    return useQuery({
-        queryKey: shopQueryKeys.product(id),
-        queryFn: async () => {
-            const response = await shopApi.getProduct(id);
-            return response.data;
-        },
-        enabled: id > 0,
-    });
+export function useStoreProduct(id: number) {
+    return useQuery({ queryKey: shopKeys.product(id), queryFn: () => shopApi.product(id), enabled: id > 0 });
 }
-
-// ==================== CART ====================
 
 export function useCart() {
-    return useQuery({
-        queryKey: shopQueryKeys.cart,
-        queryFn: async () => {
-            const response = await shopApi.getCart();
-            return response.data;
-        },
+    const signedIn = useAuthStore(s => s.isAuthenticated);
+    return useQuery({ queryKey: shopKeys.cart, queryFn: shopApi.cart, enabled: signedIn, staleTime: 10_000 });
+}
+
+function useCartMutation<V>(fn: (v: V) => Promise<Cart>) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: fn,
+        onSuccess: cart => qc.setQueryData(shopKeys.cart, cart),
+        // A refused change (out of stock, price) leaves the server's cart as it is: show that.
+        onError: () => qc.invalidateQueries({ queryKey: shopKeys.cart }),
+    });
+}
+export const useAddToCart = () => useCartMutation((item: BuyItem) => shopApi.addToCart(item));
+export const useSetCartQuantity = () => useCartMutation((v: { lineId: number; quantity: number }) => shopApi.setQuantity(v.lineId, v.quantity));
+export const useRemoveCartLine = () => useCartMutation((lineId: number) => shopApi.removeLine(lineId));
+
+export function useCheckoutPreview(src: CheckoutSource) {
+    return useQuery({ queryKey: shopKeys.preview(src), queryFn: () => shopApi.preview(src), staleTime: 0, gcTime: 0 });
+}
+
+export function useStoreOrders(status: 'open' | 'done' | 'all') {
+    return useInfiniteQuery({
+        queryKey: shopKeys.orders(status),
+        queryFn: ({ pageParam }) => shopApi.orders({ status, page: pageParam }),
+        initialPageParam: 1,
+        getNextPageParam: last => (last.hasMore ? last.page + 1 : undefined),
     });
 }
 
-export function useAddToCart() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: ({ productId, quantity }: { productId: number; quantity?: number }) =>
-            shopApi.addToCart(productId, quantity),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: shopQueryKeys.cart });
-            Alert.alert('Added!', 'Item added to cart.');
-        },
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
+export function useStoreOrder(id: number) {
+    return useQuery({ queryKey: shopKeys.order(id), queryFn: () => shopApi.order(id), enabled: id > 0 });
 }
 
-export function useUpdateCartItem() {
+/** After anything that changes orders or stock. */
+export function useRefreshShop() {
     const qc = useQueryClient();
-    return useMutation({
-        mutationFn: ({ itemId, quantity }: { itemId: number; quantity: number }) =>
-            shopApi.updateCartItem(itemId, quantity),
-        onSuccess: () => qc.invalidateQueries({ queryKey: shopQueryKeys.cart }),
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
-}
-
-export function useRemoveFromCart() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: (itemId: number) => shopApi.removeFromCart(itemId),
-        onSuccess: () => qc.invalidateQueries({ queryKey: shopQueryKeys.cart }),
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
-}
-
-// ==================== ORDERS ====================
-
-export function usePlaceOrder() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: shopApi.placeOrder,
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: shopQueryKeys.cart });
-            Alert.alert('Order Placed!', 'Your order has been placed successfully.');
-        },
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
-}
-
-export function useCheckout() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: shopApi.checkout,
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: shopQueryKeys.cart });
-            Alert.alert('Success!', 'Your order has been placed.');
-        },
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
-}
-
-export function useRequestReturn() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: ({ orderId, data }: { orderId: number; data: { reason: string; type: 'return' | 'exchange' } }) =>
-            shopApi.requestReturn(orderId, data),
-        onSuccess: () => {
-            // Without this the orders list kept showing the pre-return status
-            // until the screen was remounted.
-            qc.invalidateQueries({ queryKey: ['shop.myOrders'] });
-            Alert.alert('Return Requested', 'Your return request has been submitted.');
-        },
-        onError: (e) => Alert.alert('Error', getApiErrorMessage(e)),
-    });
+    return () => {
+        qc.invalidateQueries({ queryKey: ['shop', 'orders'] });
+        qc.invalidateQueries({ queryKey: ['shop', 'order'] });
+        qc.invalidateQueries({ queryKey: ['shop', 'product'] });
+        qc.invalidateQueries({ queryKey: ['shop', 'products'] });
+        qc.invalidateQueries({ queryKey: shopKeys.cart });
+    };
 }

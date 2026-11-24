@@ -22,6 +22,7 @@ export type AuditEntity =
     | 'integration'       // WhatsApp and other connections (whatsapp.service.ts); secrets never logged
     | 'travel'            // Travel planner: places, pickups and trip requests (travel.service.ts)
     | 'safety'            // Safety desk: SOS, reports, help, pauses (safety.service.ts)
+    | 'store_order'       // Store: staff fulfilling UniteFix's own orders (store.routes.ts)
     | 'employee'
     | 'user'
     | 'withdrawal'
