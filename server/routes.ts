@@ -85,6 +85,7 @@ import { registerHubConsultingRoutes } from "./routes/hub-consulting.routes";
 import { registerHubEventsRoutes } from "./routes/hub-events.routes";
 import { registerHubStoreRoutes } from "./routes/hub-store.routes";
 import { registerStoreRoutes } from "./routes/store.routes";
+import { registerPartnerPlatformRoutes } from "./routes/partner-platform.routes";
 import { registerHubAlertsRoutes } from "./routes/hub-alerts.routes";
 import { registerHubPayLinkRoutes } from "./routes/hub-pay-links.routes";
 import { registerHubConsignmentRoutes } from "./routes/hub-consignment.routes";
@@ -3436,6 +3437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerHubFieldRoutes(app); // Partner Hub: territories, technicians, rates, partner job queue
   registerHubConsultingRoutes(app); // Partner Hub: consulting services, availability, appointments, retainers; public booking
   registerHubEventsRoutes(app); // Partner Hub: events — enquiries, quotations, bookings, advances, vendors; public + app channel
+  registerPartnerPlatformRoutes(app); // Partners: identity checks (Cashfree + by hand), payout settings, requests, pay now
   registerStoreRoutes(app); // Store: catalogue, cart, stock holds, checkout, my orders; staff fulfil UniteFix's own orders
   registerHubStoreRoutes(app); // Partner Hub: selling products — listings, split orders, settlement, reviews (/api/store for customers)
   registerHubAlertsRoutes(app); // Partner Hub: alert feed (bell) and alert preferences

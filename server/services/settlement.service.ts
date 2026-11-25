@@ -60,7 +60,8 @@ export class SettlementService {
         return out;
     }
 
-    static async create(bpId: number, adminId: number, notes?: string | null) {
+    /** Draft a run. adminId is null when the schedule or an automatic request started it (origin says which). */
+    static async create(bpId: number, adminId: number | null, notes?: string | null, origin: 'staff' | 'schedule' | 'request' = 'staff') {
         const bp = await BusinessPartnerService.byId(bpId);
         if (!bp) throw new SettlementError('Partner not found', 'NOT_FOUND');
         const p = await this.position(bpId);
@@ -70,7 +71,7 @@ export class SettlementService {
             const [run] = await db.insert(settlementRuns).values({
                 runCode, businessPartnerId: bpId, status: 'draft',
                 ftthOwedPaise: p.ftthOwed, b2bBalancePaise: p.b2bBalance, offsetPaise: p.offset, payoutPaise: p.payout,
-                notes: notes ?? null, createdByAdminId: adminId,
+                notes: notes ?? null, createdByAdminId: adminId, origin,
             }).returning();
             return run;
         } catch (err: any) {
@@ -91,7 +92,7 @@ export class SettlementService {
      * Cashfree: the transfer is requested first (idempotent on the run code);
      * the ledgers are written only once Cashfree has accepted it.
      */
-    static async pay(runId: number, adminId: number, how: { method: 'manual'; reference: string } | { method: 'cashfree' }) {
+    static async pay(runId: number, adminId: number | null, how: { method: 'manual'; reference: string } | { method: 'cashfree' }) {
         const [run] = await db.select().from(settlementRuns).where(eq(settlementRuns.id, runId)).limit(1);
         if (!run) throw new SettlementError('Run not found', 'NOT_FOUND');
         if (run.status !== 'draft' && !(run.status === 'failed' && how.method === 'manual')) throw new SettlementError(`This run is ${run.status}.`, 'NOT_DRAFT');

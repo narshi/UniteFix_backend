@@ -46,6 +46,8 @@ export const VERTICAL_TO_MODULES: Record<string, HubModule[]> = {
     photography: ['portfolio', 'events'],
     // Local newspapers publish their editions to UniteFix readers.
     media: ['newsroom'],
+    // Home-made food, regional spices, dry fruits and nuts, sold through the Store.
+    food: ['marketplace'],
     other: [],
 };
 
@@ -123,6 +125,8 @@ export const DOC_TYPES: DocType[] = [
     { code: 'trade_licence', label: 'Trade licence', hint: 'Municipal trade licence, if your business holds one.', requiredFor: [], optionalFor: ['events', 'electronics', 'hall', 'photography'], hasExpiry: true },
     { code: 'rni_certificate', label: 'RNI / PRGI registration', hint: 'The registration of your newspaper with the Registrar of Newspapers (PRGI), if it is registered.', requiredFor: [], optionalFor: ['media'] },
     { code: 'fire_noc', label: 'Fire safety NOC', hint: 'From the fire department, for a hall that hosts large gatherings.', requiredFor: [], optionalFor: ['hall'], hasExpiry: true },
+    { code: 'fssai_licence', label: 'FSSAI registration or licence', hint: 'Your FSSAI registration (home kitchens and small sellers) or licence, with its 14-digit number. Shown on your listings and invoices.', requiredFor: ['food'], hasExpiry: true },
+    { code: 'kitchen_photo', label: 'Kitchen or packing area photo', hint: 'A clear photo of where the food is made or packed.', requiredFor: [], optionalFor: ['food'] },
     { code: 'professional_certificate', label: 'Professional certificate', hint: 'ICAI / ICSI / bar membership or similar, for regulated advice.', requiredFor: [], optionalFor: ['consultation'], hasExpiry: true },
 ];
 
@@ -213,7 +217,7 @@ export const AGREEMENTS: AgreementDoc[] = [
         ],
     },
     {
-        code: 'marketplace', version: '2026-10-v1', title: 'Store annex', appliesTo: ['electronics'],
+        code: 'marketplace', version: '2026-10-v1', title: 'Store annex', appliesTo: ['electronics', 'food'],
         sections: [
             ['Listings', 'Listings show the MRP, HSN code, country of origin and your return policy. The selling price never exceeds the MRP.'],
             ['Dispatch', 'Dispatch within 48 hours of an order. UniteFix may cancel orders not dispatched in 72 hours.'],
@@ -222,9 +226,49 @@ export const AGREEMENTS: AgreementDoc[] = [
     },
 ];
 
+AGREEMENTS.push({
+    code: 'food', version: '2026-11-v1', title: 'Food safety annex', appliesTo: ['food'],
+    sections: [
+        ['FSSAI', 'You hold a valid FSSAI registration or licence for what you sell, keep it renewed, and tell UniteFix if it lapses. Its number appears on your listings and invoices.'],
+        ['Labels', 'Every pack shows the product name, ingredients, allergens, net quantity, MRP, date of manufacture or packing, best-before date and your FSSAI number.'],
+        ['Shelf life', 'You do not ship food with less shelf life left at delivery than the food safety rules allow (at least 30% of it, or 45 days).'],
+        ['Hygiene and recalls', 'Food is made and packed hygienically. If a batch is unsafe you stop selling it at once and help UniteFix reach the customers who bought it.'],
+    ],
+});
+
 export function agreementsFor(verticals: string[]): AgreementDoc[] {
     return AGREEMENTS.filter(a => a.appliesTo.includes('*') || a.appliesTo.some(v => verticals.includes(v)));
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Identity checks — which each partner needs, and which can run automatically
+// (Cashfree Secure ID). Any check can also be done by hand by staff.
+// ────────────────────────────────────────────────────────────────────────
+
+export type CheckCode = 'pan' | 'gstin' | 'bank' | 'fssai' | 'driving_licence' | 'vehicle_rc';
+export const CHECK_CODES: CheckCode[] = ['pan', 'gstin', 'bank', 'fssai', 'driving_licence', 'vehicle_rc'];
+export const CHECK_LABEL: Record<CheckCode, string> = {
+    pan: 'PAN', gstin: 'GSTIN', bank: 'Bank account', fssai: 'FSSAI registration', driving_licence: 'Driving licence', vehicle_rc: 'Vehicle RC',
+};
+/** Checks Cashfree Secure ID can run. FSSAI has no lookup there: staff compare the certificate. */
+export const AUTOMATIC_CHECKS: CheckCode[] = ['pan', 'gstin', 'bank', 'driving_licence', 'vehicle_rc'];
+/** Required by vertical; '*' = everyone. GSTIN is required only when the partner gave one. */
+export const CHECKS_BY_VERTICAL: Record<string, CheckCode[]> = { '*': ['pan', 'bank'], food: ['fssai'] };
+
+export function checksFor(verticals: string[], hasGstin: boolean): CheckCode[] {
+    const set = new Set<CheckCode>(CHECKS_BY_VERTICAL['*']);
+    if (hasGstin) set.add('gstin');
+    for (const v of verticals) for (const c of CHECKS_BY_VERTICAL[v] ?? []) set.add(c);
+    return CHECK_CODES.filter(c => set.has(c));
+}
+
+/**
+ * Verticals whose applications the system may approve by itself once every
+ * required document, agreement and check has passed. A partner who also has
+ * any other vertical waits for staff.
+ */
+export const AUTO_APPROVE_VERTICALS: string[] = ['food'];
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GSTIN / PAN

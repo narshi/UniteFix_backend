@@ -23,6 +23,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import HubAdminPanel from "@/components/admin/HubAdminPanel";
+import PartnerChecksPanel from "@/components/admin/PartnerChecksPanel";
+import PartnerPayoutsPanel from "@/components/admin/PartnerPayoutsPanel";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 
 /** The partner's customer link and code: customers who use it book this partner. Shown on request. */
@@ -232,7 +234,7 @@ export default function BusinessPartnersPage() {
                                 <DialogDescription>{bp.legalName}{bp.gstin && ` · GSTIN ${bp.gstin}`} · {bp.contactPhone}{bp.contactEmail && ` · ${bp.contactEmail}`}</DialogDescription>
                             </DialogHeader>
                             <Tabs defaultValue="account">
-                                <TabsList><TabsTrigger value="account">Account</TabsTrigger><TabsTrigger value="hub">Hub &amp; KYC</TabsTrigger><TabsTrigger value="ledger">Transactions</TabsTrigger></TabsList>
+                                <TabsList><TabsTrigger value="account">Account</TabsTrigger><TabsTrigger value="hub">Hub &amp; KYC</TabsTrigger><TabsTrigger value="checks">Checks</TabsTrigger><TabsTrigger value="payouts">Payouts</TabsTrigger><TabsTrigger value="ledger">Transactions</TabsTrigger></TabsList>
 
                                 <TabsContent value="account" className="space-y-4">
                                     <div className="grid grid-cols-2 gap-3 text-sm">
@@ -278,6 +280,8 @@ export default function BusinessPartnersPage() {
                                 </TabsContent>
 
                                 <TabsContent value="hub"><HubAdminPanel partnerId={bp.id} /></TabsContent>
+                                <TabsContent value="checks"><PartnerChecksPanel partnerId={bp.id} /></TabsContent>
+                                <TabsContent value="payouts"><PartnerPayoutsPanel partnerId={bp.id} /></TabsContent>
 
                                 <TabsContent value="ledger" className="space-y-4">
                                     <div className="grid grid-cols-2 gap-3 text-sm">

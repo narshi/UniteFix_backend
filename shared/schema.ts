@@ -2536,8 +2536,18 @@ export const businessPartners = pgTable("business_partners", {
 
   approvedByAdminId: integer("approved_by_admin_id").references(() => adminUsers.id),
   approvedAt: timestamp("approved_at"),
+  /** Approved by the system because every check passed for a vertical that allows it. */
+  autoApprovedAt: timestamp("auto_approved_at"),
   rejectionReason: text("rejection_reason"),
   notes: text("notes"),
+  // ── Payouts: set per partner by staff (partner_platform_plan.md §2.5) ──
+  payoutSchedule: text("payout_schedule").notNull().default('weekly'),   // weekly | fortnightly | monthly | on_request
+  /** Paid by Cashfree without a person up to this amount; null = every payout needs staff approval. */
+  payoutAutoLimitPaise: integer("payout_auto_limit_paise"),
+  /** Below this nothing is drafted on schedule (a request can still ask for it). */
+  payoutMinPaise: integer("payout_min_paise").notNull().default(10000),
+  payoutsOnHold: boolean("payouts_on_hold").notNull().default(false),
+  payoutHoldReason: text("payout_hold_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -3043,6 +3053,45 @@ export const settlementRuns = pgTable("settlement_runs", {
   paidByAdminId: integer("paid_by_admin_id"),
   createdAt: timestamp("created_at").defaultNow(),
   paidAt: timestamp("paid_at"),
+  /** How the run started: staff | schedule | request. */
+  origin: text("origin").notNull().default('staff'),
+});
+
+/**
+ * Every identity check on a partner, automatic (Cashfree Secure ID) or by
+ * hand (staff, with a note and the document they compared). Append-only:
+ * the newest row per (partner, check) is the current result.
+ */
+export const partnerVerificationChecks = pgTable("partner_verification_checks", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  check: text("check").notNull(),            // pan | gstin | bank | fssai | driving_licence | vehicle_rc
+  subject: text("subject"),                  // the number checked, masked where sensitive
+  status: text("status").notNull(),          // verified | failed | needs_review | manual_required
+  method: text("method").notNull(),          // cashfree | manual
+  nameFound: text("name_found"),             // name the registry returned
+  nameMatch: text("name_match"),             // match | partial | mismatch
+  validUntil: text("valid_until"),           // yyyy-mm-dd, for licences
+  reference: text("reference"),              // provider reference id
+  detail: jsonb("detail"),                   // the useful part of the provider response (no secrets)
+  note: text("note"),
+  documentId: integer("document_id"),        // partner_documents row compared by hand
+  checkedByAdminId: integer("checked_by_admin_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({ bpCheckIdx: index("partner_checks_bp_check_idx").on(table.businessPartnerId, table.check, table.createdAt) }));
+
+/** A partner asks to be paid now (their schedule allows requests, or staff were asked). */
+export const partnerPayoutRequests = pgTable("partner_payout_requests", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  requestedByAdminUserId: integer("requested_by_admin_user_id"),
+  note: text("note"),
+  status: text("status").notNull().default('requested'),   // requested | paid | processing | declined | cancelled
+  settlementRunId: integer("settlement_run_id").references(() => settlementRuns.id),
+  decidedByAdminId: integer("decided_by_admin_id"),
+  decidedAt: timestamp("decided_at"),
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export type TaxDocument = typeof taxDocuments.$inferSelect;

@@ -319,6 +319,12 @@ export function registerPartnerHubRoutes(app: Express) {
             // hand (no automatic penny-drop), so it verifies the bank too. Where
             // money goes is a super-admin decision, as on "Mark verified".
             let message = status === 'verified' ? 'Document verified.' : 'Document rejected.';
+            // The FSSAI certificate is how FSSAI is checked (there is no lookup): reviewing it records the check.
+            if (doc.docType === 'fssai_licence') {
+                const { PartnerVerification } = await import('../services/partner-verification.service');
+                await PartnerVerification.recordManual(admin.userId, doc.businessPartnerId, 'fssai', { status: status === 'verified' ? 'verified' : 'failed', note: note && note.length >= 5 ? note : (status === 'verified' ? 'FSSAI certificate reviewed and accepted' : 'FSSAI certificate not accepted'), documentId: doc.id, validUntil: doc.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(doc.expiresAt) ? doc.expiresAt : null });
+                message += status === 'verified' ? ' FSSAI check recorded as verified.' : ' FSSAI check recorded as not verified.';
+            }
             if (status === 'verified' && doc.docType === 'bank_proof') {
                 const bp = await BusinessPartnerService.byId(doc.businessPartnerId);
                 if (!bp?.bankAccountNumber) {

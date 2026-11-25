@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { openAuthedPdf } from "@/lib/hub";
 import { ListSearch, useListSearch } from "@/components/admin/ListSearch";
+import PayoutQueue from "@/components/admin/PayoutQueue";
 
 type Work = { businessPartnerId: number; partnerCode: string; displayName: string; bankReady: boolean; ftthOwed: number; b2bBalance: number; offset: number; payout: number; openRun: { id: number; runCode: string; status: string } | null };
 type Run = { id: number; runCode: string; status: string; ftthOwed: number; b2bBalance: number; offset: number; payout: number; method: string | null; payoutReference: string | null; failureReason: string | null; createdAt: string; paidAt: string | null; partnerCode: string; displayName: string; businessPartnerId: number };
@@ -51,6 +52,7 @@ export default function PartnerSettlementsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Partner Settlements</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">Money UniteFix owes business partners — broadband recharges today; field service and store sales as those modules go live. Parts dues are offset on their own line; the rest is paid to the partner's verified bank account.</p>
       </div>
+      <PayoutQueue />
 
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-base font-medium">Due now</CardTitle></CardHeader>

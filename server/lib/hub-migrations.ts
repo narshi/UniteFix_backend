@@ -1791,6 +1791,55 @@ const BLOCKS: Array<[string, string]> = [
       CREATE INDEX IF NOT EXISTS store_reservations_checkout_idx ON store_stock_reservations(checkout_id);
       CREATE INDEX IF NOT EXISTS store_reservations_expiry_idx ON store_stock_reservations(expires_at) WHERE status = 'held';
     `],
+    // Partner platform: identity checks (Cashfree + by hand), payout settings per partner,
+    // payout requests, food sellers. New tables, new columns with defaults, one new vertical row.
+    ['partner platform: checks, payouts, food', `
+      CREATE TABLE IF NOT EXISTS partner_verification_checks (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        "check" TEXT NOT NULL,
+        subject TEXT,
+        status TEXT NOT NULL,
+        method TEXT NOT NULL,
+        name_found TEXT,
+        name_match TEXT,
+        valid_until TEXT,
+        reference TEXT,
+        detail JSONB,
+        note TEXT,
+        document_id INTEGER,
+        checked_by_admin_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS partner_checks_bp_check_idx ON partner_verification_checks(business_partner_id, "check", created_at);
+
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS auto_approved_at TIMESTAMP;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS payout_schedule TEXT NOT NULL DEFAULT 'weekly';
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS payout_auto_limit_paise INTEGER;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS payout_min_paise INTEGER NOT NULL DEFAULT 10000;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS payouts_on_hold BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS payout_hold_reason TEXT;
+      ALTER TABLE settlement_runs ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'staff';
+
+      CREATE TABLE IF NOT EXISTS partner_payout_requests (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        requested_by_admin_user_id INTEGER,
+        note TEXT,
+        status TEXT NOT NULL DEFAULT 'requested',
+        settlement_run_id INTEGER REFERENCES settlement_runs(id),
+        decided_by_admin_id INTEGER,
+        decided_at TIMESTAMP,
+        decision_note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      -- One open request per partner at a time.
+      CREATE UNIQUE INDEX IF NOT EXISTS partner_payout_requests_open_idx ON partner_payout_requests(business_partner_id) WHERE status = 'requested';
+
+      INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
+        ('food', 'Food & Groceries', 'Home-made food, regional spices, dry fruits and nuts, packed food', 100)
+      ON CONFLICT (code) DO NOTHING;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

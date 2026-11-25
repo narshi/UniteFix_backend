@@ -4,7 +4,8 @@
  * settlement with its statement; UniteFix's fee invoices; the full statement.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
@@ -28,6 +29,41 @@ const ENTRY: Record<string, string> = {
   online_collection: "Paid online by your customer", gateway_fee: "Online collection fee (with GST)", store_penalty: "Store penalty", booking_commission: "Booking commission (with GST)",
 };
 
+type Payouts = {
+  settings: { schedule: string; scheduleLabel: string; nextDue: string | null; onHold: boolean; holdReason: string | null };
+  owed: number; bankReady: boolean; bankLast4: string | null; openRequest: { id: number; at: string } | null;
+};
+
+/** When UniteFix pays this partner (set by UniteFix), and asking to be paid now. */
+function PayoutCard() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [note, setNote] = useState("");
+  const { data: p } = useQuery<Payouts>({ queryKey: ["/api/hub/payouts"], queryFn: async () => (await apiRequest("GET", "/api/hub/payouts")).data });
+  const ask = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/hub/payouts/request", { note: note.trim() || undefined }),
+    onSuccess: (r: any) => { toast({ title: r?.message ?? "Request sent" }); setNote(""); qc.invalidateQueries({ queryKey: ["/api/hub/payouts"] }); qc.invalidateQueries({ queryKey: ["/api/hub/money"] }); },
+    onError: (e) => toast({ title: "Not sent", description: apiErrorMessage(e), variant: "destructive" }),
+  });
+  if (!p) return null;
+  const blocked = p.settings.onHold ? `Payouts are on hold: ${p.settings.holdReason ?? "contact UniteFix"}.` : !p.bankReady ? "Your bank account is not verified yet." : p.owed <= 0 ? "Nothing is due to you right now." : p.openRequest ? "Your request is with UniteFix." : null;
+  return (
+    <Panel title="Payouts">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-white">{p.settings.scheduleLabel}</span>
+        {p.settings.nextDue && <span className="text-[hsl(215,20%,65%)]">· next on {new Date(p.settings.nextDue).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>}
+        {p.bankLast4 && <span className="text-[hsl(215,20%,65%)]">· to your account ending {p.bankLast4}</span>}
+        {p.openRequest && <Chip tone="warn">Requested</Chip>}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="Note for UniteFix (optional)" className="h-9 min-w-[220px] flex-1 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-3 text-sm text-white" disabled={!!blocked} />
+        <Button disabled={!!blocked || ask.isPending} onClick={() => ask.mutate()}>Ask to be paid {inr(p.owed)} now</Button>
+      </div>
+      {blocked && <p className="mt-2 text-xs text-[hsl(215,20%,60%)]">{blocked}</p>}
+    </Panel>
+  );
+}
+
 export default function HubMoney() {
   const { toast } = useToast();
   const { data: m, isLoading } = useQuery<Money>({ queryKey: ["/api/hub/money"], queryFn: async () => (await apiRequest("GET", "/api/hub/money")).data });
@@ -43,6 +79,8 @@ export default function HubMoney() {
         <Stat label="Next settlement" value={inr(m.nextPayout)} hint={m.offsetNext > 0 ? `after ${inr(m.offsetNext)} offset` : "paid weekly"} />
         <Stat label="Settlements so far" value={m.settlements.filter(s => s.status === "paid").length} />
       </div>
+
+      <PayoutCard />
 
       <Panel title="Settlements">
         {m.settlements.length === 0 ? <Empty icon="account_balance" title="No settlements yet" /> : (

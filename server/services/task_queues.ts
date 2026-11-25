@@ -767,6 +767,9 @@ export function startBackgroundJobs(): void {
     intervals.push(setInterval(() => { import('./store/checkout.service').then(m => m.StoreCheckout.expireHolds()).catch(e => logger.error('[JOBS] store hold expiry failed', { error: e?.message })); }, 60 * 1000));
     intervals.push(setInterval(() => { import('./store/checkout.service').then(async m => { await m.StoreCheckout.reconcile(); await m.StoreCheckout.backfillVouchers(); }).catch(e => logger.error('[JOBS] store reconcile failed', { error: e?.message })); }, 5 * 60 * 1000));
 
+    // Partner payouts on each partner's schedule (acts once a day per partner; idempotent).
+    intervals.push(setInterval(() => { import('./partner-payouts.service').then(m => m.PartnerPayouts.runScheduled()).catch(e => logger.error('[JOBS] partner payouts failed', { error: e?.message })); }, HOUR));
+
     // Run wallet release every hour
     intervals.push(setInterval(releaseHeldWalletFunds, HOUR));
     // Run initial check after 30 seconds (give server time to start)

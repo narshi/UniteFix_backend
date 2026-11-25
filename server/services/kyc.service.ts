@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 /**
  * KYC checks for business partners.
  *
@@ -26,6 +27,27 @@ function verificationBase(): string {
         : 'https://sandbox.cashfree.com/verification';
 }
 
+/**
+ * Headers for every Cashfree Secure ID call. Production Secure ID needs either
+ * the server's IP whitelisted or a signature; set CASHFREE_VERIFICATION_PUBLIC_KEY
+ * (the PEM from Secure ID → Developers → Two-Factor Authentication) and every
+ * call carries X-Cf-Signature: RSA-OAEP(clientId.epochSeconds), valid 5 minutes.
+ */
+export function secureIdHeaders(id: string, secret: string): Record<string, string> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json', 'x-client-id': id, 'x-client-secret': secret, 'x-api-version': '2024-12-01' };
+    const raw = process.env.CASHFREE_VERIFICATION_PUBLIC_KEY?.trim();
+    if (raw) {
+        try {
+            // Accept the PEM as pasted (real line breaks or "\n"), or just its base64 body.
+            const pem = raw.includes('BEGIN PUBLIC KEY') ? raw.replace(/\\n/g, '\n') : `-----BEGIN PUBLIC KEY-----\n${raw}\n-----END PUBLIC KEY-----`;
+            h['X-Cf-Signature'] = crypto.publicEncrypt({ key: pem, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING }, Buffer.from(`${id}.${Math.floor(Date.now() / 1000)}`)).toString('base64');
+        } catch (e: any) {
+            logger.error('[KYC] CASHFREE_VERIFICATION_PUBLIC_KEY could not be used to sign; calls go unsigned', { error: e?.message });
+        }
+    }
+    return h;
+}
+
 export async function verifyBankAccount(input: { accountNumber: string; ifsc: string; name?: string | null }): Promise<BankCheck> {
     const id = process.env.CASHFREE_VERIFICATION_CLIENT_ID;
     const secret = process.env.CASHFREE_VERIFICATION_CLIENT_SECRET;
@@ -38,7 +60,7 @@ export async function verifyBankAccount(input: { accountNumber: string; ifsc: st
     try {
         const res = await fetch(`${verificationBase()}/bank-account/sync`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-client-id': id, 'x-client-secret': secret },
+            headers: secureIdHeaders(id, secret),
             body: JSON.stringify({ bank_account: input.accountNumber, ifsc: input.ifsc.toUpperCase(), name: input.name ?? undefined }),
         });
         const body: any = await res.json().catch(() => ({}));

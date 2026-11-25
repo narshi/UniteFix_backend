@@ -381,6 +381,9 @@ export class PartnerHubService {
             throw new HubError(`Not ready yet — still needed: ${missing.join(', ')}.`, 'INCOMPLETE');
         }
         await db.update(businessPartners).set({ submittedAt: new Date(), updatedAt: new Date() }).where(eq(businessPartners.id, bpId));
+        // Identity checks start at once (Cashfree, where configured); a partner type that allows it
+        // is approved by the system when the last one passes. Never holds up the response.
+        void import('./partner-verification.service').then(m => m.PartnerVerification.runAll(bpId)).catch(e => logger.warn(`[VERIFY] checks after submit for #${bpId}: ${e?.message}`));
         return this.onboarding(bpId);
     }
 
