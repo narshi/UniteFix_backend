@@ -488,6 +488,10 @@ export class PartnerHubService {
             await db.update(adminUsers).set({ isActive: true, updatedAt: new Date() }).where(eq(adminUsers.id, bp.adminUserId));
         }
         const verticals = await BusinessPartnerService.verticalCodesOf(bpId);
+        if (verticals.includes('travel')) {
+            const { TravelPartnerHub } = await import('./travel-partner.service');
+            await TravelPartnerHub.cardFor(bpId).catch(e => logger.warn(`[HUB] travel card for #${bpId}: ${e?.message}`));
+        }
         let ftthOperatorId: number | null = null;
         if (verticals.includes('isp')) {
             const [existing] = await db.select({ id: ftthOperators.id }).from(ftthOperators).where(eq(ftthOperators.businessPartnerId, bpId)).limit(1);

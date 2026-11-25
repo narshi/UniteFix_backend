@@ -14,9 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, Phone, MessageCircle, Search } from "lucide-react";
 import { TRAVEL_PARTNER_KINDS, TRAVEL_PARTNER_KIND_LABEL, type TravelPartnerKind } from "@shared/travel";
+import TravelPartnerHubBox from "@/components/admin/TravelPartnerHubBox";
 
 type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; contactName: string | null; phone: string | null; notes: string | null; isActive: boolean;
-  score?: { avg: number; ratings: number; strikes: number; reports: number } | null; paidTotal?: number; paidTrips?: number };
+  score?: { avg: number; ratings: number; strikes: number; reports: number } | null; paidTotal?: number; paidTrips?: number; businessPartnerId?: number | null };
 type Region = { id: number; name: string };
 
 const field = "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white";
@@ -88,6 +89,7 @@ export default function TravelPartnersPage() {
               <div className="flex flex-wrap gap-1.5">{p.kinds.map((k) => <span key={k} className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-slate-300">{TRAVEL_PARTNER_KIND_LABEL[k] ?? k}</span>)}</div>
               {p.regionIds.length > 0 && <p className="text-xs text-slate-400">Serves {p.regionIds.map((r) => regionName[r] ?? "?").join(", ")}</p>}
               {p.notes && <p className="text-xs text-slate-500">{p.notes}</p>}
+              <TravelPartnerHubBox partner={p} onChange={refresh} />
               {p.phone && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <a className="inline-flex items-center gap-1 rounded-md border border-white/10 px-2.5 py-1 text-xs text-slate-200 hover:bg-white/5" href={`tel:+91${p.phone}`}><Phone className="h-3.5 w-3.5" /> {p.phone}</a>

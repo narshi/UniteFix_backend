@@ -16,15 +16,25 @@ _Drafted 2026-11-25 from the current code._
 > - Screens: Admin → Business Partners → **Checks** and **Payouts** tabs; Partner Settlements → approval queue; the partner's Hub → Money → **Payouts**.
 > - Tests: `npx tsx scripts/smoke-partner-platform.ts` (35 checks).
 >
+> **Built (2026-11-25), travel module:**
+> - A "Travel" partner type and Hub module.
+> - A Hub account takes over the travel card staff already keep (matched by phone, or linked by partner code), with its history.
+> - A fleet of drivers (licence) and vehicles (RC, insurance, permit), checked through Cashfree or by staff.
+> - Prices staff ask for are answered in the Hub.
+> - Assignments are accepted or declined in the Hub and filled only with checked, current drivers and vehicles that have enough seats; the partner forwards the driver's trip link.
+> - The agreed pay goes onto the partner's statement once, when the trip ends, and is paid on their payout schedule. Paying the same partner by hand on the trip is blocked.
+> - Tests: `npx tsx scripts/smoke-travel-partners.ts` (34 checks).
+>
 > **Next, in order:**
 > 1. Approval per partner type (`partner_verticals` status).
 > 2. The partner-type registry.
 > 3. Seller GST types, for unregistered home cooks.
-> 4. The travel module and travel partner accounts.
-> 5. Document expiry jobs.
-> 6. Gateway split settlement.
-> 7. Partner 360 and work queues.
-> 8. Technicians moved to partner accounts.
+> 4. Travel and other Hub modules in the mobile app's business-partner mode (the Hub is web-only today).
+> 5. Document and fleet expiry jobs.
+> 6. TDS on travel payouts (section 194C; **VERIFY with CA**).
+> 7. Gateway split settlement.
+> 8. Partner 360 and work queues.
+> 9. Technicians moved to partner accounts.
 
 ## 1. Where you are today
 

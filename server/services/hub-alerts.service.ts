@@ -19,12 +19,14 @@ export type AlertKind =
     | 'job_new' | 'job_overdue' | 'job_assigned' | 'warranty_claim'
     | 'enquiry_new' | 'quote_accepted' | 'quote_declined' | 'booking_request'
     | 'store_order' | 'store_return' | 'listing_reviewed' | 'store_penalty'
-    | 'payment_received' | 'settlement_paid' | 'territory_reviewed' | 'rate_reviewed' | 'application_approved' | 'review_new' | 'news_plan' | 'payout_request_declined';
+    | 'payment_received' | 'settlement_paid' | 'territory_reviewed' | 'rate_reviewed' | 'application_approved' | 'review_new' | 'news_plan' | 'payout_request_declined' | 'travel_price_request' | 'travel_assignment';
 
 /** Who on the team needs each kind, and whether it is worth a text message. */
 const KIND: Record<AlertKind, { perm: HubPermission | null; urgent?: boolean }> = {
     job_new: { perm: 'ops:view', urgent: true },
     payout_request_declined: { perm: 'money:view' },
+    travel_price_request: { perm: 'ops:view' },
+    travel_assignment: { perm: 'ops:view', urgent: true },
     job_overdue: { perm: 'ops:view', urgent: true },
     job_assigned: { perm: 'ops:view' },
     warranty_claim: { perm: 'ops:view', urgent: true },

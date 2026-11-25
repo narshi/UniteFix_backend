@@ -18,15 +18,15 @@ export type HubModule =
     // every partner
     | 'home' | 'onboarding' | 'team' | 'customers' | 'sales' | 'purchases' | 'money' | 'gst' | 'docs'
     // by vertical
-    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace' | 'venue' | 'portfolio' | 'newsroom';
+    | 'broadband' | 'field' | 'parts' | 'consulting' | 'events' | 'marketplace' | 'venue' | 'portfolio' | 'newsroom' | 'travel';
 
 export const CORE_MODULES: HubModule[] = ['home', 'onboarding', 'team', 'customers', 'sales', 'purchases', 'money', 'gst', 'docs'];
-export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace', 'venue', 'portfolio', 'newsroom'];
+export const VERTICAL_MODULES: HubModule[] = ['broadband', 'field', 'parts', 'consulting', 'events', 'marketplace', 'venue', 'portfolio', 'newsroom', 'travel'];
 
 export const MODULE_LABEL: Record<HubModule, string> = {
     home: 'Home', onboarding: 'Onboarding', team: 'Team', customers: 'Customers', sales: 'Sales', purchases: 'Purchases',
     money: 'Money', gst: 'GST desk', docs: 'Documents', broadband: 'Broadband', field: 'Field service', parts: 'Parts',
-    consulting: 'Consulting', events: 'Events', marketplace: 'Store', venue: 'Venue', portfolio: 'Portfolio', newsroom: 'Newsroom',
+    consulting: 'Consulting', events: 'Events', marketplace: 'Store', venue: 'Venue', portfolio: 'Portfolio', newsroom: 'Newsroom', travel: 'Travel',
 };
 
 /** What each vertical switches on. A partner with several verticals gets the union. */
@@ -48,6 +48,8 @@ export const VERTICAL_TO_MODULES: Record<string, HubModule[]> = {
     media: ['newsroom'],
     // Home-made food, regional spices, dry fruits and nuts, sold through the Store.
     food: ['marketplace'],
+    // Cabs, stays, guides and activities: UniteFix sells the trip and assigns the work to them.
+    travel: ['travel'],
     other: [],
 };
 
@@ -127,6 +129,8 @@ export const DOC_TYPES: DocType[] = [
     { code: 'fire_noc', label: 'Fire safety NOC', hint: 'From the fire department, for a hall that hosts large gatherings.', requiredFor: [], optionalFor: ['hall'], hasExpiry: true },
     { code: 'fssai_licence', label: 'FSSAI registration or licence', hint: 'Your FSSAI registration (home kitchens and small sellers) or licence, with its 14-digit number. Shown on your listings and invoices.', requiredFor: ['food'], hasExpiry: true },
     { code: 'kitchen_photo', label: 'Kitchen or packing area photo', hint: 'A clear photo of where the food is made or packed.', requiredFor: [], optionalFor: ['food'] },
+    { code: 'tourist_permit', label: 'Tourist or contract-carriage permit', hint: 'For each vehicle that carries paying passengers. Upload one per vehicle, or the fleet permit.', requiredFor: [], optionalFor: ['travel'], hasExpiry: true },
+    { code: 'passenger_insurance', label: 'Vehicle insurance covering passengers', hint: 'The policy schedule showing passenger cover.', requiredFor: [], optionalFor: ['travel'], hasExpiry: true },
     { code: 'professional_certificate', label: 'Professional certificate', hint: 'ICAI / ICSI / bar membership or similar, for regulated advice.', requiredFor: [], optionalFor: ['consultation'], hasExpiry: true },
 ];
 
@@ -233,6 +237,17 @@ AGREEMENTS.push({
         ['Labels', 'Every pack shows the product name, ingredients, allergens, net quantity, MRP, date of manufacture or packing, best-before date and your FSSAI number.'],
         ['Shelf life', 'You do not ship food with less shelf life left at delivery than the food safety rules allow (at least 30% of it, or 45 days).'],
         ['Hygiene and recalls', 'Food is made and packed hygienically. If a batch is unsafe you stop selling it at once and help UniteFix reach the customers who bought it.'],
+    ],
+});
+
+AGREEMENTS.push({
+    code: 'travel', version: '2026-11-v1', title: 'Travel annex', appliesTo: ['travel'],
+    sections: [
+        ['How work comes to you', 'UniteFix sells the trip to the traveller and assigns parts of it to you: a cab, a stay, a guide or an activity, at the price agreed with you. You accept or decline each assignment in your Hub.'],
+        ['Drivers and vehicles', 'Only drivers and vehicles in your Hub fleet, checked by UniteFix, may be put on a trip: a valid driving licence, and a vehicle with valid registration, insurance covering passengers and the permit its use needs. Keep them current.'],
+        ['On the road', 'Drivers use the trip link UniteFix gives you: they start the trip with the traveller\'s pickup code and share their location while driving. Travellers can raise an SOS; you help UniteFix\'s safety desk at once.'],
+        ['Pay', 'The agreed amount is added to your statement when the trip ends and paid on your payout schedule. UniteFix deducts tax at source where the law requires and gives you the certificate.'],
+        ['Customers', 'Travellers booked through UniteFix are UniteFix\'s customers. You do not contact them except about the trip, and do not take bookings from them directly for the same trip.'],
     ],
 });
 

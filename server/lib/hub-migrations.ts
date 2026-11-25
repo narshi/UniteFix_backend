@@ -1840,6 +1840,46 @@ const BLOCKS: Array<[string, string]> = [
         ('food', 'Food & Groceries', 'Home-made food, regional spices, dry fruits and nuts, packed food', 100)
       ON CONFLICT (code) DO NOTHING;
     `],
+    // Travel partners in the Hub. The ledger value in a block of its own (ALTER TYPE … ADD VALUE).
+    ['travel: ledger type travel_job', `ALTER TYPE bp_ledger_entry_type ADD VALUE IF NOT EXISTS 'travel_job';`],
+    ['travel: partners in the Hub, fleet, assignments', `
+      ALTER TABLE travel_partners ADD COLUMN IF NOT EXISTS business_partner_id INTEGER UNIQUE REFERENCES business_partners(id);
+      ALTER TABLE travel_trip_quotes ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
+      ALTER TABLE travel_trip_quotes ADD COLUMN IF NOT EXISTS responded_by_admin_user_id INTEGER;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS partner_status TEXT;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS partner_responded_at TIMESTAMP;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS partner_decline_reason TEXT;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS partner_amount INTEGER;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS earning_posted_at TIMESTAMP;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS fleet_driver_id INTEGER;
+      ALTER TABLE travel_trip_team ADD COLUMN IF NOT EXISTS fleet_vehicle_id INTEGER;
+      CREATE INDEX IF NOT EXISTS travel_trip_team_partner_idx ON travel_trip_team(partner_id);
+      CREATE TABLE IF NOT EXISTS travel_fleet_drivers (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        name TEXT NOT NULL, phone TEXT NOT NULL, photo_url TEXT,
+        dl_number TEXT NOT NULL, dob TEXT,
+        dl_status TEXT NOT NULL DEFAULT 'unverified', dl_valid_until TEXT, dl_name_at_rto TEXT,
+        dl_checked_at TIMESTAMP, dl_check_method TEXT, dl_check_note TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_fleet_drivers_bp_idx ON travel_fleet_drivers(business_partner_id);
+      CREATE TABLE IF NOT EXISTS travel_fleet_vehicles (
+        id SERIAL PRIMARY KEY,
+        business_partner_id INTEGER NOT NULL REFERENCES business_partners(id) ON DELETE CASCADE,
+        reg_no TEXT NOT NULL, model TEXT NOT NULL, seats INTEGER NOT NULL,
+        rc_status TEXT NOT NULL DEFAULT 'unverified', rc_valid_until TEXT, insurance_upto TEXT, permit_upto TEXT, rc_owner TEXT,
+        rc_checked_at TIMESTAMP, rc_check_method TEXT, rc_check_note TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS travel_fleet_vehicles_bp_idx ON travel_fleet_vehicles(business_partner_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS travel_fleet_vehicles_bp_reg_idx ON travel_fleet_vehicles(business_partner_id, reg_no);
+      INSERT INTO partner_verticals (code, name, description, sort_order) VALUES
+        ('travel', 'Travel', 'Cab and tempo operators, hotels and homestays, guides, boating and adventure activities', 110)
+      ON CONFLICT (code) DO NOTHING;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

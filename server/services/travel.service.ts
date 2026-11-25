@@ -102,6 +102,8 @@ const OPEN: TripStatus[] = ['new', 'assigned', 'contacted', 'quoted'];
 const SETTINGS_KEY = 'travel';
 const publicBase = () => (process.env.PUBLIC_API_URL || process.env.PUBLIC_APP_URL || 'https://unitefix-backend.onrender.com').replace(/\/$/, '');
 const driverLink = (t: string) => `${publicBase()}/api/travel/driver/${t}`;
+/** The driver's trip link (shared with a travel partner's Hub so they can forward it). */
+export const driverLinkFor = driverLink;
 /** Payment links are faked in tests and local runs (never in production), as for call bookings. */
 const mockLinks = () => process.env.PAYMENT_LINKS_MOCK === '1' && process.env.NODE_ENV !== 'production';
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -122,6 +124,8 @@ const teamInput = z.object({
     time: hhmm.nullish().or(z.literal('').transform(() => null)),
     docs: z.object({ licence: z.boolean().optional(), rc: z.boolean().optional(), photo: z.boolean().optional() }).default({}),
     docOverride: z.string().trim().max(300).nullish(),
+    /** What UniteFix pays the partner for this assignment, rupees (paid through their statement when they have a Hub account). */
+    partnerAmount: z.number().int().min(0).max(10_000_000).nullish(),
 });
 
 const partnerInput = z.object({
@@ -628,6 +632,15 @@ export class TravelService {
             tripId, source: b.source, partnerId: b.source === 'partner' ? b.partnerId! : null, label, covers: b.covers ?? null,
             amount: b.amount ?? null, status: b.status ?? (b.amount != null ? 'quoted' : 'asked'), note: b.note ?? null, createdBy: adminId,
         }).returning();
+        if (row.status === 'asked' && row.partnerId) {
+            const { TravelPartnerHub } = await import('./travel-partner.service');
+            const bp = await TravelPartnerHub.bpOfCard(row.partnerId);
+            if (bp) {
+                const [trip] = await db.select().from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
+                const { HubAlerts } = await import('./hub-alerts.service');
+                void HubAlerts.send(bp, 'travel_price_request', { title: `Price wanted for trip ${trip?.code ?? ''}`, body: `${(trip?.adults ?? 0) + (trip?.children ?? 0)} people, ${trip?.days ?? '?'} days from ${trip?.startDate ?? 'soon'}${b.covers ? `: ${b.covers}` : ''}. Send your price in the Hub.`, link: '/partner/travel', refType: 'travel_quote', refId: row.id }).catch(() => null);
+            }
+        }
         return row;
     }
     static async updateQuote(adminId: number, tripId: number, quoteId: number, body: unknown) {
@@ -744,6 +757,7 @@ export class TravelService {
         const prev = memberId ? (await db.select().from(travelTripTeam).where(and(eq(travelTripTeam.id, memberId), eq(travelTripTeam.tripId, tripId))).limit(1))[0] : null;
         if (memberId && !prev) throw new TravelError('Not found.', 404);
         const m = { ...(prev ?? {}), ...b } as any;
+        let hubBp: number | null = null;
         if (m.source === 'own') {
             if (!m.employeeId) throw new TravelError('Choose which of our experts.');
             const [e] = await db.select({ name: employees.fullName, active: employees.isActive, status: employees.documentVerificationStatus, phone: users.phone, photo: users.profilePicture })
@@ -752,6 +766,13 @@ export class TravelService {
             if (!e.active || e.status !== 'verified') throw new TravelError(`${e.name} is not active and verified, so they cannot be put on a trip.`);
             m.name = e.name; m.phone = String(e.phone ?? '').slice(-10) || null; m.photoUrl = e.photo ?? null; m.partnerId = null;
         } else {
+            // A partner with a Hub account accepts in the Hub and puts their own checked driver and vehicle on it.
+            const { TravelPartnerHub } = await import('./travel-partner.service');
+            hubBp = m.partnerId ? await TravelPartnerHub.bpOfCard(m.partnerId) : null;
+            if (hubBp && !m.name?.trim()) {
+                const [card] = await db.select({ name: travelPartners.name }).from(travelPartners).where(eq(travelPartners.id, m.partnerId)).limit(1);
+                m.name = `${card?.name ?? 'Partner'} (to confirm)`;
+            }
             if (!m.name?.trim()) throw new TravelError('Who is it? Add their name.');
             m.employeeId = null;
             if (m.phone) {
@@ -762,7 +783,7 @@ export class TravelService {
                 const flag = await SafetyService.phoneFlag(p);
                 if (flag) throw new TravelError(`This person has a safety case (${flag}) and cannot be put on a trip until it is closed.`);
             }
-            if (m.role === 'driver') {
+            if (m.role === 'driver' && !(hubBp && !m.fleetDriverId && !b.name)) {
                 const d = m.docs ?? {};
                 if (!(d.licence && d.rc && d.photo) && !(m.docOverride && m.docOverride.trim().length >= 5)) {
                     throw new TravelError("A partner's driver needs licence, RC and photo checked. If you assign them anyway, write why.");
@@ -775,10 +796,19 @@ export class TravelService {
             name: String(m.name).trim(), phone: m.phone ?? null, photoUrl: m.photoUrl ?? null, vehicle: m.vehicle ?? null,
             plate: m.plate ? String(m.plate).toUpperCase() : null, place: m.place ?? null, time: m.time ?? null, docs: m.docs ?? {}, docOverride: m.docOverride ?? null,
             driverToken: m.role === 'driver' ? (prev?.driverToken ?? randomBytes(16).toString('base64url')) : null, updatedAt: new Date(),
+            partnerAmount: m.partnerAmount ?? null,
+            // Offered to a Hub partner until they accept; a new partner on the row is a new offer.
+            ...(hubBp && (!prev || prev.partnerId !== m.partnerId) ? { partnerStatus: 'offered', partnerRespondedAt: null, partnerDeclineReason: null, fleetDriverId: null, fleetVehicleId: null } : {}),
+            ...(!hubBp ? { partnerStatus: null } : {}),
         };
         const [row] = memberId
             ? await db.update(travelTripTeam).set(values as any).where(eq(travelTripTeam.id, memberId)).returning()
             : await db.insert(travelTripTeam).values({ ...values, createdBy: adminId } as any).returning();
+        if (hubBp && row.partnerStatus === 'offered' && (!prev || prev.partnerId !== row.partnerId)) {
+            const { HubAlerts } = await import('./hub-alerts.service');
+            const what = { driver: 'cab', stay: 'stay', guide: 'guide', activity: 'activity' }[row.role as string] ?? row.role;
+            void HubAlerts.send(hubBp, 'travel_assignment', { title: `New ${what} for trip ${t.code}`, body: `${t.adults + t.children} people from ${t.startDate ?? 'soon'}${row.day ? `, day ${row.day}` : ''}${row.partnerAmount ? `, ₹${row.partnerAmount.toLocaleString('en-IN')}` : ''}. Accept it in your Hub.`, link: '/partner/travel', refType: 'travel_team', refId: row.id }).catch(() => null);
+        }
         await recordAudit({ entityType: 'travel', entityId: tripId, action: memberId ? 'travel_team_updated' : 'travel_team_added', changedBy: adminId, metadata: { code: t.code, role: row.role, name: row.name, verified: this.teamVerified(row), override: row.docOverride ?? null } });
         return { ...row, verified: this.teamVerified(row), driverLink: row.driverToken ? driverLink(row.driverToken) : null };
     }
@@ -805,6 +835,7 @@ export class TravelService {
         const [row] = await db.update(travelTrips).set({ status: 'completed', endedAt: new Date(), updatedAt: new Date() }).where(eq(travelTrips.id, t.id)).returning();
         await recordAudit({ entityType: 'travel', entityId: t.id, action: 'travel_trip_completed', fromState: 'started', toState: 'completed', metadata: { code: t.code, by } });
         void TripLiveService.askForRating(t.id);
+        void import('./travel-partner.service').then(m => m.TravelPartnerHub.postEarnings(t.id)).catch(e => logger.error(`[TRAVEL] partner earnings for ${t.code}: ${e?.message}`));
         return row;
     }
 

@@ -37,6 +37,7 @@ import { HubConsultServices, HubConsultCalendar, HubConsultAppointments, HubCons
 import { HubEventEnquiries, HubEventQuotations, HubEventBookings, HubEventBookingDetail, HubEventPackages, HubEventVendors, HubEventCalendar } from "@/pages/hub/events";
 import { HubEventShowcase } from "@/pages/hub/events-showcase";
 import { HubStoreListings, HubStoreOrders, HubStoreReviews } from "@/pages/hub/store";
+import { HubTravelTrips, HubTravelFleet } from "@/pages/hub/travel";
 import { HubVenuePage, HubVenueSpaces, HubVenueCalendar, HubVenueRequests, HubReviews } from "@/pages/hub/venue";
 import { HubPortfolioPage, HubPortfolioAlbums, HubPortfolioAlbum, HubPortfolioDates } from "@/pages/hub/portfolio";
 import { HubNewsPaper, HubNewsEditions, HubNewsPlan } from "@/pages/hub/news";
@@ -115,6 +116,10 @@ export const HUB_ENTRIES: HubEntry[] = [
   { path: "/partner/news/editions", component: HubNewsEditions, module: "newsroom", perm: "ops:view", nav: { group: "Newsroom", label: "Editions", icon: "upload_file" } },
   { path: "/partner/news/plan", component: HubNewsPlan, module: "newsroom", perm: "money:view", nav: { group: "Newsroom", label: "Archive plan", icon: "inventory_2" } },
   { path: "/partner/reviews", component: HubReviews, module: "venue", anyModule: ["venue", "portfolio", "events"], perm: "ops:view", nav: { group: "Customers", label: "Reviews", icon: "reviews" } },
+
+  // Travel partners: trips UniteFix assigns, prices it asks for, and the checked fleet.
+  { path: "/partner/travel", component: HubTravelTrips, module: "travel", perm: "ops:view", nav: { group: "Travel", label: "Trips", icon: "directions_car" } },
+  { path: "/partner/travel/fleet", component: HubTravelFleet, module: "travel", perm: "ops:view", nav: { group: "Travel", label: "Fleet & services", icon: "badge" } },
 
   // Phase 7 — selling products in the UniteFix store.
   { path: "/partner/store/listings", component: HubStoreListings, module: "marketplace", perm: "ops:view", nav: { group: "Store", label: "Listings", icon: "storefront" } },

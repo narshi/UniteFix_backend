@@ -121,6 +121,36 @@ async function secureId(path: string, payload: Record<string, unknown>): Promise
     }
 }
 
+/** What a driving licence or vehicle RC answer means: valid, expired, or valid with lapsed insurance or permit. */
+function readLicenceOrRc(check: 'driving_licence' | 'vehicle_rc', b: any) {
+    const valid = /^VALID$/i.test(String(b?.status ?? '')) || b?.valid === true;
+    const nameFound: string | null = b?.details_of_driving_licence?.name ?? b?.owner ?? b?.owner_name ?? b?.name ?? null;
+    const validUntil = check === 'driving_licence' ? findDate(b, /valid|expir|upto/i) : findDate(b, /rc_expiry|reg_upto|fit_up_to|expiry/i);
+    const insuranceUpto = check === 'vehicle_rc' ? findDate(b, /insurance/i) : null;
+    const permitUpto = check === 'vehicle_rc' ? findDate(b, /permit/i) : null;
+    const detail: Record<string, unknown> = check === 'vehicle_rc' ? { insuranceUpto, permitUpto, vehicleClass: b?.class ?? b?.vehicle_class ?? null } : { classes: b?.details_of_driving_licence?.cov_details ?? null };
+    const today = new Date().toISOString().slice(0, 10);
+    const expired = !!validUntil && validUntil < today;
+    let status: Outcome = !valid ? 'failed' : expired ? 'failed' : 'verified';
+    const note: string | null = !valid ? String(b?.message ?? 'Not found or not valid.') : expired ? `Expired on ${validUntil}.`
+        : insuranceUpto && insuranceUpto < today ? `Insurance expired on ${insuranceUpto}.` : permitUpto && permitUpto < today ? `Permit expired on ${permitUpto}.` : null;
+    if (status === 'verified' && note) status = 'needs_review';
+    return { status, nameFound, validUntil, insuranceUpto, permitUpto, note, detail, reference: b?.reference_id != null ? String(b.reference_id) : null };
+}
+
+/**
+ * Check a driver's licence or a vehicle's RC through Cashfree, for a travel
+ * partner's fleet. Returns the reading, or why it could not run.
+ */
+export async function lookupLicenceOrRc(check: 'driving_licence' | 'vehicle_rc', number: string, dob?: string | null) {
+    const n = number.replace(/[\s-]/g, '').toUpperCase();
+    const vid = `fleet-${check}-${Date.now().toString(36)}`;
+    const r = await secureId(check === 'driving_licence' ? '/driving-license' : '/vehicle-rc', check === 'driving_licence' ? { dl_number: n, dob, verification_id: vid } : { vehicle_number: n, verification_id: vid });
+    if (r.kind === 'unavailable') return { kind: 'unavailable' as const, reason: r.reason, note: UNAVAILABLE_NOTE[r.reason] ?? 'The automatic check could not run.' };
+    if (r.kind === 'rejected') return { kind: 'answer' as const, status: 'failed' as Outcome, nameFound: null, validUntil: null, insuranceUpto: null, permitUpto: null, note: String(r.body?.message ?? 'The registry did not accept this number.').slice(0, 300), detail: {}, reference: null };
+    return { kind: 'answer' as const, ...readLicenceOrRc(check, r.body) };
+}
+
 const UNAVAILABLE_NOTE: Record<string, string> = {
     not_configured: 'Automatic checks are not set up (Cashfree verification keys are missing). Check it by hand.',
     keys_refused: 'Cashfree refused the verification keys. Check the keys in the server settings, or check it by hand.',
@@ -230,16 +260,9 @@ export class PartnerVerification {
             status = !valid || !active ? 'failed' : nameMatch === 'mismatch' ? 'needs_review' : 'verified';
             note = !valid ? String(b?.message ?? 'GSTIN not found.') : !active ? `The GSTIN is ${gstStatus}, not active.` : nameMatch === 'mismatch' ? `The GSTIN is registered to "${nameFound}", not ${bp.legalName}.` : null;
         } else {
-            const valid = /^VALID$/i.test(String(b?.status ?? '')) || b?.valid === true;
-            nameFound = b?.details_of_driving_licence?.name ?? b?.owner ?? b?.owner_name ?? b?.name ?? null;
-            validUntil = check === 'driving_licence' ? findDate(b, /valid|expir|upto/i) : findDate(b, /rc_expiry|reg_upto|fit_up_to|expiry/i);
-            const insuranceUpto = check === 'vehicle_rc' ? findDate(b, /insurance/i) : null;
-            detail = check === 'vehicle_rc' ? { insuranceUpto, permitUpto: findDate(b, /permit/i), vehicleClass: b?.class ?? b?.vehicle_class ?? null } : { classes: b?.details_of_driving_licence?.cov_details ?? null };
-            const today = new Date().toISOString().slice(0, 10);
-            const expired = !!validUntil && validUntil < today;
-            status = !valid ? 'failed' : expired ? 'failed' : 'verified';
-            note = !valid ? String(b?.message ?? 'Not found or not valid.') : expired ? `Expired on ${validUntil}.` : (check === 'vehicle_rc' && insuranceUpto && insuranceUpto < today) ? `Insurance expired on ${insuranceUpto}.` : null;
-            if (status === 'verified' && note) status = 'needs_review';
+            const x = readLicenceOrRc(check as 'driving_licence' | 'vehicle_rc', b);
+            ({ status, nameFound, validUntil, note } = x);
+            detail = x.detail;
         }
 
         const c = await this.record(bpId, { check, subject, status, method: 'cashfree', nameFound, nameMatch, validUntil, reference, detail, note: note?.slice(0, 300) ?? null, checkedByAdminId: by });

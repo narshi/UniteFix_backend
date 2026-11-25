@@ -317,6 +317,10 @@ export class TripLiveService {
         }), body);
         const [t] = await db.select({ id: travelTrips.id, code: travelTrips.code }).from(travelTrips).where(eq(travelTrips.id, tripId)).limit(1);
         if (!t) throw new TripLiveError('Trip not found.', 404);
+        const { TravelPartnerHub } = await import('./travel-partner.service');
+        if (await TravelPartnerHub.paidThroughHub(b.partnerId)) {
+            throw new TripLiveError('This partner has a Hub account: their agreed pay goes on their statement when the trip ends and is paid through Partner Settlements. Recording it here would pay them twice.', 409);
+        }
         const [row] = await db.insert(travelTripPayouts).values({ tripId, partnerId: b.partnerId ?? null, teamMemberId: b.teamMemberId ?? null, payee: b.payee, amount: b.amount, method: b.method, reference: b.reference ?? null, note: b.note ?? null, paidOn: b.paidOn ?? istToday(), createdBy: adminId }).returning();
         await recordAudit({ entityType: 'travel', entityId: tripId, action: 'travel_payout_recorded', changedBy: adminId, metadata: { code: t.code, payee: b.payee, amount: b.amount, method: b.method, reference: b.reference ?? null } });
         return row;

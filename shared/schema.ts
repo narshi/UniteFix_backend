@@ -2841,6 +2841,7 @@ export const bpLedgerEntryTypeEnum = pgEnum('bp_ledger_entry_type', [
   'store_penalty',          // a store order dispatched late or cancelled by the seller, +
   'consignment_sale',       // the partner's consigned parts UniteFix drew from its warehouse (payout, GST on the monthly invoice), −
   'booking_commission',     // Celebrations: UniteFix commission + GST on a hall / photography booking made through UniteFix, +
+  'travel_job',             // Travel: what UniteFix pays a travel partner for an assignment on a finished trip, −
 ]);
 
 /**
@@ -4286,10 +4287,52 @@ export const travelPartners = pgTable("travel_partners", {
   phone: text("phone"),
   notes: text("notes"),
   isActive: boolean("is_active").notNull().default(true),
+  /** Their Partner Hub account, once they have one: price requests, assignments, fleet and pay go through it. */
+  businessPartnerId: integer("business_partner_id").unique().references(() => businessPartners.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 export type TravelPartner = typeof travelPartners.$inferSelect;
+
+/** A travel partner's drivers. The licence is checked (Cashfree or staff) before a driver can take a trip. */
+export const travelFleetDrivers = pgTable("travel_fleet_drivers", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  photoUrl: text("photo_url"),
+  dlNumber: text("dl_number").notNull(),
+  dob: text("dob"),                                             // yyyy-mm-dd, needed for the licence check
+  dlStatus: text("dl_status").notNull().default('unverified'),  // unverified | verified | failed | needs_review
+  dlValidUntil: text("dl_valid_until"),
+  dlNameAtRto: text("dl_name_at_rto"),
+  dlCheckedAt: timestamp("dl_checked_at"),
+  dlCheckMethod: text("dl_check_method"),                       // cashfree | manual
+  dlCheckNote: text("dl_check_note"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({ bpIdx: index("travel_fleet_drivers_bp_idx").on(t.businessPartnerId) }));
+
+/** A travel partner's vehicles. RC, insurance and permit are checked before a vehicle can take a trip. */
+export const travelFleetVehicles = pgTable("travel_fleet_vehicles", {
+  id: serial("id").primaryKey(),
+  businessPartnerId: integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: 'cascade' }),
+  regNo: text("reg_no").notNull(),
+  model: text("model").notNull(),                               // "Innova Crysta, white"
+  seats: integer("seats").notNull(),                            // passengers, not counting the driver
+  rcStatus: text("rc_status").notNull().default('unverified'),  // unverified | verified | failed | needs_review
+  rcValidUntil: text("rc_valid_until"),
+  insuranceUpto: text("insurance_upto"),
+  permitUpto: text("permit_upto"),
+  rcOwner: text("rc_owner"),
+  rcCheckedAt: timestamp("rc_checked_at"),
+  rcCheckMethod: text("rc_check_method"),
+  rcCheckNote: text("rc_check_note"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({ bpIdx: index("travel_fleet_vehicles_bp_idx").on(t.businessPartnerId), regIdx: uniqueIndex("travel_fleet_vehicles_bp_reg_idx").on(t.businessPartnerId, t.regNo) }));
 
 /** One supplier price for a trip: our own team or a travel partner. */
 export const travelTripQuotes = pgTable("travel_trip_quotes", {
@@ -4303,6 +4346,9 @@ export const travelTripQuotes = pgTable("travel_trip_quotes", {
   status: text("status").notNull().default('asked'),           // asked | quoted | declined
   note: text("note"),
   createdBy: integer("created_by"),
+  /** The partner answered in their Hub (rather than staff typing in a phone quote). */
+  respondedAt: timestamp("responded_at"),
+  respondedByAdminUserId: integer("responded_by_admin_user_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4332,6 +4378,15 @@ export const travelTripTeam = pgTable("travel_trip_team", {
   docOverride: text("doc_override"),                            // why assigned without them
   driverToken: text("driver_token").unique(),                   // the driver's link
   acceptedAt: timestamp("accepted_at"),                         // the driver accepted the trip on the link
+  /** A Hub partner's answer to the assignment: offered → accepted | declined. Null for partners without a Hub account. */
+  partnerStatus: text("partner_status"),
+  partnerRespondedAt: timestamp("partner_responded_at"),
+  partnerDeclineReason: text("partner_decline_reason"),
+  /** What UniteFix pays the partner for this assignment, in rupees. Posted to their statement when the trip ends. */
+  partnerAmount: integer("partner_amount"),
+  earningPostedAt: timestamp("earning_posted_at"),
+  fleetDriverId: integer("fleet_driver_id"),
+  fleetVehicleId: integer("fleet_vehicle_id"),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

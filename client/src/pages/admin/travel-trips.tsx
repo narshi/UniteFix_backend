@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Phone, MessageCircle, Users, MapPin, CalendarDays, BedDouble, Car, Compass, ChevronDown, ChevronUp, Route, Settings2, Trash2, Check, Clock, BadgeCheck, Copy, ShieldCheck, ShieldAlert, Play, Flag } from "lucide-react";
 import { TRIP_STATUS_LABEL, TRAVEL_PARTNER_KIND_LABEL, advanceFor, type TripPlan, type TripStatus, type TravelSettings, type TravelPartnerKind } from "@shared/travel";
 
-type Quote = { id: number; source: "own" | "partner"; partnerId: number | null; label: string; covers: string | null; amount: number | null; status: "asked" | "quoted" | "declined"; note: string | null };
+type Quote = { id: number; source: "own" | "partner"; partnerId: number | null; label: string; covers: string | null; amount: number | null; status: "asked" | "quoted" | "declined"; note: string | null; respondedAt?: string | null };
 type Trip = {
   id: number; code: string; contactName: string; contactPhone: string; adults: number; children: number; people: number; vehicle: string;
   tripType: "round_trip" | "one_way"; pickupText: string | null; dropText: string | null; startDate: string | null; days: number | null; pace: string;
@@ -38,11 +38,12 @@ type TeamMember = {
   id: number; day: number | null; role: "driver" | "stay" | "guide" | "activity"; source: "own" | "partner"; employeeId: number | null; partnerId: number | null;
   name: string; phone: string | null; vehicle: string | null; plate: string | null; place: string | null; time: string | null;
   docs: { licence?: boolean; rc?: boolean; photo?: boolean }; docOverride: string | null; verified: boolean; driverLink: string | null; accepted?: boolean;
+  partnerStatus?: "offered" | "accepted" | "declined" | null; partnerDeclineReason?: string | null; partnerAmount?: number | null; earningPostedAt?: string | null; fleetDriverId?: number | null;
 };
 type Score = { avg: number; ratings: number; strikes: number; reports: number } | null;
 type Expert = { id: number; name: string; phone: string | null; score?: Score };
 type Manager = { id: number; name: string; email: string; role: string };
-type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean; score?: Score };
+type Partner = { id: number; name: string; kinds: TravelPartnerKind[]; baseTown: string | null; regionIds: number[]; phone: string | null; isActive: boolean; score?: Score; businessPartnerId?: number | null };
 const stars = (s: Score | undefined) => (s ? ` · ${s.avg}★ (${s.ratings})${s.strikes ? ` · ${s.strikes} strike${s.strikes === 1 ? "" : "s"}` : ""}` : "");
 
 const FILTERS: Array<{ key: string; label: string }> = [
@@ -139,6 +140,7 @@ function SupplierPrices({ t, partners, onDone }: { t: Trip; partners: Partner[];
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-white">{q.label}</span>
                   {q.source === "own" && <Badge className="bg-sky-500/20 text-sky-200 hover:bg-sky-500/20">Our team</Badge>}
+                  {p?.businessPartnerId ? <Badge className="bg-violet-500/20 text-violet-200 hover:bg-violet-500/20">{q.respondedAt ? "Answered in their Hub" : "Asked in their Hub"}</Badge> : null}
                   {isLow && <Badge className="bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/20">Lowest</Badge>}
                   {chosen && <Badge className="bg-emerald-600 text-white hover:bg-emerald-600"><Check className="mr-1 h-3 w-3" />Chosen</Badge>}
                   <span className="ml-auto text-sm font-semibold text-white">{q.status === "declined" ? <span className="text-slate-500">Declined</span> : q.amount != null ? rupees(q.amount) : <span className="text-amber-300">Waiting</span>}</span>
@@ -348,7 +350,7 @@ function TripCard({ t, managers, partners, experts, settings, onDone }: { t: Tri
 
 function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner[]; experts: Expert[]; onDone: () => void }) {
   const { toast } = useToast();
-  const blank = { role: "driver", day: "1", source: "own", employeeId: "", partnerId: "", name: "", phone: "", vehicle: "", plate: "", place: "", time: "", licence: false, rc: false, photo: false, docOverride: "" };
+  const blank = { role: "driver", day: "1", source: "own", employeeId: "", partnerId: "", name: "", phone: "", vehicle: "", plate: "", place: "", time: "", licence: false, rc: false, photo: false, docOverride: "", partnerAmount: "" };
   const [f, setF] = useState<Record<string, any>>(blank);
   const err = (title: string) => (e: unknown) => toast({ title, description: apiErrorMessage(e), variant: "destructive" });
   const add = useMutation({
@@ -357,6 +359,7 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
       employeeId: f.source === "own" && f.employeeId ? Number(f.employeeId) : null, partnerId: f.source === "partner" && f.partnerId ? Number(f.partnerId) : null,
       name: f.name || null, phone: f.phone || null, vehicle: f.vehicle || null, plate: f.plate || null, place: f.place || null, time: f.time || null,
       docs: { licence: f.licence, rc: f.rc, photo: f.photo }, docOverride: f.docOverride || null,
+      partnerAmount: f.source === "partner" && f.partnerAmount ? Number(f.partnerAmount) : null,
     }),
     onSuccess: () => { setF({ ...blank, role: f.role }); onDone(); }, onError: err("Not added"),
   });
@@ -365,7 +368,8 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
   const end = useMutation({ mutationFn: async () => apiRequest("POST", `/api/admin/travel/trips/${t.id}/end`, {}), onSuccess: (r: any) => { toast({ title: r?.message }); onDone(); }, onError: err("Not finished") });
   const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); toast({ title: "Driver link copied" }); } catch { window.prompt("Copy the driver link:", text); } };
   const days = Math.max(1, t.days ?? 1);
-  const partnerDriver = f.role === "driver" && f.source === "partner";
+  const hubPartner = f.source === "partner" && !!partners.find((p) => String(p.id) === String(f.partnerId))?.businessPartnerId;
+  const partnerDriver = f.role === "driver" && f.source === "partner" && !hubPartner;
   const docsOk = f.licence && f.rc && f.photo;
   return (
     <section className={box}>
@@ -385,6 +389,10 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
                 <span className="text-xs text-slate-400">{ROLE[m.role]}</span>
                 <b className="text-white">{m.name}</b>
                 {m.source === "own" && <span className="rounded-full bg-sky-500/20 px-2 text-xs text-sky-200">Our team</span>}
+                {m.partnerStatus === "offered" && <span className="rounded-full bg-amber-500/20 px-2 text-xs text-amber-200">Waiting for the partner</span>}
+                {m.partnerStatus === "accepted" && <span className="rounded-full bg-emerald-500/20 px-2 text-xs text-emerald-200">Partner accepted{m.role === "driver" && !m.fleetDriverId ? ", driver to come" : ""}</span>}
+                {m.partnerStatus === "declined" && <span className="rounded-full bg-rose-500/20 px-2 text-xs text-rose-200">Partner declined{m.partnerDeclineReason ? `: ${m.partnerDeclineReason}` : ""}</span>}
+                {m.partnerAmount != null && <span className="text-xs text-slate-300">₹{m.partnerAmount.toLocaleString("en-IN")}{m.earningPostedAt ? " · on their statement" : ""}</span>}
                 {m.role === "driver" && (m.accepted ? <span className="rounded-full bg-emerald-500/20 px-2 text-xs text-emerald-200">Accepted</span> : <span className="rounded-full bg-white/10 px-2 text-xs text-slate-300">Not accepted yet</span>)}
                 {m.verified ? <ShieldCheck className="h-4 w-4 text-emerald-400" aria-label="Verified" /> : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 text-xs text-amber-200"><ShieldAlert className="h-3 w-3" />Not verified</span>}
                 <span className="text-slate-400">{[m.phone, m.vehicle, m.plate, m.place, m.time].filter(Boolean).join(" · ")}</span>
@@ -413,8 +421,9 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
               : <select aria-label="Partner" className={select} value={f.partnerId} onChange={(e) => setF({ ...f, partnerId: e.target.value })}><option value="">Which partner (optional)</option>{partners.filter((p) => p.isActive).map((p) => <option key={p.id} value={p.id}>{p.name}{stars(p.score)}</option>)}</select>}
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            {f.source === "partner" && <Input aria-label="Name" className={field} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={f.role === "stay" ? "Hotel or homestay name" : "Name"} />}
-            {f.source === "partner" && <Input aria-label="Phone" className={field} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="Mobile" inputMode="tel" />}
+            {f.source === "partner" && !hubPartner && <Input aria-label="Name" className={field} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={f.role === "stay" ? "Hotel or homestay name" : "Name"} />}
+            {f.source === "partner" && !hubPartner && <Input aria-label="Phone" className={field} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="Mobile" inputMode="tel" />}
+            {f.source === "partner" && <Input aria-label="Agreed pay" className={field} value={f.partnerAmount} onChange={(e) => setF({ ...f, partnerAmount: e.target.value.replace(/\D/g, "") })} placeholder="Agreed pay to the partner, ₹" inputMode="numeric" />}
             {f.role === "driver" && <Input aria-label="Vehicle" className={field} value={f.vehicle} onChange={(e) => setF({ ...f, vehicle: e.target.value })} placeholder="Innova, white" />}
             {f.role === "driver" && <Input aria-label="Number plate" className={field} value={f.plate} onChange={(e) => setF({ ...f, plate: e.target.value })} placeholder="KA 31 M 4821" />}
             {f.role !== "driver" && <Input aria-label="Place" className={field} value={f.place} onChange={(e) => setF({ ...f, place: e.target.value })} placeholder="Address or meeting point" />}
@@ -427,7 +436,8 @@ function TripTeam({ t, partners, experts, onDone }: { t: Trip; partners: Partner
               {!docsOk && <Input aria-label="Why without documents" className={`${field} h-8 flex-1 min-w-[220px]`} value={f.docOverride} onChange={(e) => setF({ ...f, docOverride: e.target.value })} placeholder="Why assign without all documents (logged)" />}
             </div>
           )}
-          <Button size="sm" onClick={() => add.mutate()} disabled={add.isPending}>Add to the team</Button>
+          {hubPartner && <p className="text-xs text-sky-200">This partner has a Hub account: they accept the trip and put their own checked driver and vehicle on it. Their agreed pay goes on their statement when the trip ends.</p>}
+          <Button size="sm" onClick={() => add.mutate()} disabled={add.isPending}>{hubPartner ? "Assign to the partner" : "Add to the team"}</Button>
         </div>
       )}
     </section>
