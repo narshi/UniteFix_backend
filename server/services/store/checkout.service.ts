@@ -27,6 +27,7 @@ import { MarketplaceService } from '../marketplace.service';
 import { StorePricing, MAX_LINES, type QuoteItem, type QuoteLine } from './pricing.service';
 import { StoreInventory } from './inventory.service';
 import { StoreCart } from './cart.service';
+import { StoreParcels } from './parcels.service';
 import logger from '../../lib/logger';
 
 const r2 = (p: number) => Math.round(p) / 100;
@@ -85,6 +86,7 @@ export class StoreCheckout {
     /** Start paying. Same Idempotency-Key, same checkout: a retried tap never charges twice. */
     static async start(userId: number, input: StartInput, idempotencyKey?: string | null) {
         const ship = this.validShip(input.shipTo);
+        await StoreParcels.checkDestination(ship.pincode, ship.stateCode);
         const key = idempotencyKey?.trim() || null;
         if (key && !/^[A-Za-z0-9_-]{8,80}$/.test(key)) throw new HubError('Idempotency-Key must be 8–80 letters, digits, - or _.', 'BAD_INPUT');
         const holdMin = await this.holdMinutes();

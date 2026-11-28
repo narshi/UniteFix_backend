@@ -23,6 +23,7 @@ export type AuditEntity =
     | 'travel'            // Travel planner: places, pickups and trip requests (travel.service.ts)
     | 'safety'            // Safety desk: SOS, reports, help, pauses (safety.service.ts)
     | 'store_order'       // Store: staff fulfilling UniteFix's own orders (store.routes.ts)
+    | 'store_shipping'    // Store: India Post setup — shipping address, article-number ranges
     | 'employee'
     | 'user'
     | 'withdrawal'

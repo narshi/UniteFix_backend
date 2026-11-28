@@ -15,11 +15,13 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiErrorMessage } from "@/lib/queryClient";
 import { useHubMe, hubCan, inr, openAuthedPdf } from "@/lib/hub";
 import { HubPage, Panel, Chip, Empty, Stat, HubSelect, Thead } from "@/components/hub/ui";
+import { IndiaPostBookDialog, ParcelTrail, TRACKING_WORD } from "@/components/store/IndiaPost";
 
 type Listing = {
   id: number; name: string; description: string | null; categoryId: number | null; categoryName: string | null; price: number; mrp: number | null; stock: number;
   hsnCode: string | null; gstPercent: number | null; countryOfOrigin: string | null; manufacturer: string | null; netQuantity: string | null; returnWindowDays: number;
-  warrantyMonths: number | null; warrantyBy: string | null; bisNumber: string | null; wpcEta: string | null; images: string[]; sellerSku: string | null; status: string; rejectionReason: string | null;
+  warrantyMonths: number | null; warrantyBy: string | null; bisNumber: string | null; wpcEta: string | null; images: string[];
+  weightGrams?: number | null; packageLengthCm?: number | null; packageWidthCm?: number | null; packageHeightCm?: number | null; sellerSku: string | null; status: string; rejectionReason: string | null;
   installationPrice: number | null; installationSac: string | null; installationNote: string | null;
 };
 type Overview = {
@@ -31,6 +33,7 @@ type Order = {
   courier: string | null; trackingId: string | null; createdAt: string; dispatchBy: string | null; late: boolean; returnStatus: string | null; returnReason: string | null; settleAfter: string | null; settledAt: string | null;
   items: Array<{ id: number; name: string; quantity: number; price: number }>;
   gatewayFee: number; penalty: number; penaltyReason: string | null; penaltyWaived: boolean; lateCharge: number; shipmentRef: string | null; installationStatus: string | null;
+  carrier?: string | null; trackingStatus?: string | null;
 };
 
 const S_TONE: Record<string, string> = { live: "good", pending_review: "warn", draft: "muted", rejected: "bad", paused: "muted" };
@@ -38,7 +41,7 @@ const O_TONE: Record<string, string> = { placed: "warn", confirmed: "info", pack
 const NEXT: Record<string, [string, string][]> = { placed: [["confirmed", "Confirm"]], confirmed: [["packed", "Packed"], ["dispatched", "Dispatch"]], packed: [["dispatched", "Dispatch"]], dispatched: [["delivered", "Delivered"]] };
 const fail = (toast: any, t: string) => (e: unknown) => toast({ title: t, description: apiErrorMessage(e), variant: "destructive" });
 const when = (d: string | null) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "—";
-const blank = { name: "", description: "", categoryId: "", priceRupees: "", mrpRupees: "", stock: "0", hsnCode: "", gstPercent: "18", countryOfOrigin: "India", manufacturer: "", netQuantity: "1 unit", returnWindowDays: "7", warrantyMonths: "", warrantyBy: "manufacturer", bisNumber: "", wpcEta: "", sellerSku: "", installationPriceRupees: "", installationSac: "9987", installationNote: "" };
+const blank = { name: "", description: "", categoryId: "", priceRupees: "", mrpRupees: "", stock: "0", hsnCode: "", gstPercent: "18", countryOfOrigin: "India", manufacturer: "", netQuantity: "1 unit", returnWindowDays: "7", warrantyMonths: "", warrantyBy: "manufacturer", bisNumber: "", wpcEta: "", sellerSku: "", installationPriceRupees: "", installationSac: "9987", installationNote: "", weightGrams: "", packageLengthCm: "", packageWidthCm: "", packageHeightCm: "" };
 
 export function HubStoreListings() {
   const { me } = useHubMe();
@@ -59,7 +62,7 @@ export function HubStoreListings() {
 
   const edit = (l: Listing | null) => {
     setEditing(l);
-    setF(l ? { name: l.name, description: l.description ?? "", categoryId: String(l.categoryId ?? ""), priceRupees: String(l.price), mrpRupees: String(l.mrp ?? ""), stock: String(l.stock ?? 0), hsnCode: l.hsnCode ?? "", gstPercent: String(l.gstPercent ?? 18), countryOfOrigin: l.countryOfOrigin ?? "", manufacturer: l.manufacturer ?? "", netQuantity: l.netQuantity ?? "", returnWindowDays: String(l.returnWindowDays), warrantyMonths: l.warrantyMonths == null ? "" : String(l.warrantyMonths), warrantyBy: l.warrantyBy ?? "manufacturer", bisNumber: l.bisNumber ?? "", wpcEta: l.wpcEta ?? "", sellerSku: l.sellerSku ?? "", installationPriceRupees: l.installationPrice == null ? "" : String(l.installationPrice), installationSac: l.installationSac ?? "9987", installationNote: l.installationNote ?? "" } : blank);
+    setF(l ? { name: l.name, description: l.description ?? "", categoryId: String(l.categoryId ?? ""), priceRupees: String(l.price), mrpRupees: String(l.mrp ?? ""), stock: String(l.stock ?? 0), hsnCode: l.hsnCode ?? "", gstPercent: String(l.gstPercent ?? 18), countryOfOrigin: l.countryOfOrigin ?? "", manufacturer: l.manufacturer ?? "", netQuantity: l.netQuantity ?? "", returnWindowDays: String(l.returnWindowDays), warrantyMonths: l.warrantyMonths == null ? "" : String(l.warrantyMonths), warrantyBy: l.warrantyBy ?? "manufacturer", bisNumber: l.bisNumber ?? "", wpcEta: l.wpcEta ?? "", sellerSku: l.sellerSku ?? "", installationPriceRupees: l.installationPrice == null ? "" : String(l.installationPrice), installationSac: l.installationSac ?? "9987", installationNote: l.installationNote ?? "", weightGrams: l.weightGrams == null ? "" : String(l.weightGrams), packageLengthCm: l.packageLengthCm == null ? "" : String(l.packageLengthCm), packageWidthCm: l.packageWidthCm == null ? "" : String(l.packageWidthCm), packageHeightCm: l.packageHeightCm == null ? "" : String(l.packageHeightCm) } : blank);
     setOpen(true);
   };
   const save = async () => {
@@ -68,6 +71,7 @@ export function HubStoreListings() {
       hsnCode: f.hsnCode, gstPercent: Number(f.gstPercent), countryOfOrigin: f.countryOfOrigin, manufacturer: f.manufacturer, netQuantity: f.netQuantity || null,
       returnWindowDays: Number(f.returnWindowDays), warrantyMonths: f.warrantyMonths ? Number(f.warrantyMonths) : null, warrantyBy: f.warrantyBy || null,
       bisNumber: f.bisNumber || null, wpcEta: f.wpcEta || null, sellerSku: f.sellerSku || null,
+      weightGrams: f.weightGrams ? Number(f.weightGrams) : null, packageLengthCm: f.packageLengthCm ? Number(f.packageLengthCm) : null, packageWidthCm: f.packageWidthCm ? Number(f.packageWidthCm) : null, packageHeightCm: f.packageHeightCm ? Number(f.packageHeightCm) : null,
       installationPriceRupees: f.installationPriceRupees ? Number(f.installationPriceRupees) : null, installationSac: f.installationPriceRupees ? (f.installationSac || "9987") : null, installationNote: f.installationNote || null,
     };
     try { const r: any = await apiRequest(editing ? "PATCH" : "POST", editing ? `/api/hub/store/listings/${editing.id}` : "/api/hub/store/listings", body); refresh(); setOpen(false); toast({ title: "Saved", description: r.message }); }
@@ -146,6 +150,8 @@ export function HubStoreListings() {
             <div><Label htmlFor="l-q">Net quantity</Label><Input id="l-q" value={f.netQuantity} onChange={e => setF({ ...f, netQuantity: e.target.value })} /></div>
             <div><Label htmlFor="l-o">Country of origin</Label><Input id="l-o" value={f.countryOfOrigin} onChange={e => setF({ ...f, countryOfOrigin: e.target.value })} /></div>
             <div className="sm:col-span-2"><Label htmlFor="l-mf">Manufacturer / importer</Label><Input id="l-mf" value={f.manufacturer} onChange={e => setF({ ...f, manufacturer: e.target.value })} /></div>
+            <div><Label htmlFor="l-kg">Packed weight (g)</Label><Input id="l-kg" inputMode="numeric" placeholder="for postage" value={f.weightGrams} onChange={e => setF({ ...f, weightGrams: e.target.value.replace(/\D/g, "") })} /></div>
+            <div><Label htmlFor="l-box">Packed box L × W × H (cm)</Label><div id="l-box" className="flex gap-1">{(["packageLengthCm", "packageWidthCm", "packageHeightCm"] as const).map(k => <Input key={k} aria-label={k} inputMode="numeric" value={f[k]} onChange={e => setF({ ...f, [k]: e.target.value.replace(/\D/g, "") })} />)}</div></div>
             <div><Label htmlFor="l-r">Return window (days)</Label><Input id="l-r" inputMode="numeric" value={f.returnWindowDays} onChange={e => setF({ ...f, returnWindowDays: e.target.value.replace(/\D/g, "") })} /></div>
             <div><Label htmlFor="l-w">Warranty (months)</Label><Input id="l-w" inputMode="numeric" value={f.warrantyMonths} onChange={e => setF({ ...f, warrantyMonths: e.target.value.replace(/\D/g, "") })} /></div>
             <div><Label htmlFor="l-wb">Warranty by</Label><HubSelect id="l-wb" className="w-full" value={f.warrantyBy} onChange={v => setF({ ...f, warrantyBy: v })}><option value="manufacturer">Manufacturer</option><option value="seller">You (seller)</option><option value="none">None</option></HubSelect></div>
@@ -173,11 +179,12 @@ export function HubStoreOrders() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [view, setView] = useState<"open" | "returns" | "done">("open");
-  const q = useQuery<{ data: Order[]; shipping: { mode: "mock" | "live"; ratePer500g: number; gstPercent: number } }>({ queryKey: ["/api/hub/store/orders"], queryFn: async () => (await apiRequest("GET", "/api/hub/store/orders")) as any, refetchInterval: 60_000 });
+  const q = useQuery<{ data: Order[]; shipping: { mode: "mock" | "live"; ratePer500g: number; gstPercent: number; indiaPost?: "live" | "mock" | "off" } }>({ queryKey: ["/api/hub/store/orders"], queryFn: async () => (await apiRequest("GET", "/api/hub/store/orders")) as any, refetchInterval: 60_000 });
   const data = q.data?.data, shipping = q.data?.shipping, isLoading = q.isLoading;
   const rows = useMemo(() => (data ?? []).filter(o => view === "open" ? ["placed", "confirmed", "packed", "dispatched"].includes(o.status) : view === "returns" ? ["requested", "approved"].includes(o.returnStatus ?? "") : ["delivered", "cancelled", "returned"].includes(o.status) && !["requested", "approved"].includes(o.returnStatus ?? "")), [data, view]);
   const [ship, setShip] = useState<{ o: Order; courier: string; trackingId: string } | null>(null);
   const [book, setBook] = useState<{ o: Order; weightGrams: string; lengthCm: string; widthCm: string; heightCm: string } | null>(null);
+  const [ipBook, setIpBook] = useState<{ id: number; code: string } | null>(null);
   const bookCourier = async () => {
     if (!book) return;
     try { const r: any = await apiRequest("POST", `/api/hub/store/orders/${book.o.id}/courier`, { weightGrams: Number(book.weightGrams), lengthCm: Number(book.lengthCm), widthCm: Number(book.widthCm), heightCm: Number(book.heightCm) }); setBook(null); refresh(); toast({ title: "Courier booked", description: r.message }); }
@@ -213,13 +220,15 @@ export function HubStoreOrders() {
                 <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-white">{o.code}</span><Chip tone={O_TONE[o.status]}>{o.status}</Chip>{o.late && <Chip tone="bad">past dispatch deadline{o.lateCharge ? ` — ₹${o.lateCharge} charge when dispatched` : ""}</Chip>}{o.penalty > 0 && <Chip tone="bad">charge {inr(o.penalty)}</Chip>}{o.penaltyWaived && <Chip>charge waived</Chip>}{o.installationStatus === "pending" && <Chip tone="warn">installation to do</Chip>}{o.installationStatus === "done" && <Chip tone="good">installed</Chip>}{o.returnStatus && <Chip tone="warn">return {o.returnStatus}</Chip>}{o.settledAt && <Chip tone="good">settled</Chip>}</div>
                 <p className="mt-0.5 text-white">{o.items.map(i => `${i.quantity} × ${i.name}`).join(", ")}</p>
                 <p className="mt-0.5 text-[hsl(215,20%,70%)]">{o.shipName ? `${o.shipName}${o.shipPhone ? ` · ${o.shipPhone}` : ""} · ${o.shipAddress ?? ""} ${o.shipPincode ?? ""}` : "Customer details hidden after settlement"}</p>
-                <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{inr(o.total)} · commission {inr(o.commission)}{o.gatewayFee ? ` · payment collection ${inr(o.gatewayFee)}` : ""} · TCS {inr(o.tcs)} · TDS {inr(o.tds)} · <span className="text-white">you get {inr(o.net)}</span>{o.courier ? ` · ${o.courier} ${o.trackingId}` : ""}{["placed", "confirmed", "packed"].includes(o.status) ? ` · ship by ${when(o.dispatchBy)}` : ""}</p>
+                <p className="mt-0.5 text-xs text-[hsl(215,20%,55%)]">{inr(o.total)} · commission {inr(o.commission)}{o.gatewayFee ? ` · payment collection ${inr(o.gatewayFee)}` : ""} · TCS {inr(o.tcs)} · TDS {inr(o.tds)} · <span className="text-white">you get {inr(o.net)}</span>{o.courier ? ` · ${o.courier} ${o.trackingId}` : ""}{o.trackingStatus ? ` · ${TRACKING_WORD[o.trackingStatus] ?? o.trackingStatus}` : ""}{["placed", "confirmed", "packed"].includes(o.status) ? ` · ship by ${when(o.dispatchBy)}` : ""}</p>
+                {o.carrier === "india_post" && <div className="mt-0.5 text-[hsl(215,20%,70%)]"><ParcelTrail base="/api/hub/store/orders" orderId={o.id} /></div>}
                 {o.returnReason && <p className="mt-0.5 text-xs text-amber-200">Return: “{o.returnReason}”</p>}
                 {o.penaltyReason && o.penalty > 0 && <p className="mt-0.5 text-xs text-rose-200">{o.penaltyReason}</p>}
               </div>
               {manage && <div className="flex flex-wrap items-center gap-1 lg:justify-end">
                 {(NEXT[o.status] ?? []).map(([to, label]) => <Button key={to} size="sm" variant={to === "dispatched" ? "default" : "outline"} onClick={() => move(o, to)}>{label}</Button>)}
-                {["confirmed", "packed"].includes(o.status) && !o.shipmentRef && <Button size="sm" variant="outline" onClick={() => setBook({ o, weightGrams: "500", lengthCm: "20", widthCm: "15", heightCm: "10" })}>Book courier</Button>}
+                {["confirmed", "packed"].includes(o.status) && !o.shipmentRef && shipping?.indiaPost && shipping.indiaPost !== "off" && <Button size="sm" onClick={() => setIpBook({ id: o.id, code: o.code })}>Book India Post</Button>}
+                {["confirmed", "packed"].includes(o.status) && !o.shipmentRef && <Button size="sm" variant="outline" onClick={() => setBook({ o, weightGrams: "500", lengthCm: "20", widthCm: "15", heightCm: "10" })}>Book Delhivery</Button>}
                 {["confirmed", "packed", "dispatched"].includes(o.status) && <Button size="sm" variant="ghost" onClick={() => openAuthedPdf(`/api/hub/store/orders/${o.id}/label.pdf`).catch(fail(toast, "No label"))}>Label</Button>}
                 {["placed", "confirmed", "packed"].includes(o.status) && <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => cancel(o)}>Cancel</Button>}
                 {o.returnStatus === "requested" && <><Button size="sm" onClick={() => ret(o, "approve")}>Approve return</Button><Button size="sm" variant="ghost" onClick={() => ret(o, "reject")}>Reject</Button></>}
@@ -230,6 +239,7 @@ export function HubStoreOrders() {
           ))}</ul>
         )}
       </Panel>
+      <IndiaPostBookDialog base="/api/hub/store/orders" order={ipBook} onClose={() => setIpBook(null)} onBooked={refresh} />
       <Dialog open={!!book} onOpenChange={o => !o && setBook(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Book a courier for {book?.o.code}</DialogTitle><DialogDescription>Delhivery collects from your pickup address. Pack it, print the label, stick it on, then dispatch.{" "}

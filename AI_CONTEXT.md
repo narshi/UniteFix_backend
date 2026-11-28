@@ -88,6 +88,7 @@ When a service finishes, the backend calculates:
 - GST: receipt voucher at payment, tax invoice at dispatch (UniteFix series `UF/yy-yy/S…`), credit note on a received return, refund voucher on a cancel before dispatch. A product is sold only with an HSN code and GST rate, and price ≤ MRP.
 - Customer API `/api/store/*` (store.routes.ts); staff fulfil UniteFix orders at Admin → Store Orders; partners in their Hub. Tests: `npx tsx scripts/smoke-store.ts`, `scripts/smoke-hub-p7.ts`.
 - Plan and compliance notes: `product_store_plan.md`.
+- Shipping: India Post is the main carrier (`server/services/store/india-post.service.ts` = the CEPT bulk-customer API connector; `parcels.service.ts` = booking, label, tracking job every 30 min, webhook `POST /api/webhooks/india-post`). India Post events move the order: handed over → dispatched (invoice issued), delivered → delivered (return window starts); a return to sender only alerts — people decide the refund. Article numbers come from ranges staff add (Store Orders → Shipping setup), S10 check digit added in code. `INDIA_POST_MODE` live | mock | off (off in production unless set). Delhivery stays as the second carrier (`store-shipping.service.ts`). Test: `npx tsx scripts/smoke-india-post.ts`.
 
 ---
 

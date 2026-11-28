@@ -40,6 +40,8 @@ function storeFieldProblem(p: any, current: any = {}): string | null {
     if (p.hsnCode != null && (!/^\d{4}(\d{2}){0,2}$/.test(p.hsnCode) || p.hsnCode.startsWith('99'))) return 'HSN is 4, 6 or 8 digits and is a goods code (not a 99… service code).';
     if (p.gstPercent != null && !GST_RATES.includes(Number(p.gstPercent))) return `GST rate must be one of ${GST_RATES.join(', ')}%.`;
     if (p.returnWindowDays !== undefined && !(Number.isInteger(p.returnWindowDays) && p.returnWindowDays >= 0 && p.returnWindowDays <= 30)) return 'Return window is 0 to 30 days.';
+    if (p.weightGrams != null && !(Number.isInteger(p.weightGrams) && p.weightGrams >= 1 && p.weightGrams <= 35000)) return 'Packed weight is 1 to 35,000 grams (India Post limit).';
+    for (const k of ['packageLengthCm', 'packageWidthCm', 'packageHeightCm']) if (p[k] != null && !(Number.isInteger(p[k]) && p[k] >= 1 && p[k] <= 150)) return 'Each side of the packed box is 1 to 150 cm.';
     return null;
 }
 

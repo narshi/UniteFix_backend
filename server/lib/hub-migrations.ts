@@ -1880,6 +1880,56 @@ const BLOCKS: Array<[string, string]> = [
         ('travel', 'Travel', 'Cab and tempo operators, hotels and homestays, guides, boating and adventure activities', 110)
       ON CONFLICT (code) DO NOTHING;
     `],
+    // India Post for store parcels: weight and size on products, carrier and tracking on orders,
+    // the event history, allocated article-number ranges and a pincode cache. Additive only.
+    ['store: India Post shipping', `
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_grams INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS package_length_cm INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS package_width_cm INTEGER;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS package_height_cm INTEGER;
+      ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS weight_grams INTEGER;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS carrier TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS tracking_status TEXT;
+      ALTER TABLE seller_orders ADD COLUMN IF NOT EXISTS tracking_updated_at TIMESTAMP;
+      CREATE INDEX IF NOT EXISTS seller_orders_carrier_open_idx ON seller_orders(carrier, status) WHERE carrier IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS india_post_barcode_series (
+        id SERIAL PRIMARY KEY,
+        prefix TEXT NOT NULL,
+        first_serial INTEGER NOT NULL,
+        last_serial INTEGER NOT NULL,
+        next_serial INTEGER NOT NULL,
+        product TEXT NOT NULL DEFAULT 'SP',
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        note TEXT,
+        created_by INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS store_shipment_events (
+        id SERIAL PRIMARY KEY,
+        seller_order_id INTEGER NOT NULL REFERENCES seller_orders(id) ON DELETE CASCADE,
+        carrier TEXT NOT NULL,
+        article_number TEXT NOT NULL,
+        code TEXT,
+        description TEXT NOT NULL,
+        status TEXT,
+        office TEXT,
+        event_at TIMESTAMP NOT NULL,
+        source TEXT NOT NULL,
+        raw JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS store_shipment_events_order_idx ON store_shipment_events(seller_order_id, event_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS store_shipment_events_uniq ON store_shipment_events(seller_order_id, event_at, description);
+      CREATE TABLE IF NOT EXISTS india_post_pincodes (
+        pincode TEXT PRIMARY KEY,
+        state_name TEXT,
+        city TEXT,
+        deliverable BOOLEAN NOT NULL,
+        office_id TEXT,
+        offices JSONB,
+        fetched_at TIMESTAMP DEFAULT NOW()
+      );
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

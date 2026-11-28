@@ -44,7 +44,7 @@ export class StoreShippingService {
     static async book(ctx: Pick<HubContext, 'businessPartnerId'>, id: number, parcel: Parcel) {
         const so = await this.order(ctx.businessPartnerId, id);
         if (!['confirmed', 'packed'].includes(so.status)) throw new HubError('Book the courier once the order is confirmed and before it is dispatched.', 'BAD_STATE', 409);
-        if (so.shipmentRef) throw new HubError(`A courier is already booked: ${so.courier} ${so.trackingId}.`, 'BOOKED', 409);
+        if (so.shipmentRef) throw new HubError(so.shipmentRef === 'ip:booking' ? 'India Post booking is in progress. Refresh.' : `A courier is already booked: ${so.courier} ${so.trackingId}.`, 'BOOKED', 409);
         if (!(parcel.weightGrams >= 50 && parcel.weightGrams <= 30000)) throw new HubError('Weight is 50 g to 30 kg.', 'BAD_PARCEL');
         for (const d of [parcel.lengthCm, parcel.widthCm, parcel.heightCm]) if (!(d >= 1 && d <= 150)) throw new HubError('Each side is 1–150 cm.', 'BAD_PARCEL');
         const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, ctx.businessPartnerId)).limit(1);
@@ -78,7 +78,7 @@ export class StoreShippingService {
         }
         const charge = await this.charge(parcel.weightGrams);
         const u = await withTransaction(async (tx) => {
-            const [row] = await tx.update(sellerOrders).set({ courier: 'Delhivery', trackingId: waybill, shipmentRef: ref, parcel: parcel as any, courierChargePaise: charge.paise, courierChargeGstPaise: charge.gstPaise, updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
+            const [row] = await tx.update(sellerOrders).set({ courier: 'Delhivery', carrier: 'delhivery', trackingId: waybill, shipmentRef: ref, parcel: parcel as any, courierChargePaise: charge.paise, courierChargeGstPaise: charge.gstPaise, updatedAt: new Date() }).where(eq(sellerOrders.id, so.id)).returning();
             if (charge.paise > 0) await BusinessPartnerService.appendLedger(tx as any, { businessPartnerId: ctx.businessPartnerId, entryType: 'fee_charge', amountPaise: charge.paise + charge.gstPaise, description: `Courier for store order ${so.code} — Delhivery ${waybill}, ${parcel.weightGrams} g`, metadata: { sellerOrderId: so.id, waybill } });
             return row;
         });
@@ -95,8 +95,7 @@ export class StoreShippingService {
 
     /** The order was cancelled: release the courier booking. Best effort. */
     static async cancelBooking(so: SellerOrder) {
-        if (so.sellerPartnerId == null) return;   // UniteFix ships its own orders; nothing was booked here
-        if (so.courierChargePaise > 0) {
+        if (so.sellerPartnerId != null && so.courierChargePaise > 0) {
             await withTransaction(async (tx) => {
                 const [locked] = await tx.select().from(sellerOrders).where(eq(sellerOrders.id, so.id)).for('update');
                 if (!locked?.courierChargePaise) return;
@@ -104,6 +103,8 @@ export class StoreShippingService {
                 await tx.update(sellerOrders).set({ courierChargePaise: 0, courierChargeGstPaise: 0 }).where(eq(sellerOrders.id, so.id));
             });
         }
+        // India Post books an article only when it is handed over; an unused booking request lapses by itself.
+        if (so.carrier === 'india_post') { if (so.trackingId) logger.info(`[INDIA-POST] ${so.code} cancelled before hand-over; article ${so.trackingId} not used`); return; }
         if (!so.shipmentRef || so.shipmentRef.startsWith('mock:') || this.mode() !== 'live' || !so.trackingId) return;
         try {
             await axios.post(`${this.base()}/api/p/edit`, { waybill: so.trackingId, cancellation: 'true' }, { headers: { Authorization: `Token ${process.env.DELHIVERY_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 15_000 });
@@ -112,12 +113,22 @@ export class StoreShippingService {
         }
     }
 
-    /** A 4×6 inch label: to, from, order, contents, and the waybill as a barcode. */
+    /** A partner's label: India Post's own when booked there and live, else ours. */
     static async label(bpId: number, id: number): Promise<Buffer> {
         const so = await this.order(bpId, id);
+        const { StoreParcels } = await import('./store/parcels.service');
+        return StoreParcels.label(so);
+    }
+
+    /**
+     * A 4×6 inch label: to, from, order, contents, and the waybill / article
+     * number as a barcode. `from` is UniteFix's shipping address for its own orders.
+     */
+    static async labelFor(so: SellerOrder, from: { name: string; company: string; line1: string; line2?: string | null; city: string; pincode: string; phone: string } | null): Promise<Buffer> {
         if (['placed', 'cancelled'].includes(so.status)) throw new HubError('Confirm the order before printing its label.', 'BAD_STATE', 409);
         if (so.settledAt) throw new HubError('This order is closed.', 'CLOSED', 409);
-        const [bp] = await db.select().from(businessPartners).where(eq(businessPartners.id, bpId)).limit(1);
+        const [bpRow] = so.sellerPartnerId != null ? await db.select().from(businessPartners).where(eq(businessPartners.id, so.sellerPartnerId)).limit(1) : [];
+        const bp = bpRow ?? (from ? { legalName: from.company || from.name, address: [from.line1, from.line2, from.city].filter(Boolean).join(', '), district: null, pincode: from.pincode, contactPhone: from.phone, gstin: null } : null);
         const items = await db.select().from(sellerOrderItems).where(eq(sellerOrderItems.sellerOrderId, so.id));
         const [inv] = so.invoiceDocumentId ? await db.select({ number: taxDocuments.number }).from(taxDocuments).where(eq(taxDocuments.id, so.invoiceDocumentId)).limit(1) : [];
         const bwip: any = await import('bwip-js/node');

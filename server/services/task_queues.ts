@@ -766,6 +766,8 @@ export function startBackgroundJobs(): void {
     // Each is idempotent, so a second server instance running them too is harmless.
     intervals.push(setInterval(() => { import('./store/checkout.service').then(m => m.StoreCheckout.expireHolds()).catch(e => logger.error('[JOBS] store hold expiry failed', { error: e?.message })); }, 60 * 1000));
     intervals.push(setInterval(() => { import('./store/checkout.service').then(async m => { await m.StoreCheckout.reconcile(); await m.StoreCheckout.backfillVouchers(); }).catch(e => logger.error('[JOBS] store reconcile failed', { error: e?.message })); }, 5 * 60 * 1000));
+    // India Post: where each open parcel is (the webhook brings most events sooner; this catches the rest).
+    intervals.push(setInterval(() => { import('./store/parcels.service').then(m => m.StoreParcels.syncTracking()).catch(e => logger.error('[JOBS] India Post tracking failed', { error: e?.message })); }, 30 * 60 * 1000));
 
     // Partner payouts on each partner's schedule (acts once a day per partner; idempotent).
     intervals.push(setInterval(() => { import('./partner-payouts.service').then(m => m.PartnerPayouts.runScheduled()).catch(e => logger.error('[JOBS] partner payouts failed', { error: e?.message })); }, HOUR));

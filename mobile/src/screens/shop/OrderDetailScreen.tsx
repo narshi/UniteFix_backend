@@ -83,8 +83,18 @@ export function OrderDetailScreen({ navigation, route }: Props) {
                 {!!o.shipment && (
                     <View style={styles.card}>
                         <View style={styles.rowStart}><Truck size={18} color={colors.primary} /><Text style={styles.cardTitle}>{o.shipment.courier}</Text></View>
+                        {!!o.shipment.statusLabel && <Text style={styles.stepLabel}>{o.shipment.statusLabel}</Text>}
                         <Text style={styles.meta}>Tracking number</Text>
                         <Text style={styles.tracking} selectable>{o.shipment.trackingId}</Text>
+                        {(o.shipment.events ?? []).slice(0, 8).map((e, i) => (
+                            <View key={i} style={styles.step}>
+                                <View style={[styles.stepDot, i === 0 && { backgroundColor: colors.primary }]} />
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.stepLabel}>{e.description}</Text>
+                                    <Text style={styles.meta}>{fmt(e.at)}{e.office ? ` · ${e.office}` : ''}</Text>
+                                </View>
+                            </View>
+                        ))}
                         {!!o.shipment.trackingUrl && (
                             <TouchableOpacity style={styles.rowStart} onPress={() => Linking.openURL(o.shipment!.trackingUrl!)} accessibilityRole="link">
                                 <ExternalLink size={16} color={colors.primary} /><Text style={styles.link}>Track on the courier's website</Text>

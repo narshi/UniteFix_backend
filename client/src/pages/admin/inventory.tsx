@@ -38,6 +38,7 @@ interface Product {
     isActive: boolean;
     mrp: number | null; hsnCode: string | null; gstPercent: string | null; countryOfOrigin: string | null; manufacturer: string | null;
     netQuantity: string | null; returnWindowDays: number | null; warrantyMonths: number | null; warrantyBy: string | null;
+    weightGrams?: number | null; packageLengthCm?: number | null; packageWidthCm?: number | null; packageHeightCm?: number | null;
 }
 
 const CATEGORIES = ["Computer", "Computer Accessories", "Computer Parts", "CC Camera", "Camera Parts", "Water Purifier", "Purifier Parts", "Spices & Masalas", "Dry Fruits & Nuts", "Home-made Food", "Other"];
@@ -47,6 +48,7 @@ const BLANK_FORM = {
     name: '', description: '', price: '', category: 'Computer', stock: '', images: '', // images: comma separated URLs
     mrp: '', hsnCode: '', gstPercent: '', countryOfOrigin: 'India', manufacturer: '', netQuantity: '',
     returnWindowDays: '2', warrantyMonths: '', warrantyBy: 'manufacturer',
+    weightGrams: '', packageLengthCm: '', packageWidthCm: '', packageHeightCm: '',
 };
 
 export default function InventoryPage() {
@@ -135,6 +137,7 @@ export default function InventoryPage() {
                 countryOfOrigin: data.countryOfOrigin.trim() || null, manufacturer: data.manufacturer.trim() || null, netQuantity: data.netQuantity.trim() || null,
                 returnWindowDays: Number(data.returnWindowDays), warrantyMonths: num(data.warrantyMonths),
                 warrantyBy: data.warrantyMonths.trim() ? data.warrantyBy : 'none',
+                weightGrams: num(data.weightGrams), packageLengthCm: num(data.packageLengthCm), packageWidthCm: num(data.packageWidthCm), packageHeightCm: num(data.packageHeightCm),
                 isActive: true
             };
 
@@ -229,6 +232,10 @@ export default function InventoryPage() {
             returnWindowDays: String(product.returnWindowDays ?? 2),
             warrantyMonths: product.warrantyMonths != null ? String(product.warrantyMonths) : '',
             warrantyBy: product.warrantyBy ?? 'manufacturer',
+            weightGrams: product.weightGrams != null ? String(product.weightGrams) : '',
+            packageLengthCm: product.packageLengthCm != null ? String(product.packageLengthCm) : '',
+            packageWidthCm: product.packageWidthCm != null ? String(product.packageWidthCm) : '',
+            packageHeightCm: product.packageHeightCm != null ? String(product.packageHeightCm) : '',
         });
         setIsAddModalOpen(true);
     };
@@ -426,6 +433,15 @@ export default function InventoryPage() {
                                     <Label className="text-[hsl(215,20%,75%)]">Net quantity</Label>
                                     <Input value={formData.netQuantity} onChange={e => setFormData({ ...formData, netQuantity: e.target.value })} placeholder="500 g, 1 unit" className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
                                 </div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-4">
+                                {([['weightGrams', 'Packed weight (g)', '800'], ['packageLengthCm', 'Box length (cm)', '30'], ['packageWidthCm', 'Width (cm)', '20'], ['packageHeightCm', 'Height (cm)', '10']] as const).map(([k, label, ph]) => (
+                                    <div key={k}>
+                                        <Label className="text-[hsl(215,20%,75%)]">{label}</Label>
+                                        <Input inputMode="numeric" value={(formData as any)[k]} onChange={e => setFormData({ ...formData, [k]: e.target.value.replace(/\D/g, '') })} placeholder={ph} className="bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-white" />
+                                    </div>
+                                ))}
+                                <p className="col-span-4 -mt-2 text-xs text-[hsl(215,20%,55%)]">As packed for posting. India Post prices by weight and box size; the booking form fills these in.</p>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
                                 <div>

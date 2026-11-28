@@ -45,6 +45,7 @@ export function CheckoutScreen({ navigation, route }: Props) {
     const preview = useCheckoutPreview(src);
     const [ship, setShip] = useState<ShipTo>({ name: (user as any)?.username ?? '', phone: String((user as any)?.phone ?? '').replace(/\D/g, '').slice(-10), line1: '', line2: '', city: '', pincode: '', stateCode: '29' });
     const [pickState, setPickState] = useState(false);
+    const [pinNote, setPinNote] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const keyRef = useRef(newKey());
 
@@ -54,6 +55,19 @@ export function CheckoutScreen({ navigation, route }: Props) {
     }, []);
 
     const set = (k: keyof ShipTo) => (v: string) => setShip(s => ({ ...s, [k]: v }));
+
+    // A full pincode fills the state (it decides the GST) and an empty city, and warns if India Post does not deliver there.
+    useEffect(() => {
+        setPinNote(null);
+        if (!/^[1-9]\d{5}$/.test(ship.pincode)) return;
+        let live = true;
+        shopApi.pincode(ship.pincode).then(p => {
+            if (!live || !p?.known) return;
+            if (p.deliverable === false) { setPinNote('India Post does not deliver to this pincode. Check it, or use another address.'); return; }
+            setShip(s => ({ ...s, stateCode: p.stateCode || s.stateCode, city: s.city.trim() ? s.city : (p.city ?? s.city) }));
+        }).catch(() => null);
+        return () => { live = false; };
+    }, [ship.pincode]);
     const missing = !ship.name.trim() ? 'the name' : !/^[6-9]\d{9}$/.test(ship.phone) ? 'a 10-digit mobile number' : ship.line1.trim().length < 3 ? 'the address' : ship.city.trim().length < 2 ? 'the city' : !/^[1-9]\d{5}$/.test(ship.pincode) ? 'a 6-digit pincode' : null;
     const state = STATES.find(s => s.code === ship.stateCode);
 
@@ -155,6 +169,7 @@ export function CheckoutScreen({ navigation, route }: Props) {
                         <View style={{ flex: 1 }}><Field label="City / town" value={ship.city} onChange={set('city')} /></View>
                         <View style={{ flex: 1 }}><Field label="Pincode" value={ship.pincode} onChange={v => set('pincode')(v.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" autoComplete="postal-code" /></View>
                     </View>
+                    {!!pinNote && <Text style={{ ...typography.caption, color: colors.error, marginBottom: spacing.sm }}>{pinNote}</Text>}
                     <Text style={styles.fieldLabel}>State</Text>
                     <TouchableOpacity style={styles.select} onPress={() => setPickState(true)} accessibilityRole="button" accessibilityLabel={`State: ${state?.name ?? 'choose'}`}>
                         <Text style={styles.selectText}>{state?.name ?? 'Choose the state'}</Text>

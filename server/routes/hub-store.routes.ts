@@ -19,6 +19,9 @@ import { authenticateHub, hubCan, hubModule, hubError, HubRequest } from '../mid
 import { HubError } from '../services/partner-hub.service';
 import { MarketplaceService } from '../services/marketplace.service';
 import { StoreShippingService } from '../services/store-shipping.service';
+import { StoreParcels } from '../services/store/parcels.service';
+import { IndiaPost } from '../services/store/india-post.service';
+import { indiaPostBooking, parcelOf } from './store.routes';
 import { TaxDocumentService } from '../services/tax-documents.service';
 import { renderTaxDocumentPdf } from '../services/tax-document-pdf';
 import { uploadDocumentBuffer } from '../services/cloudinary.service';
@@ -42,7 +45,7 @@ function listingView(r: { p: any; categoryName: string | null }) {
     return {
         id: p.id, name: p.name, description: p.description, categoryId: p.categoryId, categoryName: r.categoryName, price: p.price, mrp: p.mrp, stock: p.stock,
         hsnCode: p.hsnCode, gstPercent: p.gstPercent == null ? null : Number(p.gstPercent), countryOfOrigin: p.countryOfOrigin, manufacturer: p.manufacturer,
-        netQuantity: p.netQuantity, returnWindowDays: p.returnWindowDays, warrantyMonths: p.warrantyMonths, warrantyBy: p.warrantyBy, bisNumber: p.bisNumber, wpcEta: p.wpcEta,
+        netQuantity: p.netQuantity, returnWindowDays: p.returnWindowDays, weightGrams: p.weightGrams, packageLengthCm: p.packageLengthCm, packageWidthCm: p.packageWidthCm, packageHeightCm: p.packageHeightCm, warrantyMonths: p.warrantyMonths, warrantyBy: p.warrantyBy, bisNumber: p.bisNumber, wpcEta: p.wpcEta,
         images: p.images ?? [], sellerSku: p.sellerSku, installationPrice: p.installationPricePaise != null ? p.installationPricePaise / 100 : null, installationSac: p.installationSac, installationNote: p.installationNote, status: p.listingStatus, rejectionReason: p.rejectionReason, updatedAt: p.updatedAt,
     };
 }
@@ -99,7 +102,8 @@ export function registerHubStoreRoutes(app: Express) {
         name: z.string().max(160).optional(), description: z.string().max(5000).optional().nullable(), categoryId: z.number().int().optional(),
         priceRupees: z.number().int().optional(), mrpRupees: z.number().int().optional(), stock: z.number().int().optional(),
         hsnCode: z.string().max(8).optional(), gstPercent: z.number().optional(), countryOfOrigin: z.string().max(60).optional(), manufacturer: z.string().max(160).optional(),
-        netQuantity: z.string().max(60).optional().nullable(), returnWindowDays: z.number().int().optional(), warrantyMonths: z.number().int().min(0).max(120).optional().nullable(),
+        netQuantity: z.string().max(60).optional().nullable(), returnWindowDays: z.number().int().optional(),
+        weightGrams: z.number().int().min(1).max(35000).optional().nullable(), packageLengthCm: z.number().int().min(1).max(150).optional().nullable(), packageWidthCm: z.number().int().min(1).max(150).optional().nullable(), packageHeightCm: z.number().int().min(1).max(150).optional().nullable(), warrantyMonths: z.number().int().min(0).max(120).optional().nullable(),
         warrantyBy: z.string().optional().nullable(), bisNumber: z.string().max(40).optional().nullable(), wpcEta: z.string().max(40).optional().nullable(),
         images: z.array(z.string().max(500)).max(8).optional(), sellerSku: z.string().max(60).optional().nullable(),
         installationPriceRupees: z.number().int().optional().nullable(), installationSac: z.string().max(8).optional().nullable(), installationNote: z.string().max(300).optional().nullable(),
@@ -142,7 +146,7 @@ export function registerHubStoreRoutes(app: Express) {
                 net: r2(o.totalPaise - o.commissionPaise - o.commissionGstPaise - o.tcsPaise - o.tdsPaise - o.gatewayFeePaise - o.gatewayFeeGstPaise),
                 lateCharge: o.late ? fees.lateDispatchRupees : 0,
                 items: o.items.map(i => ({ ...i, price: r2(i.unitPricePaise) })),
-            })), shipping: { mode: StoreShippingService.mode(), ratePer500g: fees.courierPer500gRupees, gstPercent: fees.gstPercent } });
+            })), shipping: { mode: StoreShippingService.mode(), ratePer500g: fees.courierPer500gRupees, gstPercent: fees.gstPercent, indiaPost: IndiaPost.mode() } });
         } catch (e) { hubError(e, res, next); }
     });
     app.post('/api/hub/store/orders/:id/transition', active, mod, hubCan('ops:manage'), async (req, res, next) => {
@@ -163,6 +167,29 @@ export function registerHubStoreRoutes(app: Express) {
             const b = parse(z.object({ weightGrams: z.coerce.number().int(), lengthCm: z.coerce.number(), widthCm: z.coerce.number(), heightCm: z.coerce.number() }), req.body);
             const r = await StoreShippingService.book(ctxOf(req), Number(req.params.id), b);
             res.json({ success: true, message: `Courier booked: Delhivery ${r.waybill}${r.mode === 'mock' ? ' (test booking — the courier account is not live yet)' : ''}.${r.charge ? ` ₹${r.charge} comes off your settlement.` : ''} Print the label and dispatch.`, data: { waybill: r.waybill, mode: r.mode, trackingUrl: r.trackingUrl, charge: r.charge } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.get('/api/hub/store/orders/:id/parcel', active, mod, hubCan('ops:view'), async (req, res, next) => {
+        try {
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id), { bpId: ctxOf(req).businessPartnerId });
+            res.json({ success: true, data: { suggested: await StoreParcels.suggestedParcel(so.id), events: await StoreParcels.events(so.id), indiaPost: IndiaPost.status().mode } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/store/orders/:id/india-post/quote', active, mod, hubCan('ops:view'), async (req, res, next) => {
+        try {
+            const b = parse(indiaPostBooking.pick({ product: true, weightGrams: true, lengthCm: true, widthCm: true, heightCm: true }), req.body);
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id), { bpId: ctxOf(req).businessPartnerId });
+            const t = await StoreParcels.quote(so, b.product, parcelOf(b));
+            res.json({ success: true, data: { ...t, total: t.totalPaise / 100 } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/hub/store/orders/:id/india-post', active, mod, hubCan('ops:manage'), async (req, res, next) => {
+        try {
+            const b = parse(indiaPostBooking, req.body);
+            const ctx = ctxOf(req);
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id), { bpId: ctx.businessPartnerId });
+            const r = await StoreParcels.book(so, { partnerId: ctx.businessPartnerId }, { product: b.product, parcel: parcelOf(b), handover: b.handover, pickupDate: b.pickupDate, slot: b.slot });
+            res.json({ success: true, message: `Booked with India Post: ${r.articleNumber}${r.mode === 'mock' ? ' (test booking: India Post is not live yet)' : ''}. ${r.handover === 'pickup' ? 'The postman collects it in the slot you chose.' : `Drop it at ${r.office ?? 'your post office'}.`}${r.postage ? ` ₹${r.postage} postage comes off your settlement.` : ''}`, data: r });
         } catch (e) { hubError(e, res, next); }
     });
     app.get('/api/hub/store/orders/:id/label.pdf', active, mod, hubCan('ops:view'), async (req, res, next) => {

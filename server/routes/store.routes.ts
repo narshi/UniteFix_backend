@@ -4,7 +4,8 @@
  *
  *   Public    /api/store/categories, /api/store/products[/:id]
  *   Customer  /api/store/cart*, /api/store/checkout*, /api/store/orders*, review
- *   Staff     /api/admin/store/orders* (capability: orders)
+ *   Staff     /api/admin/store/orders*, /api/admin/store/shipping* (capability: orders)
+ *   India Post POST /api/webhooks/india-post (shared secret)
  *
  * Partners manage their listings and orders under /api/hub/store
  * (hub-store.routes.ts); both sides share MarketplaceService for orders.
@@ -26,6 +27,19 @@ import { StoreCheckout } from '../services/store/checkout.service';
 import { StoreOrders } from '../services/store/orders.service';
 import { MAX_QTY } from '../services/store/pricing.service';
 import { recordAudit } from '../lib/audit';
+import { StoreParcels } from '../services/store/parcels.service';
+import { IndiaPost } from '../services/store/india-post.service';
+import logger from '../lib/logger';
+
+/** What a booking request may carry (staff and partners alike). */
+export const indiaPostBooking = z.object({
+    product: z.enum(['SP', 'BP']).default('SP'),
+    weightGrams: z.coerce.number().int().min(1).max(35000),
+    lengthCm: z.coerce.number().int().min(1).max(150), widthCm: z.coerce.number().int().min(1).max(150), heightCm: z.coerce.number().int().min(1).max(150),
+    handover: z.enum(['pickup', 'dropoff']),
+    pickupDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), slot: z.enum(['10:00-13:00', '13:00-16:00']).nullish(),
+});
+export const parcelOf = (b: { weightGrams: number; lengthCm: number; widthCm: number; heightCm: number }) => ({ weightGrams: b.weightGrams, lengthCm: b.lengthCm, widthCm: b.widthCm, heightCm: b.heightCm });
 
 function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.infer<S> {
     const r = schema.safeParse(body);
@@ -209,6 +223,12 @@ export function registerStoreRoutes(app: Express) {
             await sendDoc(so.invoiceDocumentId, res);
         } catch (e) { hubError(e, res, next); }
     });
+    app.get('/api/store/pincode/:pin', mobileLimiter, authenticateToken, async (req, res, next) => {
+        try {
+            if (!/^[1-9]\d{5}$/.test(req.params.pin)) throw new HubError('A 6-digit pincode.', 'BAD_INPUT');
+            res.json({ success: true, data: await StoreParcels.pincodeHint(req.params.pin) });
+        } catch (e) { hubError(e, res, next); }
+    });
     app.post('/api/store/items/:itemId/review', mobileLimiter, authenticateToken, async (req, res, next) => {
         try {
             const b = parse(z.object({ rating: z.number().int().min(1).max(5), review: z.string().trim().max(2000).nullish() }), req.body);
@@ -245,6 +265,94 @@ export function registerStoreRoutes(app: Express) {
             res.json({ success: true, message: b.decision === 'received' ? 'Return received: credit note issued and refund started.' : `Return ${b.decision === 'approve' ? 'approved' : 'rejected'}.` });
         } catch (e) { hubError(e, res, next); }
     });
+    // ── Staff: India Post ────────────────────────────────────────────────
+
+    app.get('/api/admin/store/shipping', authenticateAdmin, async (_req, res, next) => {
+        try { res.json({ success: true, data: await StoreParcels.setup() }); } catch (e) { hubError(e, res, next); }
+    });
+    app.put('/api/admin/store/shipping/warehouse', authenticateAdmin, async (req, res, next) => {
+        try {
+            const b = parse(z.object({ name: z.string().trim().min(3).max(80), company: z.string().trim().min(3).max(80), line1: z.string().trim().min(3).max(160), line2: z.string().trim().max(80).nullish(), city: z.string().trim().min(3).max(80), pincode: z.string().trim(), stateCode: z.string().trim(), phone: z.string().trim(), email: z.string().trim().email().max(80).nullish() }), req.body);
+            const adminId = (req as any).admin.userId;
+            const w = await StoreParcels.setWarehouse(adminId, b);
+            await recordAudit({ entityType: 'store_shipping', entityId: 0, action: 'store_warehouse_set', changedBy: adminId, metadata: { pincode: w.pincode, city: w.city } });
+            res.json({ success: true, message: 'Shipping address saved.', data: w });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/store/shipping/series', authenticateAdmin, async (req, res, next) => {
+        try {
+            const b = parse(z.object({ prefix: z.string().trim(), firstSerial: z.coerce.number().int(), lastSerial: z.coerce.number().int(), product: z.enum(['SP', 'BP']), note: z.string().trim().max(200).nullish() }), req.body);
+            const adminId = (req as any).admin.userId;
+            const row = await StoreParcels.addSeries(adminId, b);
+            await recordAudit({ entityType: 'store_shipping', entityId: row.id, action: 'india_post_series_added', changedBy: adminId, metadata: { prefix: row.prefix, first: row.firstSerial, last: row.lastSerial, product: row.product } });
+            res.status(201).json({ success: true, message: `${row.lastSerial - row.firstSerial + 1} article numbers added.`, data: row });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/store/shipping/series/:id/active', authenticateAdmin, async (req, res, next) => {
+        try {
+            const active = req.body?.active === true;
+            const row = await StoreParcels.setSeriesActive(Number(req.params.id), active);
+            await recordAudit({ entityType: 'store_shipping', entityId: row.id, action: active ? 'india_post_series_on' : 'india_post_series_off', changedBy: (req as any).admin.userId });
+            res.json({ success: true, message: active ? 'Range in use.' : 'Range paused.' });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/store/shipping/sync', authenticateAdmin, async (_req, res, next) => {
+        try { const r = await StoreParcels.syncTracking(); res.json({ success: true, message: `Checked ${r.checked} parcel(s); ${r.updated} updated.`, data: r }); } catch (e) { hubError(e, res, next); }
+    });
+    app.get('/api/admin/store/orders/:id/parcel', authenticateAdmin, async (req, res, next) => {
+        try {
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id));
+            res.json({ success: true, data: { suggested: await StoreParcels.suggestedParcel(so.id), events: await StoreParcels.events(so.id), indiaPost: IndiaPost.status().mode } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/store/orders/:id/india-post/quote', authenticateAdmin, async (req, res, next) => {
+        try {
+            const b = parse(indiaPostBooking.pick({ product: true, weightGrams: true, lengthCm: true, widthCm: true, heightCm: true }), req.body);
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id));
+            const t = await StoreParcels.quote(so, b.product, parcelOf(b));
+            res.json({ success: true, data: { ...t, total: t.totalPaise / 100 } });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.post('/api/admin/store/orders/:id/india-post', authenticateAdmin, async (req, res, next) => {
+        try {
+            const b = parse(indiaPostBooking, req.body);
+            const adminId = (req as any).admin.userId;
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id));
+            if (so.sellerPartnerId != null) throw new HubError('The seller books their own parcels from their Hub.', 'NOT_OURS', 409);
+            const r = await StoreParcels.book(so, { partnerId: null }, { product: b.product, parcel: parcelOf(b), handover: b.handover, pickupDate: b.pickupDate, slot: b.slot });
+            await recordAudit({ entityType: 'store_order', entityId: so.id, action: 'store_india_post_booked', changedBy: adminId, metadata: { articleNumber: r.articleNumber, handover: r.handover, postage: r.postage, mode: r.mode } });
+            res.json({ success: true, message: `Booked with India Post: ${r.articleNumber}${r.mode === 'mock' ? ' (test booking: India Post is not live yet)' : ''}. ${r.handover === 'pickup' ? 'The postman collects it in the slot chosen.' : `Drop it at ${r.office ?? 'the post office'}.`} Print the label and stick it on.`, data: r });
+        } catch (e) { hubError(e, res, next); }
+    });
+    app.get('/api/admin/store/orders/:id/label.pdf', authenticateAdmin, async (req, res, next) => {
+        try {
+            const so = await MarketplaceService.sellerOrder(Number(req.params.id));
+            if (so.sellerPartnerId != null) throw new HubError('The seller prints their own labels.', 'NOT_OURS', 409);
+            const pdf = await StoreParcels.label(so);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="label-${so.code}.pdf"`);
+            res.send(pdf);
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    // India Post pushes tracking events here. The shared secret comes in a header (or ?token=).
+    app.post('/api/webhooks/india-post', async (req, res) => {
+        const given = (req.headers['x-webhook-secret'] as string) || String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '') || (typeof req.query.token === 'string' ? req.query.token : '');
+        const ips = (process.env.INDIA_POST_WEBHOOK_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
+        const from = String(req.headers['x-forwarded-for'] ?? req.ip ?? '').split(',')[0].trim().replace(/^::ffff:/, '');
+        if (!IndiaPost.webhookAuthorised(given) || (ips.length && !ips.includes(from))) {
+            logger.warn(`[INDIA-POST] Webhook refused from ${from}`);
+            return res.status(401).json({ success: false, message: 'Not authorised' });
+        }
+        try {
+            const r = await StoreParcels.webhook(req.body);
+            res.json({ success: true, ...r });
+        } catch (e: any) {
+            logger.error(`[INDIA-POST] Webhook failed: ${e?.message}`);
+            res.status(500).json({ success: false, message: 'Could not process; send again' });
+        }
+    });
+
     app.get('/api/admin/store/orders/:id/documents/:docId', authenticateAdmin, async (req, res, next) => {
         try {
             const so = await MarketplaceService.sellerOrder(Number(req.params.id));

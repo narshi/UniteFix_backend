@@ -6,9 +6,10 @@
 
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../../db';
-import { sellerOrders, sellerOrderItems, sellerOrderEvents, businessPartners, productReviews, products, taxDocuments } from '@shared/schema';
+import { sellerOrders, sellerOrderItems, sellerOrderEvents, storeShipmentEvents, businessPartners, productReviews, products, taxDocuments } from '@shared/schema';
 import { HubError } from '../partner-hub.service';
 import { loadSellerDetails } from '../invoice-generator';
+import { TRACKING_LABEL } from './parcels.service';
 
 const r2 = (p: number | null | undefined) => (p == null ? null : Math.round(p) / 100);
 type SO = typeof sellerOrders.$inferSelect;
@@ -38,6 +39,7 @@ export class StoreOrders {
         const items = ids.length ? await db.select({ i: sellerOrderItems, thumb: products.thumbnailUrl }).from(sellerOrderItems).leftJoin(products, eq(products.id, sellerOrderItems.productId)).where(inArray(sellerOrderItems.sellerOrderId, ids)).orderBy(asc(sellerOrderItems.id)) : [];
         const reviews = items.length ? await db.select().from(productReviews).where(inArray(productReviews.sellerOrderItemId, items.map(x => x.i.id))) : [];
         const events = opts.withEvents && ids.length ? await db.select().from(sellerOrderEvents).where(inArray(sellerOrderEvents.sellerOrderId, ids)).orderBy(asc(sellerOrderEvents.createdAt), asc(sellerOrderEvents.id)) : [];
+        const parcelEvents = opts.withEvents && ids.length ? await db.select().from(storeShipmentEvents).where(inArray(storeShipmentEvents.sellerOrderId, ids)).orderBy(desc(storeShipmentEvents.eventAt), desc(storeShipmentEvents.id)) : [];
         const docIds = rows.flatMap(r => [r.o.invoiceDocumentId, r.o.creditNoteDocumentId, r.o.receiptVoucherDocumentId]).filter((x): x is number => x != null);
         const docs = docIds.length ? await db.select({ id: taxDocuments.id, number: taxDocuments.number, kind: taxDocuments.docKind }).from(taxDocuments).where(inArray(taxDocuments.id, docIds)) : [];
         const uf = (await loadSellerDetails()).name || 'UniteFix';
@@ -46,7 +48,11 @@ export class StoreOrders {
             total: r2(o.totalPaise), tax: r2(o.gstPaise),
             seller: o.sellerPartnerId == null ? uf : seller, soldByUnitefix: o.sellerPartnerId == null,
             shipTo: { name: o.shipName, phone: o.shipPhone, address: o.shipAddress, pincode: o.shipPincode },
-            shipment: o.courier || o.trackingId ? { courier: o.courier, trackingId: o.trackingId, trackingUrl: trackingUrl(o.courier, o.trackingId) } : null,
+            shipment: o.courier || o.trackingId ? {
+                courier: o.courier, trackingId: o.trackingId, trackingUrl: trackingUrl(o.courier, o.trackingId),
+                status: o.trackingStatus, statusLabel: o.trackingStatus ? TRACKING_LABEL[o.trackingStatus as keyof typeof TRACKING_LABEL] ?? o.trackingStatus : null, updatedAt: o.trackingUpdatedAt,
+                ...(opts.withEvents ? { events: parcelEvents.filter(e => e.sellerOrderId === o.id).slice(0, 40).map(e => ({ at: e.eventAt, description: e.description, office: e.office })) } : {}),
+            } : null,
             dates: { confirmedAt: o.confirmedAt, dispatchedAt: o.dispatchedAt, deliveredAt: o.deliveredAt, cancelledAt: o.cancelledAt },
             refund: o.refundPaise ? { amount: r2(o.refundPaise), status: o.refundStatus } : null,
             cancel: o.status === 'cancelled' ? { by: o.cancelledBy, reason: o.cancelReason } : null,

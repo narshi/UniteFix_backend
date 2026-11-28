@@ -117,6 +117,7 @@ export class MarketplaceService {
         hsnCode?: string; gstPercent?: number; countryOfOrigin?: string; manufacturer?: string; netQuantity?: string | null;
         returnWindowDays?: number; warrantyMonths?: number | null; warrantyBy?: string | null; bisNumber?: string | null; wpcEta?: string | null;
         images?: string[]; sellerSku?: string | null;
+        weightGrams?: number | null; packageLengthCm?: number | null; packageWidthCm?: number | null; packageHeightCm?: number | null;
         installationPriceRupees?: number | null; installationSac?: string | null; installationNote?: string | null;
     }) {
         const existing = id ? await this.listing(ctx.businessPartnerId, id) : null;
@@ -142,6 +143,8 @@ export class MarketplaceService {
         if (input.netQuantity !== undefined) v.netQuantity = input.netQuantity?.trim() || null;
         if (input.returnWindowDays !== undefined) { if (!(Number.isInteger(input.returnWindowDays) && input.returnWindowDays >= 0 && input.returnWindowDays <= 30)) throw new HubError('Return window is 0–30 days.', 'BAD_WINDOW'); v.returnWindowDays = input.returnWindowDays; }
         if (input.warrantyMonths !== undefined) v.warrantyMonths = input.warrantyMonths;
+        // Packed weight and box size: India Post prices and books from these.
+        for (const k of ['weightGrams', 'packageLengthCm', 'packageWidthCm', 'packageHeightCm'] as const) if (input[k] !== undefined) v[k] = input[k];
         if (input.warrantyBy !== undefined) { if (input.warrantyBy && !['seller', 'manufacturer', 'none'].includes(input.warrantyBy)) throw new HubError('Warranty is by the seller, the manufacturer, or none.', 'BAD_WARRANTY'); v.warrantyBy = input.warrantyBy; }
         if (input.bisNumber !== undefined) v.bisNumber = input.bisNumber?.trim() || null;
         if (input.wpcEta !== undefined) v.wpcEta = input.wpcEta?.trim() || null;
@@ -591,9 +594,16 @@ export class MarketplaceService {
         return this.transitionOrder(so, to, input, { type: 'admin', id: adminId });
     }
 
-    private static async transitionOrder(so: SellerOrder, to: string, input: { courier?: string | null; trackingId?: string | null; reason?: string | null }, actor: { type: 'seller' | 'admin'; id: number | null }) {
+    /** The carrier moved the parcel (India Post handed over / delivered): the order follows. Only forward, never a cancel. */
+    static async systemTransition(id: number, to: 'dispatched' | 'delivered', note?: string | null) {
+        const so = await this.sellerOrder(id);
+        if (so.status === to) return so;
+        return this.transitionOrder(so, to, { reason: note ?? null }, { type: 'system', id: null });
+    }
+
+    private static async transitionOrder(so: SellerOrder, to: string, input: { courier?: string | null; trackingId?: string | null; reason?: string | null }, actor: { type: 'seller' | 'admin' | 'system'; id: number | null }) {
         if (!(FLOW[so.status] ?? []).includes(to)) throw new HubError(`A ${so.status} order cannot become ${to}.`, 'BAD_TRANSITION', 409);
-        if (to === 'cancelled') return this.cancel(so, actor.type, actor.id, input.reason);
+        if (to === 'cancelled') { if (actor.type === 'system') throw new HubError('Only people cancel orders.', 'BAD_TRANSITION', 409); return this.cancel(so, actor.type, actor.id, input.reason); }
         if (to === 'dispatched') input = { ...input, courier: input.courier?.trim() || so.courier, trackingId: input.trackingId?.trim() || so.trackingId };
         if (to === 'dispatched' && (!input.courier?.trim() || !input.trackingId?.trim())) throw new HubError('Courier and tracking id are needed to dispatch.', 'NO_TRACKING');
         const slaH = (await this.feeRates()).slaHours;

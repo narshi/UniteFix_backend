@@ -541,6 +541,11 @@ export const products = pgTable("products", {
   manufacturer: text("manufacturer"),
   netQuantity: text("net_quantity"),
   returnWindowDays: integer("return_window_days").notNull().default(7),
+  /** Packed weight and size, for postage and courier booking (India Post needs both). */
+  weightGrams: integer("weight_grams"),
+  packageLengthCm: integer("package_length_cm"),
+  packageWidthCm: integer("package_width_cm"),
+  packageHeightCm: integer("package_height_cm"),
   warrantyMonths: integer("warranty_months"),
   warrantyBy: text("warranty_by"),                                   // seller | manufacturer | none
   bisNumber: text("bis_number"),
@@ -567,6 +572,8 @@ export const productVariants = pgTable("product_variants", {
   mrp: integer("mrp"), // Maximum retail price (for showing discounts)
   stock: integer("stock").notNull().default(0),
   lowStockThreshold: integer("low_stock_threshold").default(3),
+  /** Packed weight of this option (a 1 kg pack weighs more than a 250 g one); falls back to the product's. */
+  weightGrams: integer("weight_grams"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -3624,6 +3631,11 @@ export const sellerOrders = pgTable("seller_orders", {
   courierChargeGstPaise: integer("courier_charge_gst_paise").notNull().default(0),
   installationStatus: text("installation_status"),          // null (none bought) | pending | done — settles only when done
   installedAt: timestamp("installed_at"),
+  /** Carrier the parcel was booked with through UniteFix: india_post | delhivery; null when the seller typed their own. */
+  carrier: text("carrier"),
+  /** Where the parcel is, from the carrier: booked | pickup_cancelled | handed_over | in_transit | on_hold | out_for_delivery | delivered | returning | returned. */
+  trackingStatus: text("tracking_status"),
+  trackingUpdatedAt: timestamp("tracking_updated_at"),
   // Store v2: place of supply, and the GST vouchers for the prepaid amount (Rules 50/51)
   shipStateCode: text("ship_state_code"),
   receiptVoucherDocumentId: integer("receipt_voucher_document_id").references(() => taxDocuments.id),
@@ -4488,3 +4500,50 @@ export const travelTripPayouts = pgTable("travel_trip_payouts", {
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => ({ tripIdx: index("travel_trip_payouts_trip_idx").on(t.tripId) }));
+
+// ── India Post (Department of Posts) for store parcels ────────────────────
+
+/**
+ * Article-number ranges India Post allocates to the contract (e.g. EK 21433001–21434000).
+ * The 13-character number is prefix + 8-digit serial + check digit + "IN"
+ * (UPU S10, weighted modulus 11). Numbers are taken in order, atomically.
+ */
+export const indiaPostBarcodeSeries = pgTable("india_post_barcode_series", {
+  id: serial("id").primaryKey(),
+  prefix: text("prefix").notNull(),                  // 2 letters, e.g. EK
+  firstSerial: integer("first_serial").notNull(),    // 8 digits
+  lastSerial: integer("last_serial").notNull(),
+  nextSerial: integer("next_serial").notNull(),
+  product: text("product").notNull().default('SP'),  // SP (Speed Post) | BP (Business Parcel)
+  isActive: boolean("is_active").notNull().default(true),
+  note: text("note"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Every tracking event of a store parcel, from the bulk tracking job or the webhook. */
+export const storeShipmentEvents = pgTable("store_shipment_events", {
+  id: serial("id").primaryKey(),
+  sellerOrderId: integer("seller_order_id").notNull().references(() => sellerOrders.id, { onDelete: 'cascade' }),
+  carrier: text("carrier").notNull(),
+  articleNumber: text("article_number").notNull(),
+  code: text("code"),                                // the carrier's event code (ITEM_BOOK, BAG_OPEN …) or its text
+  description: text("description").notNull(),
+  status: text("status"),                            // what it means for us (see trackingStatus)
+  office: text("office"),
+  eventAt: timestamp("event_at").notNull(),
+  source: text("source").notNull(),                  // tracking | webhook
+  raw: jsonb("raw"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({ orderIdx: index("store_shipment_events_order_idx").on(t.sellerOrderId, t.eventAt), uniq: uniqueIndex("store_shipment_events_uniq").on(t.sellerOrderId, t.eventAt, t.description) }));
+
+/** India Post's answer for a pincode, kept for a month (state for GST, delivery office, whether it delivers). */
+export const indiaPostPincodes = pgTable("india_post_pincodes", {
+  pincode: text("pincode").primaryKey(),
+  stateName: text("state_name"),
+  city: text("city"),
+  deliverable: boolean("deliverable").notNull(),
+  officeId: text("office_id"),
+  offices: jsonb("offices"),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+});

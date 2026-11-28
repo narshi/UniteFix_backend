@@ -36,6 +36,7 @@ export async function bootServer() {
     for (const k of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'ADMIN_ALERT_EMAIL', 'MSG91_API_KEY', 'TWILIO_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE']) delete process.env[k];
     // Couriers: never book a real parcel from a test.
     process.env.DELHIVERY_MODE = 'mock'; delete process.env.DELHIVERY_API_KEY;
+    process.env.INDIA_POST_MODE = 'mock'; for (const k of ['INDIA_POST_USERNAME', 'INDIA_POST_PASSWORD', 'INDIA_POST_PROXY_URL']) delete process.env[k];
     await runStartupMigrations();
     const app = express();
     // Keeps the untouched request bytes, exactly as server/index.ts does: the

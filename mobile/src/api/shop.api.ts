@@ -58,7 +58,12 @@ export interface StoreOrder {
     id: number; code: string; status: string; statusLabel: string; createdAt: string; total: number; tax: number;
     seller: string; soldByUnitefix: boolean;
     shipTo: { name: string | null; phone: string | null; address: string | null; pincode: string | null };
-    shipment: { courier: string | null; trackingId: string | null; trackingUrl: string | null } | null;
+    shipment: {
+        courier: string | null; trackingId: string | null; trackingUrl: string | null;
+        /** Where the parcel is, from India Post (null for other couriers). */
+        status?: string | null; statusLabel?: string | null; updatedAt?: string | null;
+        events?: Array<{ at: string; description: string; office: string | null }>;
+    } | null;
     dates: { confirmedAt: string | null; dispatchedAt: string | null; deliveredAt: string | null; cancelledAt: string | null };
     refund: { amount: number; status: string | null } | null;
     cancel: { by: string | null; reason: string | null } | null;
@@ -76,6 +81,8 @@ type Ok<T> = { success: true; data: T; message?: string };
 
 export const shopApi = {
     categories: () => apiClient.get<Ok<StoreCategory[]>>('/api/store/categories').then(r => r.data.data),
+    /** The state and city of a pincode, and whether India Post delivers there. */
+    pincode: (pin: string) => apiClient.get<Ok<{ known: boolean; deliverable?: boolean; stateCode?: string | null; stateName?: string | null; city?: string | null }>>(`/api/store/pincode/${pin}`).then(r => r.data.data),
     products: (q: { search?: string; categoryId?: number; sort?: string; page?: number; limit?: number }) =>
         apiClient.get<Ok<ProductPage>>('/api/store/products', { params: q }).then(r => r.data.data),
     product: (id: number) => apiClient.get<Ok<ProductDetail>>(`/api/store/products/${id}`).then(r => r.data.data),
