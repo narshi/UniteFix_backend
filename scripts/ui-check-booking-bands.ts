@@ -7,7 +7,7 @@
  */
 import { chromium } from 'playwright';
 import { eq, sql } from 'drizzle-orm';
-import { check, summary, makeSuperAdmin, cleanupPartners, db } from './lib/hub-test-kit';
+import { check, summary, makeSuperAdmin, cleanupPartners, db, ownPasswordChosen } from './lib/hub-test-kit';
 import { adminUsers, users, serviceCategories, services, partnerTerritories, partnerServices, serviceEnquiries } from '../shared/schema';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { PartnerHubService } from '../server/services/partner-hub.service';
@@ -31,6 +31,7 @@ async function main() {
     const [cu] = await db.insert(users).values({ phone: `7${String(Date.now()).slice(-9)}`, username: 'QA UI Enquirer', role: 'user', isActive: true } as any).returning(); userIds.push(cu.id);
     await db.insert(serviceEnquiries).values({ ref: `EQUI${stamp}`.slice(0, 20), userId: cu.id, catalogServiceId: svc.id, categoryId: rcat.id, serviceName: svc.name, pincode: '581401', details: 'Family trip to Goa for four people in December', budget: '₹40,000', notifiedPartnerIds: [bp.id] as any, staffDueAt: new Date(Date.now() - 60_000) } as any);
     const ol = await PartnerHubService.createOwnerLogin(bp.id, {});
+    await ownPasswordChosen(ol.username);
     const [owner] = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, ol.username)); adminIds.push(owner.id);
     const S = await login(sa.username, sa.password), H = await login(ol.username, ol.temporaryPassword);
 

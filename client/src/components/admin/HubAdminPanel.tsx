@@ -45,6 +45,11 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
     onSuccess: (r: any) => { refresh(); setIssued(r.data); },
     onError: (e) => toast({ title: "Not created", description: apiErrorMessage(e), variant: "destructive" }),
   });
+  const resetOwner = useMutation({
+    mutationFn: async () => apiRequest("POST", `/api/admin/hub/partners/${partnerId}/reset-owner-password`, {}),
+    onSuccess: (r: any) => { setIssued(r.data); toast({ title: "Password reset", description: r?.message }); },
+    onError: (e) => toast({ title: "Not reset", description: apiErrorMessage(e), variant: "destructive" }),
+  });
 
   if (isLoading || !d) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const override = (m: string) => d.moduleOverrides.find(o => o.module === m);
@@ -55,8 +60,9 @@ export default function HubAdminPanel({ partnerId }: { partnerId: number }) {
         <Badge variant="secondary">applied via {d.appliedVia ?? "admin"}</Badge>
         {d.submittedAt ? <Badge className="bg-emerald-100 text-emerald-900 hover:bg-emerald-100">submitted {new Date(d.submittedAt).toLocaleDateString("en-IN")}</Badge> : d.status === "pending_approval" && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">not submitted yet</Badge>}
         {!d.hasHubLogin && <Button size="sm" variant="outline" onClick={() => ownerLogin.mutate()} disabled={ownerLogin.isPending}>Create Hub login</Button>}
+        {d.hasHubLogin && <Button size="sm" variant="outline" disabled={resetOwner.isPending} onClick={() => { if (window.confirm("Make a new temporary password for the owner's Hub login? Their current password stops working at once, and they choose their own when they next sign in.")) resetOwner.mutate(); }}>Reset Hub password</Button>}
       </div>
-      {issued && <div className="rounded-md border p-3 font-mono text-xs">Hub login: {issued.username} · temporary password: {issued.temporaryPassword} <span className="font-sans text-muted-foreground">(shown once)</span></div>}
+      {issued && <div className="rounded-md border p-3 font-mono text-xs">Hub login: {issued.username} · temporary password: {issued.temporaryPassword} <span className="font-sans text-muted-foreground">(shown once; they must choose their own at first sign-in)</span></div>}
 
       <div className="grid gap-2 sm:grid-cols-2">
         {d.onboarding.steps.map(s => (

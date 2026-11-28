@@ -42,6 +42,11 @@ export default function HubTeam() {
     onSuccess: (r: any) => { refresh(); setOpen(false); setIssued({ username: r.data.username, temporaryPassword: r.data.temporaryPassword }); setForm({ name: "", email: "", phone: "", role: "accountant" }); },
     onError: fail("Not invited"),
   });
+  const reset = useMutation({
+    mutationFn: async (id: number) => apiRequest("POST", `/api/hub/team/${id}/reset-password`, {}),
+    onSuccess: (r: any) => setIssued({ username: r.data.username, temporaryPassword: r.data.temporaryPassword }),
+    onError: fail("Not reset"),
+  });
   const update = useMutation({
     mutationFn: async (v: { id: number; role?: HubRole; status?: string }) => apiRequest("PATCH", `/api/hub/team/${v.id}`, v),
     onSuccess: (r: any) => { refresh(); toast({ title: r?.message ?? "Updated" }); },
@@ -81,7 +86,7 @@ export default function HubTeam() {
                     <td className="text-right">
                       {manage && m.role !== "owner" && (
                         m.status === "active"
-                          ? <Button size="sm" variant="ghost" className="text-rose-300" onClick={() => { if (window.confirm(`Remove ${m.displayName ?? m.email}'s access? They are signed out on their next click.`)) update.mutate({ id: m.id, status: "revoked" }); }}>Remove access</Button>
+                          ? <><Button size="sm" variant="ghost" disabled={reset.isPending} onClick={() => { if (window.confirm(`Make a new temporary password for ${m.displayName ?? m.email}? Their current one stops working.`)) reset.mutate(m.id); }}>Reset password</Button><Button size="sm" variant="ghost" className="text-rose-300" onClick={() => { if (window.confirm(`Remove ${m.displayName ?? m.email}'s access? They are signed out on their next click.`)) update.mutate({ id: m.id, status: "revoked" }); }}>Remove access</Button></>
                           : <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: m.id, status: "active" })}>Restore</Button>
                       )}
                     </td>
@@ -124,7 +129,7 @@ export default function HubTeam() {
 
       <Dialog open={!!issued} onOpenChange={o => !o && setIssued(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Login created</DialogTitle><DialogDescription>Share this with them now — the password is not shown again. They should change it after signing in.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Temporary password</DialogTitle><DialogDescription>Share this with them now — the password is not shown again. They choose their own when they first sign in.</DialogDescription></DialogHeader>
           <div className="rounded-lg bg-[rgba(255,255,255,0.04)] p-3 font-mono text-sm text-white space-y-1">
             <p>Sign-in: {window.location.origin}</p>
             <p>Email: {issued?.username}</p>

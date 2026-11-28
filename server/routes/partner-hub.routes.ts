@@ -116,12 +116,15 @@ export function registerPartnerHubRoutes(app: Express) {
                 ctx.ftthOperatorId = await PartnerHubService.ensureFtthOperator(ctx.businessPartnerId, null)
                     .catch(e => { logger.error(`[HUB] FTTH operator set-up for partner #${ctx.businessPartnerId} failed: ${e?.message}`); return null; });
             }
+            const [pw] = await db.select({ must: adminUsers.mustChangePassword }).from(adminUsers).where(eq(adminUsers.id, ctx.adminUserId)).limit(1);
+            if (pw?.must) return res.json({ success: true, data: { ...ctx, mustChangePassword: true, moduleLabels: MODULE_LABEL, planLimits: PLAN_LIMITS[ctx.plan], business: null, onboarding: { steps: [], readyToSubmit: false, submittedAt: null, rejectionReason: null } } });
             const bp = await BusinessPartnerService.byId(ctx.businessPartnerId);
             const onboarding = await PartnerHubService.onboarding(ctx.businessPartnerId);
             res.json({
                 success: true,
                 data: {
                     ...ctx,
+                    mustChangePassword: false,
                     moduleLabels: MODULE_LABEL,
                     planLimits: PLAN_LIMITS[ctx.plan],
                     business: bp && {
@@ -223,10 +226,13 @@ export function registerPartnerHubRoutes(app: Express) {
             const current = String(req.body?.currentPassword ?? '');
             const next_ = String(req.body?.newPassword ?? '');
             if (next_.length < 8) throw new HubError('Use at least 8 characters.', 'WEAK_PASSWORD');
+            if (next_.length > 128) throw new HubError('Use at most 128 characters.', 'WEAK_PASSWORD');
+            if (next_ === current) throw new HubError('Choose a new password, not the one you were given.', 'SAME_PASSWORD');
+            if (/^(.)\1+$/.test(next_) || /^(?:password|12345678|123456789|1234567890|qwertyuiop|unitefix)/i.test(next_)) throw new HubError('That password is too easy to guess.', 'WEAK_PASSWORD');
             const [login] = await db.select().from(adminUsers).where(eq(adminUsers.id, ctx.adminUserId)).limit(1);
             if (!login || !(await bcrypt.compare(current, login.password))) throw new HubError('Your current password is not right.', 'BAD_PASSWORD', 401);
-            await db.update(adminUsers).set({ password: await bcrypt.hash(next_, 10), updatedAt: new Date() }).where(eq(adminUsers.id, ctx.adminUserId));
-            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_password_changed', changedBy: ctx.adminUserId });
+            await db.update(adminUsers).set({ password: await bcrypt.hash(next_, 10), mustChangePassword: false, passwordChangedAt: new Date(), updatedAt: new Date() }).where(eq(adminUsers.id, ctx.adminUserId));
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: login.mustChangePassword ? 'hub_temporary_password_replaced' : 'hub_password_changed', changedBy: ctx.adminUserId });
             res.json({ success: true, message: 'Password changed.' });
         } catch (e) { hubError(e, res, next); }
     });
@@ -255,6 +261,15 @@ export function registerPartnerHubRoutes(app: Express) {
                 message: `Invited. They sign in at the Partner Hub with ${req.body.email} and the temporary password shown once below.`,
                 data: { member: r.member, username: req.body.email.toLowerCase(), temporaryPassword: r.temporaryPassword },
             });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.post('/api/hub/team/:id/reset-password', active, hubCan('team:manage'), async (req, res, next) => {
+        try {
+            const ctx = (req as HubRequest).hub!;
+            const r = await PartnerHubService.resetMemberPassword(ctx, Number(req.params.id));
+            await recordAudit({ entityType: 'business_partner', entityId: ctx.businessPartnerId, action: 'hub_member_password_reset', changedBy: ctx.adminUserId, metadata: { memberId: Number(req.params.id), username: r.username } });
+            res.json({ success: true, message: 'New temporary password made. They choose their own when they next sign in.', data: r });
         } catch (e) { hubError(e, res, next); }
     });
 
@@ -385,6 +400,15 @@ export function registerPartnerHubRoutes(app: Express) {
             await db.update(businessPartners).set({ aatoAbove5cr: req.body.aatoAbove5cr, updatedAt: new Date() }).where(eq(businessPartners.id, Number(req.params.id)));
             await recordAudit({ entityType: 'business_partner', entityId: Number(req.params.id), action: 'hub_flags_changed', changedBy: admin.userId, metadata: req.body });
             res.json({ success: true, message: 'Saved.' });
+        } catch (e) { hubError(e, res, next); }
+    });
+
+    app.post('/api/admin/hub/partners/:id/reset-owner-password', authenticateAdmin, requireSuperAdmin, async (req, res, next) => {
+        try {
+            const admin = (req as any).admin as { userId: number };
+            const r = await PartnerHubService.resetOwnerLogin(Number(req.params.id));
+            await recordAudit({ entityType: 'business_partner', entityId: Number(req.params.id), action: 'hub_owner_password_reset', changedBy: admin.userId, metadata: { username: r.username } });
+            res.json({ success: true, message: 'New temporary password made. Share it with the owner: it is shown once, and they choose their own when they next sign in.', data: r });
         } catch (e) { hubError(e, res, next); }
     });
 

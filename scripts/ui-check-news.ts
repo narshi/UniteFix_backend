@@ -15,7 +15,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import jwt from 'jsonwebtoken';
 import { eq, inArray } from 'drizzle-orm';
-import { makeSuperAdmin, gstinFor, cleanupPartners, db } from './lib/hub-test-kit';
+import { makeSuperAdmin, gstinFor, cleanupPartners, db, ownPasswordChosen } from './lib/hub-test-kit';
 import { adminUsers, businessPartners, users, newsPapers, newsEditions } from '../shared/schema';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { PartnerHubService } from '../server/services/partner-hub.service';
@@ -66,6 +66,7 @@ async function main() {
     bpIds.push(bp.id);
     await db.update(businessPartners).set({ stateCode: '29', stateName: 'Karnataka' }).where(eq(businessPartners.id, bp.id));
     const l = await PartnerHubService.createOwnerLogin(bp.id, {});
+    await ownPasswordChosen(l.username);
     const [pr] = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, l.username)); adminIds.push(pr.id);
     const T = (await login(l.username, l.temporaryPassword))!;
     const partnerUser = { id: pr.id, username: l.username, role: 'partner' };

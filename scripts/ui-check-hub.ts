@@ -16,7 +16,7 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 import { eq } from 'drizzle-orm';
-import { client, makeSuperAdmin, gstinFor, cleanupPartners, db } from './lib/hub-test-kit';
+import { client, makeSuperAdmin, gstinFor, cleanupPartners, db, ownPasswordChosen } from './lib/hub-test-kit';
 import { adminUsers, businessPartners, employees, productCategories } from '../shared/schema';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { PartnerHubService } from '../server/services/partner-hub.service';
@@ -40,6 +40,7 @@ async function main() {
     bpIds.push(bp.id);
     await db.update(businessPartners).set({ stateCode: '29', stateName: 'Karnataka', hubPlan: 'pro', grievanceName: 'Ravi', grievancePhone: '9845000111', grievanceEmail: 'help@coastal.example', returnPolicy: '7 days' }).where(eq(businessPartners.id, bp.id));
     const login = await PartnerHubService.createOwnerLogin(bp.id, {});
+    await ownPasswordChosen(login.username);
     const [ar] = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, login.username)); adminIds.push(ar.id);
     const t = (await api.login(login.username, login.temporaryPassword))!;
     const me = (await api.get('/api/hub/me', t)).body?.data ?? null;

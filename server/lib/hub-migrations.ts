@@ -1930,6 +1930,12 @@ const BLOCKS: Array<[string, string]> = [
         fetched_at TIMESTAMP DEFAULT NOW()
       );
     `],
+    // Temporary passwords: a Hub login given one must choose its own before anything else.
+    // Existing logins keep false (nothing is forced on anyone already signed up).
+    ['hub: must change temporary password', `
+      ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP;
+    `],
 ];
 
 export async function runHubMigrations(client: PoolClient): Promise<void> {

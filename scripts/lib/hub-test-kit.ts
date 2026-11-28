@@ -54,6 +54,9 @@ export async function bootServer() {
     return { base, close: () => new Promise<void>(r => server.close(() => r())) };
 }
 
+/** Temporary passwords the kit replaced on first sign-in → the password chosen. */
+const replaced = new Map<string, string>();
+
 export function client(base: string) {
     const call = async (method: string, path: string, opts: { token?: string | null; body?: any; form?: FormData } = {}) => {
         const headers: Record<string, string> = {};
@@ -74,9 +77,26 @@ export function client(base: string) {
         patch: (p: string, body?: any, token?: string | null) => call('PATCH', p, { body, token }),
         del: (p: string, token?: string | null) => call('DELETE', p, { token }),
         upload: (p: string, form: FormData, token?: string | null) => call('POST', p, { form, token }),
-        async login(username: string, password: string): Promise<string | null> {
-            const r = await call('POST', '/api/admin/auth/login', { body: { username, password } });
-            return r.body?.token ?? null;
+        /**
+         * Sign in. A Hub login on a temporary password chooses its own first,
+         * as a real partner must (the new one is `${password}-own`), unless
+         * `keepTemporary` is set to test that gate itself.
+         */
+        async login(username: string, password: string, opts: { keepTemporary?: boolean } = {}): Promise<string | null> {
+            // Signing in again with the temporary password a suite was given: use the one chosen for it.
+            const pw = replaced.get(`${username}\u0000${password}`) ?? password;
+            const r = await call('POST', '/api/admin/auth/login', { body: { username, password: pw } });
+            const token: string | null = r.body?.token ?? null;
+            if (token && !opts.keepTemporary) {
+                // Read the flag directly: /api/hub/me has side effects (it sets up a broadband operator) that suites test.
+                const { eq } = await import('drizzle-orm');
+                const [row] = await db.select({ must: adminUsers.mustChangePassword }).from(adminUsers).where(eq(adminUsers.username, username)).limit(1);
+                if (row?.must) {
+                    const ch = await call('POST', '/api/hub/password', { token, body: { currentPassword: pw, newPassword: `${pw}-own` } });
+                    if (ch.status === 200) replaced.set(`${username}\u0000${password}`, `${pw}-own`);
+                }
+            }
+            return token;
         },
     };
 }
@@ -155,4 +175,10 @@ export async function cleanupPartners(bpIds: number[], adminIds: number[] = [], 
         pending = failed;
     }
     if (pending.length) console.error('cleanup left rows behind:', pending.map(p => p.slice(0, 80)));
+}
+
+/** For browser checks that hand an API token to the page: the login counts as having chosen its own password. */
+export async function ownPasswordChosen(username: string) {
+    const { eq } = await import('drizzle-orm');
+    await db.update(adminUsers).set({ mustChangePassword: false }).where(eq(adminUsers.username, username));
 }

@@ -18,6 +18,7 @@ import { apiErrorMessage } from "@/lib/queryClient";
 import { HUB_ROLE_LABEL, PLAN_LABEL } from "@shared/hub";
 import NotFound from "@/pages/not-found";
 import { AlertBell } from "@/components/hub/AlertBell";
+import SetOwnPassword from "@/components/hub/SetOwnPassword";
 
 const Icon = ({ name, className = "" }: { name: string; className?: string }) => (
   <span className={`material-icons ${className}`} style={{ fontFamily: "Material Icons" }} aria-hidden="true">{name}</span>
@@ -143,6 +144,8 @@ export default function PartnerHubLayout() {
       </div>
     );
   }
+
+  if (me.mustChangePassword) return <SetOwnPassword username={me.username} />;
 
   const routes = HUB_ENTRIES.filter(e => visible(me, e));
 

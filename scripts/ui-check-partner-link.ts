@@ -7,7 +7,7 @@
  */
 import { chromium, devices } from 'playwright';
 import { eq } from 'drizzle-orm';
-import { check, summary, makeSuperAdmin, cleanupPartners, db } from './lib/hub-test-kit';
+import { check, summary, makeSuperAdmin, cleanupPartners, db, ownPasswordChosen } from './lib/hub-test-kit';
 import { adminUsers, users, employees, serviceCategories, services, partnerTerritories, partnerServices } from '../shared/schema';
 import { BusinessPartnerService } from '../server/services/business-partner.service';
 import { PartnerHubService } from '../server/services/partner-hub.service';
@@ -33,6 +33,7 @@ async function main() {
     const [tu] = await db.insert(users).values({ phone: phone(), username: 'QA UI Tech', role: 'serviceman', isActive: true } as any).returning(); userIds.push(tu.id);
     await db.insert(employees).values({ userId: tu.id, fullName: 'QA UI Tech', documentVerificationStatus: 'verified', isActive: true, managedByPartnerId: bp.id } as any);
     const ol = await PartnerHubService.createOwnerLogin(bp.id, {});
+    await ownPasswordChosen(ol.username);
     const [owner] = await db.select({ id: adminUsers.id }).from(adminUsers).where(eq(adminUsers.email, ol.username)); adminIds.push(owner.id);
     const login: any = await (await fetch(`${BASE}/api/admin/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: ol.username, password: ol.temporaryPassword }) })).json();
     const code = (await (await fetch(`${BASE}/api/public/partners/${bp.partnerCode}`)).json()).data.code as string;

@@ -1187,6 +1187,9 @@ export const adminUsers = pgTable("admin_users", {
   // attribution off history. A truly unreferenced account can still be purged.
   deletedAt: timestamp("deleted_at"),
   lastLogin: timestamp("last_login"),
+  /** Signed in with a password someone else set (a temporary one): must choose their own first. Partner Hub logins. */
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  passwordChangedAt: timestamp("password_changed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

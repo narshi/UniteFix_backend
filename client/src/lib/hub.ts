@@ -24,6 +24,8 @@ export interface HubMe {
   modules: HubModule[];
   plan: "starter" | "pro";
   ftthOperatorId: number | null;
+  /** On a temporary password: the Hub shows only "choose your own password" until it is changed. */
+  mustChangePassword?: boolean;
   planLimits: { invoicesPerMonth: number | null; teamMembers: number | null; gstExports: boolean; eInvoice: boolean };
   business: {
     legalName: string; displayName: string; gstin: string | null; pan: string | null; stateName: string | null; stateCode: string | null;

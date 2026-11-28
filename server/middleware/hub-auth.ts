@@ -24,6 +24,9 @@ const JWT_SECRET = process.env.JWT_SECRET as string;
 
 export interface HubRequest extends Request { hub?: HubContext }
 
+/** What a login on a temporary password may still reach. */
+const PASSWORD_CHANGE_PATHS = new Set(['/api/hub/me', '/api/hub/password']);
+
 export function authenticateHub(opts: { allowPending?: boolean } = {}) {
     return async (req: Request, res: Response, next: NextFunction) => {
         const token = req.headers['authorization']?.split(' ')[1];
@@ -68,10 +71,14 @@ export function authenticateHub(opts: { allowPending?: boolean } = {}) {
         }
 
         try {
-            const [login] = await db.select({ isActive: adminUsers.isActive, deletedAt: adminUsers.deletedAt, username: adminUsers.username })
+            const [login] = await db.select({ isActive: adminUsers.isActive, deletedAt: adminUsers.deletedAt, username: adminUsers.username, mustChangePassword: adminUsers.mustChangePassword })
                 .from(adminUsers).where(eq(adminUsers.id, decoded.userId)).limit(1);
             if (!login || login.deletedAt || login.isActive === false) {
                 return res.status(403).json({ success: false, code: 'LOGIN_DISABLED', message: 'This login has been switched off. Ask the business owner.' });
+            }
+            // Still on a temporary password (someone else knows it): only "who am I" and "set my password" until they choose their own.
+            if (login.mustChangePassword && !PASSWORD_CHANGE_PATHS.has(req.path)) {
+                return res.status(403).json({ success: false, code: 'PASSWORD_CHANGE_REQUIRED', message: 'Choose your own password first: you signed in with a temporary one.' });
             }
 
             const ctx = await PartnerHubService.context(decoded.userId, login.username);

@@ -417,7 +417,7 @@ export class PartnerHubService {
         const temporaryPassword = crypto.randomBytes(9).toString('base64url');
         const member = await withTransaction(async (tx) => {
             const [login] = await tx.insert(adminUsers).values({
-                username: email, email, password: await bcrypt.hash(temporaryPassword, 10), role: 'partner', isActive: true,
+                username: email, email, password: await bcrypt.hash(temporaryPassword, 10), role: 'partner', isActive: true, mustChangePassword: true,
             }).returning();
             const [m] = await tx.insert(partnerUsers).values({
                 businessPartnerId: ctx.businessPartnerId, adminUserId: login.id, role: input.role,
@@ -450,6 +450,34 @@ export class PartnerHubService {
     // Admin side
     // ──────────────────────────────────────────────────────────────────────
 
+    /** A new temporary password for a login; they must choose their own at next sign-in. Shown once. */
+    private static async issueTemporaryPassword(adminUserId: number) {
+        const temporaryPassword = crypto.randomBytes(9).toString('base64url');
+        const [login] = await db.update(adminUsers).set({ password: await bcrypt.hash(temporaryPassword, 10), mustChangePassword: true, updatedAt: new Date() })
+            .where(eq(adminUsers.id, adminUserId)).returning({ username: adminUsers.username });
+        if (!login) throw new HubError('Login not found', 'NOT_FOUND', 404);
+        return { username: login.username, temporaryPassword };
+    }
+
+    /** The owner (or a manager with team rights) resets a team member who forgot their password. */
+    static async resetMemberPassword(ctx: HubContext, memberId: number) {
+        const [m] = await db.select().from(partnerUsers)
+            .where(and(eq(partnerUsers.id, memberId), eq(partnerUsers.businessPartnerId, ctx.businessPartnerId))).limit(1);
+        if (!m) throw new HubError('Not found', 'NOT_FOUND', 404);
+        if (m.role === 'owner') throw new HubError('The owner\'s password is reset by UniteFix.', 'OWNER_LOCKED', 409);
+        if (m.adminUserId === ctx.adminUserId) throw new HubError('Change your own password in Business profile.', 'SELF', 409);
+        if (m.status !== 'active') throw new HubError('Restore their access first.', 'REVOKED', 409);
+        return this.issueTemporaryPassword(m.adminUserId);
+    }
+
+    /** Staff reset the owner's Hub password (forgotten, or handed over). */
+    static async resetOwnerLogin(bpId: number) {
+        const bp = await BusinessPartnerService.byId(bpId);
+        if (!bp) throw new HubError('Not found', 'NOT_FOUND', 404);
+        if (!bp.adminUserId) throw new HubError('This partner has no Hub login yet. Create one instead.', 'NO_LOGIN', 409);
+        return this.issueTemporaryPassword(bp.adminUserId);
+    }
+
     /** A partner an admin created by hand gets a Hub login (owner). */
     static async createOwnerLogin(bpId: number, input: { email?: string | null }) {
         const bp = await BusinessPartnerService.byId(bpId);
@@ -463,7 +491,7 @@ export class PartnerHubService {
         const temporaryPassword = crypto.randomBytes(9).toString('base64url');
         await withTransaction(async (tx) => {
             const [login] = await tx.insert(adminUsers).values({
-                username: email, email, password: await bcrypt.hash(temporaryPassword, 10), role: 'partner', isActive: true,
+                username: email, email, password: await bcrypt.hash(temporaryPassword, 10), role: 'partner', isActive: true, mustChangePassword: true,
             }).returning();
             await tx.update(businessPartners).set({ adminUserId: login.id, contactEmail: bp.contactEmail ?? email, updatedAt: new Date() })
                 .where(eq(businessPartners.id, bpId));
